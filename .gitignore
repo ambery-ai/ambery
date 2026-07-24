@@ -3,3 +3,7 @@ obj/
 *.user
 .vs/
 .vscode/
+node_modules/
+dist/
+target/
+storage/
