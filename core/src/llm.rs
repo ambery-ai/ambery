@@ -128,7 +128,7 @@ impl DebugAgent {
             Some(m) if m.role == Role::User => {
                 let text = m.content.clone().unwrap_or_default();
                 if text.contains("具体") || text.contains("怎么回事") {
-                    match last_completed_instance(messages) {
+                    match self.last_noteworthy_instance(messages) {
                         Some(inst) => LlmOutput {
                             content: None,
                             tool_calls: vec![ToolCall {
@@ -162,8 +162,12 @@ impl DebugAgent {
                             ToolCall {
                                 id: "dbg-autonomy".into(),
                                 name: "set_autonomy".into(),
-                                arguments: json!({ "motion": "bounce", "ttlMs": 5000 })
-                                    .to_string(),
+                                arguments: json!({
+                                    "face": "✧*｡٩(ˊᗜˋ*)و✧*｡",
+                                    "motion": "bounce",
+                                    "ttlMs": 5000
+                                })
+                                .to_string(),
                             },
                             ToolCall {
                                 id: "dbg-component".into(),
@@ -216,16 +220,26 @@ fn parse_hook_msg(content: &str) -> Option<(String, usize)> {
     Some((inst.to_string(), len_str.parse().ok()?))
 }
 
-/// 最近一个完成实例（user 追问时定位 fetch_terminal 目标）
-fn last_completed_instance(messages: &[QueueMessage]) -> Option<String> {
-    messages.iter().rev().find_map(|m| {
-        if m.role == Role::System {
-            let c = m.content.as_ref()?;
-            let (inst, _) = c.split_once(" 完成，Context 已更新")?;
-            return Some(inst.to_string());
+impl DebugAgent {
+    /// user 追问时定位 fetch_terminal 目标：优先「最近一个触发通知的完成实例」
+    /// （追问大概率关于值得通知的那个），无则取最近完成实例
+    fn last_noteworthy_instance(&self, messages: &[QueueMessage]) -> Option<String> {
+        let mut latest: Option<String> = None;
+        for m in messages.iter().rev() {
+            if m.role != Role::System {
+                continue;
+            }
+            let Some(c) = m.content.as_ref() else { continue };
+            let Some((inst, len)) = parse_hook_msg(c) else { continue };
+            if len >= self.notify_threshold {
+                return Some(inst);
+            }
+            if latest.is_none() {
+                latest = Some(inst);
+            }
         }
-        None
-    })
+        latest
+    }
 }
 
 fn truncate(s: &str, max: usize) -> String {
@@ -250,12 +264,26 @@ mod tests {
     }
 
     #[test]
-    fn last_completed_instance_scans_backward() {
+    fn noteworthy_prefers_notified_then_latest() {
+        let agent = DebugAgent::default();
         let msgs = vec![
             QueueMessage::new(Role::System, "prefix", 0),
+            QueueMessage::new(Role::System, "a 完成，Context 已更新（100 字）。评估是否通知。", 1),
+            QueueMessage::new(Role::System, "b 完成，Context 已更新（9 字）。评估是否通知。", 2),
+        ];
+        // b 更新但太短未通知 → 追问应定位到 a
+        assert_eq!(
+            agent.last_noteworthy_instance(&msgs),
+            Some("a".to_string())
+        );
+        // 都没有达到阈值 → 取最近完成（b）
+        let msgs2 = vec![
             QueueMessage::new(Role::System, "a 完成，Context 已更新（10 字）。评估是否通知。", 1),
             QueueMessage::new(Role::System, "b 完成，Context 已更新（20 字）。评估是否通知。", 2),
         ];
-        assert_eq!(last_completed_instance(&msgs), Some("b".to_string()));
+        assert_eq!(
+            agent.last_noteworthy_instance(&msgs2),
+            Some("b".to_string())
+        );
     }
 }

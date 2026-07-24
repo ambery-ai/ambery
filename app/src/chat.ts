@@ -92,11 +92,13 @@ export class ChatPanel {
     this.el.style.top = `${clamp(top, 8, window.innerHeight - PANEL_H - 8)}px`;
   }
 
-  /** 只渲染 user/assistant（system/tool 是运行态消息，docs/chat-panel.md） */
+  /** 只渲染 user/assistant 的非空 content（system/tool 是运行态消息；
+   *  assistant 的 tool_calls 载体消息 content 为空，面板无需感知——docs/chat-panel.md） */
   private renderHistory(msgs: QueueMessage[]) {
     this.historyEl.replaceChildren();
     for (const m of msgs) {
       if (m.role !== "user" && m.role !== "assistant") continue;
+      if (!m.content) continue;
       const row = document.createElement("div");
       row.className = `chat-msg chat-${m.role}`;
       row.textContent = m.content;
