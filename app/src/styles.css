@@ -7,6 +7,11 @@ body {
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
+/* Tauri 壳模式：全透明 overlay（docs/tauri-shell.md） */
+body.tauri {
+  background: transparent;
+}
+
 /* ── View（concepts §3）：横向椭圆浮动窗口，窗内仅颜文字 ── */
 #view {
   position: fixed;
