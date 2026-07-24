@@ -8,6 +8,7 @@ pub mod llm;
 pub mod overseer;
 pub mod queue;
 pub mod server;
+pub mod sidecar;
 pub mod storage;
 pub mod timer;
 

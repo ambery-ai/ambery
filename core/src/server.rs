@@ -231,7 +231,11 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
                     .due_timer_scans(now_ms(), batch)
             };
             for inst in due {
-                let content = s.mock_terminals.lock().unwrap().get(&inst).cloned();
+                // 读通道统一走 Overseer.terminal_reader（docs/sidecar.md：sidecar → MockTerminals → 跳过）
+                let content = {
+                    let ov = s.overseer.lock().await;
+                    ov.terminal_reader.as_ref().and_then(|r| r(&inst))
+                };
                 if let Some(content) = content {
                     let result = {
                         s.overseer
