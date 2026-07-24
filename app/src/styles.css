@@ -57,3 +57,97 @@ body {
 #view[data-motion="bounce"] { animation: bounce 0.9s ease-in-out infinite; }
 #view[data-motion="shake"] { animation: shake 0.4s ease-in-out infinite; }
 /* data-motion="still"：无动画 */
+
+/* ── Component（concepts §5 / docs/components.md） ── */
+.component {
+  position: fixed;
+  width: 260px;
+  background: rgba(30, 30, 46, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  color: #cdd6f4;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.cmp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 4px;
+}
+
+.cmp-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmp-close {
+  background: none;
+  border: none;
+  color: #9399b2;
+  font-size: 15px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.cmp-close:hover { color: #f38ba8; }
+
+.cmp-body {
+  padding: 4px 10px 10px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.cmp-body p { margin: 4px 0 8px; white-space: pre-wrap; }
+
+.cmp-body button {
+  background: rgba(137, 180, 250, 0.15);
+  border: 1px solid rgba(137, 180, 250, 0.4);
+  border-radius: 6px;
+  color: #89b4fa;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.cmp-git-log {
+  margin: 4px 0;
+  padding-left: 16px;
+}
+
+.cmp-git-log li { margin: 2px 0; font-family: Consolas, monospace; font-size: 12px; }
+
+.cmp-body details summary { cursor: pointer; color: #89b4fa; }
+
+.cmp-body details pre {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 6px;
+  border-radius: 6px;
+  overflow: auto;
+  max-height: 180px;
+  font-size: 11px;
+}
+
+.cmp-todo ul { margin: 4px 0; padding: 0; list-style: none; }
+
+.cmp-todo li { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
+
+.cmp-todo li input[type="checkbox"] { accent-color: #a6e3a1; }
+
+.cmp-todo li:has(input:checked) span { text-decoration: line-through; opacity: 0.55; }
+
+.cmp-todo > input {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #cdd6f4;
+  padding: 4px 8px;
+  margin-top: 6px;
+}
+
+.cmp-chart svg { display: block; }

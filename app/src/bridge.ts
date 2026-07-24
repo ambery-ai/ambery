@@ -35,10 +35,57 @@ export interface AppConfig {
   setAutonomyDefaultTtlMs: number;
 }
 
+/** docs/components.md：Component 方位 */
+export type Direction =
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right"
+  | "auto";
+
+/** docs/components.md：call_component 协议（判别联合） */
+export type ComponentSpec =
+  | { id: string; type: "text_card"; direction?: Direction; title: string; text: string }
+  | { id: string; type: "quick_jump"; direction?: Direction; label: string; target: string }
+  | {
+      id: string;
+      type: "git_display";
+      direction?: Direction;
+      title: string;
+      entries: { hash: string; msg: string; time: string }[];
+      diff?: string;
+    }
+  | {
+      id: string;
+      type: "data_chart";
+      direction?: Direction;
+      title: string;
+      chart: {
+        kind: "line" | "bar" | "pie";
+        labels: string[];
+        series: { name: string; data: number[] }[];
+      };
+    }
+  | {
+      id: string;
+      type: "todobox";
+      direction?: Direction;
+      title: string;
+      items: { text: string; done: boolean }[];
+    };
+
 export interface Bridge {
   getConfig(): Promise<AppConfig>;
   getTopState(): Promise<TopState>;
   onTopStateChanged(cb: (s: TopState) => void): void;
+  /** Overseer → UI：渲染 Component（ペット call_component 的执行结果） */
+  onRenderComponent(cb: (spec: ComponentSpec) => void): void;
+  /** UI → Harness：Component 交互事件写入 Event Buffer（concepts §10e） */
+  pushEvent(desc: string): void;
 }
 
 // ── Chrome DevTools 调试驱动接口（window.__overseer） ──
@@ -55,6 +102,12 @@ export interface DebugApi {
     face: string | null;
     motion: string;
   };
+  /** 模拟ペット的 call_component tool call */
+  callComponent(spec: ComponentSpec): void;
+  /** 读取 Event Buffer 当前内容（不写 Queue user role，concepts §10e） */
+  eventBuffer(): string[];
+  /** 模拟 LLM 触发时合并注入后清空 Buffer */
+  flushEventBuffer(): string[];
 }
 
 declare global {
@@ -83,6 +136,8 @@ export class BrowserMockBridge implements Bridge {
     pendingNotifications: 0,
   };
   private listeners: ((s: TopState) => void)[] = [];
+  private renderListeners: ((spec: ComponentSpec) => void)[] = [];
+  private events: string[] = [];
 
   async getConfig(): Promise<AppConfig> {
     return structuredClone(DEFAULT_CONFIG);
@@ -94,6 +149,28 @@ export class BrowserMockBridge implements Bridge {
 
   onTopStateChanged(cb: (s: TopState) => void): void {
     this.listeners.push(cb);
+  }
+
+  onRenderComponent(cb: (spec: ComponentSpec) => void): void {
+    this.renderListeners.push(cb);
+  }
+
+  pushEvent(desc: string): void {
+    this.events.push(desc);
+  }
+
+  debugCallComponent(spec: ComponentSpec) {
+    for (const cb of this.renderListeners) cb(structuredClone(spec));
+  }
+
+  debugEventBuffer(): string[] {
+    return [...this.events];
+  }
+
+  debugFlushEventBuffer(): string[] {
+    const out = [...this.events];
+    this.events = [];
+    return out;
   }
 
   private emit() {
