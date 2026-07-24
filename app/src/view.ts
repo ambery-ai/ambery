@@ -45,6 +45,10 @@ export class View {
     return this.state.mode === "docked";
   }
 
+  dockEdge(): Edge | null {
+    return this.state.mode === "docked" ? this.state.edge : null;
+  }
+
   private onPointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
     if (this.state.mode !== "floating") return; // docked 锁定拖拽

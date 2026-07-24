@@ -78,6 +78,13 @@ export type ComponentSpec =
       items: { text: string; done: boolean }[];
     };
 
+/** docs/chat-panel.md：Queue 消息（concepts §10c 四 role） */
+export interface QueueMessage {
+  role: "user" | "assistant" | "tool" | "system";
+  content: string;
+  ts: number;
+}
+
 export interface Bridge {
   getConfig(): Promise<AppConfig>;
   getTopState(): Promise<TopState>;
@@ -86,6 +93,10 @@ export interface Bridge {
   onRenderComponent(cb: (spec: ComponentSpec) => void): void;
   /** UI → Harness：Component 交互事件写入 Event Buffer（concepts §10e） */
   pushEvent(desc: string): void;
+  /** Queue：对话历史读取 + 用户输入写入 user role（concepts §3a） */
+  getQueue(): Promise<QueueMessage[]>;
+  appendUserMessage(text: string): void;
+  onQueueChanged(cb: (msgs: QueueMessage[]) => void): void;
 }
 
 // ── Chrome DevTools 调试驱动接口（window.__overseer） ──
@@ -108,6 +119,8 @@ export interface DebugApi {
   eventBuffer(): string[];
   /** 模拟 LLM 触发时合并注入后清空 Buffer */
   flushEventBuffer(): string[];
+  /** 模拟ペット回复 / Overseer 注入 system 消息（真实链路由 Rust Harness 写入） */
+  appendMessage(role: QueueMessage["role"], content: string): void;
 }
 
 declare global {
@@ -137,7 +150,9 @@ export class BrowserMockBridge implements Bridge {
   };
   private listeners: ((s: TopState) => void)[] = [];
   private renderListeners: ((spec: ComponentSpec) => void)[] = [];
+  private queueListeners: ((msgs: QueueMessage[]) => void)[] = [];
   private events: string[] = [];
+  private queue: QueueMessage[] = [];
 
   async getConfig(): Promise<AppConfig> {
     return structuredClone(DEFAULT_CONFIG);
@@ -171,6 +186,29 @@ export class BrowserMockBridge implements Bridge {
     const out = [...this.events];
     this.events = [];
     return out;
+  }
+
+  async getQueue(): Promise<QueueMessage[]> {
+    return structuredClone(this.queue);
+  }
+
+  appendUserMessage(text: string): void {
+    this.queue.push({ role: "user", content: text, ts: Date.now() });
+    this.emitQueue();
+  }
+
+  onQueueChanged(cb: (msgs: QueueMessage[]) => void): void {
+    this.queueListeners.push(cb);
+  }
+
+  debugAppendMessage(role: QueueMessage["role"], content: string) {
+    this.queue.push({ role, content, ts: Date.now() });
+    this.emitQueue();
+  }
+
+  private emitQueue() {
+    const snapshot = structuredClone(this.queue);
+    for (const cb of this.queueListeners) cb(snapshot);
   }
 
   private emit() {

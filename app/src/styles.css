@@ -151,3 +151,74 @@ body {
 }
 
 .cmp-chart svg { display: block; }
+
+/* ── Chat Panel（concepts §3a / docs/chat-panel.md） ── */
+#chat-panel {
+  position: fixed;
+  width: 320px;
+  height: 380px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(30, 30, 46, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #cdd6f4;
+  font-size: 13px;
+}
+
+#chat-panel[hidden] { display: none; }
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 6px;
+  font-weight: 600;
+}
+
+.chat-close {
+  background: none;
+  border: none;
+  color: #9399b2;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.chat-close:hover { color: #f38ba8; }
+
+.chat-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-msg {
+  padding: 6px 10px;
+  border-radius: 10px;
+  max-width: 85%;
+  white-space: pre-wrap;
+}
+
+.chat-user {
+  align-self: flex-end;
+  background: rgba(137, 180, 250, 0.2);
+}
+
+.chat-assistant {
+  align-self: flex-start;
+  background: rgba(166, 227, 161, 0.14);
+}
+
+.chat-input {
+  margin: 8px 12px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #cdd6f4;
+  padding: 8px 10px;
+  outline: none;
+}
