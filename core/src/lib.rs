@@ -6,6 +6,7 @@ pub mod event_buffer;
 pub mod llm;
 pub mod overseer;
 pub mod queue;
+pub mod server;
 pub mod storage;
 
 use context::Context;
@@ -27,8 +28,15 @@ pub struct Config {
     pub kaomoji: std::collections::HashMap<String, KaomojiEntry>,
     /// Compression 触发阈值（concepts §10d）
     pub token_threshold: usize,
+    /// set_autonomy 省略 ttlMs 时的默认值（docs/autonomy.md）
+    #[serde(default = "default_ttl_ms")]
+    pub set_autonomy_default_ttl_ms: u64,
     /// system prompt 基座（运行时与 kaomoji 表、顶层状态拼装，concepts §12）
     pub base_prompt: String,
+}
+
+fn default_ttl_ms() -> u64 {
+    5000
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -64,6 +72,7 @@ impl Default for Config {
         Self {
             kaomoji,
             token_threshold: 8000,
+            set_autonomy_default_ttl_ms: default_ttl_ms(),
             base_prompt:
                 "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
                     .into(),

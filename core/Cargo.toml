@@ -6,9 +6,13 @@ edition = "2021"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-[dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["full"] }
+axum = { version = "0.8", features = ["ws"] }
+tower-http = { version = "0.6", features = ["cors"] }
 
 [lib]
 path = "src/lib.rs"
+
+[[bin]]
+name = "overseer-debug"
+path = "src/bin/overseer-debug.rs"
