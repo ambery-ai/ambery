@@ -23,14 +23,22 @@ pub struct AppState {
     overseer: Mutex<Overseer<DebugAgent>>,
     /// ペット已通知、用户尚未查看的数量（debug 语义：RenderComponent +1，用户发消息清零，关卡片 -1）
     pending_notifications: Mutex<usize>,
+    /// MockTerminals（docs/timer.md §Scanner）：instance → 当前终端文本，模拟读通道
+    /// 与 Overseer.terminal_reader 共享同一份
+    mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     tx: broadcast::Sender<String>,
 }
 
 impl AppState {
-    pub fn new(overseer: Overseer<DebugAgent>, tx: broadcast::Sender<String>) -> Self {
+    pub fn new(
+        overseer: Overseer<DebugAgent>,
+        tx: broadcast::Sender<String>,
+        mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    ) -> Self {
         Self {
             overseer: Mutex::new(overseer),
             pending_notifications: Mutex::new(0),
+            mock_terminals,
             tx,
         }
     }
@@ -51,6 +59,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/events", post(post_event))
         .route("/config", get(get_config))
         .route("/hook", post(post_hook))
+        .route("/debug/terminal", post(post_debug_terminal))
         .route("/ws", get(ws_upgrade))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -189,6 +198,56 @@ async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -
     drop(ov);
     broadcast_effects(&s, effects).await;
     Json(json!({ "ok": true })).into_response()
+}
+
+/// debug：注入「终端当前显示什么」（MockTerminals，docs/timer.md §Scanner）
+#[derive(Deserialize)]
+struct DebugTerminalBody {
+    instance: String,
+    content: String,
+}
+
+async fn post_debug_terminal(
+    State(s): State<Arc<AppState>>,
+    Json(body): Json<DebugTerminalBody>,
+) -> impl IntoResponse {
+    s.mock_terminals
+        .lock()
+        .unwrap()
+        .insert(body.instance, body.content);
+    Json(json!({ "ok": true })).into_response()
+}
+
+/// Timer 后台任务（docs/timer.md）：tick → due → scan → Substantive 才触发
+pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(tick_ms));
+        loop {
+            interval.tick().await;
+            let due = {
+                s.overseer
+                    .lock()
+                    .await
+                    .due_timer_scans(now_ms(), batch)
+            };
+            for inst in due {
+                let content = s.mock_terminals.lock().unwrap().get(&inst).cloned();
+                if let Some(content) = content {
+                    let result = {
+                        s.overseer
+                            .lock()
+                            .await
+                            .handle_timer_scan(&inst, &content, now_ms())
+                            .await
+                    };
+                    match result {
+                        Ok(effects) => broadcast_effects(&s, effects).await,
+                        Err(err) => eprintln!("timer scan {inst}: {err}"),
+                    }
+                }
+            }
+        }
+    });
 }
 
 async fn ws_upgrade(ws: WebSocketUpgrade, State(s): State<Arc<AppState>>) -> impl IntoResponse {

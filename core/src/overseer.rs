@@ -1,11 +1,13 @@
 //! Overseer（concepts §1）：触发循环 + tool 执行 + hook 处理（docs/agent-loop.md）。
 
 use crate::context::RecordSource;
-use crate::filter::Filter;
+use crate::filter::{Change, Filter};
 use crate::llm::{tool_set, Llm};
 use crate::queue::{QueueMessage, Role, ToolCall};
+use crate::timer::TimerWheel;
 use crate::{AgentEntry, AgentStatus, Config, ContextRecord, Harness, KaomojiEntry};
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 /// 副作用：经 WS 广播给前端（docs/agent-loop.md §协议）
 #[derive(Debug, Clone, PartialEq)]
@@ -25,17 +27,24 @@ pub struct Overseer<L: Llm> {
     llm: L,
     /// Filter（concepts §11）：Content → Context 链路上应用
     filter: Box<dyn Filter + Send>,
+    /// Timer（concepts §1a）：每实例兜底扫描调度
+    pub timers: TimerWheel,
+    /// 读通道（docs/timer.md §Scanner）：sidecar 或 MockTerminals；fetch_terminal 优先于 Context
+    pub terminal_reader: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
     max_tool_iters: usize,
 }
 
 impl<L: Llm> Overseer<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
         let filter = crate::filter::by_name(&config.filter_strategy);
+        let timers = TimerWheel::new(config.timer_interval_ms, config.timer_stagger_ms);
         Self {
             harness,
             config,
             llm,
             filter,
+            timers,
+            terminal_reader: None,
             max_tool_iters: 8, // 防 tool 循环死转
         }
     }
@@ -113,6 +122,8 @@ impl<L: Llm> Overseer<L> {
     ) -> std::io::Result<Vec<Effect>> {
         // Filter：Content → Context 链路（concepts §11），存归一后文本，字数按归一后计
         let filtered = self.filter.apply(content);
+        // Hook 到达 → Timer 重排（近期有 Hook 的实例不该被补扫，docs/timer.md）
+        self.timers.reset(instance, ts);
         match event {
             "session_start" => {
                 self.harness.upsert_agent(AgentEntry {
@@ -169,6 +180,45 @@ impl<L: Llm> Overseer<L> {
         self.run_trigger(ts).await
     }
 
+    /// 提取到期的兜底扫描实例（docs/timer.md）
+    pub fn due_timer_scans(&mut self, now: i64, batch: usize) -> Vec<String> {
+        self.timers.due(now, batch)
+    }
+
+    /// Timer 兜底扫描处理（docs/timer.md §扫描处理流程）：
+    /// Filter → 变化检测 → Substantive 才注入 Queue 评估；Minor/Unchanged 只存档不打扰
+    pub async fn handle_timer_scan(
+        &mut self,
+        instance: &str,
+        content: &str,
+        ts: i64,
+    ) -> std::io::Result<Vec<Effect>> {
+        let filtered = self.filter.apply(content);
+        let prev = self
+            .harness
+            .context
+            .latest(instance)
+            .map(|r| r.content.clone())
+            .unwrap_or_default();
+        let change = self.filter.detect_change(&prev, &filtered);
+        let len = filtered.chars().count();
+        self.harness.append_context(ContextRecord {
+            instance: instance.into(),
+            content: filtered,
+            source: RecordSource::Timer,
+            ts,
+        })?;
+        if matches!(change, Change::Substantive(_)) {
+            self.harness.append_queue(QueueMessage::new(
+                Role::System,
+                format!("{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。"),
+                ts,
+            ))?;
+            return self.run_trigger(ts).await;
+        }
+        Ok(vec![])
+    }
+
     fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(Value::Null);
         match call.name.as_str() {
@@ -186,11 +236,13 @@ impl<L: Llm> Overseer<L> {
             }
             "fetch_terminal" => {
                 let inst = args.get("instance").and_then(Value::as_str).unwrap_or("");
+                // 读通道优先（sidecar/MockTerminals），回退 Context 最新记录（docs/timer.md）
                 let content = self
-                    .harness
-                    .context
-                    .latest(inst)
-                    .map(|r| r.content.clone())
+                    .terminal_reader
+                    .as_ref()
+                    .and_then(|r| r(inst))
+                    .map(|raw| self.filter.apply(&raw))
+                    .or_else(|| self.harness.context.latest(inst).map(|r| r.content.clone()))
                     .unwrap_or_else(|| "（无记录）".into());
                 (json!({ "instance": inst, "content": content }), vec![])
             }
@@ -410,6 +462,61 @@ mod tests {
         assert!(effects.is_empty());
         assert_eq!(ov.harness.context.latest("ft").unwrap().content, "● 完成");
         let _ = std::fs::remove_dir_all(tmp_dir("filter"));
+    }
+
+    #[tokio::test]
+    async fn timer_scan_substantive_notifies_and_records() {
+        let mut ov = make_overseer("timer-sub");
+        ov.handle_hook("session_start", "cship", "proj", "旧内容", 1)
+            .await
+            .unwrap();
+        // 兜底扫描读到全新长内容 → Substantive → 存 Context(timer) + 注入 + 触发通知
+        let new_content = "z".repeat(150);
+        let effects = ov
+            .handle_timer_scan("cship", &new_content, 2)
+            .await
+            .unwrap();
+        let rec = ov.harness.context.latest("cship").unwrap();
+        assert_eq!(rec.source, RecordSource::Timer);
+        assert_eq!(rec.content, new_content);
+        assert!(ov
+            .harness
+            .queue
+            .messages()
+            .iter()
+            .any(|m| m.content.as_deref().unwrap_or("").contains("兜底扫描发现变化")));
+        assert!(effects.iter().any(|e| matches!(e, Effect::RenderComponent(_))));
+        let _ = std::fs::remove_dir_all(tmp_dir("timer-sub"));
+    }
+
+    #[tokio::test]
+    async fn timer_scan_minor_stays_silent() {
+        let mut ov = make_overseer("timer-min");
+        ov.handle_hook("session_start", "cship", "proj", "内容不变", 1)
+            .await
+            .unwrap();
+        let msgs_before = ov.harness.queue.messages().len();
+        // 内容相同 → Unchanged → 存档但不打扰
+        let effects = ov
+            .handle_timer_scan("cship", "内容不变", 2)
+            .await
+            .unwrap();
+        assert!(effects.is_empty());
+        assert_eq!(ov.harness.queue.messages().len(), msgs_before);
+        assert_eq!(ov.harness.context.latest("cship").unwrap().source, RecordSource::Timer);
+        let _ = std::fs::remove_dir_all(tmp_dir("timer-min"));
+    }
+
+    #[tokio::test]
+    async fn hook_resets_timer_wheel() {
+        let mut ov = make_overseer("timer-reset");
+        ov.handle_hook("session_start", "a", "proj", "x", 1000)
+            .await
+            .unwrap();
+        // reset 后 due ≥ 1000 + interval（Config 默认 300s）
+        assert!(ov.due_timer_scans(1000 + 100_000, 10).is_empty());
+        assert_eq!(ov.due_timer_scans(1000 + 400_000, 10), vec!["a".to_string()]);
+        let _ = std::fs::remove_dir_all(tmp_dir("timer-reset"));
     }
 
     #[tokio::test]

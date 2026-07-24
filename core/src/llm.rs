@@ -259,8 +259,13 @@ fn tool_name_of<'a>(messages: &'a [QueueMessage], tool_call_id: &str) -> Option<
 }
 
 /// 解析「{instance} 完成，Context 已更新（{len} 字）。评估是否通知。」
+/// 与 Timer 兜底注入的「{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。…」同构
 fn parse_hook_msg(content: &str) -> Option<(String, usize)> {
-    let (inst, rest) = content.split_once(" 完成，Context 已更新（")?;
+    let (head, rest) = content.split_once("，Context 已更新（")?;
+    let inst = head
+        .strip_suffix(" 兜底扫描发现变化")
+        .or_else(|| head.strip_suffix(" 完成"))
+        .unwrap_or(head);
     let (len_str, _) = rest.split_once(" 字")?;
     Some((inst.to_string(), len_str.parse().ok()?))
 }
@@ -274,8 +279,12 @@ impl DebugAgent {
             if m.role != Role::System {
                 continue;
             }
-            let Some(c) = m.content.as_ref() else { continue };
-            let Some((inst, len)) = parse_hook_msg(c) else { continue };
+            let Some(c) = m.content.as_ref() else {
+                continue;
+            };
+            let Some((inst, len)) = parse_hook_msg(c) else {
+                continue;
+            };
             if len >= self.notify_threshold {
                 return Some(inst);
             }
@@ -306,6 +315,17 @@ mod tests {
             parse_hook_msg("ft 完成，Context 已更新（123 字）。评估是否通知。").unwrap();
         assert_eq!(inst, "ft");
         assert_eq!(len, 123);
+        // Timer 兜底注入的同构消息
+        let (inst2, len2) =
+            parse_hook_msg("config-service 兜底扫描发现变化，Context 已更新（456 字）。评估是否通知。")
+                .unwrap();
+        assert_eq!(inst2, "config-service");
+        assert_eq!(len2, 456);
+        // 含空格的实例名（如 "✳ mock-a"）
+        let (inst3, _) =
+            parse_hook_msg("✳ mock-a 完成，Context 已更新（1 字）。评估是否通知。")
+                .unwrap();
+        assert_eq!(inst3, "✳ mock-a");
     }
 
     #[test]

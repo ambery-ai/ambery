@@ -9,6 +9,7 @@ pub mod overseer;
 pub mod queue;
 pub mod server;
 pub mod storage;
+pub mod timer;
 
 use context::Context;
 pub use context::ContextRecord;
@@ -35,6 +36,12 @@ pub struct Config {
     /// Filter 策略名（concepts §11/§12，docs/filter.md）
     #[serde(default = "default_filter_strategy")]
     pub filter_strategy: String,
+    /// Timer 兜底扫描间隔（concepts §1a，docs/timer.md）
+    #[serde(default = "default_timer_interval")]
+    pub timer_interval_ms: i64,
+    /// Timer 错峰窗口（concepts §1a「错峰分布偏移量」）
+    #[serde(default = "default_timer_stagger")]
+    pub timer_stagger_ms: i64,
     /// system prompt 基座（运行时与 kaomoji 表、顶层状态拼装，concepts §12）
     pub base_prompt: String,
 }
@@ -45,6 +52,14 @@ fn default_ttl_ms() -> u64 {
 
 fn default_filter_strategy() -> String {
     "default".into()
+}
+
+fn default_timer_interval() -> i64 {
+    300_000 // 5 分钟（concepts §1a）
+}
+
+fn default_timer_stagger() -> i64 {
+    30_000
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -82,6 +97,8 @@ impl Default for Config {
             token_threshold: 8000,
             set_autonomy_default_ttl_ms: default_ttl_ms(),
             filter_strategy: default_filter_strategy(),
+            timer_interval_ms: default_timer_interval(),
+            timer_stagger_ms: default_timer_stagger(),
             base_prompt:
                 "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
                     .into(),
