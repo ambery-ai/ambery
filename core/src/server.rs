@@ -162,16 +162,23 @@ struct HookBody {
     instance: String,
     project: Option<String>,
     content: Option<String>,
+    /// 模拟真实 Stop hook 自带字段（concepts §9b）；content 缺省时作为回退
+    last_assistant_message: Option<String>,
 }
 
 async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -> impl IntoResponse {
     let mut ov = s.overseer.lock().await;
+    // content 模拟「Overseer 读 Terminal Content」；读不到时回退 hook 自带的 last_assistant_message
+    let content = body
+        .content
+        .or(body.last_assistant_message)
+        .unwrap_or_default();
     let effects = match ov
         .handle_hook(
             &body.event,
             &body.instance,
             body.project.as_deref().unwrap_or(""),
-            body.content.as_deref().unwrap_or(""),
+            &content,
             now_ms(),
         )
         .await

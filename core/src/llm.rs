@@ -155,6 +155,35 @@ impl DebugAgent {
             // hook 注入的 system 消息：按内容长度决定通知/沉默
             Some(m) if m.role == Role::System => {
                 let c = m.content.clone().unwrap_or_default();
+                // 新实例注册（Example A）：问候 (・ω・)ノ + 展示实例一览
+                if c.starts_with("新实例 ") && c.ends_with(" 已注册") {
+                    let overview = instance_overview(messages);
+                    return LlmOutput {
+                        content: None,
+                        tool_calls: vec![
+                            ToolCall {
+                                id: "dbg-greet".into(),
+                                name: "set_autonomy".into(),
+                                arguments: json!({ "face": "(・ω・)ノ", "ttlMs": 3000 })
+                                    .to_string(),
+                            },
+                            ToolCall {
+                                id: "dbg-roster".into(),
+                                name: "call_component".into(),
+                                arguments: json!({
+                                    "spec": {
+                                        "id": "roster",
+                                        "type": "text_card",
+                                        "title": "实例一览",
+                                        "text": overview,
+                                        "direction": "auto"
+                                    }
+                                })
+                                .to_string(),
+                            },
+                        ],
+                    };
+                }
                 match parse_hook_msg(&c) {
                     Some((inst, len)) if len >= self.notify_threshold => LlmOutput {
                         content: None,
@@ -197,6 +226,22 @@ impl DebugAgent {
                 tool_calls: vec![],
             },
         }
+    }
+}
+
+/// 从 system prefix 提取实例一览（「## 当前实例状态」下的 "- " 行）
+fn instance_overview(messages: &[QueueMessage]) -> String {
+    let Some(prefix) = messages.first().and_then(|m| m.content.as_deref()) else {
+        return "（无实例）".into();
+    };
+    let Some((_, after)) = prefix.split_once("## 当前实例状态") else {
+        return "（无实例）".into();
+    };
+    let lines: Vec<&str> = after.lines().filter(|l| l.starts_with("- ")).collect();
+    if lines.is_empty() {
+        "（无实例）".into()
+    } else {
+        lines.join("\n")
     }
 }
 

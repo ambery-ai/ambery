@@ -305,7 +305,8 @@ mod tests {
     #[tokio::test]
     async fn session_start_registers_and_triggers() {
         let mut ov = make_overseer("register");
-        ov.handle_hook("session_start", "new-feature", "proj", "启动画面", 1)
+        let effects = ov
+            .handle_hook("session_start", "new-feature", "proj", "启动画面", 1)
             .await
             .unwrap();
         assert_eq!(ov.harness.agents.len(), 1);
@@ -316,6 +317,17 @@ mod tests {
             .messages()
             .iter()
             .any(|m| m.content.as_deref() == Some("新实例 new-feature 已注册")));
+        // Example A：问候 (・ω・)ノ + 实例一览卡片
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::SetAutonomy { face: Some(f), .. } if f == "(・ω・)ノ"
+        )));
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::RenderComponent(spec)
+                if spec.get("id").and_then(|v| v.as_str()) == Some("roster")
+                && spec.get("text").and_then(|v| v.as_str()).unwrap_or("").contains("new-feature")
+        )));
         let _ = std::fs::remove_dir_all(tmp_dir("register"));
     }
 
