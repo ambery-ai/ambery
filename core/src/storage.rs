@@ -17,6 +17,10 @@ impl JsonlStore {
         })
     }
 
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
     pub fn append<T: Serialize>(&self, file: &str, value: &T) -> std::io::Result<()> {
         let mut f = OpenOptions::new()
             .create(true)

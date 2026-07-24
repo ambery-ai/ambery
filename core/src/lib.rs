@@ -3,10 +3,13 @@
 
 pub mod context;
 pub mod event_buffer;
+pub mod llm;
+pub mod overseer;
 pub mod queue;
 pub mod storage;
 
-use context::{Context, ContextRecord};
+use context::Context;
+pub use context::ContextRecord;
 use event_buffer::EventBuffer;
 use queue::{Queue, QueueMessage};
 use serde::{Deserialize, Serialize};
@@ -15,6 +18,73 @@ use storage::JsonlStore;
 pub const QUEUE_FILE: &str = "queue.jsonl";
 pub const CONTEXT_FILE: &str = "context.jsonl";
 pub const AGENTS_FILE: &str = "agents.jsonl";
+pub const CONFIG_FILE: &str = "config.json";
+
+/// Config（concepts §12）：持久化单文件 config.json，edit_config tool 可写
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Config {
+    /// 状态 key → 颜文字映射（Autonomy 默认行为表，concepts §4）
+    pub kaomoji: std::collections::HashMap<String, KaomojiEntry>,
+    /// Compression 触发阈值（concepts §10d）
+    pub token_threshold: usize,
+    /// system prompt 基座（运行时与 kaomoji 表、顶层状态拼装，concepts §12）
+    pub base_prompt: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KaomojiEntry {
+    pub face: String,
+    pub motion: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        let mut kaomoji = std::collections::HashMap::new();
+        kaomoji.insert(
+            "idle".into(),
+            KaomojiEntry {
+                face: "(´ω`)".into(),
+                motion: "still".into(),
+            },
+        );
+        kaomoji.insert(
+            "processing".into(),
+            KaomojiEntry {
+                face: "(ˇωˇ」∠)_".into(),
+                motion: "float".into(),
+            },
+        );
+        kaomoji.insert(
+            "notify".into(),
+            KaomojiEntry {
+                face: "✧*｡٩(ˊᗜˋ*)و✧*｡".into(),
+                motion: "bounce".into(),
+            },
+        );
+        Self {
+            kaomoji,
+            token_threshold: 8000,
+            base_prompt:
+                "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
+                    .into(),
+        }
+    }
+}
+
+impl Config {
+    pub fn load_or_default(dir: &std::path::Path) -> Self {
+        std::fs::read_to_string(dir.join(CONFIG_FILE))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, dir: &std::path::Path) -> std::io::Result<()> {
+        std::fs::create_dir_all(dir)?;
+        let s = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
+        std::fs::write(dir.join(CONFIG_FILE), s)
+    }
+}
 
 /// concepts §9a Status 状态机
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,6 +166,10 @@ impl Harness {
         self.store.append(AGENTS_FILE, &entry)?;
         apply_agent(&mut self.agents, entry);
         Ok(())
+    }
+
+    pub fn storage_dir(&self) -> &std::path::Path {
+        self.store.dir()
     }
 }
 
