@@ -3,6 +3,7 @@
 
 pub mod context;
 pub mod event_buffer;
+pub mod filter;
 pub mod llm;
 pub mod overseer;
 pub mod queue;
@@ -31,12 +32,19 @@ pub struct Config {
     /// set_autonomy 省略 ttlMs 时的默认值（docs/autonomy.md）
     #[serde(default = "default_ttl_ms")]
     pub set_autonomy_default_ttl_ms: u64,
+    /// Filter 策略名（concepts §11/§12，docs/filter.md）
+    #[serde(default = "default_filter_strategy")]
+    pub filter_strategy: String,
     /// system prompt 基座（运行时与 kaomoji 表、顶层状态拼装，concepts §12）
     pub base_prompt: String,
 }
 
 fn default_ttl_ms() -> u64 {
     5000
+}
+
+fn default_filter_strategy() -> String {
+    "default".into()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -73,6 +81,7 @@ impl Default for Config {
             kaomoji,
             token_threshold: 8000,
             set_autonomy_default_ttl_ms: default_ttl_ms(),
+            filter_strategy: default_filter_strategy(),
             base_prompt:
                 "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
                     .into(),

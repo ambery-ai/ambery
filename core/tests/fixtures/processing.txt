@@ -1,0 +1,19 @@
+● Update(settings.json)
+  ⎿  Added 3 lines
+      13 +  "hooks": {
+      14 +    "SessionStart": []
+      15 +  }
+
+  Thought for 7s
+
+✻ Crunched for 12s
+
+⠋ 正在执行…
+
+────────────────────────────────────────────────── demo-proj ──
+❯
+──────────────────────────────────────────────────────────────────
+  deepseek-v4-pro  $12.34
+  ●● on  master
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+  new task? /clear to save 128.0k tokens

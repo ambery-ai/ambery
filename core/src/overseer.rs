@@ -1,6 +1,7 @@
 //! Overseer（concepts §1）：触发循环 + tool 执行 + hook 处理（docs/agent-loop.md）。
 
 use crate::context::RecordSource;
+use crate::filter::Filter;
 use crate::llm::{tool_set, Llm};
 use crate::queue::{QueueMessage, Role, ToolCall};
 use crate::{AgentEntry, AgentStatus, Config, ContextRecord, Harness, KaomojiEntry};
@@ -22,15 +23,19 @@ pub struct Overseer<L: Llm> {
     pub harness: Harness,
     pub config: Config,
     llm: L,
+    /// Filter（concepts §11）：Content → Context 链路上应用
+    filter: Box<dyn Filter + Send>,
     max_tool_iters: usize,
 }
 
 impl<L: Llm> Overseer<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
+        let filter = crate::filter::by_name(&config.filter_strategy);
         Self {
             harness,
             config,
             llm,
+            filter,
             max_tool_iters: 8, // 防 tool 循环死转
         }
     }
@@ -106,6 +111,8 @@ impl<L: Llm> Overseer<L> {
         content: &str,
         ts: i64,
     ) -> std::io::Result<Vec<Effect>> {
+        // Filter：Content → Context 链路（concepts §11），存归一后文本，字数按归一后计
+        let filtered = self.filter.apply(content);
         match event {
             "session_start" => {
                 self.harness.upsert_agent(AgentEntry {
@@ -118,7 +125,7 @@ impl<L: Llm> Overseer<L> {
                 })?;
                 self.harness.append_context(ContextRecord {
                     instance: instance.into(),
-                    content: content.into(),
+                    content: filtered,
                     source: RecordSource::Hook,
                     ts,
                 })?;
@@ -146,11 +153,11 @@ impl<L: Llm> Overseer<L> {
                 })?;
                 self.harness.append_context(ContextRecord {
                     instance: instance.into(),
-                    content: content.into(),
+                    content: filtered.clone(),
                     source: RecordSource::Hook,
                     ts,
                 })?;
-                let len = content.chars().count();
+                let len = filtered.chars().count();
                 self.harness.append_queue(QueueMessage::new(
                     Role::System,
                     format!("{instance} 完成，Context 已更新（{len} 字）。评估是否通知。"),
@@ -389,6 +396,20 @@ mod tests {
         assert_eq!(last.role, Role::Assistant);
         assert!(last.content.as_deref().unwrap_or("").contains("[debug] 收到：你好"));
         let _ = std::fs::remove_dir_all(tmp_dir("reply"));
+    }
+
+    #[tokio::test]
+    async fn hook_content_is_filtered_before_decision() {
+        let mut ov = make_overseer("filter");
+        // 原文很长但全是噪音 + 4 字内容 → 归一后 4 字 → 沉默
+        let raw = format!(
+            "● 完成\n✻ Crunched for 12s\n⏵⏵ bypass permissions on (shift+tab to cycle)\n{}",
+            "─".repeat(100)
+        );
+        let effects = ov.handle_hook("stop", "ft", "proj", &raw, 1).await.unwrap();
+        assert!(effects.is_empty());
+        assert_eq!(ov.harness.context.latest("ft").unwrap().content, "● 完成");
+        let _ = std::fs::remove_dir_all(tmp_dir("filter"));
     }
 
     #[tokio::test]
