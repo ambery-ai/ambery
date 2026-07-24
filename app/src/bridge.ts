@@ -97,6 +97,12 @@ export interface Bridge {
   getQueue(): Promise<QueueMessage[]>;
   appendUserMessage(text: string): void;
   onQueueChanged(cb: (msgs: QueueMessage[]) => void): void;
+  /** 可选（RemoteBridge）：Overseer 推送 set_autonomy（ペット的 tool call 结果） */
+  onSetAutonomy?(
+    cb: (args: { face?: string; motion?: Motion; ttlMs?: number }) => void,
+  ): void;
+  /** 可选（RemoteBridge）：Overseer 推送 Config 变更（edit_config 的结果） */
+  onConfigChanged?(cb: (cfg: AppConfig) => void): void;
 }
 
 // ── Chrome DevTools 调试驱动接口（window.__overseer） ──
@@ -239,7 +245,13 @@ export class BrowserMockBridge implements Bridge {
   }
 }
 
-export function createBridge(): Bridge {
-  // Tauri 壳迭代时在此分流：'__TAURI__' in window → TauriBridge
+/** overseer-core 在跑 → RemoteBridge（真实 Harness 链路）；否则浏览器内存 mock */
+export async function createBridge(): Promise<Bridge> {
+  const { RemoteBridge } = await import("./remote");
+  if (await RemoteBridge.probe()) {
+    const b = new RemoteBridge();
+    b.connect();
+    return b;
+  }
   return new BrowserMockBridge();
 }

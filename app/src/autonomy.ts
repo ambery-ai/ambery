@@ -52,6 +52,12 @@ export class Autonomy {
     return this.config?.kaomoji[key] ?? FALLBACK[key];
   }
 
+  /** edit_config 推送后热更新映射表（RemoteBridge onConfigChanged） */
+  updateConfig(config: AppConfig) {
+    this.config = config;
+    this.apply();
+  }
+
   /** set_autonomy tool 语义（docs/autonomy.md） */
   setAutonomy(args: { face?: string; motion?: Motion; ttlMs?: number }) {
     const isClear =

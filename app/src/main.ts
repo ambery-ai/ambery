@@ -6,10 +6,13 @@ import { ComponentManager } from "./components";
 import { View, type Edge } from "./view";
 
 async function main() {
-  const bridge = createBridge();
+  const bridge = await createBridge();
   const mount = document.getElementById("app")!;
   const view = new View(mount);
   const autonomy = new Autonomy(bridge, (e) => view.setExpression(e));
+  // RemoteBridge：Overseer 推送的 set_autonomy / config 变更直达 Autonomy
+  bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args));
+  bridge.onConfigChanged?.((cfg) => autonomy.updateConfig(cfg));
   // Component 以 View 中心为锚点（concepts §5）
   new ComponentManager(mount, bridge, () => view.center());
   // Chat Panel：View 右键吸附唤出 / 解除吸附关闭（concepts §3+§3a）
