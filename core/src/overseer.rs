@@ -34,6 +34,9 @@ pub struct Overseer<L: Llm> {
     pub timers: TimerWheel,
     /// 读通道（docs/timer.md §Scanner）：sidecar 或 MockTerminals；fetch_terminal 优先于 Context
     pub terminal_reader: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
+    /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
+    pub sidecar_enabled: bool,
     max_tool_iters: usize,
 }
 
@@ -48,6 +51,7 @@ impl<L: Llm> Overseer<L> {
             filter,
             timers,
             terminal_reader: None,
+            sidecar_enabled: false,
             max_tool_iters: 8, // 防 tool 循环死转
         }
     }
@@ -140,8 +144,7 @@ impl<L: Llm> Overseer<L> {
                 t0.elapsed().as_millis() as u64,
                 ts,
             )?;
-            if !self.harness.agents.is_empty() {
-                let p = crate::panorama(&self.harness.agents);
+            if let Some(p) = crate::panorama(&self.harness.agents) {
                 self.harness
                     .append_queue(QueueMessage::new(Role::System, p, ts))?;
             }
@@ -205,7 +208,7 @@ impl<L: Llm> Overseer<L> {
         match event {
             "session_start" => {
                 self.harness.upsert_agent(AgentEntry {
-                    id: instance.into(),
+                    hash: crate::agent_hash(instance, project, ts),
                     name: instance.into(),
                     project: project.into(),
                     status: AgentStatus::Processing,
@@ -225,15 +228,17 @@ impl<L: Llm> Overseer<L> {
                 ))?;
             }
             "stop" => {
-                let first_seen = self
+                // 同名不同命：沿用该名字最近一条未 closed 的生命周期（hash/first_seen）
+                let (hash, first_seen) = self
                     .harness
                     .agents
                     .iter()
-                    .find(|a| a.id == instance)
-                    .map(|a| a.first_seen)
-                    .unwrap_or(ts);
+                    .rev()
+                    .find(|a| a.name == instance && a.status != AgentStatus::Closed)
+                    .map(|a| (a.hash.clone(), a.first_seen))
+                    .unwrap_or_else(|| (crate::agent_hash(instance, project, ts), ts));
                 self.harness.upsert_agent(AgentEntry {
-                    id: instance.into(),
+                    hash,
                     name: instance.into(),
                     project: project.into(),
                     status: AgentStatus::Idle,
@@ -303,6 +308,25 @@ impl<L: Llm> Overseer<L> {
             return self.run_trigger(ts, pending_notifications).await;
         }
         Ok(vec![])
+    }
+
+    /// Timer 兜底扫描发现 tab 不复存在 → closed 终态（docs/storage.md：永久日志的消亡语义）
+    pub fn mark_instance_closed(&mut self, instance: &str, ts: i64) -> std::io::Result<()> {
+        if let Some(a) = self
+            .harness
+            .agents
+            .iter()
+            .rev()
+            .find(|a| a.name == instance && a.status != AgentStatus::Closed)
+            .cloned()
+        {
+            self.harness.upsert_agent(AgentEntry {
+                status: AgentStatus::Closed,
+                last_seen: ts,
+                ..a
+            })?;
+        }
+        Ok(())
     }
 
     fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
@@ -772,7 +796,7 @@ mod tests {
         let mut ov = Overseer::new(harness, Config::default(), DebugAgent::silent());
         ov.harness
             .upsert_agent(AgentEntry {
-                id: "a".into(),
+                hash: "h1".into(),
                 name: "ft".into(),
                 project: "p".into(),
                 status: AgentStatus::Idle,
@@ -800,6 +824,30 @@ mod tests {
         assert!(log.contains("\"pre_tokens\":"));
         assert!(log.contains("\"duration_ms\":"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn tab_gone_marks_closed_and_exits_panorama() {
+        let mut ov = make_overseer("closed");
+        ov.handle_hook("session_start", "ft", "proj", "启动", 1, 0)
+            .await
+            .unwrap();
+        assert!(crate::panorama(&ov.harness.agents).is_some());
+        // Timer 发现 tab 不复存在 → closed 终态，全景不再包含
+        ov.mark_instance_closed("ft", 2).unwrap();
+        assert_eq!(ov.harness.agents[0].status, AgentStatus::Closed);
+        assert!(crate::panorama(&ov.harness.agents).is_none());
+        // 同名再注册 = 新生命周期（同名不同命，hash 不同）
+        ov.handle_hook("session_start", "ft", "proj", "又开了", 3, 0)
+            .await
+            .unwrap();
+        assert_eq!(ov.harness.agents.len(), 2);
+        assert_ne!(ov.harness.agents[0].hash, ov.harness.agents[1].hash);
+        // stop 沿用最近一条未 closed 的生命周期
+        ov.handle_hook("stop", "ft", "proj", "完成", 4, 0).await.unwrap();
+        assert_eq!(ov.harness.agents[0].status, AgentStatus::Closed);
+        assert_eq!(ov.harness.agents[1].status, AgentStatus::Idle);
+        let _ = std::fs::remove_dir_all(tmp_dir("closed"));
     }
 
     #[tokio::test]

@@ -78,7 +78,7 @@ async fn state_json(s: &AppState) -> Value {
     let pending = *s.pending_notifications.lock().await;
     json!({
         "instances": ov.harness.agents.iter().map(|a| json!({
-            "id": a.id, "name": a.name, "status": a.status
+            "id": a.hash, "name": a.name, "status": a.status
         })).collect::<Vec<_>>(),
         "pendingNotifications": pending
     })
@@ -251,6 +251,15 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
                     match result {
                         Ok(effects) => broadcast_effects(&s, effects).await,
                         Err(err) => eprintln!("timer scan {inst}: {err}"),
+                    }
+                } else {
+                    // tab 消亡检测（docs/storage.md closed 终态）：
+                    // 仅 sidecar 在链时 None 才是消亡证据；纯 MockTerminals 的 None 只是未注入
+                    let mut ov = s.overseer.lock().await;
+                    if ov.sidecar_enabled {
+                        if let Err(err) = ov.mark_instance_closed(&inst, now_ms()) {
+                            eprintln!("mark closed {inst}: {err}");
+                        }
                     }
                 }
             }

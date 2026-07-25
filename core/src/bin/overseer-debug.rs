@@ -104,6 +104,7 @@ async fn main() {
         .ok()
         .map(overseer_core::sidecar::SidecarClient::new)
         .map(Arc::new);
+    overseer.sidecar_enabled = sidecar.is_some();
     if sidecar.is_some() {
         println!("sidecar enabled: {}", std::env::var("OVERSEER_SIDECAR").unwrap());
     }

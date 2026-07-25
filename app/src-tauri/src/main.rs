@@ -54,6 +54,7 @@ async fn run_core() {
         .ok()
         .map(overseer_core::sidecar::SidecarClient::new)
         .map(Arc::new);
+    overseer.sidecar_enabled = sidecar.is_some();
     let mock = Arc::new(std::sync::Mutex::new(
         std::collections::HashMap::<String, String>::new(),
     ));

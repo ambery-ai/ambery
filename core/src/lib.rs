@@ -230,24 +230,34 @@ impl Config {
     }
 }
 
-/// concepts §9a Status 状态机
+/// concepts §9a Status 状态机（closed：Timer 发现 tab 不复存在的终态，docs/storage.md）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
     Idle,
     Processing,
     Unknown,
+    Closed,
 }
 
-/// agents 注册表条目（concepts §13 Storage 内容之一）
+/// agents 注册表条目（work-agents.jsonl 永久事件日志：每次状态变更一行完整快照）
+/// hash 区分每次生命周期——名字会重复，同名不同命（docs/storage.md）
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentEntry {
-    pub id: String,
+    pub hash: String,
     pub name: String,
     pub project: String,
     pub status: AgentStatus,
     pub first_seen: i64,
     pub last_seen: i64,
+}
+
+/// 生命周期 hash：short_hash(name + project + first_seen)；真实 hook payload 接入后可换 session_id
+pub fn agent_hash(name: &str, project: &str, first_seen: i64) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (name, project, first_seen).hash(&mut h);
+    format!("{:08x}", h.finish() as u32)
 }
 
 pub struct Harness {
@@ -261,13 +271,21 @@ pub struct Harness {
     config_dir: std::path::PathBuf,
 }
 
-/// 实例全景（归零重 diff，docs/storage.md）：启动与压缩后重建 LLM 全局认知
-pub fn panorama(agents: &[AgentEntry]) -> String {
-    let mut s = format!("实例全景同步（归零重 diff，{} 个存活实例）：", agents.len());
-    for a in agents {
+/// 存活实例全景（归零重 diff，docs/storage.md）：启动与压缩后重建 LLM 全局认知。
+/// closed 是终态——永久日志必须有消亡语义，否则全景无限累积尸体；无存活实例返回 None。
+pub fn panorama(agents: &[AgentEntry]) -> Option<String> {
+    let alive: Vec<&AgentEntry> = agents
+        .iter()
+        .filter(|a| a.status != AgentStatus::Closed)
+        .collect();
+    if alive.is_empty() {
+        return None;
+    }
+    let mut s = format!("实例全景同步（归零重 diff，{} 个存活实例）：", alive.len());
+    for a in alive {
         s.push_str(&format!("\n- {} [{:?}] project={}", a.name, a.status, a.project));
     }
-    s
+    Some(s)
 }
 
 impl Harness {
@@ -324,8 +342,7 @@ impl Harness {
         };
         // session 分界 + 启动归零重同步（存活实例全景一条 system 消息，落 message 行）
         h.log_session(&format!("{:x}", ts), ts)?;
-        if !h.agents.is_empty() {
-            let p = panorama(&h.agents);
+        if let Some(p) = panorama(&h.agents) {
             h.append_queue(QueueMessage::new(queue::Role::System, p, ts))?;
         }
         Ok(h)
@@ -404,7 +421,7 @@ impl Harness {
         )
     }
 
-    /// 整行 upsert 日志：replay 时同 id 取最后一条（docs/harness.md）
+    /// 永久事件日志：每次状态变更一行完整快照，replay 时同 hash 取最后一条（docs/storage.md）
     pub fn upsert_agent(&mut self, entry: AgentEntry) -> std::io::Result<()> {
         self.store.append(WORK_AGENTS_FILE, &entry)?;
         apply_agent(&mut self.agents, entry);
@@ -422,7 +439,7 @@ impl Harness {
 }
 
 fn apply_agent(agents: &mut Vec<AgentEntry>, entry: AgentEntry) {
-    match agents.iter_mut().find(|a| a.id == entry.id) {
+    match agents.iter_mut().find(|a| a.hash == entry.hash) {
         Some(a) => *a = entry,
         None => agents.push(entry),
     }
@@ -479,7 +496,7 @@ mod tests {
             })
             .unwrap();
             h.upsert_agent(AgentEntry {
-                id: "a1".into(),
+                hash: "h1".into(),
                 name: "ft".into(),
                 project: "proj".into(),
                 status: AgentStatus::Processing,
@@ -509,7 +526,7 @@ mod tests {
     fn agent_upsert_last_wins() {
         let dir = tmp_dir("upsert");
         let entry = |status: AgentStatus, ts: i64| AgentEntry {
-            id: "a1".into(),
+            hash: "h1".into(),
             name: "ft".into(),
             project: "p".into(),
             status,
