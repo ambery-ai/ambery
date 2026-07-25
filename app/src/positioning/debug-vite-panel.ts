@@ -85,6 +85,8 @@ export class DebugPositioningPanel {
     });
     this.el.querySelector("#dbg-clear")!.addEventListener("click", () => {
       document.querySelectorAll(".dbg-place-mark").forEach((el) => el.remove());
+      // 清 engine 占区
+      this.engine.clear();
       this.log("cleared all marks");
     });
     this.el.querySelector("#dbg-replay-btn")!.addEventListener("click", () => {

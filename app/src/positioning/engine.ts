@@ -56,6 +56,11 @@ export class PositioningEngine {
     this.occupied = this.occupied.filter((o) => o.id !== id);
   }
 
+  /** 清空所有占区（保留 pet） */
+  clear(): void {
+    this.occupied = this.occupied.filter((o) => o.id === "_pet_");
+  }
+
   hideAll(): void {
     if (this.occupied.length === 0) return;
     const pet = this.occupied.find((o) => o.id === "_pet_");
