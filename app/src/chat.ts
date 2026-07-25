@@ -77,15 +77,15 @@ export class ChatPanel {
     let top: number;
     if (edge === "top") {
       left = x - PANEL_W / 2;
-      top = y + 50 + MARGIN; // View 半径(纵) + 间距
+      top = y + 40 + MARGIN; // View 半径(纵) + 间距
     } else if (edge === "bottom") {
       left = x - PANEL_W / 2;
-      top = y - 50 - MARGIN - PANEL_H;
+      top = y - 40 - MARGIN - PANEL_H;
     } else if (edge === "left") {
-      left = x + 90 + MARGIN; // View 半径(横)
+      left = x + 72 + MARGIN; // View 半径(横)
       top = y - PANEL_H / 2;
     } else {
-      left = x - 90 - MARGIN - PANEL_W;
+      left = x - 72 - MARGIN - PANEL_W;
       top = y - PANEL_H / 2;
     }
     this.el.style.left = `${clamp(left, 8, window.innerWidth - PANEL_W - 8)}px`;

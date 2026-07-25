@@ -14,12 +14,13 @@ html.tauri body {
   background: transparent;
 }
 
-/* ── View（concepts §3）：横向椭圆浮动窗口，窗内仅颜文字 ── */
+/* ── View（concepts §3）：球场圆形浮动窗口，窗内仅颜文字 ── */
 #view {
+  --view-scale: 1;
   position: fixed;
-  width: 180px;
-  height: 100px;
-  border-radius: 50%; /* 横向椭圆 */
+  width: calc(144px * var(--view-scale));
+  height: calc(80px * var(--view-scale));
+  border-radius: calc(40px * var(--view-scale)); /* 球场圆形（pill） */
   background: rgba(255, 255, 255, 0.92);
   display: flex;
   align-items: center;
@@ -37,7 +38,7 @@ html.tauri body {
 }
 
 #face {
-  font-size: 20px;
+  font-size: calc(50px * var(--view-scale));
   white-space: nowrap;
   pointer-events: none;
 }
