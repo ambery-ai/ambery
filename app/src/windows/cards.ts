@@ -11,9 +11,11 @@ const EDGE_MARGIN = 8;
 
 let petCenter = { x: 0, y: 0 };
 
+import type { PositioningEngine } from "../positioning/engine";
+
 let adapter: WindowAdapter | null = null;
 
-export async function main() {
+export async function main(_engine: PositioningEngine) {
   // Tauri 模式：订阅 pet 位置
   if ("__TAURI_INTERNALS__" in window) {
     const { listen } = await import("@tauri-apps/api/event");

@@ -1,10 +1,11 @@
 // Pet 窗口入口（docs/multi-window.md）：ペット + Autonomy + 位置广播 + 动画窗口自适应
 import { Autonomy } from "../autonomy";
 import { BrowserMockBridge, createBridge, type Motion } from "../bridge";
+import { PositioningEngine } from "../positioning/engine";
 import { View, type Edge } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
-export async function main() {
+export async function main(engine: PositioningEngine) {
   if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("browser");
 
   const bridge = await createBridge();
@@ -69,8 +70,6 @@ export async function main() {
     });
 
     // debug：positioning 面板（α/β 滑块 + 窗口注册）
-    const { PositioningEngine } = await import("../positioning/engine");
-    const engine = new PositioningEngine();
     const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
     const panel = new DebugPositioningPanel(engine);
     // 拖拽时隐藏标记，结束后用相对偏移恢复

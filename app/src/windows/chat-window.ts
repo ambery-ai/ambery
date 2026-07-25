@@ -3,6 +3,7 @@ import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
 import type { Edge } from "../view";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
+import type { PositioningEngine } from "../positioning/engine";
 
 const VIEW_RADIUS_X = 36;
 const VIEW_RADIUS_Y = 20;
@@ -15,7 +16,7 @@ let adapter: WindowAdapter | null = null;
 let panelW = 320;
 let panelH = 380;
 
-export async function main() {
+export async function main(_engine: PositioningEngine) {
   // WindowAdapter（feat）
   if ("__TAURI_INTERNALS__" in window) {
     adapter = await createTauriAdapter(document.body, 1);
