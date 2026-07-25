@@ -11,6 +11,9 @@ async function main() {
   // class 挂在 body 而选择器是 html.tauri 时不匹配（已踩坑×2）
   if ("__TAURI_INTERNALS__" in window) document.documentElement.classList.add("tauri");
   const bridge = await createBridge();
+  bridge.getConfig().then(cfg => {
+    document.getElementById("view")!.style.setProperty("--view-scale", String(cfg.viewScale ?? 1));
+  });
   const mount = document.getElementById("app")!;
   const view = new View(mount);
   const autonomy = new Autonomy(bridge, (e) => view.setExpression(e));

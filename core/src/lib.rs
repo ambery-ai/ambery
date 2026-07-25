@@ -46,6 +46,13 @@ pub struct Config {
     pub timer_stagger_ms: i64,
     /// system prompt 基座（运行时与 kaomoji 表、顶层状态拼装，concepts §12）
     pub base_prompt: String,
+    /// View 缩放（concepts §3，球场圆形默认 0.5）
+    #[serde(default = "default_view_scale")]
+    pub view_scale: f64,
+}
+
+fn default_view_scale() -> f64 {
+    1.0
 }
 
 fn default_ttl_ms() -> u64 {
@@ -104,6 +111,7 @@ impl Default for Config {
             base_prompt:
                 "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
                     .into(),
+            view_scale: default_view_scale(),
         }
     }
 }

@@ -5,8 +5,8 @@
 import type { Bridge, ComponentSpec, Direction } from "./bridge";
 
 const GAP = 12;
-const VIEW_RADIUS_X = 72;
-const VIEW_RADIUS_Y = 40;
+const VIEW_RADIUS_X = 36;
+const VIEW_RADIUS_Y = 20;
 const EDGE_MARGIN = 8;
 
 type Anchor = () => { x: number; y: number };

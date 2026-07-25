@@ -69,6 +69,7 @@ fn config_json(cfg: &Config) -> Value {
     json!({
         "kaomoji": cfg.kaomoji,
         "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms,
+        "viewScale": cfg.view_scale,
     })
 }
 

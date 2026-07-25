@@ -18,9 +18,10 @@ html.tauri body {
 #view {
   --view-scale: 1;
   position: fixed;
-  width: calc(144px * var(--view-scale));
-  height: calc(80px * var(--view-scale));
-  border-radius: calc(40px * var(--view-scale)); /* 球场圆形（pill） */
+  min-width: calc(72px * var(--view-scale));
+  height: calc(40px * var(--view-scale));
+  padding: 0 calc(22px * var(--view-scale)); /* > 20px（半圆半径），文字落直线段不挤弧线 */
+  border-radius: calc(20px * var(--view-scale)); /* 球场圆形（pill） */
   background: rgba(255, 255, 255, 0.92);
   display: flex;
   align-items: center;
@@ -38,7 +39,8 @@ html.tauri body {
 }
 
 #face {
-  font-size: calc(50px * var(--view-scale));
+  font-size: calc(25px * var(--view-scale));
+  line-height: 1;
   white-space: nowrap;
   pointer-events: none;
 }

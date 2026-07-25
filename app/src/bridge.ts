@@ -33,6 +33,8 @@ export interface AppConfig {
   kaomoji: Record<string, KaomojiEntry>;
   /** set_autonomy 省略 ttlMs 时的默认值 */
   setAutonomyDefaultTtlMs: number;
+  /** View 缩放（concepts §3，默认 0.5） */
+  viewScale: number;
 }
 
 /** docs/components.md：Component 方位 */
@@ -144,6 +146,7 @@ const DEFAULT_CONFIG: AppConfig = {
     notify: { face: "✧*｡٩(ˊᗜˋ*)و✧*｡", motion: "bounce" },
   },
   setAutonomyDefaultTtlMs: 5000,
+  viewScale: 1,
 };
 
 export class BrowserMockBridge implements Bridge {
