@@ -48,26 +48,26 @@ export function createBrowserAdapter(
   frame.style.cssText = "position:fixed;border:2px solid red;pointer-events:none;z-index:9999;background:transparent";
   mount.appendChild(frame);
 
-  // 跟随 View 移动
-  const syncPos = () => {
-    requestAnimationFrame(() => {
-      const vr = viewEl.getBoundingClientRect();
-      frame.style.top = `${vr.top}px`;
-      frame.style.left = `${vr.left}px`;
-    });
+  let offsetTop = 0;
+  let offsetLeft = 0;
+
+  // 每帧同步 overlay 位置（覆盖拖拽、动画、dock 等所有 View 位移）
+  const tick = () => {
+    const vr = viewEl.getBoundingClientRect();
+    frame.style.top = `${vr.top - offsetTop}px`;
+    frame.style.left = `${vr.left - offsetLeft}px`;
+    requestAnimationFrame(tick);
   };
-  viewEl.addEventListener("view:moved", syncPos);
-  viewEl.addEventListener("view:docked", syncPos);
-  viewEl.addEventListener("view:undocked", syncPos);
+  requestAnimationFrame(tick);
 
   return {
     async setSize(w: number, h: number) {
       frame.style.width = `${w}px`;
       frame.style.height = `${h}px`;
-      syncPos();
     },
-    setOffset(_top: number, _left: number) {
-      syncPos(); // overlay 跟随 View 实际位置
+    setOffset(top: number, left: number) {
+      offsetTop = top;
+      offsetLeft = left;
     },
     async setPosition(x: number, y: number) {
       frame.style.left = `${x}px`;

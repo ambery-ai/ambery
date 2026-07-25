@@ -5,7 +5,7 @@
   "identifier": "dev.overseer.terminal.wt",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:5199",
     "beforeBuildCommand": "npm run build"
   },
   "app": {

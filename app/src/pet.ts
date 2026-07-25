@@ -83,7 +83,7 @@ export async function main() {
 
   const autonomy = new Autonomy(bridge, (e) => {
     view.setExpression(e);
-    adjustWindowForMotion?.(e.motion);
+    pendingMotion = e.motion; // resizeWindow 回调中执行，保证 baseH 已更新
   });
   bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args));
   bridge.onConfigChanged?.((cfg) => autonomy.updateConfig(cfg));
@@ -100,8 +100,35 @@ export async function main() {
     // chat/cards 在多窗口架构中独立加载走 TauriAdapter，浏览器不分路由到它们
     const adapter = createBrowserAdapter(mount, view.el);
     const r = view.el.getBoundingClientRect();
-    await adapter.setSize(Math.ceil(r.width), Math.ceil(r.height));
+    let baseW = Math.ceil(r.width);
+    let baseH = Math.ceil(r.height);
+    await adapter.setSize(baseW, baseH);
     adapter.setOffset(0, 0);
+
+    // 颜文字变化 → 窗口自适应 + 更新动画 base
+    let pendingMotion: Motion | null = null;
+    const resizeWindow = () => {
+      const rr = view.el.getBoundingClientRect();
+      baseW = Math.ceil(rr.width);
+      baseH = Math.ceil(rr.height);
+      adapter.setSize(baseW, baseH);
+      if (pendingMotion !== null) {
+        adjustWindowForMotion(pendingMotion);
+        pendingMotion = null;
+      }
+    };
+    new ResizeObserver(() => resizeWindow()).observe(view.el);
+
+    // 动画偏移（与 Tauri 共用 adjustWindowForMotion 签名）
+    adjustWindowForMotion = async (motion: Motion) => {
+      switch (motion) {
+        case "bounce": await adapter.setSize(baseW, baseH + 18); adapter.setOffset(18, 0); break;
+        case "float": await adapter.setSize(baseW, baseH + 10); adapter.setOffset(10, 0); break;
+        case "shake": await adapter.setSize(baseW + 12, baseH); adapter.setOffset(0, 6); break;
+        default: await adapter.setSize(baseW, baseH); adapter.setOffset(0, 0);
+      }
+    };
+
     const { ChatPanel } = await import("./chat");
     const { ComponentManager } = await import("./components");
     new ComponentManager(mount, bridge, () => view.center());
