@@ -1,6 +1,6 @@
-// Pet 窗口入口（docs/multi-window.md）：ペット + Autonomy + 位置广播
+// Pet 窗口入口（docs/multi-window.md）：ペット + Autonomy + 位置广播 + 动画窗口自适应
 import { Autonomy } from "./autonomy";
-import { BrowserMockBridge, createBridge } from "./bridge";
+import { BrowserMockBridge, createBridge, type Motion } from "./bridge";
 import { View, type Edge } from "./view";
 
 export async function main() {
@@ -15,12 +15,47 @@ export async function main() {
   const mount = document.getElementById("app")!;
   const view = new View(mount);
 
-  // Tauri 模式：窗口拖拽 → 广播位置给 cards/chat
+  // Tauri 模式：窗口自适应 View 尺寸 + 动画动态扩缩
+  let adjustWindowForMotion: ((m: Motion) => void) | null = null;
   if ("__TAURI_INTERNALS__" in window) {
     view.el.dataset.tauriDragRegion = "";
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const { getCurrentWindow, PhysicalSize } = await import("@tauri-apps/api/window");
     const { emit } = await import("@tauri-apps/api/event");
     const win = getCurrentWindow();
+
+    // 量 View 实际尺寸 → 窗口贴合（tauri.conf.json 的 pet width/height 为占位值）
+    const r = view.el.getBoundingClientRect();
+    const baseW = Math.ceil(r.width);
+    const baseH = Math.ceil(r.height);
+    await win.setSize(new PhysicalSize(baseW, baseH));
+    view.el.style.left = "0px";
+    view.el.style.top = "0px";
+
+    // 动画播放时动态扩大窗口 → 结束后缩回（docs/multi-window.md §动画窗口自适应）
+    adjustWindowForMotion = async (motion: Motion) => {
+      switch (motion) {
+        case "bounce":
+          // 上方扩 18px bounce 空间
+          await win.setSize(new PhysicalSize(baseW, baseH + 18));
+          view.el.style.top = "18px";
+          break;
+        case "float":
+          // 上方扩 10px float 空间
+          await win.setSize(new PhysicalSize(baseW, baseH + 10));
+          view.el.style.top = "10px";
+          break;
+        case "shake":
+          // 左右各扩 6px shake 空间
+          await win.setSize(new PhysicalSize(baseW + 12, baseH));
+          view.el.style.left = "6px";
+          break;
+        default: // still
+          await win.setSize(new PhysicalSize(baseW, baseH));
+          view.el.style.left = "0px";
+          view.el.style.top = "0px";
+      }
+    };
+
     view.tauriStartDrag = () => win.startDragging();
     async function broadcastPosition() {
       const pos = await win.outerPosition();
@@ -30,12 +65,14 @@ export async function main() {
         y: pos.y + size.height / 2,
       });
     }
-    // 初始广播
     broadcastPosition();
     await win.onMoved(() => broadcastPosition());
   }
 
-  const autonomy = new Autonomy(bridge, (e) => view.setExpression(e));
+  const autonomy = new Autonomy(bridge, (e) => {
+    view.setExpression(e);
+    adjustWindowForMotion?.(e.motion);
+  });
   bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args));
   bridge.onConfigChanged?.((cfg) => autonomy.updateConfig(cfg));
 
