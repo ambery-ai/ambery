@@ -2,7 +2,7 @@
 //! 用法：`cargo run --bin overseer-debug`（storage 目录默认 ../storage，OVERSEER_STORAGE 可覆盖）
 
 use overseer_core::llm::{DebugAgent, LlmBackend, LlmOutput};
-use overseer_core::overseer::Overseer;
+use overseer_core::overseer::OverseerBackend;
 use overseer_core::queue::{QueueMessage, ToolCall};
 use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
@@ -98,7 +98,7 @@ async fn main() {
             LlmBackend::OpenAi { .. } => "OpenAiClient（失败降级 DebugAgent）",
         }
     );
-    let mut overseer = Overseer::new(harness, config, backend);
+    let mut overseer = OverseerBackend::new(harness, config, backend);
     // 读通道链（docs/sidecar.md）：sidecar（OVERSEER_SIDECAR 指定）→ MockTerminals → Context
     let sidecar = std::env::var("OVERSEER_SIDECAR")
         .ok()

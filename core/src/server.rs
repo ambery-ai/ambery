@@ -15,12 +15,12 @@ use tokio::sync::{broadcast, Mutex};
 use tower_http::cors::CorsLayer;
 
 use crate::llm::LlmBackend;
-use crate::overseer::{Effect, Overseer};
+use crate::overseer::{Effect, OverseerBackend};
 use crate::queue::{QueueMessage, Role};
 use crate::Config;
 
 pub struct AppState {
-    overseer: Mutex<Overseer<LlmBackend>>,
+    overseer: Mutex<OverseerBackend<LlmBackend>>,
     /// ペット已通知、用户尚未查看的数量（debug 语义：RenderComponent +1，用户发消息清零，关卡片 -1）
     pending_notifications: Mutex<usize>,
     /// MockTerminals（docs/timer.md §Scanner）：instance → 当前终端文本，模拟读通道
@@ -31,7 +31,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(
-        overseer: Overseer<LlmBackend>,
+        overseer: OverseerBackend<LlmBackend>,
         tx: broadcast::Sender<String>,
         mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     ) -> Self {

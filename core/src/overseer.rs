@@ -1,4 +1,4 @@
-//! Overseer（concepts §1）：触发循环 + tool 执行 + hook 处理（docs/agent-loop.md）。
+//! OverseerBackend（concepts §1）：触发循环 + tool 执行 + hook 处理（docs/agent-loop.md）。
 
 use crate::context::RecordSource;
 use crate::filter::{Change, Filter};
@@ -24,7 +24,7 @@ pub enum Effect {
     ConfigChanged,
 }
 
-pub struct Overseer<L: Llm> {
+pub struct OverseerBackend<L: Llm> {
     pub harness: Harness,
     pub config: Config,
     llm: L,
@@ -40,7 +40,7 @@ pub struct Overseer<L: Llm> {
     max_tool_iters: usize,
 }
 
-impl<L: Llm> Overseer<L> {
+impl<L: Llm> OverseerBackend<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
         let filter = crate::filter::by_name(&config.filter_strategy);
         let timers = TimerWheel::new(config.timer_interval_ms, config.timer_stagger_ms);
@@ -433,14 +433,14 @@ mod tests {
     }
 
     /// 沉默 mock：不注入任何反应的测试用
-    fn make_overseer(tag: &str) -> Overseer<DebugAgent> {
+    fn make_overseer(tag: &str) -> OverseerBackend<DebugAgent> {
         make_overseer_with(tag, DebugAgent::silent())
     }
 
-    fn make_overseer_with(tag: &str, agent: DebugAgent) -> Overseer<DebugAgent> {
+    fn make_overseer_with(tag: &str, agent: DebugAgent) -> OverseerBackend<DebugAgent> {
         let dir = tmp_dir(tag);
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        Overseer::new(harness, Config::default(), agent)
+        OverseerBackend::new(harness, Config::default(), agent)
     }
 
     /// 脚本决策源：每次 LLM 调用按序弹出一条；耗尽后沉默
@@ -793,7 +793,7 @@ mod tests {
         // 阈值 10 token：几条消息就触发 auto-compact（DebugAgent → summarize 回退确定性 stub）
         let dir = tmp_dir("compact");
         let harness = Harness::load(&dir, &dir, 10, 0).unwrap();
-        let mut ov = Overseer::new(harness, Config::default(), DebugAgent::silent());
+        let mut ov = OverseerBackend::new(harness, Config::default(), DebugAgent::silent());
         ov.harness
             .upsert_agent(AgentEntry {
                 hash: "h1".into(),

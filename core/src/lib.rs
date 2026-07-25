@@ -1,4 +1,4 @@
-//! Harness（concepts §10，docs/harness.md）：ペット和 Overseer 共享的数据层。
+//! Harness（concepts §10，docs/harness.md）：ペット和 OverseerBackend 共享的数据层。
 //! Queue / Context / Event Buffer / agents 注册表 + JSONL Storage replay。
 
 pub mod context;
