@@ -121,10 +121,30 @@ impl<L: Llm> Overseer<L> {
         // 3. Autonomy 状态：每轮一条写 context.jsonl，最新一条挂请求末端（concepts §4）
         let autonomy = self.state_key(pending_notifications);
         self.harness.log_autonomy(autonomy.clone(), ts)?;
-        // 4. Compression：超阈值 → stub 摘要 + shaking
+        // 4. Compression（auto-compact，concepts §10d）：专项摘要调用 → 内存 shaking
+        //    → compact_boundary 标记（文件不删历史）→ 归零重 diff 全景
         if self.harness.queue.needs_compression() {
-            let summary = stub_summary(self.harness.queue.messages());
-            self.harness.queue.compress(summary, ts);
+            let pre_tokens = self.harness.queue.total_tokens();
+            let t0 = std::time::Instant::now();
+            let summary = self
+                .llm
+                .summarize(self.harness.queue.messages())
+                .await
+                .map_err(std::io::Error::other)?;
+            self.harness.queue.compress(summary.clone(), ts);
+            let post_tokens = self.harness.queue.total_tokens();
+            self.harness.log_compact_boundary(
+                summary,
+                pre_tokens,
+                post_tokens,
+                t0.elapsed().as_millis() as u64,
+                ts,
+            )?;
+            if !self.harness.agents.is_empty() {
+                let p = crate::panorama(&self.harness.agents);
+                self.harness
+                    .append_queue(QueueMessage::new(Role::System, p, ts))?;
+            }
         }
         // 5. tool 循环（请求 = 请求头 + Queue 全部消息 + Autonomy 末端）
         let tools = tool_set();
@@ -375,26 +395,6 @@ impl<L: Llm> Overseer<L> {
             ),
         }
     }
-}
-
-/// debug 模式压缩摘要 stub（真实 LLM 摘要随真实 API 接入）
-fn stub_summary(messages: &[QueueMessage]) -> String {
-    let n = messages.len();
-    let first = messages
-        .get(1)
-        .and_then(|m| m.content.as_deref())
-        .unwrap_or("")
-        .chars()
-        .take(20)
-        .collect::<String>();
-    let last = messages
-        .last()
-        .and_then(|m| m.content.as_deref())
-        .unwrap_or("")
-        .chars()
-        .take(20)
-        .collect::<String>();
-    format!("共 {n} 条历史：首「{first}」末「{last}」")
 }
 
 #[cfg(test)]
@@ -762,6 +762,44 @@ mod tests {
         let f = &frames.lock().unwrap()[0];
         assert_eq!(f.last().unwrap(), "[face: notify, motion: bounce]");
         let _ = std::fs::remove_dir_all(tmp_dir("notify-key"));
+    }
+
+    #[tokio::test]
+    async fn compression_logs_boundary_and_resyncs_panorama() {
+        // 阈值 10 token：几条消息就触发 auto-compact（DebugAgent → summarize 回退确定性 stub）
+        let dir = tmp_dir("compact");
+        let harness = Harness::load(&dir, &dir, 10, 0).unwrap();
+        let mut ov = Overseer::new(harness, Config::default(), DebugAgent::silent());
+        ov.harness
+            .upsert_agent(AgentEntry {
+                id: "a".into(),
+                name: "ft".into(),
+                project: "p".into(),
+                status: AgentStatus::Idle,
+                first_seen: 0,
+                last_seen: 0,
+            })
+            .unwrap();
+        for i in 0..5 {
+            ov.harness
+                .append_queue(QueueMessage::new(Role::User, format!("第 {i} 条消息内容内容"), i as i64))
+                .unwrap();
+        }
+        ov.run_trigger(10, 0).await.unwrap();
+        let msgs = ov.harness.queue.messages();
+        // 内存视图：摘要为首条（shaking）
+        assert!(msgs[0].content.as_deref().unwrap().starts_with("[历史摘要]"));
+        // 归零重 diff：全景消息在摘要之后（压缩不丢实例认知）
+        assert!(msgs
+            .iter()
+            .any(|m| m.content.as_deref().unwrap_or("").contains("实例全景同步")));
+        // compact_boundary 标记落盘（文件不删历史，可审计）
+        let log =
+            std::fs::read_to_string(ov.harness.storage_dir().join(crate::CONTEXT_FILE)).unwrap();
+        assert!(log.contains("\"type\":\"compact_boundary\""));
+        assert!(log.contains("\"pre_tokens\":"));
+        assert!(log.contains("\"duration_ms\":"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

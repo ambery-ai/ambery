@@ -76,6 +76,36 @@ pub trait Llm {
         messages: &[QueueMessage],
         tools: &[ToolDef],
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send;
+
+    /// Compression 专项摘要（concepts §10d / docs/storage.md compact_boundary）。
+    /// 默认确定性 stub（DebugAgent / 测试保证确定性）；OpenAiClient 覆写为真实调用。
+    fn summarize(
+        &self,
+        messages: &[QueueMessage],
+    ) -> impl Future<Output = Result<String, String>> + Send {
+        let summary = deterministic_summary(messages);
+        async move { Ok(summary) }
+    }
+}
+
+/// 确定性摘要 stub（Compression 的 debug 回退，docs/harness.md：保证测试确定性）
+pub fn deterministic_summary(messages: &[QueueMessage]) -> String {
+    let n = messages.len();
+    let first = messages
+        .first()
+        .and_then(|m| m.content.as_deref())
+        .unwrap_or("")
+        .chars()
+        .take(20)
+        .collect::<String>();
+    let last = messages
+        .last()
+        .and_then(|m| m.content.as_deref())
+        .unwrap_or("")
+        .chars()
+        .take(20)
+        .collect::<String>();
+    format!("共 {n} 条历史：首「{first}」末「{last}」")
 }
 
 /// debug 模式 agent：纯 mock，零逻辑。决策源由外部注入——
@@ -242,6 +272,35 @@ impl OpenAiClient {
     }
 }
 
+impl OpenAiClient {
+    /// 专项摘要调用（无 tools）：历史序列化为对话文本，要求直接输出摘要
+    async fn summarize_async(&self, messages: &[QueueMessage]) -> Result<String, String> {
+        let mut transcript = String::new();
+        for m in messages {
+            let role = match m.role {
+                Role::System => "system",
+                Role::User => "user",
+                Role::Assistant => "assistant",
+                Role::Tool => "tool",
+            };
+            let body = m.content.as_deref().unwrap_or("[tool_calls]");
+            transcript.push_str(&format!("{role}: {}\n", truncate(body, 500)));
+        }
+        let prompt = vec![
+            QueueMessage::new(
+                Role::System,
+                "你是摘要器：把监工宠物的对话历史压缩为简洁中文摘要，保留：实例名、状态变化、用户意图、未决事项。只输出摘要文本。",
+                0,
+            ),
+            QueueMessage::new(Role::User, transcript, 0),
+        ];
+        let out = self.complete_async(&prompt, &[]).await?;
+        out.content
+            .filter(|c| !c.is_empty())
+            .ok_or_else(|| "摘要返回为空".into())
+    }
+}
+
 impl Llm for OpenAiClient {
     fn complete(
         &self,
@@ -249,6 +308,13 @@ impl Llm for OpenAiClient {
         tools: &[ToolDef],
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         self.complete_async(messages, tools)
+    }
+
+    fn summarize(
+        &self,
+        messages: &[QueueMessage],
+    ) -> impl Future<Output = Result<String, String>> + Send {
+        self.summarize_async(messages)
     }
 }
 
@@ -332,6 +398,24 @@ impl Llm for LlmBackend {
                     Err(err) => {
                         eprintln!("[llm] openai complete 失败（{err}），本轮回退 DebugAgent");
                         fallback.complete(messages, tools).await
+                    }
+                },
+            }
+        }
+    }
+
+    fn summarize(
+        &self,
+        messages: &[QueueMessage],
+    ) -> impl Future<Output = Result<String, String>> + Send {
+        async move {
+            match self {
+                Self::Debug(agent) => agent.summarize(messages).await,
+                Self::OpenAi { client, fallback } => match client.summarize(messages).await {
+                    Ok(s) => Ok(s),
+                    Err(err) => {
+                        eprintln!("[llm] openai summarize 失败（{err}），回退确定性 stub");
+                        fallback.summarize(messages).await
                     }
                 },
             }
