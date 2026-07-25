@@ -67,6 +67,22 @@ export async function main() {
     view.el.addEventListener("click", () => {
       if (view.isDocked() && !chatPanel.isVisible()) chatPanel.show(dockedEdge);
     });
+
+    // debug：positioning 面板（α/β 滑块 + 窗口注册）
+    const { PositioningEngine } = await import("../positioning/engine");
+    const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
+    const engine = new PositioningEngine();
+    const panel = new DebugPositioningPanel(engine);
+    const syncPanel = () => {
+      const c = view.center();
+      const r = view.el.getBoundingClientRect();
+      panel.setPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
+      engine.registerPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
+    };
+    view.el.addEventListener("view:moved", syncPanel);
+    view.el.addEventListener("view:docked", syncPanel);
+    view.el.addEventListener("view:undocked", syncPanel);
+    syncPanel();
   }
 
   const autonomy = new Autonomy(bridge, (e) => {
