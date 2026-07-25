@@ -2,6 +2,7 @@
 // 注：全模块仅 import.meta.env.DEV 时有效，prod 时 import 消去
 
 import type { PositioningEngine } from "./engine";
+import { computeCDSegments } from "./geometry";
 import { Direction } from "./types";
 
 export class DebugPositioningPanel {
@@ -36,6 +37,7 @@ export class DebugPositioningPanel {
       <div style="margin-top:6px">
         <button id="dbg-place">Place</button>
         <button id="dbg-clear">Clear</button>
+        <button id="dbg-obstacles">Obs 1s</button>
         <select id="dbg-dir">${Object.values(Direction)
           .filter((v) => typeof v === "string")
           .map((n) => `<option>${n}</option>`)
@@ -71,6 +73,27 @@ export class DebugPositioningPanel {
     this.el.querySelector("#dbg-clear")!.addEventListener("click", () => {
       document.querySelectorAll(".dbg-place-mark").forEach((el) => el.remove());
       this.log("cleared all marks");
+    });
+    this.el.querySelector("#dbg-obstacles")!.addEventListener("click", () => {
+      const occupied = [...document.querySelectorAll(".dbg-place-mark")].map((el) => {
+        const r = (el as HTMLElement).getBoundingClientRect();
+        return { center: { x: r.x + r.width / 2, y: r.y + r.height / 2 }, w: r.width, h: r.height };
+      });
+      const segs = computeCDSegments(
+        this.petCenter, this.petSize,
+        { id: "viz", width: 150, height: 100 }, occupied, 12,
+      );
+      const overlays: HTMLElement[] = [];
+      for (const [C, D] of segs) {
+        const line = document.createElement("div");
+        const w = Math.max(Math.abs(D.x - C.x), 4);
+        const h = Math.max(Math.abs(D.y - C.y), 4);
+        line.style.cssText = `position:fixed;left:${Math.min(C.x, D.x)}px;top:${Math.min(C.y, D.y)}px;width:${w}px;height:${h}px;background:rgba(0,255,0,0.3);border:1px solid lime;pointer-events:none;z-index:9997`;
+        document.body.appendChild(line);
+        overlays.push(line);
+      }
+      setTimeout(() => overlays.forEach((el) => el.remove()), 1000);
+      this.log(`shown ${segs.length} CD segments`);
     });
   }
 
