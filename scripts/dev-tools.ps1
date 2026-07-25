@@ -9,7 +9,7 @@
 $script:OverseerRepo = "D:\Project\bloominginthemud\terminal-overseer"
 
 function Start-OverseerDev {
-    param([switch]$NoSidecar, [switch]$NoVite)
+    param([switch]$NoSidecar, [switch]$NoVite, [string]$StorageDir, [string]$ConfigDir)
 
     if (-not $NoVite) {
         $viteUp = $false
@@ -21,11 +21,15 @@ function Start-OverseerDev {
         }
     }
 
-    $envLine = '/c set "OVERSEER_STORAGE=' + "$script:OverseerRepo\storage" + '"'
+    # Config/Storage 默认走 %USERPROFILE%\.config\terminal-overseer（core/paths.rs）；
+    # 需要隔离时传 -StorageDir/-ConfigDir 覆盖
+    $envLine = '/c'
+    if ($StorageDir) { $envLine += ' set "OVERSEER_STORAGE_DIR=' + $StorageDir + '" &&' }
+    if ($ConfigDir) { $envLine += ' set "OVERSEER_CONFIG_DIR=' + $ConfigDir + '" &&' }
     if (-not $NoSidecar) {
-        $envLine += ' && set "OVERSEER_SIDECAR=' + "$script:OverseerRepo\sidecar\bin\Debug\net9.0-windows\overseer-uia-sidecar.exe" + '"'
+        $envLine += ' set "OVERSEER_SIDECAR=' + "$script:OverseerRepo\sidecar\bin\Debug\net9.0-windows\overseer-uia-sidecar.exe" + '" &&'
     }
-    $envLine += ' && target\debug\terminal-overseer.exe > tauri-run.log 2>&1'
+    $envLine += ' target\debug\terminal-overseer.exe > tauri-run.log 2>&1'
     Start-Process -FilePath "cmd.exe" -ArgumentList $envLine `
         -WorkingDirectory "$script:OverseerRepo\app\src-tauri" -WindowStyle Hidden
     Start-Sleep -Seconds 8

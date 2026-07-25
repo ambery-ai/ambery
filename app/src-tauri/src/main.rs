@@ -67,11 +67,10 @@ extern "system" {
 }
 
 async fn run_core() {
-    let dir = std::env::var("OVERSEER_STORAGE").unwrap_or_else(|_| "storage".into());
-    let dir = std::path::Path::new(&dir);
-    let config = Config::load_or_default(dir);
+    // Config / Storage 分离（concepts §12/§13，core/paths.rs）
+    let config = Config::load_or_default(&overseer_core::paths::config_root());
     let harness = Harness::load(
-        dir,
+        &overseer_core::paths::storage_dir(),
         config.base_prompt.clone(),
         config.token_threshold,
         now_ms(),

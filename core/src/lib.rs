@@ -6,6 +6,7 @@ pub mod event_buffer;
 pub mod filter;
 pub mod llm;
 pub mod overseer;
+pub mod paths;
 pub mod queue;
 pub mod server;
 pub mod sidecar;
