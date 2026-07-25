@@ -18,6 +18,15 @@ pub struct ContextRecord {
     pub ts: i64,
 }
 
+/// Terminal Content 原文存档记录（terminal-content.jsonl，Filter 前，docs/storage.md）
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalContentRecord {
+    pub instance: String,
+    pub raw: String,
+    pub source: RecordSource,
+    pub ts: i64,
+}
+
 #[derive(Default)]
 pub struct Context {
     records: Vec<ContextRecord>,

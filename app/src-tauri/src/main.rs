@@ -42,6 +42,7 @@ async fn run_core() {
     let config = Config::load_or_default(&overseer_core::paths::config_root());
     let harness = Harness::load(
         &overseer_core::paths::storage_dir(),
+        &overseer_core::paths::config_root(),
         config.token_threshold,
         now_ms(),
     )

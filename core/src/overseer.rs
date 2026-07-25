@@ -7,7 +7,7 @@ use crate::queue::{QueueMessage, Role, ToolCall};
 use crate::timer::TimerWheel;
 use crate::{
     default_agents_md, AgentEntry, AgentStatus, Config, ContextRecord, Harness, KaomojiEntry,
-    AGENTS_MD_FILE,
+    TerminalContentRecord, AGENTS_MD_FILE,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -71,7 +71,7 @@ impl<L: Llm> Overseer<L> {
 
     /// AGENTS.md 每轮现读（热生效：改完下一个触发就用）；读不到回退内置默认
     fn read_agents_md(&self) -> String {
-        std::fs::read_to_string(self.harness.storage_dir().join(AGENTS_MD_FILE))
+        std::fs::read_to_string(self.harness.config_dir().join(AGENTS_MD_FILE))
             .unwrap_or_else(|_| default_agents_md())
     }
 
@@ -132,6 +132,13 @@ impl<L: Llm> Overseer<L> {
         content: &str,
         ts: i64,
     ) -> std::io::Result<Vec<Effect>> {
+        // 读取链（docs/storage.md）：原文先存 terminal-content.jsonl，再 Filter 存 context.jsonl
+        self.harness.append_terminal_content(TerminalContentRecord {
+            instance: instance.into(),
+            raw: content.to_string(),
+            source: RecordSource::Hook,
+            ts,
+        })?;
         // Filter：Content → Context 链路（concepts §11），存归一后文本，字数按归一后计
         let filtered = self.filter.apply(content);
         // Hook 到达 → Timer 重排（近期有 Hook 的实例不该被补扫，docs/timer.md）
@@ -205,6 +212,13 @@ impl<L: Llm> Overseer<L> {
         content: &str,
         ts: i64,
     ) -> std::io::Result<Vec<Effect>> {
+        // 原文先存档（docs/storage.md），再 Filter + 变化检测
+        self.harness.append_terminal_content(TerminalContentRecord {
+            instance: instance.into(),
+            raw: content.to_string(),
+            source: RecordSource::Timer,
+            ts,
+        })?;
         let filtered = self.filter.apply(content);
         let prev = self
             .harness
@@ -249,11 +263,27 @@ impl<L: Llm> Overseer<L> {
             "fetch_terminal" => {
                 let inst = args.get("instance").and_then(Value::as_str).unwrap_or("");
                 // 读通道优先（sidecar/MockTerminals），回退 Context 最新记录（docs/timer.md）
+                // 读到原文：先存档再过滤（docs/storage.md 读取链）；失败仅日志不阻断
                 let content = self
                     .terminal_reader
                     .as_ref()
                     .and_then(|r| r(inst))
-                    .map(|raw| self.filter.apply(&raw))
+                    .map(|raw| {
+                        let _ = self.harness.append_terminal_content(TerminalContentRecord {
+                            instance: inst.into(),
+                            raw: raw.clone(),
+                            source: RecordSource::FetchTerminal,
+                            ts: crate::server::now_ms(),
+                        });
+                        let filtered = self.filter.apply(&raw);
+                        let _ = self.harness.append_context(ContextRecord {
+                            instance: inst.into(),
+                            content: filtered.clone(),
+                            source: RecordSource::FetchTerminal,
+                            ts: crate::server::now_ms(),
+                        });
+                        filtered
+                    })
                     .or_else(|| self.harness.context.latest(inst).map(|r| r.content.clone()))
                     .unwrap_or_else(|| "（无记录）".into());
                 (json!({ "instance": inst, "content": content }), vec![])
@@ -345,7 +375,7 @@ mod tests {
 
     fn make_overseer_with(tag: &str, agent: DebugAgent) -> Overseer<DebugAgent> {
         let dir = tmp_dir(tag);
-        let harness = Harness::load(&dir, 100_000, 0).unwrap();
+        let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
         Overseer::new(harness, Config::default(), agent)
     }
 
@@ -607,6 +637,22 @@ mod tests {
         // 请求头只装稳定提示词：实例状态走 diff 事件，不进请求头
         assert!(!head.contains("## 当前实例状态"));
         let _ = std::fs::remove_dir_all(tmp_dir("head-md"));
+    }
+
+    #[tokio::test]
+    async fn hook_archives_raw_before_filter() {
+        let mut ov = make_overseer("raw-archive");
+        // 原文含噪音 → terminal-content.jsonl 存 filter 前全文，context.jsonl 存归一后
+        let raw = format!("● 完成\n✻ Crunched for 12s\n{}", "─".repeat(100));
+        ov.handle_hook("stop", "ft", "proj", &raw, 1).await.unwrap();
+        let archive = std::fs::read_to_string(
+            ov.harness.storage_dir().join(crate::TERMINAL_CONTENT_FILE),
+        )
+        .unwrap();
+        assert!(archive.contains("✻ Crunched for 12s")); // 原文噪音还在
+        assert!(archive.contains("\"source\":\"hook\""));
+        assert_eq!(ov.harness.context.latest("ft").unwrap().content, "● 完成");
+        let _ = std::fs::remove_dir_all(tmp_dir("raw-archive"));
     }
 
     #[tokio::test]
