@@ -15,6 +15,8 @@ export class View {
   private faceEl: HTMLSpanElement;
   private state: ViewState = { mode: "floating" };
   private drag: { dx: number; dy: number } | null = null;
+  /** 浏览器 wrapper 模式：拖拽目标改为父容器，默认自身。构造器内赋值以保证 this.el 已存在 */
+  dragTarget!: HTMLElement;
   /** Tauri 模式：pet.ts 注入 startDragging 闭包 */
   tauriStartDrag: (() => void) | null = null;
 
@@ -25,6 +27,7 @@ export class View {
     this.faceEl.id = "face";
     this.el.appendChild(this.faceEl);
     mount.appendChild(this.el);
+    this.dragTarget = this.el;
     this.el.style.left = "120px";
     this.el.style.top = "120px";
 
@@ -61,15 +64,15 @@ export class View {
       this.dispatch("view:moved", this.center());
       return;
     }
-    // 浏览器模式：DOM 拖拽
-    const r = this.el.getBoundingClientRect();
+    // 浏览器模式：DOM 拖拽（dragTarget 可能是 wrapper）
+    const r = this.dragTarget.getBoundingClientRect();
     this.drag = { dx: ev.clientX - r.left, dy: ev.clientY - r.top };
   };
 
   private onPointerMove = (ev: PointerEvent) => {
     if (!this.drag) return;
-    this.el.style.left = `${ev.clientX - this.drag.dx}px`;
-    this.el.style.top = `${ev.clientY - this.drag.dy}px`;
+    this.dragTarget.style.left = `${ev.clientX - this.drag.dx}px`;
+    this.dragTarget.style.top = `${ev.clientY - this.drag.dy}px`;
   };
 
   private onPointerUp = () => {
@@ -99,13 +102,13 @@ export class View {
     this.el.dataset.docked = edge;
 
     // 水平边缘保持 x，垂直边缘保持 y（避免窗口跳动）
-    const r = this.el.getBoundingClientRect();
-    if (edge === "top") this.el.style.top = `${DOCK_MARGIN}px`;
+    const r = this.dragTarget.getBoundingClientRect();
+    if (edge === "top") this.dragTarget.style.top = `${DOCK_MARGIN}px`;
     if (edge === "bottom")
-      this.el.style.top = `${window.innerHeight - r.height - DOCK_MARGIN}px`;
-    if (edge === "left") this.el.style.left = `${DOCK_MARGIN}px`;
+      this.dragTarget.style.top = `${window.innerHeight - r.height - DOCK_MARGIN}px`;
+    if (edge === "left") this.dragTarget.style.left = `${DOCK_MARGIN}px`;
     if (edge === "right")
-      this.el.style.left = `${window.innerWidth - r.width - DOCK_MARGIN}px`;
+      this.dragTarget.style.left = `${window.innerWidth - r.width - DOCK_MARGIN}px`;
 
     this.dispatch("view:docked", { edge });
   }

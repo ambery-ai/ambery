@@ -38,42 +38,42 @@ export async function createTauriAdapter(
   };
 }
 
-/** 浏览器调试模式：红框=窗口边界 绿框=face边界 */
+/** 浏览器调试模式：wrapper 容器定位，内放 View + overlay 红绿框 */
 export function createBrowserAdapter(
   mount: HTMLElement,
   viewEl: HTMLElement,
 ): WindowAdapter {
-  const frame = document.createElement("div");
-  frame.id = "debug-frame";
-  frame.style.cssText = "position:fixed;border:2px solid red;pointer-events:none;z-index:9999;background:transparent";
-  mount.appendChild(frame);
+  const wrapper = document.createElement("div");
+  wrapper.id = "debug-wrapper";
+  wrapper.style.cssText = "position:fixed;z-index:9999;";
 
-  let offsetTop = 0;
-  let offsetLeft = 0;
+  // overlay 填满 wrapper，紧贴边界
+  const overlay = document.createElement("div");
+  overlay.id = "debug-frame";
+  overlay.style.cssText = "position:absolute;inset:0;border:2px solid red;pointer-events:none;background:transparent";
 
-  // 每帧同步 overlay 位置（覆盖拖拽、动画、dock 等所有 View 位移）
-  const tick = () => {
-    const vr = viewEl.getBoundingClientRect();
-    frame.style.top = `${vr.top - offsetTop}px`;
-    frame.style.left = `${vr.left - offsetLeft}px`;
-    requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
+  // 把 View 移入 wrapper，定位改为 relative
+  const prevParent = viewEl.parentElement;
+  wrapper.appendChild(viewEl);
+  wrapper.appendChild(overlay);
+  mount.appendChild(wrapper);
+  viewEl.style.position = "absolute"; // 跟 wrapper 移动，不受宽度约束
+  (viewEl as any).dragTarget = wrapper;
 
   return {
     async setSize(w: number, h: number) {
-      frame.style.width = `${w}px`;
-      frame.style.height = `${h}px`;
+      wrapper.style.width = `${w}px`;
+      wrapper.style.height = `${h}px`;
     },
     setOffset(top: number, left: number) {
-      offsetTop = top;
-      offsetLeft = left;
+      viewEl.style.top = `${top}px`;
+      viewEl.style.left = `${left}px`;
     },
     async setPosition(x: number, y: number) {
-      frame.style.left = `${x}px`;
-      frame.style.top = `${y}px`;
+      wrapper.style.left = `${x}px`;
+      wrapper.style.top = `${y}px`;
     },
-    async show() { frame.style.display = ""; frame.style.borderColor = "red"; },
-    async hide() { frame.style.display = "none"; frame.style.borderColor = "lime"; },
+    async show() { wrapper.style.display = ""; overlay.style.borderColor = "red"; },
+    async hide() { wrapper.style.display = "none"; overlay.style.borderColor = "lime"; },
   };
 }
