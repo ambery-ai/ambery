@@ -20,34 +20,46 @@ export async function main() {
   let adjustWindowForMotion: ((m: Motion) => void) | null = null;
   if ("__TAURI_INTERNALS__" in window) {
     view.el.dataset.tauriDragRegion = "";
-    const { getCurrentWindow, PhysicalSize } = await import("@tauri-apps/api/window");
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const { emit } = await import("@tauri-apps/api/event");
     const win = getCurrentWindow();
     const adapter: WindowAdapter = await createTauriAdapter(view.el, window.devicePixelRatio || 1);
 
-    // 量 View 实际尺寸 → 窗口贴合（tauri.conf.json 的 pet width/height 为占位值）
+    // 量 View 实际尺寸 → 窗口贴合（DPI 修正：CSS px → 物理 px）
     const r = view.el.getBoundingClientRect();
-    const baseW = Math.ceil(r.width);
-    const baseH = Math.ceil(r.height);
+    const dpr = window.devicePixelRatio || 1;
+    let baseW = Math.ceil(r.width * dpr);
+    let baseH = Math.ceil(r.height * dpr);
     await adapter.setSize(baseW, baseH);
     adapter.setOffset(0, 0);
 
-    // 动画播放时动态扩大窗口 → 结束后缩回（docs/multi-window.md §动画窗口自适应）
+    // 颜文字变化 → 窗口自适应 + 更新动画 base，动画偏移在 resize 后执行
+    let pendingMotion: Motion | null = null;
+    const resizeWindow = () => {
+      const rr = view.el.getBoundingClientRect();
+      baseW = Math.ceil(rr.width * dpr);
+      baseH = Math.ceil(rr.height * dpr);
+      adapter.setSize(baseW, baseH);
+      if (pendingMotion !== null) {
+        adjustWindowForMotion(pendingMotion);
+        pendingMotion = null;
+      }
+    };
+    new ResizeObserver(() => resizeWindow()).observe(view.el);
+
+    // 动画播放时动态扩大窗口 → 结束后缩回（DPI 修正）
     adjustWindowForMotion = async (motion: Motion) => {
       switch (motion) {
         case "bounce":
-          // 上方扩 18px bounce 空间
-          await adapter.setSize(baseW, baseH + 18);
+          await adapter.setSize(baseW, baseH + Math.ceil(18 * dpr));
           adapter.setOffset(18, 0);
           break;
         case "float":
-          // 上方扩 10px float 空间
-          await adapter.setSize(baseW, baseH + 10);
+          await adapter.setSize(baseW, baseH + Math.ceil(10 * dpr));
           adapter.setOffset(10, 0);
           break;
         case "shake":
-          // 左右各扩 6px shake 空间
-          await adapter.setSize(baseW + 12, baseH);
+          await adapter.setSize(baseW + Math.ceil(12 * dpr), baseH);
           adapter.setOffset(0, 6);
           break;
         default: // still
@@ -79,15 +91,9 @@ export async function main() {
   // 吸附态 → 通知 chat 窗口弹出
   if ("__TAURI_INTERNALS__" in window) {
     const { emit } = await import("@tauri-apps/api/event");
-    view.el.addEventListener("view:docked", (ev) => {
-      emit("chat:show", (ev as CustomEvent).detail);
-    });
-    view.el.addEventListener("view:undocked", () => {
-      emit("chat:hide");
-    });
-    view.el.addEventListener("click", () => {
-      if (view.isDocked()) emit("chat:show", { edge: view.dockEdge() });
-    });
+    view.el.addEventListener("view:docked", (ev) => { emit("chat:show", (ev as CustomEvent).detail); });
+    view.el.addEventListener("view:undocked", () => { emit("chat:hide"); });
+    view.el.addEventListener("click", () => { if (view.isDocked()) emit("chat:show", { edge: view.dockEdge() }); });
   } else {
     // 浏览器模式：ChatPanel / ComponentManager 内联在当前窗口
     // 浏览器模式：仅 pet 窗口需 adapter 模拟 Tauri 窗口边界；

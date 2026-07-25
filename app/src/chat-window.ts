@@ -43,12 +43,18 @@ export async function main() {
   const mount = document.getElementById("app")!;
   chatPanel = new ChatPanel(mount, bridge, () => petCenter, true /* windowed */);
 
-  // 量面板实际尺寸 → 窗口贴合（tauri.conf.json 的 chat width/height 为占位值）
+  // 量面板实际尺寸 → 窗口贴合（hidden 时 layout 未算，先显示等一帧再量；DPI 修正）
   const el = document.getElementById("chat-panel");
   if (el) {
+    el.hidden = false;
+    el.style.visibility = "hidden";
+    await new Promise((r) => requestAnimationFrame(r));
     const r = el.getBoundingClientRect();
-    panelW = Math.ceil(r.width);
-    panelH = Math.ceil(r.height);
+    const dpr = window.devicePixelRatio || 1;
+    panelW = Math.ceil(r.width * dpr) || 320;
+    panelH = Math.ceil(r.height * dpr) || 380;
+    el.hidden = true;
+    el.style.visibility = "";
     await adapter?.setSize(panelW, panelH);
   }
 }
