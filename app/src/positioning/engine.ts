@@ -4,7 +4,7 @@ import { computeCDSegments } from "./geometry";
 import { ternarySearch } from "./math";
 import { directionAngle, type Direction, type Point, type WindowSpec } from "./types";
 
-const DEFAULT_ALPHA = 0.9;
+const DEFAULT_ALPHA = 20;
 const DEFAULT_BETA = 0.1;
 const DEFAULT_GAP = 12;
 const TOL = 1; // px

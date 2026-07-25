@@ -63,6 +63,7 @@ export class View {
       return;
     }
     // 浏览器模式：DOM 拖拽（dragTarget 可能是 wrapper）
+    this.dispatch("view:drag-start", {}); // 拖拽开始：隐藏附属窗口
     const r = this.dragTarget.getBoundingClientRect();
     this.drag = { dx: ev.clientX - r.left, dy: ev.clientY - r.top };
   };

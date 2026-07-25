@@ -9,7 +9,8 @@ export enum Direction {
 }
 
 export function directionAngle(d: Direction): number {
-  return (d * 22.5 * Math.PI) / 180;
+  // 0=n=顶=270°, 顺时针 22.5° 递增
+  return ((d * 22.5 + 270) * Math.PI) / 180;
 }
 
 /** 方位名 → 枚举值 */

@@ -73,13 +73,38 @@ export async function main() {
     const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
     const engine = new PositioningEngine();
     const panel = new DebugPositioningPanel(engine);
+    // 拖拽时隐藏标记，结束后用相对偏移恢复
+    let markOffsets: { left: string; top: string; css: string }[] = [];
+    let petBeforeDrag = view.center();
     const syncPanel = () => {
       const c = view.center();
       const r = view.el.getBoundingClientRect();
       panel.setPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
       engine.registerPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
     };
-    view.el.addEventListener("view:moved", syncPanel);
+    view.el.addEventListener("view:drag-start", () => {
+      petBeforeDrag = view.center();
+      markOffsets = [];
+      document.querySelectorAll(".dbg-place-mark").forEach((el) => {
+        const s = (el as HTMLElement).style;
+        markOffsets.push({ left: s.left, top: s.top, css: s.cssText });
+        el.remove();
+      });
+    });
+    view.el.addEventListener("view:moved", () => {
+      const petNow = view.center();
+      for (const mo of markOffsets) {
+        const dx = petNow.x - petBeforeDrag.x;
+        const dy = petNow.y - petBeforeDrag.y;
+        const mark = document.createElement("div");
+        mark.className = "dbg-place-mark";
+        mark.style.cssText = mo.css;
+        mark.style.left = `${parseFloat(mo.left) + dx}px`;
+        mark.style.top = `${parseFloat(mo.top) + dy}px`;
+        document.body.appendChild(mark);
+      }
+      syncPanel();
+    });
     view.el.addEventListener("view:docked", syncPanel);
     view.el.addEventListener("view:undocked", syncPanel);
     syncPanel();

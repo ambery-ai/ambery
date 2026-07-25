@@ -31,10 +31,11 @@ export class DebugPositioningPanel {
     const b = this.engine.beta;
     this.el.innerHTML = `
       <div style="font-weight:600;margin-bottom:8px">🔧 Positioning Debug</div>
-      <label>α <input id="dbg-alpha" type="range" min="0" max="1" step="0.05" value="${a}" style="width:100px"> <span>${a}</span></label><br>
-      <label>β <input id="dbg-beta" type="range" min="0" max="1" step="0.05" value="${b}" style="width:100px"> <span>${b}</span></label>
+      <label>α <input id="dbg-alpha" type="range" min="0" max="100" step="0.1" value="${a}" style="width:100px"> <span>${a}</span></label><br>
+      <label>β <input id="dbg-beta" type="range" min="0" max="100" step="0.1" value="${b}" style="width:100px"> <span>${b}</span></label>
       <div style="margin-top:6px">
-        <button id="dbg-place">Place Test Window</button>
+        <button id="dbg-place">Place</button>
+        <button id="dbg-clear">Clear</button>
         <select id="dbg-dir">${Object.values(Direction)
           .filter((v) => typeof v === "string")
           .map((n) => `<option>${n}</option>`)
@@ -60,7 +61,16 @@ export class DebugPositioningPanel {
         this.petCenter,
         this.petSize,
       );
+      // 渲染红框指示新窗口位置
+      const mark = document.createElement("div");
+      mark.className = "dbg-place-mark";
+      mark.style.cssText = `position:fixed;left:${pos.x - 75}px;top:${pos.y - 50}px;width:150px;height:100px;border:2px dashed red;pointer-events:none;z-index:9998`;
+      document.body.appendChild(mark);
       this.log(`place ${sel} → (${Math.round(pos.x)}, ${Math.round(pos.y)})`);
+    });
+    this.el.querySelector("#dbg-clear")!.addEventListener("click", () => {
+      document.querySelectorAll(".dbg-place-mark").forEach((el) => el.remove());
+      this.log("cleared all marks");
     });
   }
 
