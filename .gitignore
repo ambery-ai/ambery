@@ -9,5 +9,4 @@
 node_modules/
 dist/
 target/
-/storage/
 *.log
