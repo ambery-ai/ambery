@@ -1,8 +1,8 @@
 // Pet 窗口入口（docs/multi-window.md）：ペット + Autonomy + 位置广播 + 动画窗口自适应
-import { Autonomy } from "./autonomy";
-import { BrowserMockBridge, createBridge, type Motion } from "./bridge";
-import { View, type Edge } from "./view";
-import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "./window-adapter";
+import { Autonomy } from "../autonomy";
+import { BrowserMockBridge, createBridge, type Motion } from "../bridge";
+import { View, type Edge } from "../view";
+import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
 export async function main() {
   if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("browser");
@@ -54,8 +54,8 @@ export async function main() {
     await win.onMoved(() => broadcastPosition());
   } else {
     // 浏览器模式：ChatPanel / ComponentManager
-    const { ChatPanel } = await import("./chat");
-    const { ComponentManager } = await import("./components");
+    const { ChatPanel } = await import("../chat");
+    const { ComponentManager } = await import("../components/component-manager");
     new ComponentManager(mount, bridge, () => view.center());
     const chatPanel = new ChatPanel(mount, bridge, () => view.center());
     let dockedEdge: Edge = "top";

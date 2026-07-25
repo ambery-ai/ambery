@@ -1,8 +1,8 @@
 // Chat 窗口入口（docs/multi-window.md）：ChatPanel + 窗口定位
-import { createBridge } from "./bridge";
-import { ChatPanel } from "./chat";
-import type { Edge } from "./view";
-import { createTauriAdapter, type WindowAdapter } from "./window-adapter";
+import { createBridge } from "../bridge";
+import { ChatPanel } from "../chat";
+import type { Edge } from "../view";
+import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
 const VIEW_RADIUS_X = 36;
 const VIEW_RADIUS_Y = 20;

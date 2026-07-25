@@ -1,8 +1,8 @@
 // Cards 窗口入口（docs/multi-window.md）：ComponentManager + 窗口定位
-import type { Direction } from "./bridge";
-import { createBridge } from "./bridge";
-import { ComponentManager } from "./components";
-import { createTauriAdapter, type WindowAdapter } from "./window-adapter";
+import type { Direction } from "../bridge";
+import { createBridge } from "../bridge";
+import { ComponentManager } from "../components/component-manager";
+import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
 const GAP = 12;
 const VIEW_RADIUS_X = 36;
