@@ -75,27 +75,65 @@ impl<L: Llm> Overseer<L> {
             .unwrap_or_else(|_| default_agents_md())
     }
 
+    /// 状态 key 推导（concepts §4：key 切换由后端根据 Hook/Timer 驱动）：
+    /// notify（有未决通知）> processing（任一实例在跑）> idle。
+    /// 返回 `[face: key, motion: key]`——写默认推导 key；覆盖状态 LLM 从自己的
+    /// tool_calls 历史已知（设计决定）。
+    fn state_key(&self, pending_notifications: usize) -> String {
+        let key = if pending_notifications > 0 {
+            "notify"
+        } else if self
+            .harness
+            .agents
+            .iter()
+            .any(|a| a.status == AgentStatus::Processing)
+        {
+            "processing"
+        } else {
+            "idle"
+        };
+        let motion = self
+            .config
+            .kaomoji
+            .get(key)
+            .map(|k| k.motion.as_str())
+            .unwrap_or("still");
+        format!("[face: {key}, motion: {motion}]")
+    }
+
     /// 一轮触发（docs/agent-loop.md §一轮触发）
-    pub async fn run_trigger(&mut self, ts: i64) -> std::io::Result<Vec<Effect>> {
+    /// pending_notifications：未决通知数（server 层计数传入，推导 notify key 用）
+    pub async fn run_trigger(
+        &mut self,
+        ts: i64,
+        pending_notifications: usize,
+    ) -> std::io::Result<Vec<Effect>> {
         // 1. merge Event Buffer → 一条 system message
         if let Some(merged) = self.harness.event_buffer.merge_and_clear() {
             self.harness
                 .append_queue(QueueMessage::new(Role::System, merged, ts))?;
         }
-        // 2. 现拼 system prompt 请求头（不落 Queue，docs/storage.md）
+        // 2. 现拼 system prompt 请求头（不落 Queue）；变化才写 head 快照（docs/storage.md）
         let head = self.assemble_system_prompt();
-        // 3. Compression：超阈值 → stub 摘要 + shaking
+        if self.harness.last_head.as_deref() != Some(head.as_str()) {
+            self.harness.log_head(head.clone(), ts)?;
+        }
+        // 3. Autonomy 状态：每轮一条写 context.jsonl，最新一条挂请求末端（concepts §4）
+        let autonomy = self.state_key(pending_notifications);
+        self.harness.log_autonomy(autonomy.clone(), ts)?;
+        // 4. Compression：超阈值 → stub 摘要 + shaking
         if self.harness.queue.needs_compression() {
             let summary = stub_summary(self.harness.queue.messages());
             self.harness.queue.compress(summary, ts);
         }
-        // 4. tool 循环（请求 = 请求头 + Queue 全部消息）
+        // 5. tool 循环（请求 = 请求头 + Queue 全部消息 + Autonomy 末端）
         let tools = tool_set();
         let mut effects = vec![];
         for _ in 0..self.max_tool_iters {
-            let mut request = Vec::with_capacity(self.harness.queue.messages().len() + 1);
+            let mut request = Vec::with_capacity(self.harness.queue.messages().len() + 2);
             request.push(QueueMessage::new(Role::System, head.clone(), ts));
             request.extend_from_slice(self.harness.queue.messages());
+            request.push(QueueMessage::new(Role::System, autonomy.clone(), ts));
             let out = self
                 .llm
                 .complete(&request, &tools)
@@ -131,6 +169,7 @@ impl<L: Llm> Overseer<L> {
         project: &str,
         content: &str,
         ts: i64,
+        pending_notifications: usize,
     ) -> std::io::Result<Vec<Effect>> {
         // 读取链（docs/storage.md）：原文先存 terminal-content.jsonl，再 Filter 存 context.jsonl
         self.harness.append_terminal_content(TerminalContentRecord {
@@ -196,7 +235,7 @@ impl<L: Llm> Overseer<L> {
             }
             _ => {}
         }
-        self.run_trigger(ts).await
+        self.run_trigger(ts, pending_notifications).await
     }
 
     /// 提取到期的兜底扫描实例（docs/timer.md）
@@ -211,6 +250,7 @@ impl<L: Llm> Overseer<L> {
         instance: &str,
         content: &str,
         ts: i64,
+        pending_notifications: usize,
     ) -> std::io::Result<Vec<Effect>> {
         // 原文先存档（docs/storage.md），再 Filter + 变化检测
         self.harness.append_terminal_content(TerminalContentRecord {
@@ -240,7 +280,7 @@ impl<L: Llm> Overseer<L> {
                 format!("{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。"),
                 ts,
             ))?;
-            return self.run_trigger(ts).await;
+            return self.run_trigger(ts, pending_notifications).await;
         }
         Ok(vec![])
     }
@@ -435,7 +475,7 @@ mod tests {
         ]);
         let mut ov = make_overseer_with("notify", agent);
         let long = "x".repeat(120);
-        let effects = ov.handle_hook("stop", "ft", "proj", &long, 1).await.unwrap();
+        let effects = ov.handle_hook("stop", "ft", "proj", &long, 1, 0).await.unwrap();
         assert!(effects.iter().any(|e| matches!(e, Effect::RenderComponent(_))));
         assert!(effects.iter().any(|e| matches!(e, Effect::SetAutonomy { .. })));
         let roles: Vec<Role> = ov.harness.queue.messages().iter().map(|m| m.role).collect();
@@ -452,7 +492,7 @@ mod tests {
     #[tokio::test]
     async fn stop_short_content_silence() {
         let mut ov = make_overseer("silence");
-        let effects = ov.handle_hook("stop", "oss", "proj", "清理了 2 行注释", 1).await.unwrap();
+        let effects = ov.handle_hook("stop", "oss", "proj", "清理了 2 行注释", 1, 0).await.unwrap();
         assert!(effects.is_empty());
         let roles: Vec<Role> = ov.harness.queue.messages().iter().map(|m| m.role).collect();
         // system(hook)，沉默不追加 assistant
@@ -475,7 +515,7 @@ mod tests {
         ]);
         let mut ov = make_overseer_with("register", agent);
         let effects = ov
-            .handle_hook("session_start", "new-feature", "proj", "启动画面", 1)
+            .handle_hook("session_start", "new-feature", "proj", "启动画面", 1, 0)
             .await
             .unwrap();
         assert_eq!(ov.harness.agents.len(), 1);
@@ -510,11 +550,11 @@ mod tests {
         ]);
         let mut ov = make_overseer_with("fetch", agent);
         let long = "y".repeat(100);
-        ov.handle_hook("stop", "ft", "proj", &long, 1).await.unwrap();
+        ov.handle_hook("stop", "ft", "proj", &long, 1, 0).await.unwrap();
         ov.harness
             .append_queue(QueueMessage::new(Role::User, "那个 bug 具体怎么回事？", 2))
             .unwrap();
-        ov.run_trigger(3).await.unwrap();
+        ov.run_trigger(3, 0).await.unwrap();
         let msgs = ov.harness.queue.messages();
         // fetch_terminal 被执行，tool result 含 Context 全文
         assert!(msgs.iter().any(|m| m.role == Role::Tool
@@ -530,7 +570,7 @@ mod tests {
         let mut ov = make_overseer("merge");
         ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
         ov.harness.event_buffer.push("用户勾选了 todobox 条目「跑测试」");
-        ov.run_trigger(1).await.unwrap();
+        ov.run_trigger(1, 0).await.unwrap();
         let sys: Vec<_> = ov
             .harness
             .queue
@@ -554,7 +594,7 @@ mod tests {
         ov.harness
             .append_queue(QueueMessage::new(Role::User, "你好", 1))
             .unwrap();
-        ov.run_trigger(2).await.unwrap();
+        ov.run_trigger(2, 0).await.unwrap();
         let last = ov.harness.queue.messages().last().unwrap();
         assert_eq!(last.role, Role::Assistant);
         assert_eq!(last.content.as_deref(), Some("[debug] 收到：你好"));
@@ -569,7 +609,7 @@ mod tests {
             "● 完成\n✻ Crunched for 12s\n⏵⏵ bypass permissions on (shift+tab to cycle)\n{}",
             "─".repeat(100)
         );
-        let effects = ov.handle_hook("stop", "ft", "proj", &raw, 1).await.unwrap();
+        let effects = ov.handle_hook("stop", "ft", "proj", &raw, 1, 0).await.unwrap();
         assert!(effects.is_empty());
         assert_eq!(ov.harness.context.latest("ft").unwrap().content, "● 完成");
         let _ = std::fs::remove_dir_all(tmp_dir("filter"));
@@ -587,13 +627,13 @@ mod tests {
             silence(),
         ]);
         let mut ov = make_overseer_with("timer-sub", agent);
-        ov.handle_hook("session_start", "cship", "proj", "旧内容", 1)
+        ov.handle_hook("session_start", "cship", "proj", "旧内容", 1, 0)
             .await
             .unwrap();
         // 兜底扫描读到全新长内容 → Substantive → 存 Context(timer) + 注入 + 触发通知
         let new_content = "z".repeat(150);
         let effects = ov
-            .handle_timer_scan("cship", &new_content, 2)
+            .handle_timer_scan("cship", &new_content, 2, 0)
             .await
             .unwrap();
         let rec = ov.harness.context.latest("cship").unwrap();
@@ -612,13 +652,13 @@ mod tests {
     #[tokio::test]
     async fn timer_scan_minor_stays_silent() {
         let mut ov = make_overseer("timer-min");
-        ov.handle_hook("session_start", "cship", "proj", "内容不变", 1)
+        ov.handle_hook("session_start", "cship", "proj", "内容不变", 1, 0)
             .await
             .unwrap();
         let msgs_before = ov.harness.queue.messages().len();
         // 内容相同 → Unchanged → 存档但不打扰
         let effects = ov
-            .handle_timer_scan("cship", "内容不变", 2)
+            .handle_timer_scan("cship", "内容不变", 2, 0)
             .await
             .unwrap();
         assert!(effects.is_empty());
@@ -644,7 +684,7 @@ mod tests {
         let mut ov = make_overseer("raw-archive");
         // 原文含噪音 → terminal-content.jsonl 存 filter 前全文，context.jsonl 存归一后
         let raw = format!("● 完成\n✻ Crunched for 12s\n{}", "─".repeat(100));
-        ov.handle_hook("stop", "ft", "proj", &raw, 1).await.unwrap();
+        ov.handle_hook("stop", "ft", "proj", &raw, 1, 0).await.unwrap();
         let archive = std::fs::read_to_string(
             ov.harness.storage_dir().join(crate::TERMINAL_CONTENT_FILE),
         )
@@ -655,10 +695,79 @@ mod tests {
         let _ = std::fs::remove_dir_all(tmp_dir("raw-archive"));
     }
 
+    /// 捕获帧 mock：记录每次 LLM 调用看到的完整请求内容
+    fn capturing(
+        frames: std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>,
+    ) -> DebugAgent {
+        DebugAgent::new(move |msgs| {
+            frames.lock().unwrap().push(
+                msgs.iter()
+                    .map(|m| m.content.clone().unwrap_or_default())
+                    .collect(),
+            );
+            silence()
+        })
+    }
+
+    #[tokio::test]
+    async fn autonomy_logged_and_appended_to_request_end() {
+        let frames = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let mut ov = make_overseer_with("autonomy", capturing(frames.clone()));
+        ov.run_trigger(1, 0).await.unwrap();
+        // 请求帧：首条 = 现拼请求头，末条 = Autonomy 状态（concepts §4）
+        let f = &frames.lock().unwrap()[0];
+        assert!(f[0].contains("## 颜文字映射"));
+        assert_eq!(f.last().unwrap(), "[face: idle, motion: still]");
+        // 末端状态不落 Queue（内存视图无它）
+        assert!(ov
+            .harness
+            .queue
+            .messages()
+            .iter()
+            .all(|m| m.content.as_deref() != Some("[face: idle, motion: still]")));
+        // context.jsonl：autonomy 行每轮一条 + head 行
+        let log = std::fs::read_to_string(ov.harness.storage_dir().join(crate::CONTEXT_FILE))
+            .unwrap();
+        assert!(log.contains("\"type\":\"autonomy\""));
+        assert!(log.contains("[face: idle, motion: still]"));
+        assert!(log.contains("\"type\":\"head\""));
+        let _ = std::fs::remove_dir_all(tmp_dir("autonomy"));
+    }
+
+    #[tokio::test]
+    async fn head_written_only_on_change() {
+        let mut ov = make_overseer("head-diff");
+        ov.run_trigger(1, 0).await.unwrap();
+        ov.run_trigger(2, 0).await.unwrap();
+        let storage = ov.harness.storage_dir().to_path_buf();
+        let count = || {
+            std::fs::read_to_string(storage.join(crate::CONTEXT_FILE))
+                .unwrap()
+                .matches("\"type\":\"head\"")
+                .count()
+        };
+        assert_eq!(count(), 1); // 不变不写
+        // AGENTS.md 热编辑 → 请求头变化 → 第二条 head 快照
+        std::fs::write(ov.harness.config_dir().join(AGENTS_MD_FILE), "# 改过的ペット").unwrap();
+        ov.run_trigger(3, 0).await.unwrap();
+        assert_eq!(count(), 2);
+        let _ = std::fs::remove_dir_all(tmp_dir("head-diff"));
+    }
+
+    #[tokio::test]
+    async fn pending_notifications_drives_notify_key() {
+        let frames = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
+        let mut ov = make_overseer_with("notify-key", capturing(frames.clone()));
+        ov.run_trigger(1, 2).await.unwrap();
+        let f = &frames.lock().unwrap()[0];
+        assert_eq!(f.last().unwrap(), "[face: notify, motion: bounce]");
+        let _ = std::fs::remove_dir_all(tmp_dir("notify-key"));
+    }
+
     #[tokio::test]
     async fn hook_resets_timer_wheel() {
         let mut ov = make_overseer("timer-reset");
-        ov.handle_hook("session_start", "a", "proj", "x", 1000)
+        ov.handle_hook("session_start", "a", "proj", "x", 1000, 0)
             .await
             .unwrap();
         // reset 后 due ≥ 1000 + interval（Config 默认 300s）

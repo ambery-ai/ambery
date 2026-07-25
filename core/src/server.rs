@@ -132,7 +132,7 @@ async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -
     {
         return err_response(err);
     }
-    let effects = match ov.run_trigger(now_ms()).await {
+    let effects = match ov.run_trigger(now_ms(), 0).await {
         Ok(e) => e,
         Err(err) => return err_response(err),
     };
@@ -183,6 +183,7 @@ async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -
         .content
         .or(body.last_assistant_message)
         .unwrap_or_default();
+    let pending = *s.pending_notifications.lock().await;
     let effects = match ov
         .handle_hook(
             &body.event,
@@ -190,6 +191,7 @@ async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -
             body.project.as_deref().unwrap_or(""),
             &content,
             now_ms(),
+            pending,
         )
         .await
     {
@@ -238,11 +240,12 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
                     ov.terminal_reader.as_ref().and_then(|r| r(&inst))
                 };
                 if let Some(content) = content {
+                    let pending = *s.pending_notifications.lock().await;
                     let result = {
                         s.overseer
                             .lock()
                             .await
-                            .handle_timer_scan(&inst, &content, now_ms())
+                            .handle_timer_scan(&inst, &content, now_ms(), pending)
                             .await
                     };
                     match result {
