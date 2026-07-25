@@ -66,19 +66,15 @@ export class ChatPanel {
   }
 
   /** 右键 toggle：engine.place(Direction.sse) 定位 */
-  toggle(view: { center(): { x: number; y: number } }) {
+  toggle() {
     if (this.visible) {
       this.hide();
     } else {
       this.el.hidden = false;
       this.visible = true;
-      const c = view.center();
-      const r = (document.getElementById("view") as HTMLElement)?.getBoundingClientRect();
       const pos = this.engine.place(
         { id: "chat-panel", width: PANEL_W, height: PANEL_H },
         Direction.sse,
-        c,
-        { w: r?.width ?? 72, h: r?.height ?? 40 },
       );
       this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
       this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;

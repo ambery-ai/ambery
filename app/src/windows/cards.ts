@@ -5,7 +5,6 @@ import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 import type { PositioningEngine } from "../positioning/engine";
 import { Direction } from "../positioning/types";
 
-let petCenter = { x: 0, y: 0 };
 let adapter: WindowAdapter | null = null;
 let engine: PositioningEngine | null = null;
 
@@ -14,10 +13,6 @@ export async function main(eng: PositioningEngine) {
 
   // Tauri 模式：订阅 pet 位置
   if ("__TAURI_INTERNALS__" in window) {
-    const { listen } = await import("@tauri-apps/api/event");
-    await listen<{ x: number; y: number }>("pet:moved", (ev) => {
-      petCenter = ev.payload;
-    });
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     adapter = await createTauriAdapter(document.body, 1);
     const win = getCurrentWindow();
@@ -28,7 +23,7 @@ export async function main(eng: PositioningEngine) {
 
   const bridge = await createBridge();
   const mount = document.getElementById("app")!;
-  new ComponentManager(mount, bridge, () => petCenter, true);
+  new ComponentManager(mount, bridge, () => ({ x: 0, y: 0 }), true);
 
   // Tauri 模式：卡片渲染时移动窗口
   if ("__TAURI_INTERNALS__" in window) {
@@ -59,7 +54,7 @@ async function positionWindow() {
   const ch = card.offsetHeight || 140;
   const pos = engine.place(
     { id: `card-${card.dataset.id || Date.now()}`, width: cw + 4, height: ch + 4 },
-    dir, petCenter, { w: 72, h: 40 },
+    dir,
   );
   await adapter.setPosition(Math.round(pos.x - cw/2), Math.round(pos.y - ch/2));
   await adapter.setSize(cw + 4, ch + 4);

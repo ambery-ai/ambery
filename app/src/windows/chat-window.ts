@@ -5,7 +5,6 @@ import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 import type { PositioningEngine } from "../positioning/engine";
 import { Direction } from "../positioning/types";
 
-let petCenter = { x: 0, y: 0 };
 let chatPanel: ChatPanel | null = null;
 let adapter: WindowAdapter | null = null;
 let engine: PositioningEngine | null = null;
@@ -23,9 +22,6 @@ export async function main(eng: PositioningEngine) {
   // Tauri 模式：订阅 pet 位置 + chat toggle
   if ("__TAURI_INTERNALS__" in window) {
     const { listen } = await import("@tauri-apps/api/event");
-    await listen<{ x: number; y: number }>("pet:moved", (ev) => {
-      petCenter = ev.payload;
-    });
     await listen("chat:toggle", () => {
       if (chatPanel?.isVisible()) hideChat();
       else showChat();
@@ -60,7 +56,7 @@ async function showChat() {
   if (!chatPanel || !engine) return;
   const pos = engine.place(
     { id: "chat-panel", width: panelW, height: panelH },
-    Direction.sse, petCenter, { w: 72, h: 40 },
+    Direction.sse,
   );
   await adapter?.setPosition(Math.round(pos.x - panelW / 2), Math.round(pos.y - panelH / 2));
   await adapter?.show();

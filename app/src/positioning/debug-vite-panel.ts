@@ -75,8 +75,6 @@ export class DebugPositioningPanel {
       const pos = this.engine.place(
         { id: `debug-${Date.now()}`, width: 150, height: 100 },
         dir,
-        this.petCenter,
-        this.petSize,
       );
       // 渲染红框指示新窗口位置
       const mark = document.createElement("div");
@@ -101,7 +99,7 @@ export class DebugPositioningPanel {
         if (dir === undefined) { results.push(`${d}: unknown`); continue; }
         const pos = this.engine.place(
           { id: `replay-${Date.now()}-${d}`, width: 150, height: 100 },
-          dir, this.petCenter, this.petSize,
+          dir,
         );
         const mark = document.createElement("div");
         mark.className = "dbg-place-mark";

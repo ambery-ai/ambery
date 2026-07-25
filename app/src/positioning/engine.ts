@@ -25,7 +25,11 @@ export class PositioningEngine {
     public beta: number = DEFAULT_BETA,
   ) {}
 
-  place(newWindow: WindowSpec, preferred: Direction, petCenter: Point, petSize: { w: number; h: number }): Point {
+  place(newWindow: WindowSpec, preferred: Direction): Point {
+    const pet = this.occupied.find((o) => o.id === "_pet_");
+    if (!pet) throw new Error("pet not registered");
+    const petCenter = pet.center;
+    const petSize = { w: pet.w, h: pet.h };
     const mAngle = directionAngle(preferred);
     const others = this.occupied.filter((o) => o.id !== "_pet_");
     const segs = computeCDSegments(
