@@ -5,7 +5,10 @@ use crate::filter::{Change, Filter};
 use crate::llm::{tool_set, Llm};
 use crate::queue::{QueueMessage, Role, ToolCall};
 use crate::timer::TimerWheel;
-use crate::{AgentEntry, AgentStatus, Config, ContextRecord, Harness, KaomojiEntry};
+use crate::{
+    default_agents_md, AgentEntry, AgentStatus, Config, ContextRecord, Harness, KaomojiEntry,
+    AGENTS_MD_FILE,
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -50,8 +53,11 @@ impl<L: Llm> Overseer<L> {
     }
 
     /// 拼装 system prefix（concepts §12：Config 引用的各概念数据运行时拼装）
+    /// = base_prompt（Config）+ AGENTS.md（Storage，热生效）+ kaomoji 表 + 顶层状态
     fn build_prefix(&self) -> String {
         let mut s = self.config.base_prompt.clone();
+        s.push_str("\n\n");
+        s.push_str(&self.read_agents_md());
         s.push_str("\n\n## 颜文字映射\n");
         let mut keys: Vec<_> = self.config.kaomoji.keys().collect();
         keys.sort();
@@ -67,6 +73,12 @@ impl<L: Llm> Overseer<L> {
             s.push_str(&format!("- {} [{:?}] project={}\n", a.name, a.status, a.project));
         }
         s
+    }
+
+    /// AGENTS.md 每轮现读（热生效：改完下一个触发就用）；读不到回退内置默认
+    fn read_agents_md(&self) -> String {
+        std::fs::read_to_string(self.harness.storage_dir().join(AGENTS_MD_FILE))
+            .unwrap_or_else(|_| default_agents_md())
     }
 
     /// 一轮触发（docs/agent-loop.md §一轮触发）
@@ -509,6 +521,16 @@ mod tests {
         assert_eq!(ov.harness.queue.messages().len(), msgs_before);
         assert_eq!(ov.harness.context.latest("cship").unwrap().source, RecordSource::Timer);
         let _ = std::fs::remove_dir_all(tmp_dir("timer-min"));
+    }
+
+    #[tokio::test]
+    async fn prefix_includes_agents_md() {
+        let ov = make_overseer("prefix-md");
+        let prefix = ov.build_prefix();
+        // bootstrap 写入的默认身份提示词拼进了 prefix（§12：Config 引用数据运行时拼装）
+        assert!(prefix.contains("# AGENTS.md — ペット"));
+        assert!(prefix.contains("## 颜文字映射"));
+        let _ = std::fs::remove_dir_all(tmp_dir("prefix-md"));
     }
 
     #[tokio::test]

@@ -22,7 +22,10 @@ use storage::JsonlStore;
 
 pub const QUEUE_FILE: &str = "queue.jsonl";
 pub const CONTEXT_FILE: &str = "context.jsonl";
-pub const AGENTS_FILE: &str = "agents.jsonl";
+/// work-agents 注册表（被盯的干活 Code CLI 实例清单，append-only upsert 日志）
+pub const WORK_AGENTS_FILE: &str = "work-agents.jsonl";
+/// AGENTS.md（通用约定名）：ペット的身份提示词，与 base_prompt 拼接进 system prompt（concepts §12/§13）
+pub const AGENTS_MD_FILE: &str = "AGENTS.md";
 pub const CONFIG_FILE: &str = "config.json";
 
 /// Config（concepts §12）：持久化单文件 config.json，edit_config tool 可写
@@ -242,8 +245,13 @@ impl Harness {
         let context = Context::from_records(store.read_all(CONTEXT_FILE)?);
         // agents 是 upsert 日志：replay 须逐条折叠（同 id 取最后一条）
         let mut agents: Vec<AgentEntry> = vec![];
-        for entry in store.read_all::<AgentEntry>(AGENTS_FILE)? {
+        for entry in store.read_all::<AgentEntry>(WORK_AGENTS_FILE)? {
             apply_agent(&mut agents, entry);
+        }
+        // AGENTS.md 不存在 → 写入默认身份提示词（Storage bootstrap，§13）
+        let agents_md_path = store.dir().join(AGENTS_MD_FILE);
+        if !agents_md_path.exists() {
+            std::fs::write(agents_md_path, default_agents_md())?;
         }
         Ok(Self {
             queue,
@@ -269,7 +277,7 @@ impl Harness {
 
     /// 整行 upsert 日志：replay 时同 id 取最后一条（docs/harness.md）
     pub fn upsert_agent(&mut self, entry: AgentEntry) -> std::io::Result<()> {
-        self.store.append(AGENTS_FILE, &entry)?;
+        self.store.append(WORK_AGENTS_FILE, &entry)?;
         apply_agent(&mut self.agents, entry);
         Ok(())
     }
@@ -284,6 +292,27 @@ fn apply_agent(agents: &mut Vec<AgentEntry>, entry: AgentEntry) {
         Some(a) => *a = entry,
         None => agents.push(entry),
     }
+}
+
+/// 默认 AGENTS.md（ペット身份提示词，concepts §2/§13；用户可直接改，运行时热生效）
+pub fn default_agents_md() -> String {
+    r#"# AGENTS.md — ペット
+
+## 身份
+你是 ペット（宠物），Terminal Overseer 监工系统的人机界面。Overseer 做决策，你做表达。
+
+## 职责
+- 盯着所有 Code CLI 实例（见「当前实例状态」）：谁跑完了、谁有实质进展、谁出错了。
+- 判断「通知 vs 沉默」：输出有意义才打扰用户；琐碎、无异常、无待办就沉默——沉默是一种正常的回答。
+- 用颜文字和 Component 卡片表达，不用大段文字轰炸。
+
+## 行为准则
+- 通知要有信息量：谁完成了、结果是什么、下一步是什么。
+- 用户追问时先 fetch_terminal 拿全文再回答，不臆造。
+- 你的能力边界就是 Tool Set（call_component / fetch_terminal / set_autonomy / edit_config）——不修改任何代码文件。
+- 可以卖萌（set_autonomy 换表情跳一下），但别影响判断。
+"#
+    .to_string()
 }
 
 #[cfg(test)]
@@ -354,6 +383,22 @@ mod tests {
         let h = Harness::load(&dir, "P".into(), 1000, 0).unwrap();
         assert_eq!(h.agents.len(), 1); // 同 id 合并
         assert_eq!(h.agents[0].status, AgentStatus::Idle); // 最后一条 wins
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn agents_md_bootstrapped_once() {
+        let dir = tmp_dir("agentsmd");
+        // 首次 load：bootstrap 写入默认身份提示词
+        Harness::load(&dir, "P".into(), 1000, 0).unwrap();
+        let md = std::fs::read_to_string(dir.join(AGENTS_MD_FILE)).unwrap();
+        assert!(md.contains("# AGENTS.md — ペット"));
+        assert!(md.contains("Terminal Overseer"));
+        // 用户改过的内容不被覆盖
+        std::fs::write(dir.join(AGENTS_MD_FILE), "# 自定义ペット").unwrap();
+        Harness::load(&dir, "P".into(), 1000, 0).unwrap();
+        let md2 = std::fs::read_to_string(dir.join(AGENTS_MD_FILE)).unwrap();
+        assert_eq!(md2, "# 自定义ペット");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
