@@ -27,6 +27,16 @@ export class DebugPositioningPanel {
     this.petSize = size;
   }
 
+  private syncPetPos() {
+    const v = document.getElementById("view");
+    if (v) {
+      const vr = v.getBoundingClientRect();
+      this.petCenter = { x: vr.x + vr.width / 2, y: vr.y + vr.height / 2 };
+      this.petSize = { w: Math.round(vr.width), h: Math.round(vr.height) };
+      this.engine.registerPet(this.petCenter, this.petSize);
+    }
+  }
+
   private render() {
     const a = this.engine.alpha;
     const b = this.engine.beta;
@@ -38,6 +48,8 @@ export class DebugPositioningPanel {
         <button id="dbg-place">Place</button>
         <button id="dbg-clear">Clear</button>
         <button id="dbg-obstacles">Obs 1s</button>
+        <input id="dbg-replay" placeholder="n,n,n,wnw,wnw…" style="width:120px;margin-top:4px">
+        <button id="dbg-replay-btn">Replay</button>
         <select id="dbg-dir">${Object.values(Direction)
           .filter((v) => typeof v === "string")
           .map((n) => `<option>${n}</option>`)
@@ -55,6 +67,7 @@ export class DebugPositioningPanel {
       this.render();
     };
     this.el.querySelector("#dbg-place")!.addEventListener("click", () => {
+      this.syncPetPos();
       const sel = this.el.querySelector<HTMLSelectElement>("#dbg-dir")!.value;
       const dir = Direction[sel as keyof typeof Direction] as Direction;
       const pos = this.engine.place(
@@ -74,7 +87,29 @@ export class DebugPositioningPanel {
       document.querySelectorAll(".dbg-place-mark").forEach((el) => el.remove());
       this.log("cleared all marks");
     });
+    this.el.querySelector("#dbg-replay-btn")!.addEventListener("click", () => {
+      this.syncPetPos();
+      document.querySelectorAll(".dbg-place-mark").forEach((el) => el.remove());
+      const raw = this.el.querySelector<HTMLInputElement>("#dbg-replay")!.value;
+      const dirs = raw.split(",").map((s) => s.trim()).filter(Boolean);
+      const results: string[] = [];
+      for (const d of dirs) {
+        const dir = Direction[d as keyof typeof Direction] as Direction;
+        if (dir === undefined) { results.push(`${d}: unknown`); continue; }
+        const pos = this.engine.place(
+          { id: `replay-${Date.now()}-${d}`, width: 150, height: 100 },
+          dir, this.petCenter, this.petSize,
+        );
+        const mark = document.createElement("div");
+        mark.className = "dbg-place-mark";
+        mark.style.cssText = `position:fixed;left:${pos.x - 75}px;top:${pos.y - 50}px;width:150px;height:100px;border:2px dashed red;pointer-events:none;z-index:9998`;
+        document.body.appendChild(mark);
+        results.push(`${d}→(${Math.round(pos.x)},${Math.round(pos.y)})`);
+      }
+      this.log(`replay [${dirs.join(",")}]: ${results.join(" | ")}`);
+    });
     this.el.querySelector("#dbg-obstacles")!.addEventListener("click", () => {
+      this.syncPetPos();
       const occupied = [...document.querySelectorAll(".dbg-place-mark")].map((el) => {
         const r = (el as HTMLElement).getBoundingClientRect();
         return { center: { x: r.x + r.width / 2, y: r.y + r.height / 2 }, w: r.width, h: r.height };
