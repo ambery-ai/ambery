@@ -29,9 +29,11 @@ export class DebugPositioningPanel {
 
   private syncPetPos() {
     const v = document.getElementById("view");
-    if (v) {
+    if (v && v.parentElement) {
+      // wrapper 中心不受动画影响
+      const wr = v.parentElement.getBoundingClientRect();
+      this.petCenter = { x: wr.x + wr.width / 2, y: wr.y + wr.height / 2 };
       const vr = v.getBoundingClientRect();
-      this.petCenter = { x: vr.x + vr.width / 2, y: vr.y + vr.height / 2 };
       this.petSize = { w: Math.round(vr.width), h: Math.round(vr.height) };
       this.engine.registerPet(this.petCenter, this.petSize);
     }

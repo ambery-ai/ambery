@@ -50,6 +50,12 @@ export function createBrowserAdapter(
   wrapper.appendChild(viewEl);
   viewEl.style.position = "absolute";
   if (viewInstance) viewInstance.dragTarget = wrapper;
+  // 同步 wrapper 初始位置到 View screen 坐标，View 偏移归零
+  const vr0 = viewEl.getBoundingClientRect();
+  wrapper.style.left = `${vr0.x}px`;
+  wrapper.style.top = `${vr0.y}px`;
+  viewEl.style.left = "0px";
+  viewEl.style.top = "0px";
 
   // overlay 独立 div，兄弟节点叠在 wrapper 上
   const overlay = document.createElement("div");

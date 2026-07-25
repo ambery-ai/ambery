@@ -76,7 +76,8 @@ export async function main() {
     // 拖拽时隐藏标记，结束后用相对偏移恢复
     let markOffsets: { dx: number; dy: number; css: string }[] = [];
     const syncPanel = () => {
-      const c = view.center();
+      const wr = view.el.parentElement!.getBoundingClientRect();
+      const c = { x: wr.x + wr.width / 2, y: wr.y + wr.height / 2 };
       const r = view.el.getBoundingClientRect();
       panel.setPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
       engine.registerPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
