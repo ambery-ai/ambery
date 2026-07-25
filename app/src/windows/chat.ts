@@ -4,8 +4,8 @@
 // multi-window 模式（windowed=true）：面板填充整个窗口（窗口外部定位）；
 // 浏览器/maximized 模式（默认）：面板 position:fixed 在 View 锚点周围弹出。
 
-import type { Bridge, QueueMessage } from "./bridge";
-import type { Edge } from "./view";
+import type { Bridge, QueueMessage } from "../bridge";
+import type { Edge } from "../view";
 
 const PANEL_W = 320;
 const PANEL_H = 380;

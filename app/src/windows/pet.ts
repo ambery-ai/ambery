@@ -54,7 +54,7 @@ export async function main() {
     await win.onMoved(() => broadcastPosition());
   } else if (!import.meta.env.PROD) {
     // 浏览器模式（仅 Vite dev / preview，prod build tree-shaking 剔除）
-    const { ChatPanel } = await import("../chat");
+    const { ChatPanel } = await import("./chat");
     const { ComponentManager } = await import("../components/component-manager");
     new ComponentManager(mount, bridge, () => view.center());
     const chatPanel = new ChatPanel(mount, bridge, () => view.center());
@@ -70,8 +70,8 @@ export async function main() {
 
     // debug：positioning 面板（α/β 滑块 + 窗口注册）
     const { PositioningEngine } = await import("../positioning/engine");
-    const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
     const engine = new PositioningEngine();
+    const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
     const panel = new DebugPositioningPanel(engine);
     // 拖拽时隐藏标记，结束后用相对偏移恢复
     let markOffsets: { dx: number; dy: number; css: string }[] = [];
