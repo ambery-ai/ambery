@@ -33,7 +33,6 @@ html.browser body {
 
 #view[data-docked] {
   cursor: default;
-  animation: none !important; /* 吸附后不再浮动 */
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 

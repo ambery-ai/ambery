@@ -101,15 +101,6 @@ export class View {
     this.state = { mode: "docked", edge };
     this.el.dataset.docked = edge;
 
-    // 水平边缘保持 x，垂直边缘保持 y（避免窗口跳动）
-    const r = this.dragTarget.getBoundingClientRect();
-    if (edge === "top") this.dragTarget.style.top = `${DOCK_MARGIN}px`;
-    if (edge === "bottom")
-      this.dragTarget.style.top = `${window.innerHeight - r.height - DOCK_MARGIN}px`;
-    if (edge === "left") this.dragTarget.style.left = `${DOCK_MARGIN}px`;
-    if (edge === "right")
-      this.dragTarget.style.left = `${window.innerWidth - r.width - DOCK_MARGIN}px`;
-
     this.dispatch("view:docked", { edge });
   }
 
