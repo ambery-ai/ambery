@@ -58,7 +58,7 @@ export async function main(engine: PositioningEngine) {
     const { ChatPanel } = await import("./chat");
     const { ComponentManager } = await import("../components/component-manager");
     new ComponentManager(mount, bridge, () => view.center());
-    const chatPanel = new ChatPanel(mount, bridge, () => view.center());
+    const chatPanel = new ChatPanel(mount, bridge, engine);
     view.el.addEventListener("chat:toggle", () => chatPanel.toggle(view));
 
     // debug：positioning 面板（α/β 滑块 + 窗口注册）

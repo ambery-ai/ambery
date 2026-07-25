@@ -14,12 +14,13 @@ let panelH = 380;
 
 export async function main(eng: PositioningEngine) {
   engine = eng;
-  // WindowAdapter（feat）
+
+  // WindowAdapter
   if ("__TAURI_INTERNALS__" in window) {
     adapter = await createTauriAdapter(document.body, 1);
   }
 
-  // Tauri 模式：订阅 pet 位置 + chat 显隐事件
+  // Tauri 模式：订阅 pet 位置 + chat toggle
   if ("__TAURI_INTERNALS__" in window) {
     const { listen } = await import("@tauri-apps/api/event");
     await listen<{ x: number; y: number }>("pet:moved", (ev) => {
@@ -37,9 +38,9 @@ export async function main(eng: PositioningEngine) {
 
   const bridge = await createBridge();
   const mount = document.getElementById("app")!;
-  chatPanel = new ChatPanel(mount, bridge, () => petCenter, true /* windowed */);
+  chatPanel = new ChatPanel(mount, bridge, engine!, true);
 
-  // 量面板实际尺寸 → 窗口贴合（hidden 时 layout 未算，先显示等一帧再量；DPI 修正）
+  // 量面板实际尺寸
   const el = document.getElementById("chat-panel");
   if (el) {
     el.hidden = false;
@@ -56,19 +57,16 @@ export async function main(eng: PositioningEngine) {
 }
 
 async function showChat() {
-  if (!chatPanel || chatPanel.isVisible()) return;
-  chatPanel.show("bottom" as any);
-  if (engine) {
-    const pos = engine.place(
-      { id: "chat-panel", width: panelW, height: panelH },
-      Direction.sse, petCenter, { w: 72, h: 40 },
-    );
-    await adapter?.setPosition(Math.round(pos.x - panelW/2), Math.round(pos.y - panelH/2));
-  }
+  if (!chatPanel || !engine) return;
+  const pos = engine.place(
+    { id: "chat-panel", width: panelW, height: panelH },
+    Direction.sse, petCenter, { w: 72, h: 40 },
+  );
+  await adapter?.setPosition(Math.round(pos.x - panelW / 2), Math.round(pos.y - panelH / 2));
   await adapter?.show();
 }
 
 async function hideChat() {
   await adapter?.hide();
-  chatPanel?.hide();
+  engine?.remove("chat-panel");
 }
