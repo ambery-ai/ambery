@@ -1,5 +1,6 @@
 //! LLM 抽象 + debug 模式 agent（docs/agent-loop.md）。
-//! DebugAgent 用确定性规则模拟ペット决策，无网络依赖；真实 OpenAI 客户端后续接入。
+//! DebugAgent 是纯 mock：零逻辑，返回什么完全由外部决策源注入
+//! （测试脚本闭包 / debug CLI / 沉默兜底），它只负责转发。
 
 use crate::queue::{QueueMessage, Role, ToolCall};
 use serde_json::{json, Value};
@@ -77,17 +78,33 @@ pub trait Llm {
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send;
 }
 
-/// debug 模式 agent：确定性规则（docs/agent-loop.md §debug 规则）
+/// debug 模式 agent：纯 mock，零逻辑。决策源由外部注入——
+/// 测试用脚本闭包、debug 二进制用 CLI、降级兜底用沉默。
 pub struct DebugAgent {
-    /// 通知阈值：hook 内容长度 ≥ 此值才通知（fixture，真实判断由 LLM 做）
-    pub notify_threshold: usize,
+    decide: Box<dyn Fn(&[QueueMessage]) -> LlmOutput + Send + Sync>,
+}
+
+impl DebugAgent {
+    /// 注入外部决策源（mock 的「人为控制返回」）
+    pub fn new(decide: impl Fn(&[QueueMessage]) -> LlmOutput + Send + Sync + 'static) -> Self {
+        Self {
+            decide: Box::new(decide),
+        }
+    }
+
+    /// 永远沉默：OpenAi 失败降级、不需要反应的测试
+    pub fn silent() -> Self {
+        Self::new(|_| LlmOutput {
+            content: None,
+            tool_calls: vec![],
+            reasoning_content: None,
+        })
+    }
 }
 
 impl Default for DebugAgent {
     fn default() -> Self {
-        Self {
-            notify_threshold: 80,
-        }
+        Self::silent()
     }
 }
 
@@ -97,210 +114,8 @@ impl Llm for DebugAgent {
         messages: &[QueueMessage],
         _tools: &[ToolDef],
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
-        let out = self.decide(messages);
+        let out = (self.decide)(messages);
         async move { Ok(out) }
-    }
-}
-
-impl DebugAgent {
-    fn decide(&self, messages: &[QueueMessage]) -> LlmOutput {
-        match messages.last() {
-            // tool result 收尾：fetch_terminal → 汇总回复；通知类动作已通过 Component 表达 → 沉默
-            Some(m) if m.role == Role::Tool => {
-                let is_fetch = m
-                    .tool_call_id
-                    .as_deref()
-                    .and_then(|id| tool_name_of(messages, id))
-                    == Some("fetch_terminal");
-                if is_fetch {
-                    LlmOutput {
-                        content: Some(format!(
-                            "[debug] 查到：{}",
-                            truncate(m.content.as_deref().unwrap_or(""), 120)
-                        )),
-                        tool_calls: vec![],
-                        reasoning_content: None,
-                    }
-                } else {
-                    LlmOutput {
-                        content: None,
-                        tool_calls: vec![],
-                        reasoning_content: None,                    }
-                }
-            }
-            // 用户消息
-            Some(m) if m.role == Role::User => {
-                let text = m.content.clone().unwrap_or_default();
-                if text.contains("具体") || text.contains("怎么回事") {
-                    match self.last_noteworthy_instance(messages) {
-                        Some(inst) => LlmOutput {
-                            content: None,
-                            tool_calls: vec![ToolCall {
-                                id: "dbg-fetch".into(),
-                                name: "fetch_terminal".into(),
-                                arguments: json!({ "instance": inst }).to_string(),
-                            }],
-                            reasoning_content: None,
-                        },
-                        None => LlmOutput {
-                            content: Some("[debug] 没有可查的实例记录".into()),
-                            tool_calls: vec![],
-                            reasoning_content: None,                        },
-                    }
-                } else {
-                    LlmOutput {
-                        content: Some(format!(
-                            "[debug] 收到：{text}（Queue 共 {} 条）",
-                            messages.len()
-                        )),
-                        tool_calls: vec![],
-                        reasoning_content: None,
-                    }
-                }
-            }
-            // hook 注入的 system 消息：按内容长度决定通知/沉默
-            Some(m) if m.role == Role::System => {
-                let c = m.content.clone().unwrap_or_default();
-                // 新实例注册（Example A）：问候 (・ω・)ノ + 展示实例一览
-                if c.starts_with("新实例 ") && c.ends_with(" 已注册") {
-                    let overview = instance_overview(messages);
-                    return LlmOutput {
-                        content: None,
-                        tool_calls: vec![
-                            ToolCall {
-                                id: "dbg-greet".into(),
-                                name: "set_autonomy".into(),
-                                arguments: json!({ "face": "(・ω・)ノ", "ttlMs": 3000 })
-                                    .to_string(),
-                            },
-                            ToolCall {
-                                id: "dbg-roster".into(),
-                                name: "call_component".into(),
-                                arguments: json!({
-                                    "spec": {
-                                        "id": "roster",
-                                        "type": "text_card",
-                                        "title": "实例一览",
-                                        "text": overview,
-                                        "direction": "auto"
-                                    }
-                                })
-                                .to_string(),
-                            },
-                        ],
-                        reasoning_content: None,
-                    };
-                }
-                match parse_hook_msg(&c) {
-                    Some((inst, len)) if len >= self.notify_threshold => LlmOutput {
-                        content: None,
-                        tool_calls: vec![
-                            ToolCall {
-                                id: "dbg-autonomy".into(),
-                                name: "set_autonomy".into(),
-                                arguments: json!({
-                                    "face": "✧*｡٩(ˊᗜˋ*)و✧*｡",
-                                    "motion": "bounce",
-                                    "ttlMs": 5000
-                                })
-                                .to_string(),
-                            },
-                            ToolCall {
-                                id: "dbg-component".into(),
-                                name: "call_component".into(),
-                                arguments: json!({
-                                    "spec": {
-                                        "id": format!("notify-{inst}"),
-                                        "type": "text_card",
-                                        "title": format!("{inst} 完成"),
-                                        "text": format!("[debug] {inst} 干完了（{len} 字），去看看吧"),
-                                        "direction": "auto"
-                                    }
-                                })
-                                .to_string(),
-                            },
-                        ],
-                        reasoning_content: None,
-                    },
-                    // 沉默（len < 阈值 / 其他 system 消息）：不追加任何消息
-                    _ => LlmOutput {
-                        content: None,
-                        tool_calls: vec![],
-                        reasoning_content: None,                    },
-                }
-            }
-            _ => LlmOutput {
-                content: None,
-                tool_calls: vec![],
-                reasoning_content: None,            },
-        }
-    }
-}
-
-/// 从 system prefix 提取实例一览（「## 当前实例状态」下的 "- " 行）
-fn instance_overview(messages: &[QueueMessage]) -> String {
-    let Some(prefix) = messages.first().and_then(|m| m.content.as_deref()) else {
-        return "（无实例）".into();
-    };
-    let Some((_, after)) = prefix.split_once("## 当前实例状态") else {
-        return "（无实例）".into();
-    };
-    let lines: Vec<&str> = after.lines().filter(|l| l.starts_with("- ")).collect();
-    if lines.is_empty() {
-        "（无实例）".into()
-    } else {
-        lines.join("\n")
-    }
-}
-
-/// 由 tool_call_id 反查 tool 名（向前找发起它的 assistant tool_calls 消息）
-fn tool_name_of<'a>(messages: &'a [QueueMessage], tool_call_id: &str) -> Option<&'a str> {
-    messages.iter().rev().find_map(|m| {
-        m.tool_calls.as_ref()?.iter().find_map(|c| {
-            if c.id == tool_call_id {
-                Some(c.name.as_str())
-            } else {
-                None
-            }
-        })
-    })
-}
-
-/// 解析「{instance} 完成，Context 已更新（{len} 字）。评估是否通知。」
-/// 与 Timer 兜底注入的「{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。…」同构
-fn parse_hook_msg(content: &str) -> Option<(String, usize)> {
-    let (head, rest) = content.split_once("，Context 已更新（")?;
-    let inst = head
-        .strip_suffix(" 兜底扫描发现变化")
-        .or_else(|| head.strip_suffix(" 完成"))
-        .unwrap_or(head);
-    let (len_str, _) = rest.split_once(" 字")?;
-    Some((inst.to_string(), len_str.parse().ok()?))
-}
-
-impl DebugAgent {
-    /// user 追问时定位 fetch_terminal 目标：优先「最近一个触发通知的完成实例」
-    /// （追问大概率关于值得通知的那个），无则取最近完成实例
-    fn last_noteworthy_instance(&self, messages: &[QueueMessage]) -> Option<String> {
-        let mut latest: Option<String> = None;
-        for m in messages.iter().rev() {
-            if m.role != Role::System {
-                continue;
-            }
-            let Some(c) = m.content.as_ref() else {
-                continue;
-            };
-            let Some((inst, len)) = parse_hook_msg(c) else {
-                continue;
-            };
-            if len >= self.notify_threshold {
-                return Some(inst);
-            }
-            if latest.is_none() {
-                latest = Some(inst);
-            }
-        }
-        latest
     }
 }
 
@@ -528,47 +343,40 @@ impl Llm for LlmBackend {
 mod tests {
     use super::*;
 
-    #[test]
-    fn parse_hook_msg_ok() {
-        let (inst, len) =
-            parse_hook_msg("ft 完成，Context 已更新（123 字）。评估是否通知。").unwrap();
-        assert_eq!(inst, "ft");
-        assert_eq!(len, 123);
-        // Timer 兜底注入的同构消息
-        let (inst2, len2) =
-            parse_hook_msg("config-service 兜底扫描发现变化，Context 已更新（456 字）。评估是否通知。")
-                .unwrap();
-        assert_eq!(inst2, "config-service");
-        assert_eq!(len2, 456);
-        // 含空格的实例名（如 "✳ mock-a"）
-        let (inst3, _) =
-            parse_hook_msg("✳ mock-a 完成，Context 已更新（1 字）。评估是否通知。")
-                .unwrap();
-        assert_eq!(inst3, "✳ mock-a");
-    }
-
-    #[test]
-    fn noteworthy_prefers_notified_then_latest() {
-        let agent = DebugAgent::default();
-        let msgs = vec![
-            QueueMessage::new(Role::System, "prefix", 0),
-            QueueMessage::new(Role::System, "a 完成，Context 已更新（100 字）。评估是否通知。", 1),
-            QueueMessage::new(Role::System, "b 完成，Context 已更新（9 字）。评估是否通知。", 2),
-        ];
-        // b 更新但太短未通知 → 追问应定位到 a
-        assert_eq!(
-            agent.last_noteworthy_instance(&msgs),
-            Some("a".to_string())
-        );
-        // 都没有达到阈值 → 取最近完成（b）
-        let msgs2 = vec![
-            QueueMessage::new(Role::System, "a 完成，Context 已更新（10 字）。评估是否通知。", 1),
-            QueueMessage::new(Role::System, "b 完成，Context 已更新（20 字）。评估是否通知。", 2),
-        ];
-        assert_eq!(
-            agent.last_noteworthy_instance(&msgs2),
-            Some("b".to_string())
-        );
+    #[tokio::test]
+    async fn mock_returns_exactly_what_source_gives() {
+        use std::sync::Mutex;
+        let script = Mutex::new(std::collections::VecDeque::from(vec![
+            LlmOutput {
+                content: Some("脚本第一句".into()),
+                tool_calls: vec![],
+                reasoning_content: None,
+            },
+            LlmOutput {
+                content: None,
+                tool_calls: vec![ToolCall {
+                    id: "s1".into(),
+                    name: "set_autonomy".into(),
+                    arguments: "{\"face\":\"(・ω・)\"}".into(),
+                }],
+                reasoning_content: None,
+            },
+        ]));
+        let agent = DebugAgent::new(move |_| {
+            script.lock().unwrap().pop_front().unwrap_or(LlmOutput {
+                content: None,
+                tool_calls: vec![],
+                reasoning_content: None,
+            })
+        });
+        // 脚本怎么写，就怎么返回；耗尽 → 沉默
+        let msgs = [QueueMessage::new(Role::User, "任意输入", 0)];
+        let out1 = agent.complete(&msgs, &tool_set()).await.unwrap();
+        assert_eq!(out1.content.as_deref(), Some("脚本第一句"));
+        let out2 = agent.complete(&msgs, &tool_set()).await.unwrap();
+        assert_eq!(out2.tool_calls.len(), 1);
+        let out3 = agent.complete(&msgs, &tool_set()).await.unwrap();
+        assert!(out3.content.is_none() && out3.tool_calls.is_empty());
     }
 
     fn test_client() -> OpenAiClient {

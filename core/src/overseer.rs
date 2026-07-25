@@ -334,7 +334,7 @@ fn stub_summary(messages: &[QueueMessage]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::DebugAgent;
+    use crate::llm::{DebugAgent, LlmOutput};
 
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("overseer-test-{tag}-{}", std::process::id()));
@@ -342,15 +342,72 @@ mod tests {
         dir
     }
 
+    /// 沉默 mock：不注入任何反应的测试用
     fn make_overseer(tag: &str) -> Overseer<DebugAgent> {
+        make_overseer_with(tag, DebugAgent::silent())
+    }
+
+    fn make_overseer_with(tag: &str, agent: DebugAgent) -> Overseer<DebugAgent> {
         let dir = tmp_dir(tag);
         let harness = Harness::load(&dir, "PREFIX".into(), 100_000, 0).unwrap();
-        Overseer::new(harness, Config::default(), DebugAgent::default())
+        Overseer::new(harness, Config::default(), agent)
+    }
+
+    /// 脚本决策源：每次 LLM 调用按序弹出一条；耗尽后沉默
+    fn scripted(outputs: Vec<LlmOutput>) -> DebugAgent {
+        let rest = std::sync::Mutex::new(std::collections::VecDeque::from(outputs));
+        DebugAgent::new(move |_| rest.lock().unwrap().pop_front().unwrap_or_else(silence))
+    }
+
+    fn say(text: &str) -> LlmOutput {
+        LlmOutput {
+            content: Some(text.into()),
+            tool_calls: vec![],
+            reasoning_content: None,
+        }
+    }
+
+    fn calls(specs: Vec<(&str, Value)>) -> LlmOutput {
+        LlmOutput {
+            content: None,
+            tool_calls: specs
+                .into_iter()
+                .enumerate()
+                .map(|(i, (name, args))| ToolCall {
+                    id: format!("script-{i}"),
+                    name: name.into(),
+                    arguments: args.to_string(),
+                })
+                .collect(),
+            reasoning_content: None,
+        }
+    }
+
+    fn silence() -> LlmOutput {
+        LlmOutput {
+            content: None,
+            tool_calls: vec![],
+            reasoning_content: None,
+        }
     }
 
     #[tokio::test]
-    async fn stop_long_content_notifies() {
-        let mut ov = make_overseer("notify");
+    async fn stop_hook_scripted_notify_flow() {
+        // mock 脚本：hook 触发后决定通知（set_autonomy + call_component），然后沉默
+        let agent = scripted(vec![
+            calls(vec![
+                (
+                    "set_autonomy",
+                    json!({"face": "✧*｡٩(ˊᗜˋ*)و✧*｡", "motion": "bounce", "ttlMs": 5000}),
+                ),
+                (
+                    "call_component",
+                    json!({"spec": {"id": "notify-ft", "type": "text_card", "title": "ft 完成", "text": "干完了", "direction": "auto"}}),
+                ),
+            ]),
+            silence(),
+        ]);
+        let mut ov = make_overseer_with("notify", agent);
         let long = "x".repeat(120);
         let effects = ov.handle_hook("stop", "ft", "proj", &long, 1).await.unwrap();
         assert!(effects.iter().any(|e| matches!(e, Effect::RenderComponent(_))));
@@ -379,7 +436,18 @@ mod tests {
 
     #[tokio::test]
     async fn session_start_registers_and_triggers() {
-        let mut ov = make_overseer("register");
+        // mock 脚本：问候 (・ω・)ノ + 实例一览卡片（Example A 的人为剧本）
+        let agent = scripted(vec![
+            calls(vec![
+                ("set_autonomy", json!({"face": "(・ω・)ノ", "ttlMs": 3000})),
+                (
+                    "call_component",
+                    json!({"spec": {"id": "roster", "type": "text_card", "title": "实例一览", "text": "- new-feature [Processing]", "direction": "auto"}}),
+                ),
+            ]),
+            silence(),
+        ]);
+        let mut ov = make_overseer_with("register", agent);
         let effects = ov
             .handle_hook("session_start", "new-feature", "proj", "启动画面", 1)
             .await
@@ -408,7 +476,13 @@ mod tests {
 
     #[tokio::test]
     async fn user_followup_triggers_fetch_loop() {
-        let mut ov = make_overseer("fetch");
+        // mock 脚本：hook 沉默 → 追问时 fetch_terminal → 汇总回复
+        let agent = scripted(vec![
+            silence(),
+            calls(vec![("fetch_terminal", json!({"instance": "ft"}))]),
+            say("[debug] 查到：全文"),
+        ]);
+        let mut ov = make_overseer_with("fetch", agent);
         let long = "y".repeat(100);
         ov.handle_hook("stop", "ft", "proj", &long, 1).await.unwrap();
         ov.harness
@@ -419,15 +493,9 @@ mod tests {
         // fetch_terminal 被执行，tool result 含 Context 全文
         assert!(msgs.iter().any(|m| m.role == Role::Tool
             && m.content.as_deref().unwrap_or("").contains(&"y".repeat(100))));
-        // 最终 assistant 汇总
+        // 最终 assistant 汇总（脚本原文）
         assert_eq!(msgs.last().unwrap().role, Role::Assistant);
-        assert!(msgs
-            .last()
-            .unwrap()
-            .content
-            .as_deref()
-            .unwrap_or("")
-            .starts_with("[debug] 查到："));
+        assert_eq!(msgs.last().unwrap().content.as_deref(), Some("[debug] 查到：全文"));
         let _ = std::fs::remove_dir_all(tmp_dir("fetch"));
     }
 
@@ -455,14 +523,15 @@ mod tests {
 
     #[tokio::test]
     async fn plain_user_message_replies() {
-        let mut ov = make_overseer("reply");
+        let agent = scripted(vec![say("[debug] 收到：你好")]);
+        let mut ov = make_overseer_with("reply", agent);
         ov.harness
             .append_queue(QueueMessage::new(Role::User, "你好", 1))
             .unwrap();
         ov.run_trigger(2).await.unwrap();
         let last = ov.harness.queue.messages().last().unwrap();
         assert_eq!(last.role, Role::Assistant);
-        assert!(last.content.as_deref().unwrap_or("").contains("[debug] 收到：你好"));
+        assert_eq!(last.content.as_deref(), Some("[debug] 收到：你好"));
         let _ = std::fs::remove_dir_all(tmp_dir("reply"));
     }
 
@@ -482,7 +551,16 @@ mod tests {
 
     #[tokio::test]
     async fn timer_scan_substantive_notifies_and_records() {
-        let mut ov = make_overseer("timer-sub");
+        // mock 脚本：session_start 沉默 → 兜底触发后通知（call_component）→ 沉默
+        let agent = scripted(vec![
+            silence(),
+            calls(vec![(
+                "call_component",
+                json!({"spec": {"id": "notify-cship", "type": "text_card", "title": "cship 有变化", "text": "去看看", "direction": "auto"}}),
+            )]),
+            silence(),
+        ]);
+        let mut ov = make_overseer_with("timer-sub", agent);
         ov.handle_hook("session_start", "cship", "proj", "旧内容", 1)
             .await
             .unwrap();
