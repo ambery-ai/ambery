@@ -2,6 +2,7 @@
 import { Autonomy } from "./autonomy";
 import { BrowserMockBridge, createBridge, type Motion } from "./bridge";
 import { View, type Edge } from "./view";
+import { createTauriAdapter, type WindowAdapter } from "./window-adapter";
 
 export async function main() {
   // 浏览器调试模式：加暗色背景
@@ -22,37 +23,36 @@ export async function main() {
     const { getCurrentWindow, PhysicalSize } = await import("@tauri-apps/api/window");
     const { emit } = await import("@tauri-apps/api/event");
     const win = getCurrentWindow();
+    const adapter: WindowAdapter = await createTauriAdapter(view.el, window.devicePixelRatio || 1);
 
     // 量 View 实际尺寸 → 窗口贴合（tauri.conf.json 的 pet width/height 为占位值）
     const r = view.el.getBoundingClientRect();
     const baseW = Math.ceil(r.width);
     const baseH = Math.ceil(r.height);
-    await win.setSize(new PhysicalSize(baseW, baseH));
-    view.el.style.left = "0px";
-    view.el.style.top = "0px";
+    await adapter.setSize(baseW, baseH);
+    adapter.setOffset(0, 0);
 
     // 动画播放时动态扩大窗口 → 结束后缩回（docs/multi-window.md §动画窗口自适应）
     adjustWindowForMotion = async (motion: Motion) => {
       switch (motion) {
         case "bounce":
           // 上方扩 18px bounce 空间
-          await win.setSize(new PhysicalSize(baseW, baseH + 18));
-          view.el.style.top = "18px";
+          await adapter.setSize(baseW, baseH + 18);
+          adapter.setOffset(18, 0);
           break;
         case "float":
           // 上方扩 10px float 空间
-          await win.setSize(new PhysicalSize(baseW, baseH + 10));
-          view.el.style.top = "10px";
+          await adapter.setSize(baseW, baseH + 10);
+          adapter.setOffset(10, 0);
           break;
         case "shake":
           // 左右各扩 6px shake 空间
-          await win.setSize(new PhysicalSize(baseW + 12, baseH));
-          view.el.style.left = "6px";
+          await adapter.setSize(baseW + 12, baseH);
+          adapter.setOffset(0, 6);
           break;
         default: // still
-          await win.setSize(new PhysicalSize(baseW, baseH));
-          view.el.style.left = "0px";
-          view.el.style.top = "0px";
+          await adapter.setSize(baseW, baseH);
+          adapter.setOffset(0, 0);
       }
     };
 

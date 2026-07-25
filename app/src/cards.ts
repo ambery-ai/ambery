@@ -2,6 +2,7 @@
 import type { Direction } from "./bridge";
 import { createBridge } from "./bridge";
 import { ComponentManager } from "./components";
+import { createTauriAdapter, type WindowAdapter } from "./window-adapter";
 
 const GAP = 12;
 const VIEW_RADIUS_X = 36;
@@ -19,9 +20,10 @@ export async function main() {
     });
     // 隐藏窗口 → 隐藏（不退出）
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const adapter: WindowAdapter = await createTauriAdapter(document.body, 1);
     const win = getCurrentWindow();
     win.onCloseRequested(async () => {
-      await win.hide();
+      await adapter.hide();
     });
   }
 
@@ -32,30 +34,27 @@ export async function main() {
 
   // Tauri 模式：卡片渲染时移动窗口
   if ("__TAURI_INTERNALS__" in window) {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const win = getCurrentWindow();
     const observer = new MutationObserver(() => {
-      positionWindow(win);
+      positionWindow(adapter!);
     });
     observer.observe(mount, { childList: true, subtree: true });
   }
 }
 
 /** 根据卡片内容 + pet 位置 + 方向计算并设置窗口位置 */
-async function positionWindow(win: import("@tauri-apps/api/window").Window) {
+async function positionWindow(adapter: WindowAdapter) {
   const card = document.querySelector(".component") as HTMLElement | null;
   if (!card) {
-    await win.hide();
+    await adapter.hide();
     return;
   }
   const dir = (card.dataset.direction ?? "auto") as Direction;
   const cw = card.offsetWidth || 260;
   const ch = card.offsetHeight || 140;
   const pos = calcWindowPos(petCenter, dir, cw, ch);
-  await win.setSize(new (await import("@tauri-apps/api/window")).PhysicalSize(cw + 4, ch + 4));
-  await win.setPosition(new (await import("@tauri-apps/api/window")).PhysicalPosition(pos.x, pos.y));
-  await win.show();
-  await win.setFocus(); // setFocus 确保窗口在前端
+  await adapter.setSize(cw + 4, ch + 4);
+  await adapter.setPosition(pos.x, pos.y);
+  await adapter.show();
 }
 
 function calcWindowPos(

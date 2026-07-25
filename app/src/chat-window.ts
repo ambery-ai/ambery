@@ -2,6 +2,7 @@
 import { createBridge } from "./bridge";
 import { ChatPanel } from "./chat";
 import type { Edge } from "./view";
+import { createTauriAdapter, type WindowAdapter } from "./window-adapter";
 
 const VIEW_RADIUS_X = 36;
 const VIEW_RADIUS_Y = 20;
@@ -9,11 +10,17 @@ const MARGIN = 12;
 
 let petCenter = { x: 0, y: 0 };
 let chatPanel: ChatPanel | null = null;
+let adapter: WindowAdapter | null = null;
 /** 面板实际尺寸（启动时量一次，docs/multi-window.md §窗口自适应） */
 let panelW = 320;
 let panelH = 380;
 
 export async function main() {
+  // WindowAdapter（feat）
+  if ("__TAURI_INTERNALS__" in window) {
+    adapter = await createTauriAdapter(document.body, 1);
+  }
+
   // Tauri 模式：订阅 pet 位置 + chat 显隐事件
   if ("__TAURI_INTERNALS__" in window) {
     const { listen } = await import("@tauri-apps/api/event");
@@ -28,7 +35,7 @@ export async function main() {
     });
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().onCloseRequested(async () => {
-      await getCurrentWindow().hide();
+      await adapter?.hide();
     });
   }
 
@@ -42,10 +49,7 @@ export async function main() {
     const r = el.getBoundingClientRect();
     panelW = Math.ceil(r.width);
     panelH = Math.ceil(r.height);
-    if ("__TAURI_INTERNALS__" in window) {
-      const { getCurrentWindow, PhysicalSize } = await import("@tauri-apps/api/window");
-      await getCurrentWindow().setSize(new PhysicalSize(panelW, panelH));
-    }
+    await adapter?.setSize(panelW, panelH);
   }
 }
 
@@ -72,19 +76,11 @@ async function showChat(edge: Edge) {
   left = Math.max(8, Math.min(left, screen.availWidth - panelW - 8));
   top = Math.max(8, Math.min(top, screen.availHeight - panelH - 8));
 
-  if ("__TAURI_INTERNALS__" in window) {
-    const { getCurrentWindow, PhysicalPosition } = await import("@tauri-apps/api/window");
-    const win = getCurrentWindow();
-    await win.setPosition(new PhysicalPosition(left, top));
-    await win.show();
-    await win.setFocus();
-  }
+  await adapter?.setPosition(left, top);
+  await adapter?.show();
 }
 
 async function hideChat() {
-  if ("__TAURI_INTERNALS__" in window) {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().hide();
-  }
+  await adapter?.hide();
   chatPanel?.hide();
 }
