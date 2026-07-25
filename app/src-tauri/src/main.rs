@@ -69,7 +69,7 @@ async fn run_core() {
     let state = Arc::new(AppState::new(overseer, tx, mock));
     spawn_timer_task(state.clone(), 60_000, 2); // 真实 tick：60s（Config 的 5min 间隔由 TimerWheel 控制）
     let app = router(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:47600")
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:47601") // WORKTREE: 避免与主 worktree 47600 冲突
         .await
         .expect("bind 47600");
     axum::serve(listener, app).await.expect("serve core");
