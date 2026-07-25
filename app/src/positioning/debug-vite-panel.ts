@@ -1,9 +1,11 @@
-// positioning/debug-vite-panel — Vite 开发调试面板：α/β 滑块 + 窗口注册面板
+// positioning/debug-vite-panel — Vite dev 调试面板（prod build tree-shaking 剔除）
+// 注：全模块仅 import.meta.env.DEV 时有效，prod 时 import 消去
 
 import type { PositioningEngine } from "./engine";
 import { Direction } from "./types";
 
 export class DebugPositioningPanel {
+  static readonly DEV_ONLY = !import.meta.env.PROD;
   private el: HTMLDivElement;
   private engine: PositioningEngine;
   private petCenter = { x: 0, y: 0 };

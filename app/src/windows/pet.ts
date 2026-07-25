@@ -52,8 +52,8 @@ export async function main() {
     }
     broadcastPosition();
     await win.onMoved(() => broadcastPosition());
-  } else {
-    // 浏览器模式：ChatPanel / ComponentManager
+  } else if (!import.meta.env.PROD) {
+    // 浏览器模式（仅 Vite dev / preview，prod build tree-shaking 剔除）
     const { ChatPanel } = await import("../chat");
     const { ComponentManager } = await import("../components/component-manager");
     new ComponentManager(mount, bridge, () => view.center());
