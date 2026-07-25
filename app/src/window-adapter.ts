@@ -45,20 +45,27 @@ export function createBrowserAdapter(
 ): WindowAdapter {
   const wrapper = document.createElement("div");
   wrapper.id = "debug-wrapper";
-  wrapper.style.cssText = "position:fixed;z-index:9999;";
+  wrapper.style.cssText = "position:fixed;";
+  wrapper.appendChild(viewEl);
+  viewEl.style.position = "absolute";
+  (viewEl as any).dragTarget = wrapper;
 
-  // overlay 填满 wrapper，紧贴边界
+  // overlay 独立 div，兄弟节点叠在 wrapper 上
   const overlay = document.createElement("div");
   overlay.id = "debug-frame";
-  overlay.style.cssText = "position:absolute;inset:0;border:2px solid red;pointer-events:none;background:transparent";
-
-  // 把 View 移入 wrapper，定位改为 relative
-  const prevParent = viewEl.parentElement;
-  wrapper.appendChild(viewEl);
-  wrapper.appendChild(overlay);
+  overlay.style.cssText = "position:fixed;border:2px solid red;pointer-events:none;background:transparent;z-index:9998";
   mount.appendChild(wrapper);
-  viewEl.style.position = "absolute"; // 跟 wrapper 移动，不受宽度约束
-  (viewEl as any).dragTarget = wrapper;
+  mount.appendChild(overlay);
+
+  const syncOverlay = () => {
+    const wr = wrapper.getBoundingClientRect();
+    overlay.style.top = `${wr.top}px`;
+    overlay.style.left = `${wr.left}px`;
+    overlay.style.width = `${wr.width}px`;
+    overlay.style.height = `${wr.height}px`;
+    requestAnimationFrame(syncOverlay);
+  };
+  requestAnimationFrame(syncOverlay);
 
   return {
     async setSize(w: number, h: number) {
@@ -73,7 +80,7 @@ export function createBrowserAdapter(
       wrapper.style.left = `${x}px`;
       wrapper.style.top = `${y}px`;
     },
-    async show() { wrapper.style.display = ""; overlay.style.borderColor = "red"; },
-    async hide() { wrapper.style.display = "none"; overlay.style.borderColor = "lime"; },
+    async show() { wrapper.style.display = ""; overlay.style.display = ""; overlay.style.borderColor = "red"; },
+    async hide() { wrapper.style.display = "none"; overlay.style.display = "none"; overlay.style.borderColor = "lime"; },
   };
 }
