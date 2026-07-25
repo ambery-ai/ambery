@@ -378,17 +378,25 @@ impl<L: Llm> OverseerBackend<L> {
                     .unwrap_or_else(|| "（无记录）".into());
                 (json!({ "instance": inst, "content": content }), vec![])
             }
-            "set_autonomy" => (
-                json!({ "ok": true }),
-                vec![Effect::SetAutonomy {
-                    face: args.get("face").and_then(Value::as_str).map(String::from),
-                    motion: args
-                        .get("motion")
-                        .and_then(Value::as_str)
-                        .map(String::from),
-                    ttl_ms: args.get("ttlMs").and_then(Value::as_u64),
-                }],
-            ),
+            "set_autonomy" => {
+                let mut face = args.get("face").and_then(Value::as_str).map(String::from);
+                let mut motion = args.get("motion").and_then(Value::as_str).map(String::from);
+                // face 传 key 名：仅解析为映射表本体；motion 不连带——
+                // 「仅传参的字段被覆盖」，缺省即不碰（docs/autonomy.md）
+                if let Some(f) = &face {
+                    if let Some(entry) = self.config.kaomoji.get(f.as_str()) {
+                        face = Some(entry.face.clone());
+                    }
+                }
+                (
+                    json!({ "ok": true }),
+                    vec![Effect::SetAutonomy {
+                        face,
+                        motion,
+                        ttl_ms: args.get("ttlMs").and_then(Value::as_u64),
+                    }],
+                )
+            }
             "edit_config" => {
                 let key = args.get("key").and_then(Value::as_str).unwrap_or("");
                 let face = args.get("face").and_then(Value::as_str);
@@ -866,6 +874,39 @@ mod tests {
         assert!(ov.due_timer_scans(1000 + 100_000, 10).is_empty());
         assert_eq!(ov.due_timer_scans(1000 + 400_000, 10), vec!["a".to_string()]);
         let _ = std::fs::remove_dir_all(tmp_dir("timer-reset"));
+    }
+
+    #[tokio::test]
+    async fn set_autonomy_face_key_resolves_to_body() {
+        let mut ov = make_overseer("face-key");
+        let call = ToolCall {
+            id: "c1".into(),
+            name: "set_autonomy".into(),
+            // face 传 key 名：仅解析 face 本体；motion 缺省不连带（保持未覆盖）
+            arguments: json!({ "face": "notify", "ttlMs": 3000 }).to_string(),
+        };
+        let (result, effects) = ov.execute_tool(&call);
+        assert_eq!(result["ok"], json!(true));
+        assert!(effects.iter().any(|e| matches!(
+            e,
+            Effect::SetAutonomy {
+                face: Some(f),
+                motion: None,
+                ..
+            } if f == "✧*｡٩(ˊᗜˋ*)و✧*｡"
+        )));
+        // 颜文字本体原样透传（非 key 不解析）
+        let call2 = ToolCall {
+            id: "c2".into(),
+            name: "set_autonomy".into(),
+            arguments: json!({ "face": "(・ω・)ノ" }).to_string(),
+        };
+        let (_, effects2) = ov.execute_tool(&call2);
+        assert!(effects2.iter().any(|e| matches!(
+            e,
+            Effect::SetAutonomy { face: Some(f), motion: None, .. } if f == "(・ω・)ノ"
+        )));
+        let _ = std::fs::remove_dir_all(tmp_dir("face-key"));
     }
 
     #[tokio::test]

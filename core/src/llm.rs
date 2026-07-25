@@ -36,7 +36,7 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_autonomy",
-            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）",
+            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）。face 传颜文字本体或状态 key 名（key 解析为映射本体，仅解析 face）",
             parameters: json!({
                 "type": "object",
                 "properties": {
