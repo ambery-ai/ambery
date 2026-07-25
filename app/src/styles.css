@@ -2,16 +2,15 @@ html,
 body {
   margin: 0;
   height: 100%;
-  background: #1e1e2e;
+  background: transparent; /* 默认透明（Tauri 安全回退） */
   overflow: hidden;
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
-/* Tauri 壳模式：全透明 overlay（docs/tauri-shell.md）。
-   html 与 body 都必须透明——画布背景由 html 传播 */
-html.tauri,
-html.tauri body {
-  background: transparent;
+/* 浏览器调试模式：暗色背景 */
+html.browser,
+html.browser body {
+  background: #1e1e2e;
 }
 
 /* ── View（concepts §3）：球场圆形浮动窗口，窗内仅颜文字 ── */
