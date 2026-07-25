@@ -64,7 +64,7 @@ export async function main(engine: PositioningEngine) {
     // debug：positioning 面板（α/β 滑块 + 窗口注册）
     const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
     const panel = new DebugPositioningPanel(engine);
-    // 拖拽时隐藏标记，结束后用相对偏移恢复
+    // 拖拽时隐藏所有附属窗口，结束后以相对偏移恢复
     let markOffsets: { dx: number; dy: number; css: string }[] = [];
     const syncPanel = () => {
       const wr = view.el.parentElement!.getBoundingClientRect();
@@ -74,7 +74,8 @@ export async function main(engine: PositioningEngine) {
       engine.registerPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
     };
     view.el.addEventListener("view:drag-start", () => {
-      // 用 wrapper 中心（不受 CSS 动画影响），避免 translateY 波动
+      engine.hideAll();
+      // 同时处理 debug marks
       const wr = view.el.parentElement!.getBoundingClientRect();
       const petX = wr.x + wr.width / 2;
       const petY = wr.y + wr.height / 2;
@@ -88,23 +89,28 @@ export async function main(engine: PositioningEngine) {
         });
         el.remove();
       });
+      // 隐藏 chatpanel/cards
+      chatPanel.hide();
     });
     view.el.addEventListener("view:moved", () => {
       const wr = view.el.parentElement!.getBoundingClientRect();
-      const petX = wr.x + wr.width / 2;
-      const petY = wr.y + wr.height / 2;
+      const petC = { x: wr.x + wr.width/2, y: wr.y + wr.height/2 };
+      syncPanel();
+      // 恢复 engine 窗口位置
+      const restored = engine.restoreAll(petC);
+      for (const r of restored) {
+        if (r.id === "chat-panel") chatPanel.toggle();
+      }
+      // 恢复 debug marks
       for (const mo of markOffsets) {
         const mark = document.createElement("div");
         mark.className = "dbg-place-mark";
         mark.style.cssText = mo.css;
-        mark.style.left = `${petX + mo.dx - 75}px`;
-        mark.style.top = `${petY + mo.dy - 50}px`;
+        mark.style.left = `${petC.x + mo.dx - 75}px`;
+        mark.style.top = `${petC.y + mo.dy - 50}px`;
         document.body.appendChild(mark);
       }
-      syncPanel();
     });
-    view.el.addEventListener("view:docked", syncPanel);
-    view.el.addEventListener("view:undocked", syncPanel);
     syncPanel();
   }
 
