@@ -20,7 +20,6 @@ use queue::{Queue, QueueMessage};
 use serde::{Deserialize, Serialize};
 use storage::JsonlStore;
 
-pub const QUEUE_FILE: &str = "queue.jsonl";
 pub const CONTEXT_FILE: &str = "context.jsonl";
 /// work-agents 注册表（被盯的干活 Code CLI 实例清单，append-only upsert 日志）
 pub const WORK_AGENTS_FILE: &str = "work-agents.jsonl";
@@ -224,24 +223,15 @@ pub struct Harness {
 }
 
 impl Harness {
-    /// 启动：replay JSONL 恢复完整状态（concepts §13「重启后恢复完整对话」）。
-    /// queue.jsonl 为空时用给定 prefix 新建。
+    /// 启动：replay JSONL 恢复世界状态（concepts §13「跨生命周期保留」）。
+    /// Queue 是内存视图，起步为空（docs/storage.md；消息日志双写随统一信封落地）。
     pub fn load(
         dir: &std::path::Path,
-        prefix: String,
         token_threshold: usize,
-        ts: i64,
+        _ts: i64,
     ) -> std::io::Result<Self> {
         let store = JsonlStore::new(dir)?;
-        let queue_msgs: Vec<QueueMessage> = store.read_all(QUEUE_FILE)?;
-        let queue = if queue_msgs.is_empty() {
-            // 新建 Queue 时 prefix 一并落盘，保证 replay 首条恒为 system prefix
-            let prefix_msg = QueueMessage::new(queue::Role::System, prefix, ts);
-            store.append(QUEUE_FILE, &prefix_msg)?;
-            Queue::from_messages(vec![prefix_msg], token_threshold)
-        } else {
-            Queue::from_messages(queue_msgs, token_threshold)
-        };
+        let queue = Queue::new(token_threshold);
         let context = Context::from_records(store.read_all(CONTEXT_FILE)?);
         // agents 是 upsert 日志：replay 须逐条折叠（同 id 取最后一条）
         let mut agents: Vec<AgentEntry> = vec![];
@@ -263,8 +253,8 @@ impl Harness {
         })
     }
 
+    /// 追加消息到内存 Queue（docs/storage.md：消息日志双写随统一信封落地）
     pub fn append_queue(&mut self, msg: QueueMessage) -> std::io::Result<()> {
-        self.store.append(QUEUE_FILE, &msg)?;
         self.queue.push(msg);
         Ok(())
     }
@@ -335,7 +325,7 @@ mod tests {
     fn jsonl_roundtrip_and_replay() {
         let dir = tmp_dir("replay");
         {
-            let mut h = Harness::load(&dir, "PREFIX".into(), 1000, 0).unwrap();
+            let mut h = Harness::load(&dir, 1000, 0).unwrap();
             h.append_queue(QueueMessage::new(Role::User, "你好", 1)).unwrap();
             h.append_context(ContextRecord {
                 instance: "ft".into(),
@@ -354,10 +344,9 @@ mod tests {
             })
             .unwrap();
         }
-        // 重启 replay：完整恢复
-        let h = Harness::load(&dir, "PREFIX".into(), 1000, 0).unwrap();
-        assert_eq!(h.queue.messages().len(), 2); // prefix + user
-        assert_eq!(h.queue.prefix().content.as_deref(), Some("PREFIX"));
+        // 重启 replay：世界状态恢复；Queue 是内存视图，起步为空
+        let h = Harness::load(&dir, 1000, 0).unwrap();
+        assert!(h.queue.messages().is_empty());
         assert_eq!(h.context.latest("ft").unwrap().content, "终端全文");
         assert_eq!(h.agents.len(), 1);
         assert_eq!(h.agents[0].status, AgentStatus::Processing);
@@ -376,11 +365,11 @@ mod tests {
             last_seen: ts,
         };
         {
-            let mut h = Harness::load(&dir, "P".into(), 1000, 0).unwrap();
+            let mut h = Harness::load(&dir, 1000, 0).unwrap();
             h.upsert_agent(entry(AgentStatus::Processing, 2)).unwrap();
             h.upsert_agent(entry(AgentStatus::Idle, 3)).unwrap();
         }
-        let h = Harness::load(&dir, "P".into(), 1000, 0).unwrap();
+        let h = Harness::load(&dir, 1000, 0).unwrap();
         assert_eq!(h.agents.len(), 1); // 同 id 合并
         assert_eq!(h.agents[0].status, AgentStatus::Idle); // 最后一条 wins
         let _ = std::fs::remove_dir_all(&dir);
@@ -390,13 +379,13 @@ mod tests {
     fn agents_md_bootstrapped_once() {
         let dir = tmp_dir("agentsmd");
         // 首次 load：bootstrap 写入默认身份提示词
-        Harness::load(&dir, "P".into(), 1000, 0).unwrap();
+        Harness::load(&dir, 1000, 0).unwrap();
         let md = std::fs::read_to_string(dir.join(AGENTS_MD_FILE)).unwrap();
         assert!(md.contains("# AGENTS.md — ペット"));
         assert!(md.contains("Terminal Overseer"));
         // 用户改过的内容不被覆盖
         std::fs::write(dir.join(AGENTS_MD_FILE), "# 自定义ペット").unwrap();
-        Harness::load(&dir, "P".into(), 1000, 0).unwrap();
+        Harness::load(&dir, 1000, 0).unwrap();
         let md2 = std::fs::read_to_string(dir.join(AGENTS_MD_FILE)).unwrap();
         assert_eq!(md2, "# 自定义ペット");
         let _ = std::fs::remove_dir_all(&dir);

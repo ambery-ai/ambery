@@ -1,5 +1,5 @@
-//! Queue（concepts §10c，docs/harness.md）：消息 thread，顺序处理，
-//! 第 0 条恒为 system prefix（替换式更新，不追加、不胀 Queue）。
+//! Queue（concepts §10c，docs/harness.md）：纯对话与事件的内存视图，顺序处理。
+//! system prompt 不是 Queue 消息——它是每次调用现拼的请求头（docs/storage.md）。
 
 use serde::{Deserialize, Serialize};
 
@@ -82,33 +82,24 @@ impl QueueMessage {
     }
 }
 
-/// shaking 保留最近 N 条原始消息（prefix 除外），concepts §10d
+/// shaking 保留最近 N 条原始消息，concepts §10d
 pub const KEEP_RECENT: usize = 8;
 
 pub struct Queue {
-    messages: Vec<QueueMessage>, // [0] 恒为 system prefix
+    messages: Vec<QueueMessage>,
     pub token_threshold: usize,
 }
 
 impl Queue {
-    pub fn new(prefix: String, ts: i64, token_threshold: usize) -> Self {
+    pub fn new(token_threshold: usize) -> Self {
         Self {
-            messages: vec![QueueMessage::new(Role::System, prefix, ts)],
+            messages: vec![],
             token_threshold,
         }
     }
 
     pub fn messages(&self) -> &[QueueMessage] {
         &self.messages
-    }
-
-    /// 替换式更新 system prefix（Autonomy 顶层状态等），cache 锚点稳定
-    pub fn replace_prefix(&mut self, prefix: String, ts: i64) {
-        self.messages[0] = QueueMessage::new(Role::System, prefix, ts);
-    }
-
-    pub fn prefix(&self) -> &QueueMessage {
-        &self.messages[0]
     }
 
     pub fn push(&mut self, msg: QueueMessage) {
@@ -123,24 +114,16 @@ impl Queue {
         self.total_tokens() > self.token_threshold
     }
 
-    /// 总结 + shaking：prefix 不动，历史压为一条 system 摘要，保留最近 KEEP_RECENT 条
+    /// 总结 + shaking：历史压为一条 system 摘要，保留最近 KEEP_RECENT 条
     pub fn compress(&mut self, summary: String, ts: i64) {
-        let prefix = self.messages[0].clone();
-        let tail_start = self.messages.len().saturating_sub(KEEP_RECENT).max(1);
+        let tail_start = self.messages.len().saturating_sub(KEEP_RECENT);
         let tail: Vec<QueueMessage> = self.messages[tail_start..].to_vec();
-        self.messages = vec![
-            prefix,
-            QueueMessage::new(Role::System, format!("[历史摘要] {summary}"), ts),
-        ];
+        self.messages = vec![QueueMessage::new(Role::System, format!("[历史摘要] {summary}"), ts)];
         self.messages.extend(tail);
     }
 
-    /// replay 恢复（Storage 读出的第一条必须已是 system prefix）
+    /// replay 恢复（纯消息序列，无格式前置要求）
     pub fn from_messages(messages: Vec<QueueMessage>, token_threshold: usize) -> Self {
-        assert!(
-            !messages.is_empty() && messages[0].role == Role::System,
-            "queue replay: first message must be system prefix"
-        );
         Self {
             messages,
             token_threshold,
@@ -153,17 +136,7 @@ mod tests {
     use super::*;
 
     fn q() -> Queue {
-        Queue::new("PREFIX v1".into(), 0, 100)
-    }
-
-    #[test]
-    fn prefix_replace_does_not_grow() {
-        let mut queue = q();
-        queue.replace_prefix("PREFIX v2".into(), 1);
-        queue.replace_prefix("PREFIX v3".into(), 2);
-        assert_eq!(queue.messages().len(), 1);
-        assert_eq!(queue.prefix().content.as_deref(), Some("PREFIX v3"));
-        assert_eq!(queue.prefix().role, Role::System);
+        Queue::new(100)
     }
 
     #[test]
@@ -172,26 +145,22 @@ mod tests {
         queue.push(QueueMessage::new(Role::User, "u1", 1));
         queue.push(QueueMessage::new(Role::Assistant, "a1", 2));
         let roles: Vec<Role> = queue.messages().iter().map(|m| m.role).collect();
-        assert_eq!(roles, vec![Role::System, Role::User, Role::Assistant]);
+        assert_eq!(roles, vec![Role::User, Role::Assistant]);
     }
 
     #[test]
-    fn compress_keeps_prefix_summary_and_recent() {
+    fn compress_keeps_summary_and_recent() {
         let mut queue = q();
-        for i in 0..20 {
+        for i in 0..21 {
             queue.push(QueueMessage::new(Role::User, format!("msg-{i}"), i as i64));
         }
         assert!(queue.needs_compression()); // 21 条 × (4 + ~1) > 100
         queue.compress("前文提要".into(), 99);
         let msgs = queue.messages();
-        assert_eq!(msgs.len(), 2 + KEEP_RECENT);
-        assert_eq!(msgs[0].content.as_deref(), Some("PREFIX v1")); // prefix 不动
-        assert_eq!(
-            msgs[1].content.as_deref(),
-            Some("[历史摘要] 前文提要")
-        );
-        assert_eq!(msgs[2].content.as_deref(), Some("msg-12")); // 最近 8 条
-        assert_eq!(msgs.last().unwrap().content.as_deref(), Some("msg-19"));
+        assert_eq!(msgs.len(), 1 + KEEP_RECENT);
+        assert_eq!(msgs[0].content.as_deref(), Some("[历史摘要] 前文提要"));
+        assert_eq!(msgs[1].content.as_deref(), Some("msg-13")); // 最近 8 条
+        assert_eq!(msgs.last().unwrap().content.as_deref(), Some("msg-20"));
     }
 
     #[test]
@@ -199,20 +168,17 @@ mod tests {
         let mut queue = q();
         queue.push(QueueMessage::new(Role::User, "only", 1));
         queue.compress("s".into(), 2);
-        assert_eq!(queue.messages().len(), 3); // prefix + summary + 原消息
+        assert_eq!(queue.messages().len(), 2); // summary + 原消息
     }
 
     #[test]
-    fn replay_requires_system_prefix_first() {
-        let msgs = vec![QueueMessage::new(Role::System, "P", 0)];
+    fn replay_preserves_order() {
+        let msgs = vec![
+            QueueMessage::new(Role::User, "u", 0),
+            QueueMessage::new(Role::Assistant, "a", 1),
+        ];
         let queue = Queue::from_messages(msgs, 100);
-        assert_eq!(queue.prefix().content.as_deref(), Some("P"));
-    }
-
-    #[test]
-    #[should_panic]
-    fn replay_rejects_non_prefix_first() {
-        let msgs = vec![QueueMessage::new(Role::User, "x", 0)];
-        let _ = Queue::from_messages(msgs, 100);
+        let roles: Vec<Role> = queue.messages().iter().map(|m| m.role).collect();
+        assert_eq!(roles, vec![Role::User, Role::Assistant]);
     }
 }

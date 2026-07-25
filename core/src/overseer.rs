@@ -52,9 +52,10 @@ impl<L: Llm> Overseer<L> {
         }
     }
 
-    /// 拼装 system prefix（concepts §12：Config 引用的各概念数据运行时拼装）
-    /// = base_prompt（Config）+ AGENTS.md（Storage，热生效）+ kaomoji 表 + 顶层状态
-    fn build_prefix(&self) -> String {
+    /// 现拼 system prompt 请求头（concepts §12：Config 引用的各概念数据运行时拼装）
+    /// = base_prompt（Config）+ AGENTS.md（Storage，热生效）+ kaomoji 表。
+    /// 内容稳定、天然 cache 友好，不落 Queue（docs/storage.md）。
+    fn assemble_system_prompt(&self) -> String {
         let mut s = self.config.base_prompt.clone();
         s.push_str("\n\n");
         s.push_str(&self.read_agents_md());
@@ -64,13 +65,6 @@ impl<L: Llm> Overseer<L> {
         for k in keys {
             let v = &self.config.kaomoji[k];
             s.push_str(&format!("- {k}: {} ({})\n", v.face, v.motion));
-        }
-        s.push_str("\n## 当前实例状态\n");
-        if self.harness.agents.is_empty() {
-            s.push_str("（无实例）\n");
-        }
-        for a in &self.harness.agents {
-            s.push_str(&format!("- {} [{:?}] project={}\n", a.name, a.status, a.project));
         }
         s
     }
@@ -88,21 +82,23 @@ impl<L: Llm> Overseer<L> {
             self.harness
                 .append_queue(QueueMessage::new(Role::System, merged, ts))?;
         }
-        // 2. 替换式更新 system prefix
-        let prefix = self.build_prefix();
-        self.harness.queue.replace_prefix(prefix, ts);
+        // 2. 现拼 system prompt 请求头（不落 Queue，docs/storage.md）
+        let head = self.assemble_system_prompt();
         // 3. Compression：超阈值 → stub 摘要 + shaking
         if self.harness.queue.needs_compression() {
             let summary = stub_summary(self.harness.queue.messages());
             self.harness.queue.compress(summary, ts);
         }
-        // 4. tool 循环
+        // 4. tool 循环（请求 = 请求头 + Queue 全部消息）
         let tools = tool_set();
         let mut effects = vec![];
         for _ in 0..self.max_tool_iters {
+            let mut request = Vec::with_capacity(self.harness.queue.messages().len() + 1);
+            request.push(QueueMessage::new(Role::System, head.clone(), ts));
+            request.extend_from_slice(self.harness.queue.messages());
             let out = self
                 .llm
-                .complete(self.harness.queue.messages(), &tools)
+                .complete(&request, &tools)
                 .await
                 .map_err(std::io::Error::other)?;
             if out.tool_calls.is_empty() {
@@ -349,7 +345,7 @@ mod tests {
 
     fn make_overseer_with(tag: &str, agent: DebugAgent) -> Overseer<DebugAgent> {
         let dir = tmp_dir(tag);
-        let harness = Harness::load(&dir, "PREFIX".into(), 100_000, 0).unwrap();
+        let harness = Harness::load(&dir, 100_000, 0).unwrap();
         Overseer::new(harness, Config::default(), agent)
     }
 
@@ -413,10 +409,10 @@ mod tests {
         assert!(effects.iter().any(|e| matches!(e, Effect::RenderComponent(_))));
         assert!(effects.iter().any(|e| matches!(e, Effect::SetAutonomy { .. })));
         let roles: Vec<Role> = ov.harness.queue.messages().iter().map(|m| m.role).collect();
-        // prefix + system(hook) + assistant(tool_calls) + tool + tool
+        // system(hook) + assistant(tool_calls) + tool + tool
         assert_eq!(
             roles,
-            vec![Role::System, Role::System, Role::Assistant, Role::Tool, Role::Tool]
+            vec![Role::System, Role::Assistant, Role::Tool, Role::Tool]
         );
         // agent 注册为 idle
         assert_eq!(ov.harness.agents[0].status, AgentStatus::Idle);
@@ -429,8 +425,8 @@ mod tests {
         let effects = ov.handle_hook("stop", "oss", "proj", "清理了 2 行注释", 1).await.unwrap();
         assert!(effects.is_empty());
         let roles: Vec<Role> = ov.harness.queue.messages().iter().map(|m| m.role).collect();
-        // prefix + system(hook)，沉默不追加 assistant
-        assert_eq!(roles, vec![Role::System, Role::System]);
+        // system(hook)，沉默不追加 assistant
+        assert_eq!(roles, vec![Role::System]);
         let _ = std::fs::remove_dir_all(tmp_dir("silence"));
     }
 
@@ -512,9 +508,9 @@ mod tests {
             .iter()
             .filter(|m| m.role == Role::System)
             .collect();
-        // prefix + 合并的一条
-        assert_eq!(sys.len(), 2);
-        let merged = sys[1].content.as_deref().unwrap();
+        // 合并的一条
+        assert_eq!(sys.len(), 1);
+        let merged = sys[0].content.as_deref().unwrap();
         assert!(merged.contains("用户关闭了 text_card「摘要」"));
         assert!(merged.contains("用户勾选了 todobox 条目「跑测试」"));
         assert!(ov.harness.event_buffer.is_empty());
@@ -602,13 +598,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prefix_includes_agents_md() {
-        let ov = make_overseer("prefix-md");
-        let prefix = ov.build_prefix();
-        // bootstrap 写入的默认身份提示词拼进了 prefix（§12：Config 引用数据运行时拼装）
-        assert!(prefix.contains("# AGENTS.md — ペット"));
-        assert!(prefix.contains("## 颜文字映射"));
-        let _ = std::fs::remove_dir_all(tmp_dir("prefix-md"));
+    async fn head_includes_agents_md() {
+        let ov = make_overseer("head-md");
+        let head = ov.assemble_system_prompt();
+        // bootstrap 写入的默认身份提示词拼进了请求头（§12：Config 引用数据运行时拼装）
+        assert!(head.contains("# AGENTS.md — ペット"));
+        assert!(head.contains("## 颜文字映射"));
+        // 请求头只装稳定提示词：实例状态走 diff 事件，不进请求头
+        assert!(!head.contains("## 当前实例状态"));
+        let _ = std::fs::remove_dir_all(tmp_dir("head-md"));
     }
 
     #[tokio::test]

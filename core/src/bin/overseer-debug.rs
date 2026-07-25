@@ -83,13 +83,8 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(5_000);
-    let harness = Harness::load(
-        &storage_dir,
-        config.base_prompt.clone(),
-        config.token_threshold,
-        now_ms(),
-    )
-    .expect("load harness");
+    let harness = Harness::load(&storage_dir, config.token_threshold, now_ms())
+        .expect("load harness");
     let backend = match LlmBackend::from_config(&config.llm) {
         // debug 分支换 CLI 决策源（OpenAi 变体的内部降级仍是沉默 mock）
         LlmBackend::Debug(_) => LlmBackend::Debug(DebugAgent::new(cli_decide)),
