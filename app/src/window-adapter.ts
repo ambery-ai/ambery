@@ -17,7 +17,7 @@ export interface WindowAdapter {
 /** Tauri 模式：真实 OS 窗口 */
 export async function createTauriAdapter(
   viewEl: HTMLElement,
-  dpr: number,
+  _dpr: number,
 ): Promise<WindowAdapter> {
   const { getCurrentWindow, PhysicalSize, PhysicalPosition } = await import("@tauri-apps/api/window");
   const win = getCurrentWindow();

@@ -11,6 +11,8 @@ const EDGE_MARGIN = 8;
 
 let petCenter = { x: 0, y: 0 };
 
+let adapter: WindowAdapter | null = null;
+
 export async function main() {
   // Tauri 模式：订阅 pet 位置
   if ("__TAURI_INTERNALS__" in window) {
@@ -20,10 +22,10 @@ export async function main() {
     });
     // 隐藏窗口 → 隐藏（不退出）
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const adapter: WindowAdapter = await createTauriAdapter(document.body, 1);
+    adapter = await createTauriAdapter(document.body, 1);
     const win = getCurrentWindow();
     win.onCloseRequested(async () => {
-      await adapter.hide();
+      await adapter?.hide();
     });
   }
 
@@ -35,14 +37,15 @@ export async function main() {
   // Tauri 模式：卡片渲染时移动窗口
   if ("__TAURI_INTERNALS__" in window) {
     const observer = new MutationObserver(() => {
-      positionWindow(adapter!);
+      positionWindow();
     });
     observer.observe(mount, { childList: true, subtree: true });
   }
 }
 
 /** 根据卡片内容 + pet 位置 + 方向计算并设置窗口位置 */
-async function positionWindow(adapter: WindowAdapter) {
+async function positionWindow() {
+  if (!adapter) return;
   const card = document.querySelector(".component") as HTMLElement | null;
   if (!card) {
     await adapter.hide();

@@ -8,8 +8,6 @@ export type Edge = "top" | "right" | "bottom" | "left";
 
 type ViewState = { mode: "floating" } | { mode: "docked"; edge: Edge };
 
-const DOCK_MARGIN = 8;
-
 export class View {
   readonly el: HTMLDivElement;
   private faceEl: HTMLSpanElement;
