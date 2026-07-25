@@ -15,6 +15,9 @@
   brain → core: `c <文本>` | `t <tool名> <json参数>`（可多行）| 空行提交
   非帧行（server 日志）原样透传到本脚本 stdout。
 
+  帧 = 完整请求（docs/storage.md）：[现拼请求头] + Queue 全部消息 + [Autonomy 状态末端]。
+  请求头无实例清单（diff 事件化）——roster 由本脚本从 Queue 事件流重建。
+
 环境变量（脚本自动设置，指向隔离临时目录，避免吃到真实配置）：
   OVERSEER_CONFIG_DIR / OVERSEER_STORAGE_DIR — 默认 %TEMP%/overseer-brain-{config,storage}
 """
@@ -50,6 +53,25 @@ def parse_hook_msg(content: str):
         return None
 
 
+def is_head(m) -> bool:
+    """现拼请求头（帧首条）：含 kaomoji 表段，不落 Queue"""
+    return m.get("role") == "system" and "## 颜文字映射" in (m.get("content") or "")
+
+
+def is_autonomy(m) -> bool:
+    """Autonomy 状态末端（帧末条）：[face: key, motion: key]，不落 Queue"""
+    c = m.get("content") or ""
+    return m.get("role") == "system" and c.startswith("[face: ") and c.endswith("]")
+
+
+def strip_frame(messages):
+    """帧 = [请求头] + Queue + [Autonomy 末端] → 纯 Queue 部分"""
+    body = messages[1:] if messages and is_head(messages[0]) else list(messages)
+    if body and is_autonomy(body[-1]):
+        body = body[:-1]
+    return body
+
+
 def tool_name_of(messages, tool_call_id):
     """由 tool_call_id 反查 tool 名（向前找发起它的 assistant tool_calls 消息）"""
     for m in reversed(messages):
@@ -60,14 +82,29 @@ def tool_name_of(messages, tool_call_id):
 
 
 def instance_overview(messages):
-    """从 system prefix（i=0 消息）抠「## 当前实例状态」下的 - 行"""
-    if not messages or not messages[0].get("content"):
+    """从 Queue 事件流重建实例清单（diff 事件化，docs/harness.md 规则 3）：
+    注册 = Processing；完成 = Idle；归零重 diff 的全景消息直接解析 - 行"""
+    roster = {}
+    for m in messages:
+        if m.get("role") != "system":
+            continue
+        c = m.get("content") or ""
+        if c.startswith("新实例 ") and c.endswith(" 已注册"):
+            roster[c[len("新实例 "):-len(" 已注册")]] = "Processing"
+        elif c.startswith("实例全景同步"):
+            for line in c.splitlines()[1:]:
+                # 「- {name} [{Status}] project={...}」
+                if line.startswith("- ") and " [" in line:
+                    name = line[2:].split(" [", 1)[0]
+                    status = line.split(" [", 1)[1].split("]", 1)[0]
+                    roster[name] = status
+        elif "完成，Context 已更新" in c:
+            parsed = parse_hook_msg(c)
+            if parsed:
+                roster[parsed[0]] = "Idle"
+    if not roster:
         return "（无实例）"
-    _, sep, after = messages[0]["content"].partition("## 当前实例状态")
-    if not sep:
-        return "（无实例）"
-    lines = [l for l in after.splitlines() if l.startswith("- ")]
-    return "\n".join(lines) if lines else "（无实例）"
+    return "\n".join(f"- {name} [{status}]" for name, status in roster.items())
 
 
 def last_noteworthy_instance(messages):
@@ -92,31 +129,32 @@ def truncate(s: str, n: int) -> str:
 
 
 def decide(messages):
-    """旧 decide() 全规则复刻。返回响应行列表（空列表 = 沉默）。"""
-    if not messages:
+    """旧 decide() 全规则复刻（适配新帧：先剥请求头/Autonomy 末端）。返回响应行列表（空 = 沉默）。"""
+    body = strip_frame(messages)
+    if not body:
         return []
-    tail = messages[-1]
+    tail = body[-1]
     role = tail.get("role")
     content = tail.get("content") or ""
 
     if role == "tool":
         # fetch_terminal → 汇总回复；通知类动作已通过 Component 表达 → 沉默
-        if tool_name_of(messages, tail.get("tool_call_id")) == "fetch_terminal":
+        if tool_name_of(body, tail.get("tool_call_id")) == "fetch_terminal":
             return [f"c [debug] 查到：{truncate(content, 120)}"]
         return []
 
     if role == "user":
         if "具体" in content or "怎么回事" in content:
-            inst = last_noteworthy_instance(messages)
+            inst = last_noteworthy_instance(body)
             if inst:
                 return [f't fetch_terminal {json.dumps({"instance": inst}, ensure_ascii=False)}']
             return ["c [debug] 没有可查的实例记录"]
-        return [f"c [debug] 收到：{content}（Queue 共 {len(messages)} 条）"]
+        return [f"c [debug] 收到：{content}（Queue 共 {len(body)} 条）"]
 
     if role == "system":
         # 新实例注册（Example A）：问候 (・ω・)ノ + 展示实例一览
         if content.startswith("新实例 ") and content.endswith(" 已注册"):
-            overview = instance_overview(messages)
+            overview = instance_overview(body)
             return [
                 f't set_autonomy {json.dumps({"face": "(・ω・)ノ", "ttlMs": 3000}, ensure_ascii=False)}',
                 "t call_component " + json.dumps({
@@ -155,6 +193,8 @@ def decide(messages):
 # ── 进程包装：spawn overseer-debug，接管 stdin/stdout ──
 
 def main() -> int:
+    # Windows GBK 控制台打不了颜文字：决策行含 kaomoji，stdout 强制 UTF-8
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if not os.path.exists(EXE):
         print(f"[brain] 找不到 {EXE}，先 cargo build --bin overseer-debug", flush=True)
         return 1
