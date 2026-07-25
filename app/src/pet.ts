@@ -19,7 +19,7 @@ export async function main() {
   const isTauri = "__TAURI_INTERNALS__" in window;
   const adapter: WindowAdapter = isTauri
     ? await createTauriAdapter(view.el, window.devicePixelRatio || 1)
-    : createBrowserAdapter(mount, view.el);
+    : createBrowserAdapter(mount, view.el, view);
 
   // ── 初始测量 & 动画 ──
   const dpr = isTauri ? (window.devicePixelRatio || 1) : 1;

@@ -42,13 +42,14 @@ export async function createTauriAdapter(
 export function createBrowserAdapter(
   mount: HTMLElement,
   viewEl: HTMLElement,
+  viewInstance?: { dragTarget: HTMLElement },
 ): WindowAdapter {
   const wrapper = document.createElement("div");
   wrapper.id = "debug-wrapper";
   wrapper.style.cssText = "position:fixed;";
   wrapper.appendChild(viewEl);
   viewEl.style.position = "absolute";
-  (viewEl as any).dragTarget = wrapper;
+  if (viewInstance) viewInstance.dragTarget = wrapper;
 
   // overlay 独立 div，兄弟节点叠在 wrapper 上
   const overlay = document.createElement("div");
