@@ -27,9 +27,10 @@ export class PositioningEngine {
 
   place(newWindow: WindowSpec, preferred: Direction, petCenter: Point, petSize: { w: number; h: number }): Point {
     const mAngle = directionAngle(preferred);
+    const others = this.occupied.filter((o) => o.id !== "_pet_");
     const segs = computeCDSegments(
       petCenter, petSize, newWindow,
-      this.occupied.map((o) => ({ center: o.center, w: o.w, h: o.h })),
+      others.map((o) => ({ center: o.center, w: o.w, h: o.h })),
       DEFAULT_GAP,
     );
 
