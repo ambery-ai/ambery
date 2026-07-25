@@ -33,22 +33,23 @@ interface VSeg { y1: number; y2: number; x: number; }
 /**
  * 从一条水平线段中减去矩形 r 的投影覆盖部分，返回剩余段（0-2 个）
  */
+const EPS = 1; // 矩形边界向内缩，避免共线边互相抵销
+
 function subtractHSeg(seg: HSeg, r: Rect): HSeg[] {
-  if (seg.y < r.minY || seg.y > r.maxY) return [seg]; // 不在矩形高度内
-  const cx1 = Math.max(seg.x1, r.minX);
-  const cx2 = Math.min(seg.x2, r.maxX);
-  if (cx1 >= cx2) return [seg]; // 无重叠
+  if (seg.y <= r.minY + EPS || seg.y >= r.maxY - EPS) return [seg]; // 在边界上不动
+  const cx1 = Math.max(seg.x1, r.minX + EPS);
+  const cx2 = Math.min(seg.x2, r.maxX - EPS);
+  if (cx1 >= cx2) return [seg];
   const remain: HSeg[] = [];
   if (seg.x1 < cx1) remain.push({ x1: seg.x1, x2: cx1, y: seg.y });
   if (cx2 < seg.x2) remain.push({ x1: cx2, x2: seg.x2, y: seg.y });
   return remain;
 }
 
-/** 同步垂直线段版 */
 function subtractVSeg(seg: VSeg, r: Rect): VSeg[] {
-  if (seg.x < r.minX || seg.x > r.maxX) return [seg];
-  const cy1 = Math.max(seg.y1, r.minY);
-  const cy2 = Math.min(seg.y2, r.maxY);
+  if (seg.x <= r.minX + EPS || seg.x >= r.maxX - EPS) return [seg];
+  const cy1 = Math.max(seg.y1, r.minY + EPS);
+  const cy2 = Math.min(seg.y2, r.maxY - EPS);
   if (cy1 >= cy2) return [seg];
   const remain: VSeg[] = [];
   if (seg.y1 < cy1) remain.push({ y1: seg.y1, y2: cy1, x: seg.x });
