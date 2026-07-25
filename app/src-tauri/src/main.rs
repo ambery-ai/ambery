@@ -7,6 +7,7 @@ use overseer_core::overseer::Overseer;
 use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
 use std::sync::Arc;
+use tauri::Manager;
 use tokio::sync::broadcast;
 
 fn main() {
@@ -17,8 +18,52 @@ fn main() {
     });
 
     tauri::Builder::default()
+        .setup(|app| {
+            let win = app.get_webview_window("main").expect("main window");
+            let raw = win.hwnd().expect("hwnd").0 as *mut core::ffi::c_void;
+            // 跨虚拟桌面 pin（mock-a 方案：IVirtualDesktopPinnedApps::PinWindow，
+            // 切桌面时ペット跟着走；winvd 0.0.49 要求 Win11 24H2 26100.2605+）
+            if let Err(err) = winvd::pin_window(windows::Win32::Foundation::HWND(raw)) {
+                eprintln!("winvd pin_window: {err:?}");
+            }
+            let hwnd = raw as isize;
+            // 任务栏 fight-back（mock-a 方案）：每 500ms 安静地重申 TOPMOST，
+            // SWP_NOACTIVATE 不抢焦点、SWP_NOMOVE/SWP_NOSIZE 不动几何
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                unsafe {
+                    SetWindowPos(
+                        hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+                    );
+                }
+            });
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+const HWND_TOPMOST: isize = -1;
+const SWP_NOACTIVATE: u32 = 0x10;
+const SWP_NOMOVE: u32 = 0x2;
+const SWP_NOSIZE: u32 = 0x1;
+
+extern "system" {
+    fn SetWindowPos(
+        h_wnd: isize,
+        h_wnd_insert_after: isize,
+        x: i32,
+        y: i32,
+        cx: i32,
+        cy: i32,
+        u_flags: u32,
+    ) -> i32;
 }
 
 async fn run_core() {
