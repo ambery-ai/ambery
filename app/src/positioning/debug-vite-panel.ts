@@ -91,7 +91,6 @@ export class DebugPositioningPanel {
     });
     this.el.querySelector("#dbg-replay-btn")!.addEventListener("click", () => {
       this.syncPetPos();
-      document.querySelectorAll(".dbg-place-mark").forEach((el) => el.remove());
       const raw = this.el.querySelector<HTMLInputElement>("#dbg-replay")!.value;
       const dirs = raw.split(",").map((s) => s.trim()).filter(Boolean);
       const results: string[] = [];
