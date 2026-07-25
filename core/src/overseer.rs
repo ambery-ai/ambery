@@ -63,7 +63,13 @@ impl<L: Llm> OverseerBackend<L> {
         let mut s = self.config.base_prompt.clone();
         s.push_str("\n\n");
         s.push_str(&self.read_agents_md());
-        s.push_str("\n\n## 颜文字映射\n");
+        // kaomoji 表为什么不放进 AGENTS.md：
+        // ① 表体是运行时数据（edit_config 可改 kaomoji 映射），须每轮现拼保持最新，
+        //    写死在 AGENTS.md 会变成两个真相源；
+        // ② 段头用途说明与组装表共位（贴着表解释「这是什么」），且作为不变量护栏——
+        //    AGENTS.md 是用户可编辑文件，说明写在那里可能被无意删改。
+        //    AGENTS.md 行为准则里已有禁令散文，此处是贴着表的强化，故意重复。
+        s.push_str("\n\n## 颜文字映射（你的面部表情词汇表：仅用于 set_autonomy 工具，严禁写进对话文本）\n");
         let mut keys: Vec<_> = self.config.kaomoji.keys().collect();
         keys.sort();
         for k in keys {
