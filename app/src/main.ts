@@ -6,8 +6,10 @@ import { ComponentManager } from "./components";
 import { View, type Edge } from "./view";
 
 async function main() {
-  // Tauri 壳模式：背景透明（docs/tauri-shell.md），只显示ペット与卡片
-  if ("__TAURI_INTERNALS__" in window) document.body.classList.add("tauri");
+  // Tauri 壳模式：背景透明（docs/tauri-shell.md），只显示ペット与卡片。
+  // 必须加在 html 根元素——CSS 背景写在 html,body 两个选择器上，
+  // class 挂在 body 而选择器是 html.tauri 时不匹配（已踩坑×2）
+  if ("__TAURI_INTERNALS__" in window) document.documentElement.classList.add("tauri");
   const bridge = await createBridge();
   const mount = document.getElementById("app")!;
   const view = new View(mount);

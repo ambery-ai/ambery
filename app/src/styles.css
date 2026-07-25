@@ -7,8 +7,10 @@ body {
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
-/* Tauri 壳模式：全透明 overlay（docs/tauri-shell.md） */
-body.tauri {
+/* Tauri 壳模式：全透明 overlay（docs/tauri-shell.md）。
+   html 与 body 都必须透明——画布背景由 html 传播 */
+html.tauri,
+html.tauri body {
   background: transparent;
 }
 
