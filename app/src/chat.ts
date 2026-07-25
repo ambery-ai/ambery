@@ -1,5 +1,8 @@
 // Chat Panel（concepts §3a，设计 docs/chat-panel.md）：
 // View 右键吸附时唤出，Queue 的视图投影——只渲染 user/assistant，输入写 Queue user role。
+//
+// multi-window 模式（windowed=true）：面板填充整个窗口（窗口外部定位）；
+// 浏览器/maximized 模式（默认）：面板 position:fixed 在 View 锚点周围弹出。
 
 import type { Bridge, QueueMessage } from "./bridge";
 import type { Edge } from "./view";
@@ -18,10 +21,13 @@ export class ChatPanel {
     mount: HTMLElement,
     private bridge: Bridge,
     private viewCenter: () => { x: number; y: number },
+    /** multi-window 模式：跳过 DOM 定位，面板填充窗口 */
+    public windowed = false,
   ) {
     this.el = document.createElement("div");
     this.el.id = "chat-panel";
     this.el.hidden = true;
+    if (windowed) mount.classList.add("chat-mode");
 
     const header = document.createElement("div");
     header.className = "chat-header";
@@ -57,7 +63,7 @@ export class ChatPanel {
   show(edge: Edge) {
     this.visible = true;
     this.el.hidden = false;
-    this.place(edge);
+    if (!this.windowed) this.place(edge);
     void this.bridge.getQueue().then((msgs) => this.renderHistory(msgs));
     this.inputEl.focus();
   }

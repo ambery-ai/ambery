@@ -1,5 +1,6 @@
 // View（concepts §3，设计 docs/view.md）：横向椭圆浮动窗口，窗内仅颜文字。
-// 状态机：floating ⇄ docked(edge)。浏览器测试模式用 fixed DOM 元素模拟窗口。
+// 状态机：floating ⇄ docked(edge)。
+// Tauri 模式：native 窗口拖拽（startDragging）；浏览器模式：DOM pointer 事件。
 
 import type { Motion } from "./bridge";
 
@@ -14,6 +15,8 @@ export class View {
   private faceEl: HTMLSpanElement;
   private state: ViewState = { mode: "floating" };
   private drag: { dx: number; dy: number } | null = null;
+  /** Tauri 模式：pet.ts 注入 startDragging 闭包 */
+  tauriStartDrag: (() => void) | null = null;
 
   constructor(mount: HTMLElement) {
     this.el = document.createElement("div");
@@ -52,6 +55,13 @@ export class View {
   private onPointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
     if (this.state.mode !== "floating") return; // docked 锁定拖拽
+    // Tauri 模式：native 窗口拖拽
+    if (this.tauriStartDrag) {
+      this.tauriStartDrag();
+      this.dispatch("view:moved", this.center());
+      return;
+    }
+    // 浏览器模式：DOM 拖拽
     const r = this.el.getBoundingClientRect();
     this.drag = { dx: ev.clientX - r.left, dy: ev.clientY - r.top };
   };

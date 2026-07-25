@@ -11,16 +11,48 @@
   "app": {
     "windows": [
       {
-        "label": "main",
+        "label": "pet",
         "title": "Terminal Overseer",
+        "url": "index.html",
+        "width": 160,
+        "height": 100,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
         "focus": false,
         "shadow": false,
         "skipTaskbar": true,
-        "maximized": true,
-        "resizable": true
+        "resizable": false
+      },
+      {
+        "label": "cards",
+        "title": "cards",
+        "url": "index.html#cards",
+        "width": 300,
+        "height": 200,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "focus": false,
+        "shadow": false,
+        "skipTaskbar": true,
+        "visible": false,
+        "resizable": false
+      },
+      {
+        "label": "chat",
+        "title": "chat",
+        "url": "index.html#chat",
+        "width": 320,
+        "height": 380,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "focus": false,
+        "shadow": false,
+        "skipTaskbar": true,
+        "visible": false,
+        "resizable": false
       }
     ],
     "security": {

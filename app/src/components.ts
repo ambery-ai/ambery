@@ -1,6 +1,9 @@
 // Component（concepts §5，设计 docs/components.md）：
 // ペット经 call_component 调用，以 View 为中心向合适方位偏移弹出；
 // 用户交互写 Event Buffer（bridge.pushEvent），不写 Queue user role。
+//
+// multi-window 模式（windowed=true）：卡片在窗口内自然流式布局，窗口外部定位；
+// 浏览器/maximized 模式（默认）：卡片 position:fixed 在 View 锚点周围弹出。
 
 import type { Bridge, ComponentSpec, Direction } from "./bridge";
 
@@ -19,9 +22,12 @@ export class ComponentManager {
     mount: HTMLElement,
     private bridge: Bridge,
     private anchor: Anchor,
+    /** multi-window 模式：跳过 DOM 定位，卡片在窗口内自然流式布局 */
+    public windowed = false,
   ) {
     this.layer = document.createElement("div");
     this.layer.id = "components";
+    if (windowed) mount.classList.add("cards-mode");
     mount.appendChild(this.layer);
     bridge.onRenderComponent((spec) => this.render(spec));
   }
@@ -35,9 +41,10 @@ export class ComponentManager {
       return;
     }
     const card = this.buildCard(spec);
+    if (spec.direction) card.dataset.direction = spec.direction;
     this.layer.appendChild(card);
     this.cards.set(spec.id, card);
-    this.place(card, spec.direction ?? "auto");
+    if (!this.windowed) this.place(card, spec.direction ?? "auto");
   }
 
   private buildCard(spec: ComponentSpec): HTMLDivElement {

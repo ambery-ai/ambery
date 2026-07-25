@@ -1,0 +1,18 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for all windows",
+  "windows": ["pet", "cards", "chat"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-start-dragging",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
+    "core:event:allow-emit",
+    "core:event:allow-emit-to",
+    "core:event:allow-listen"
+  ]
+}

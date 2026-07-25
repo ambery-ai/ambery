@@ -1,4 +1,4 @@
-//! Tauri 壳（docs/tauri-shell.md）：单透明 overlay 窗口 + 内嵌 overseer-core server。
+//! Tauri 壳（docs/multi-window.md）：三独立窗口（pet + cards + chat）+ 内嵌 overseer-core。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -16,10 +16,17 @@ mod tray;
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let win = app.get_webview_window("main").expect("main window");
+            let pet = app.get_webview_window("pet").expect("pet window");
+            let cards = app.get_webview_window("cards").expect("cards window");
+            let chat = app.get_webview_window("chat").expect("chat window");
 
-            window::init_window(&win);
-            tray::init_tray(app.handle(), &win)?;
+            // 所有窗口统一 pin + fight-back
+            window::init_window(&pet);
+            window::init_window(&cards);
+            window::init_window(&chat);
+
+            // 托盘：控制 pet 窗口（连带隐藏 cards/chat）
+            tray::init_tray(app.handle(), &pet)?;
 
             // 复用 Tauri async runtime 启动 overseer-core
             tauri::async_runtime::spawn(run_core());
@@ -60,7 +67,7 @@ async fn run_core() {
     }
     let (tx, _) = broadcast::channel(64);
     let state = Arc::new(AppState::new(overseer, tx, mock));
-    spawn_timer_task(state.clone(), 60_000, 2);
+    spawn_timer_task(state.clone(), 60_000, 2); // 真实 tick：60s（Config 的 5min 间隔由 TimerWheel 控制）
     let app = router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:47600")
         .await
