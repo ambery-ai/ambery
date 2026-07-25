@@ -74,8 +74,7 @@ export async function main() {
     const engine = new PositioningEngine();
     const panel = new DebugPositioningPanel(engine);
     // 拖拽时隐藏标记，结束后用相对偏移恢复
-    let markOffsets: { left: string; top: string; css: string }[] = [];
-    let petBeforeDrag = view.center();
+    let markOffsets: { dx: number; dy: number; css: string }[] = [];
     const syncPanel = () => {
       const c = view.center();
       const r = view.el.getBoundingClientRect();
@@ -83,24 +82,31 @@ export async function main() {
       engine.registerPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
     };
     view.el.addEventListener("view:drag-start", () => {
-      petBeforeDrag = view.center();
+      // 用 wrapper 中心（不受 CSS 动画影响），避免 translateY 波动
+      const wr = view.el.parentElement!.getBoundingClientRect();
+      const petX = wr.x + wr.width / 2;
+      const petY = wr.y + wr.height / 2;
       markOffsets = [];
       document.querySelectorAll(".dbg-place-mark").forEach((el) => {
         const s = (el as HTMLElement).style;
-        markOffsets.push({ left: s.left, top: s.top, css: s.cssText });
+        markOffsets.push({
+          dx: parseFloat(s.left) + 75 - petX,
+          dy: parseFloat(s.top) + 50 - petY,
+          css: s.cssText,
+        });
         el.remove();
       });
     });
     view.el.addEventListener("view:moved", () => {
-      const petNow = view.center();
+      const wr = view.el.parentElement!.getBoundingClientRect();
+      const petX = wr.x + wr.width / 2;
+      const petY = wr.y + wr.height / 2;
       for (const mo of markOffsets) {
-        const dx = petNow.x - petBeforeDrag.x;
-        const dy = petNow.y - petBeforeDrag.y;
         const mark = document.createElement("div");
         mark.className = "dbg-place-mark";
         mark.style.cssText = mo.css;
-        mark.style.left = `${parseFloat(mo.left) + dx}px`;
-        mark.style.top = `${parseFloat(mo.top) + dy}px`;
+        mark.style.left = `${petX + mo.dx - 75}px`;
+        mark.style.top = `${petY + mo.dy - 50}px`;
         document.body.appendChild(mark);
       }
       syncPanel();
