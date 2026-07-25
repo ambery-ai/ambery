@@ -88,7 +88,11 @@ impl<L: Llm> Overseer<L> {
         let tools = tool_set();
         let mut effects = vec![];
         for _ in 0..self.max_tool_iters {
-            let out = self.llm.complete(self.harness.queue.messages(), &tools).await;
+            let out = self
+                .llm
+                .complete(self.harness.queue.messages(), &tools)
+                .await
+                .map_err(std::io::Error::other)?;
             if out.tool_calls.is_empty() {
                 // 沉默语义：空 content 不追加（docs/agent-loop.md）
                 if let Some(content) = out.content.filter(|c| !c.is_empty()) {
@@ -97,10 +101,10 @@ impl<L: Llm> Overseer<L> {
                 }
                 break;
             }
-            self.harness.append_queue(QueueMessage::assistant_tool_calls(
-                out.tool_calls.clone(),
-                ts,
-            ))?;
+            let mut assistant_msg = QueueMessage::assistant_tool_calls(out.tool_calls.clone(), ts);
+            // thinking 模型：存思维链，回放时必须带回（docs/agent-loop.md）
+            assistant_msg.reasoning_content = out.reasoning_content.clone();
+            self.harness.append_queue(assistant_msg)?;
             for call in &out.tool_calls {
                 let (result, mut eff) = self.execute_tool(call);
                 effects.append(&mut eff);

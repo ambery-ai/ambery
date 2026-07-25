@@ -29,6 +29,10 @@ pub struct QueueMessage {
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// 推理模型的思维链（deepseek thinking 模式：带 tool_calls 的 assistant
+    /// 消息回放时必须带此字段，空串可过——网关实测）。旧记录无此字段兼容。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     pub ts: i64,
 }
 
@@ -39,6 +43,7 @@ impl QueueMessage {
             content: Some(content.into()),
             tool_calls: None,
             tool_call_id: None,
+            reasoning_content: None,
             ts,
         }
     }
@@ -49,6 +54,7 @@ impl QueueMessage {
             content: None,
             tool_calls: Some(calls),
             tool_call_id: None,
+            reasoning_content: None,
             ts,
         }
     }
@@ -59,6 +65,7 @@ impl QueueMessage {
             content: Some(content.into()),
             tool_calls: None,
             tool_call_id: Some(tool_call_id.into()),
+            reasoning_content: None,
             ts,
         }
     }

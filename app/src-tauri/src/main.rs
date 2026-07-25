@@ -2,7 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use overseer_core::llm::DebugAgent;
+use overseer_core::llm::LlmBackend;
 use overseer_core::overseer::Overseer;
 use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
@@ -47,7 +47,8 @@ async fn run_core() {
         now_ms(),
     )
     .expect("load harness");
-    let mut overseer = Overseer::new(harness, config, DebugAgent::default());
+    let backend = LlmBackend::from_config(&config.llm);
+    let mut overseer = Overseer::new(harness, config, backend);
     // 读通道链（docs/sidecar.md）：sidecar → MockTerminals → Context
     let sidecar = std::env::var("OVERSEER_SIDECAR")
         .ok()
