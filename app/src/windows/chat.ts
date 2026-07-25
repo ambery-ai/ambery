@@ -17,7 +17,7 @@ export class ChatPanel {
   constructor(
     mount: HTMLElement,
     private bridge: Bridge,
-    private engine: PositioningEngine,
+    private engine?: PositioningEngine,
     /** multi-window 模式：跳过 DOM 定位，面板填充窗口 */
     public windowed = false,
   ) {
@@ -55,15 +55,13 @@ export class ChatPanel {
     bridge.onQueueChanged((msgs) => this.renderHistory(msgs));
   }
 
+  showPanel() { this.el.hidden = false; this.visible = true; }
+  hidePanel() { this.engine?.remove("chat-panel"); this.el.hidden = true; this.visible = false; }
   isVisible() {
     return this.visible;
   }
 
-  hide() {
-    this.visible = false;
-    this.el.hidden = true;
-    this.engine.remove("chat-panel");
-  }
+  hide() { this.visible = false; this.el.hidden = true; this.engine?.remove("chat-panel"); }
 
   /** 右键 toggle：engine.place(Direction.sse) 定位 */
   toggle() {
@@ -72,12 +70,14 @@ export class ChatPanel {
     } else {
       this.el.hidden = false;
       this.visible = true;
-      const pos = this.engine.place(
+      const pos = this.engine?.place(
         { id: "chat-panel", width: PANEL_W, height: PANEL_H },
         Direction.sse,
       );
-      this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
-      this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
+      if (pos) {
+        this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
+        this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
+      }
       void this.bridge.getQueue().then((msgs) => this.renderHistory(msgs));
       this.inputEl.focus();
     }

@@ -1,27 +1,21 @@
 // Chat 窗口入口（docs/multi-window.md）：ChatPanel + 窗口定位
+// Tauri B 方案：通过 requestPlace/requestRemove 调 pet 窗 engine
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
-import type { PositioningEngine } from "../positioning/engine";
+import { requestPlace, requestRemove } from "../positioning/tauri-server";
 import { Direction } from "../positioning/types";
 
 let chatPanel: ChatPanel | null = null;
 let adapter: WindowAdapter | null = null;
-let engine: PositioningEngine | null = null;
 let panelW = 320;
 let panelH = 380;
 
-export async function main(eng: PositioningEngine) {
-  engine = eng;
-
-  // WindowAdapter
+export async function main() {
   if ("__TAURI_INTERNALS__" in window) {
     adapter = await createTauriAdapter(document.body, 1);
-  }
-
-  // Tauri 模式：订阅 pet 位置 + chat toggle
-  if ("__TAURI_INTERNALS__" in window) {
     const { listen } = await import("@tauri-apps/api/event");
+    await listen("pet:moved", () => {}); // 占位，确保事件系统初始化
     await listen("chat:toggle", () => {
       if (chatPanel?.isVisible()) hideChat();
       else showChat();
@@ -34,9 +28,9 @@ export async function main(eng: PositioningEngine) {
 
   const bridge = await createBridge();
   const mount = document.getElementById("app")!;
-  chatPanel = new ChatPanel(mount, bridge, engine!, true);
+  // ChatPanel 不需要 engine，toggle 直接用 DOM show/hide
+  chatPanel = new ChatPanel(mount, bridge, null!, true);
 
-  // 量面板实际尺寸
   const el = document.getElementById("chat-panel");
   if (el) {
     el.hidden = false;
@@ -50,19 +44,19 @@ export async function main(eng: PositioningEngine) {
     el.style.visibility = "";
     await adapter?.setSize(panelW, panelH);
   }
+  await adapter?.hide();
 }
 
 async function showChat() {
-  if (!chatPanel || !engine) return;
-  const pos = engine.place(
-    { id: "chat-panel", width: panelW, height: panelH },
-    Direction.sse,
-  );
+  if (!chatPanel) return;
+  chatPanel.showPanel();
+  const pos = await requestPlace("chat-panel", { id: "chat-panel", width: panelW, height: panelH }, Direction.sse);
   await adapter?.setPosition(Math.round(pos.x - panelW / 2), Math.round(pos.y - panelH / 2));
   await adapter?.show();
 }
 
 async function hideChat() {
   await adapter?.hide();
-  engine?.remove("chat-panel");
+  chatPanel?.hidePanel();
+  requestRemove("chat-panel");
 }

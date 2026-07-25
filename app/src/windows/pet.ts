@@ -1,11 +1,11 @@
 // Pet 窗口入口（docs/multi-window.md）：ペット + Autonomy + 位置广播 + 动画窗口自适应
 import { Autonomy } from "../autonomy";
 import { BrowserMockBridge, createBridge, type Motion } from "../bridge";
-import { PositioningEngine } from "../positioning/engine";
+import { engine, setupServer } from "../positioning/tauri-server";
 import { View } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
-export async function main(engine: PositioningEngine) {
+export async function main() {
   if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("browser");
 
   const bridge = await createBridge();
@@ -45,11 +45,15 @@ export async function main(engine: PositioningEngine) {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const { emit } = await import("@tauri-apps/api/event");
     const win = getCurrentWindow();
+    setupServer(); // 注册 engine:place/remove 事件处理
     view.tauriStartDrag = () => win.startDragging();
     async function broadcastPosition() {
       const pos = await win.outerPosition();
       const size = await win.outerSize();
-      emit("pet:moved", { x: pos.x + size.width / 2, y: pos.y + size.height / 2 });
+      const c = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 };
+      const vr = view.el.getBoundingClientRect();
+      engine.registerPet(c, { w: Math.round(vr.width), h: Math.round(vr.height) });
+      emit("pet:moved", c);
     }
     broadcastPosition();
     await win.onMoved(() => broadcastPosition());

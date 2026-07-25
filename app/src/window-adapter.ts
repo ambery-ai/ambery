@@ -2,15 +2,10 @@
 // 使 pet.ts 可以在两种环境下一致调试。
 
 export interface WindowAdapter {
-  /** 设置窗口/容器尺寸（物理 px） */
   setSize(w: number, h: number): Promise<void>;
-  /** 设置窗口位置（物理 px） */
   setPosition(x: number, y: number): Promise<void>;
-  /** 设置 View 在窗口内的偏移（CSS px，主要用于 pet 动画） */
   setOffset(top: number, left: number): void;
-  /** 显示窗口 */
   show(): Promise<void>;
-  /** 隐藏窗口 */
   hide(): Promise<void>;
 }
 
