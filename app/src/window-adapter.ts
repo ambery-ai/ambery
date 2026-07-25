@@ -45,26 +45,35 @@ export function createBrowserAdapter(
 ): WindowAdapter {
   const frame = document.createElement("div");
   frame.id = "debug-frame";
-  frame.style.cssText = "position:fixed;border:2px solid red;pointer-events:none;z-index:9999";
-  // 把 View 移到 frame 里，使 setOffset 表现为 frame 内偏移
+  frame.style.cssText = "position:fixed;border:2px solid red;pointer-events:none;z-index:9999;background:transparent";
   mount.appendChild(frame);
-  frame.appendChild(viewEl);
-  viewEl.style.position = "relative";
+
+  // 跟随 View 移动
+  const syncPos = () => {
+    requestAnimationFrame(() => {
+      const vr = viewEl.getBoundingClientRect();
+      frame.style.top = `${vr.top}px`;
+      frame.style.left = `${vr.left}px`;
+    });
+  };
+  viewEl.addEventListener("view:moved", syncPos);
+  viewEl.addEventListener("view:docked", syncPos);
+  viewEl.addEventListener("view:undocked", syncPos);
 
   return {
     async setSize(w: number, h: number) {
       frame.style.width = `${w}px`;
       frame.style.height = `${h}px`;
+      syncPos();
     },
-    setOffset(top: number, left: number) {
-      viewEl.style.top = `${top}px`;
-      viewEl.style.left = `${left}px`;
+    setOffset(_top: number, _left: number) {
+      syncPos(); // overlay 跟随 View 实际位置
     },
     async setPosition(x: number, y: number) {
       frame.style.left = `${x}px`;
       frame.style.top = `${y}px`;
     },
-    async show() { frame.style.display = ""; },
-    async hide() { frame.style.display = "none"; },
+    async show() { frame.style.display = ""; frame.style.borderColor = "red"; },
+    async hide() { frame.style.display = "none"; frame.style.borderColor = "lime"; },
   };
 }

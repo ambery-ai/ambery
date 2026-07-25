@@ -2,7 +2,7 @@
 import { Autonomy } from "./autonomy";
 import { BrowserMockBridge, createBridge, type Motion } from "./bridge";
 import { View, type Edge } from "./view";
-import { createTauriAdapter, type WindowAdapter } from "./window-adapter";
+import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "./window-adapter";
 
 export async function main() {
   // 浏览器调试模式：加暗色背景
@@ -90,6 +90,12 @@ export async function main() {
     });
   } else {
     // 浏览器模式：ChatPanel / ComponentManager 内联在当前窗口
+    // 浏览器模式：仅 pet 窗口需 adapter 模拟 Tauri 窗口边界；
+    // chat/cards 在多窗口架构中独立加载走 TauriAdapter，浏览器不分路由到它们
+    const adapter = createBrowserAdapter(mount, view.el);
+    const r = view.el.getBoundingClientRect();
+    await adapter.setSize(Math.ceil(r.width), Math.ceil(r.height));
+    adapter.setOffset(0, 0);
     const { ChatPanel } = await import("./chat");
     const { ComponentManager } = await import("./components");
     new ComponentManager(mount, bridge, () => view.center());
