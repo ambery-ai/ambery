@@ -5,7 +5,8 @@
 // 浏览器/maximized 模式（默认）：面板 position:fixed 在 View 锚点周围弹出。
 
 import type { Bridge, QueueMessage } from "../bridge";
-import type { Edge } from "../view";
+
+type Edge = "top" | "right" | "bottom" | "left";
 
 const PANEL_W = 320;
 const PANEL_H = 380;
@@ -75,6 +76,21 @@ export class ChatPanel {
 
   isVisible() {
     return this.visible;
+  }
+
+  /** 右键 toggle：可见 → 隐藏，不可见 → 显示在 pet 右侧 */
+  toggle(view: { center(): { x: number; y: number } }) {
+    if (this.visible) {
+      this.hide();
+    } else {
+      const { x, y } = view.center();
+      this.el.hidden = false;
+      this.visible = true;
+      this.el.style.left = `${clamp(x + 50 + MARGIN, 8, window.innerWidth - PANEL_W - 8)}px`;
+      this.el.style.top = `${clamp(y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
+      void this.bridge.getQueue().then((msgs) => this.renderHistory(msgs));
+      this.inputEl.focus();
+    }
   }
 
   private place(edge: Edge) {

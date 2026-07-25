@@ -1,17 +1,11 @@
 // View（concepts §3，设计 docs/view.md）：横向椭圆浮动窗口，窗内仅颜文字。
-// 状态机：floating ⇄ docked(edge)。
 // Tauri 模式：native 窗口拖拽（startDragging）；浏览器模式：DOM pointer 事件。
 
 import type { Motion } from "./bridge";
 
-export type Edge = "top" | "right" | "bottom" | "left";
-
-type ViewState = { mode: "floating" } | { mode: "docked"; edge: Edge };
-
 export class View {
   readonly el: HTMLDivElement;
   private faceEl: HTMLSpanElement;
-  private state: ViewState = { mode: "floating" };
   private drag: { dx: number; dy: number } | null = null;
   /** 浏览器 wrapper 模式：拖拽目标改为父容器，默认自身。构造器内赋值以保证 this.el 已存在 */
   dragTarget!: HTMLElement;
@@ -45,17 +39,8 @@ export class View {
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   }
 
-  isDocked() {
-    return this.state.mode === "docked";
-  }
-
-  dockEdge(): Edge | null {
-    return this.state.mode === "docked" ? this.state.edge : null;
-  }
-
   private onPointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
-    if (this.state.mode !== "floating") return; // docked 锁定拖拽
     // Tauri 模式：native 窗口拖拽
     if (this.tauriStartDrag) {
       this.tauriStartDrag();
@@ -63,7 +48,7 @@ export class View {
       return;
     }
     // 浏览器模式：DOM 拖拽（dragTarget 可能是 wrapper）
-    this.dispatch("view:drag-start", {}); // 拖拽开始：隐藏附属窗口
+    this.dispatch("view:drag-start", {});
     const r = this.dragTarget.getBoundingClientRect();
     this.drag = { dx: ev.clientX - r.left, dy: ev.clientY - r.top };
   };
@@ -82,33 +67,8 @@ export class View {
 
   private onContextMenu = (ev: MouseEvent) => {
     ev.preventDefault();
-    if (this.state.mode === "floating") this.dock();
-    else this.undock();
+    this.dispatch("chat:toggle", {});
   };
-
-  /** 右键：吸附最近屏幕边缘（docs/view.md §状态机） */
-  private dock() {
-    const { x, y } = this.center();
-    const dists: [Edge, number][] = [
-      ["top", y],
-      ["bottom", window.innerHeight - y],
-      ["left", x],
-      ["right", window.innerWidth - x],
-    ];
-    dists.sort((a, b) => a[1] - b[1]);
-    const edge = dists[0][0];
-    this.state = { mode: "docked", edge };
-    this.el.dataset.docked = edge;
-
-    this.dispatch("view:docked", { edge });
-  }
-
-  /** 吸附态再次右键：解除吸附（docs/view.md 设计决定） */
-  private undock() {
-    this.state = { mode: "floating" };
-    delete this.el.dataset.docked;
-    this.dispatch("view:undocked", {});
-  }
 
   private dispatch(name: string, detail: unknown) {
     this.el.dispatchEvent(new CustomEvent(name, { detail, bubbles: true }));

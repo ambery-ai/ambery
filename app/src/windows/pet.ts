@@ -2,7 +2,7 @@
 import { Autonomy } from "../autonomy";
 import { BrowserMockBridge, createBridge, type Motion } from "../bridge";
 import { PositioningEngine } from "../positioning/engine";
-import { View, type Edge } from "../view";
+import { View } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
 export async function main(engine: PositioningEngine) {
@@ -59,15 +59,7 @@ export async function main(engine: PositioningEngine) {
     const { ComponentManager } = await import("../components/component-manager");
     new ComponentManager(mount, bridge, () => view.center());
     const chatPanel = new ChatPanel(mount, bridge, () => view.center());
-    let dockedEdge: Edge = "top";
-    view.el.addEventListener("view:docked", (ev) => {
-      dockedEdge = (ev as CustomEvent<{ edge: Edge }>).detail.edge;
-      chatPanel.show(dockedEdge);
-    });
-    view.el.addEventListener("view:undocked", () => chatPanel.hide());
-    view.el.addEventListener("click", () => {
-      if (view.isDocked() && !chatPanel.isVisible()) chatPanel.show(dockedEdge);
-    });
+    view.el.addEventListener("chat:toggle", () => chatPanel.toggle(view));
 
     // debug：positioning 面板（α/β 滑块 + 窗口注册）
     const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
@@ -126,12 +118,10 @@ export async function main(engine: PositioningEngine) {
   bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args));
   bridge.onConfigChanged?.((cfg) => autonomy.updateConfig(cfg));
 
-  // 吸附态 → 通知 chat 窗口弹出（Tauri）
+  // 右键 → 通知 chat 窗口弹出（Tauri）
   if (isTauri) {
     const { emit } = await import("@tauri-apps/api/event");
-    view.el.addEventListener("view:docked", (ev) => { emit("chat:show", (ev as CustomEvent).detail); });
-    view.el.addEventListener("view:undocked", () => { emit("chat:hide"); });
-    view.el.addEventListener("click", () => { if (view.isDocked()) emit("chat:show", { edge: view.dockEdge() }); });
+    view.el.addEventListener("chat:toggle", () => { emit("chat:toggle"); });
   }
 
   await autonomy.init();
@@ -139,10 +129,10 @@ export async function main(engine: PositioningEngine) {
   const debug: Partial<Window["__overseer"]> = {
     setAutonomy: (args) => autonomy.setAutonomy(args),
     viewState: () => ({
-      docked: view.isDocked(), center: view.center(),
+      center: view.center(),
       face: document.getElementById("face")?.textContent ?? null,
       motion: view.el.dataset.motion ?? "still",
-    }),
+    }) as any,
   };
   if (bridge instanceof BrowserMockBridge) {
     debug.setInstanceStatus = (n, s) => bridge.debugSetInstanceStatus(n, s);

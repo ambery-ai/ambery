@@ -1,22 +1,19 @@
 // Chat 窗口入口（docs/multi-window.md）：ChatPanel + 窗口定位
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
-import type { Edge } from "../view";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 import type { PositioningEngine } from "../positioning/engine";
-
-const VIEW_RADIUS_X = 36;
-const VIEW_RADIUS_Y = 20;
-const MARGIN = 12;
+import { Direction } from "../positioning/types";
 
 let petCenter = { x: 0, y: 0 };
 let chatPanel: ChatPanel | null = null;
 let adapter: WindowAdapter | null = null;
-/** 面板实际尺寸（启动时量一次，docs/multi-window.md §窗口自适应） */
+let engine: PositioningEngine | null = null;
 let panelW = 320;
 let panelH = 380;
 
-export async function main(_engine: PositioningEngine) {
+export async function main(eng: PositioningEngine) {
+  engine = eng;
   // WindowAdapter（feat）
   if ("__TAURI_INTERNALS__" in window) {
     adapter = await createTauriAdapter(document.body, 1);
@@ -28,11 +25,9 @@ export async function main(_engine: PositioningEngine) {
     await listen<{ x: number; y: number }>("pet:moved", (ev) => {
       petCenter = ev.payload;
     });
-    await listen<{ edge: Edge }>("chat:show", (ev) => {
-      showChat(ev.payload.edge);
-    });
-    await listen("chat:hide", () => {
-      hideChat();
+    await listen("chat:toggle", () => {
+      if (chatPanel?.isVisible()) hideChat();
+      else showChat();
     });
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().onCloseRequested(async () => {
@@ -60,30 +55,16 @@ export async function main(_engine: PositioningEngine) {
   }
 }
 
-async function showChat(edge: Edge) {
+async function showChat() {
   if (!chatPanel || chatPanel.isVisible()) return;
-  // 面板显示（windowed 模式跳过 DOM 定位）
-  chatPanel.show(edge);
-  // 计算窗口位置（docs/multi-window.md §位置同步）
-  let left: number;
-  let top: number;
-  if (edge === "top") {
-    left = petCenter.x - panelW / 2;
-    top = petCenter.y + VIEW_RADIUS_Y + MARGIN;
-  } else if (edge === "bottom") {
-    left = petCenter.x - panelW / 2;
-    top = petCenter.y - VIEW_RADIUS_Y - MARGIN - panelH;
-  } else if (edge === "left") {
-    left = petCenter.x + VIEW_RADIUS_X + MARGIN;
-    top = petCenter.y - panelH / 2;
-  } else {
-    left = petCenter.x - VIEW_RADIUS_X - MARGIN - panelW;
-    top = petCenter.y - panelH / 2;
+  chatPanel.show("bottom" as any);
+  if (engine) {
+    const pos = engine.place(
+      { id: "chat-panel", width: panelW, height: panelH },
+      Direction.sse, petCenter, { w: 72, h: 40 },
+    );
+    await adapter?.setPosition(Math.round(pos.x - panelW/2), Math.round(pos.y - panelH/2));
   }
-  left = Math.max(8, Math.min(left, screen.availWidth - panelW - 8));
-  top = Math.max(8, Math.min(top, screen.availHeight - panelH - 8));
-
-  await adapter?.setPosition(left, top);
   await adapter?.show();
 }
 
