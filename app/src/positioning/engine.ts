@@ -52,7 +52,14 @@ export class PositioningEngine {
     }
 
     const result = best ?? { x: petCenter.x, y: petCenter.y - petSize.h / 2 - DEFAULT_GAP - newWindow.height / 2 };
-    this.occupied.push({ id: newWindow.id, center: result, w: newWindow.width, h: newWindow.height });
+    const existing = this.occupied.find((o) => o.id === newWindow.id && o.id !== "_pet_");
+    if (existing) {
+      existing.center = result;
+      existing.w = newWindow.width;
+      existing.h = newWindow.height;
+    } else {
+      this.occupied.push({ id: newWindow.id, center: result, w: newWindow.width, h: newWindow.height });
+    }
     return result;
   }
 
