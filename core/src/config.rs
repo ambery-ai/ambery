@@ -1,6 +1,7 @@
 //! Config 域（concepts §12，docs/config.md）：类型 + load/save。
 //! 子模块：reflect（声明式 UI 反射）、migrate（版本与迁移加载管线）。
 
+pub mod migrate;
 pub mod reflect;
 
 use schemars::JsonSchema;
@@ -35,6 +36,14 @@ pub struct Config {
     /// LLM 多 profile 配置（docs/agent-loop.md §LLM 抽象）
     #[serde(default)]
     pub llm: LlmConfig,
+    /// 只读降级模式（docs/config.md 降级路径）：true 时任何 save 报错。
+    /// 运行时标记，不落盘（serde skip）
+    #[serde(skip)]
+    pub read_only: bool,
+    /// 加载管线报告（迁移/reconcile/降级每个动作一行，docs/config.md「上报」）。
+    /// 运行时数据，不落盘（serde skip）
+    #[serde(skip)]
+    pub load_report: Vec<String>,
 }
 
 /// LLM 配置 v2：多 provider profile + active 选择器（切换不丢配置）
@@ -151,26 +160,31 @@ impl Default for Config {
                     .into(),
             view_scale: default_view_scale(),
             llm: LlmConfig::default(),
+            read_only: false,
+            load_report: Vec::new(),
         }
     }
 }
 
 impl Config {
-    /// 读配置；文件不存在 → 写入默认配置（首次启动落地，用户可直接编辑）
+    /// 读配置：版本与迁移加载管线（docs/config.md，config/migrate.rs）；
+    /// 文件不存在 → 写入默认配置（首次启动落地，用户可直接编辑）
     pub fn load_or_default(dir: &std::path::Path) -> Self {
-        match std::fs::read_to_string(dir.join(CONFIG_FILE)) {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
-            Err(_) => {
-                let cfg = Self::default();
-                let _ = cfg.save(dir);
-                cfg
-            }
-        }
+        migrate::load(dir)
     }
 
+    /// 持久化（注入 version 控制字段 = current）；只读降级模式 → 报错
     pub fn save(&self, dir: &std::path::Path) -> std::io::Result<()> {
+        if self.read_only {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "只读降级模式：config 写被禁止（docs/config.md）",
+            ));
+        }
         std::fs::create_dir_all(dir)?;
-        let s = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
+        let mut v = serde_json::to_value(self).map_err(std::io::Error::other)?;
+        v["version"] = serde_json::Value::from(migrate::CURRENT_VERSION);
+        let s = serde_json::to_string_pretty(&v).map_err(std::io::Error::other)?;
         std::fs::write(dir.join(CONFIG_FILE), s)
     }
 }
