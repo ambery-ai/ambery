@@ -2,6 +2,7 @@
 //! 策略文件：claude.rs（Claude Code）；opencode.rs（骨架，待真实样本）。
 
 pub mod claude;
+pub mod opencode;
 
 use serde::{Deserialize, Serialize};
 
@@ -101,6 +102,7 @@ pub trait Filter {
 pub fn by_name(name: &str) -> Box<dyn Filter + Send> {
     match name {
         "claude" | "default" => Box::new(claude::ClaudeFilter::default()),
+        "opencode" => Box::new(opencode::OpenCodeFilter::default()),
         _ => Box::new(claude::ClaudeFilter::default()), // 未知策略回退 claude
     }
 }
