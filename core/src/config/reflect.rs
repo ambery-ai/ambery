@@ -39,8 +39,9 @@ pub enum NodeType {
         max: Option<f64>,
     },
     Str,
-    /// enum 选项：schema 静态 enum 或 OPTIONS 注册表动态注入（如 llm.active）
-    Enum(Vec<String>),
+    /// enum 选项：schema 静态 enum 或 OPTIONS 注册表动态注入（如 llm.active）。
+    /// struct variant：内部 tag 的 serde 限制，newtype 装不了 sequence
+    Enum { options: Vec<String> },
     /// map<String, T>：节点本体 + 已有条目展开为子节点
     Map,
     /// 暂不支持渲染的类型（array 等）：只读展示 JSON
@@ -61,7 +62,7 @@ pub fn config_nodes(config: &Config) -> Vec<ConfigNode> {
     let mut nodes = reflect(config);
     for (path, f) in OPTIONS {
         if let Some(n) = nodes.iter_mut().find(|n| n.path == *path) {
-            n.ty = NodeType::Enum(f(config));
+            n.ty = NodeType::Enum { options: f(config) };
         }
     }
     nodes
@@ -168,11 +169,12 @@ fn walk(
         }
         Some(InstanceType::String) => {
             let ty = match &schema.enum_values {
-                Some(vals) => NodeType::Enum(
-                    vals.iter()
+                Some(vals) => NodeType::Enum {
+                    options: vals
+                        .iter()
                         .filter_map(|v| v.as_str().map(String::from))
                         .collect(),
-                ),
+                },
                 None => NodeType::Str,
             };
             out.push(leaf(path, ty, desc, value));
@@ -277,7 +279,7 @@ mod tests {
         let nodes = config_nodes(&Config::default());
         let n = nodes.iter().find(|n| n.path == "llm.active").unwrap();
         match &n.ty {
-            NodeType::Enum(opts) => {
+            NodeType::Enum { options: opts } => {
                 assert!(opts.contains(&"debug".to_string()));
                 assert!(opts.contains(&"deepseek".to_string()));
             }
