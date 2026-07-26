@@ -421,7 +421,7 @@ impl<L: Llm> OverseerBackend<L> {
                 if let Some(m) = motion {
                     entry.motion = m.to_string();
                 }
-                let saved = self.config.save(self.harness.storage_dir()).is_ok();
+                let saved = self.config.save(self.harness.config_dir()).is_ok();
                 (
                     json!({ "ok": saved, "key": key }),
                     vec![Effect::ConfigChanged],
@@ -922,7 +922,7 @@ mod tests {
         assert!(effects.contains(&Effect::ConfigChanged));
         assert_eq!(ov.config.kaomoji["celebrate"].face, "(≧▽≦)");
         // config.json 已持久化
-        let reloaded = Config::load_or_default(ov.harness.storage_dir());
+        let reloaded = Config::load_or_default(ov.harness.config_dir());
         assert_eq!(reloaded.kaomoji["celebrate"].motion, "bounce");
         let _ = std::fs::remove_dir_all(tmp_dir("cfg"));
     }
