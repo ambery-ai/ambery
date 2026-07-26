@@ -30,11 +30,19 @@ export async function main() {
   await adapter.setSize(baseW, baseH);
   adapter.setOffset(0, 0);
 
+  const ANIM_H = Math.ceil(18 * dpr); // 纵向最大预留（bounce）
+  const ANIM_W = Math.ceil(12 * dpr); // 横向最大预留（shake）
+
+  function checkOverflow(label: string, h: number, w: number) {
+    if (h > ANIM_H) console.warn(`[pet] ${label} h overflow: ${h} > ${ANIM_H}`);
+    if (w > ANIM_W) console.warn(`[pet] ${label} w overflow: ${w} > ${ANIM_W}`);
+  }
+
   let adjustWindowForMotion = async (motion: Motion) => {
     switch (motion) {
-      case "bounce": await adapter.setSize(baseW, baseH + Math.ceil(18 * dpr)); adapter.setOffset(18, 0); break;
-      case "float": await adapter.setSize(baseW, baseH + Math.ceil(10 * dpr)); adapter.setOffset(10, 0); break;
-      case "shake": await adapter.setSize(baseW + Math.ceil(12 * dpr), baseH); adapter.setOffset(0, 6); break;
+      case "bounce": await adapter.setSize(baseW, baseH + ANIM_H); adapter.setOffset(18, 0); break;
+      case "float": { const h = Math.ceil(10 * dpr); checkOverflow("float", h, 0); await adapter.setSize(baseW, baseH + h); adapter.setOffset(10, 0); break; }
+      case "shake": { const w = ANIM_W; checkOverflow("shake", 0, w); await adapter.setSize(baseW + w, baseH); adapter.setOffset(0, 6); break; }
       default: await adapter.setSize(baseW, baseH); adapter.setOffset(0, 0);
     }
   };
@@ -55,7 +63,7 @@ export async function main() {
       const size = await win.outerSize();
       const c = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 };
       const vr = view.el.getBoundingClientRect();
-      engine.registerPet(c, { w: Math.round(vr.width), h: Math.round(vr.height) });
+      engine.registerPet(c, { w: Math.round(vr.width) + ANIM_W, h: Math.round(vr.height) + ANIM_H });
       emit("pet:moved", c);
       onMove(c);
     }
@@ -86,7 +94,7 @@ export async function main() {
       const c = { x: wr.x + wr.width / 2, y: wr.y + wr.height / 2 };
       const r = view.el.getBoundingClientRect();
       panel.setPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
-      engine.registerPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
+      engine.registerPet(c, { w: Math.round(r.width) + ANIM_W, h: Math.round(r.height) + ANIM_H });
     };
     view.el.addEventListener("view:drag-start", () => {
       engine.hideAll();
