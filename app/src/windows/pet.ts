@@ -69,8 +69,12 @@ export async function main() {
     }
 
     const onMove = dragDebounce(
-      () => { engine.hideAll(); emit("chat:hide"); },
-      (latest: { x: number; y: number }) => { const r = engine.restoreAll(latest); if (r.length > 0) emit("chat:show"); },
+      () => { engine.hideAll(); emit("chat:hide"); emit("cards:hide"); },
+      (latest: { x: number; y: number }) => {
+        const r = engine.restoreAll(latest);
+        if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
+        if (r.some((w) => w.id.startsWith("card-"))) emit("cards:show");
+      },
       200,
     );
 

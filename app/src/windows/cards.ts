@@ -14,6 +14,10 @@ export async function main() {
     const win = getCurrentWindow();
     win.onCloseRequested(async () => { await adapter?.hide(); });
     await adapter.hide();
+    // 拖拽 hide/restore 事件
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen("cards:hide", () => adapter?.hide());
+    await listen("cards:show", () => adapter?.show());
   }
 
   const bridge = await createBridge();
