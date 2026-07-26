@@ -10,8 +10,8 @@ import type {
   TopState,
 } from "./bridge";
 
-const BASE = "http://127.0.0.1:47601"; // WORKTREE
-const WS_URL = "ws://127.0.0.1:47601/ws"; // WORKTREE
+const BASE = "http://127.0.0.1:47600";
+const WS_URL = "ws://127.0.0.1:47600/ws";
 
 export class RemoteBridge implements Bridge {
   private topStateListeners: ((s: TopState) => void)[] = [];
