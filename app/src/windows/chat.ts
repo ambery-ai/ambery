@@ -70,14 +70,13 @@ export class ChatPanel {
     } else {
       this.el.hidden = false;
       this.visible = true;
-      const pos = this.engine?.place(
+      if (!this.engine) { console.error("[chat] toggle called without engine"); return; }
+      const pos = this.engine.place(
         { id: "chat-panel", width: PANEL_W, height: PANEL_H },
         Direction.sse,
       );
-      if (pos) {
-        this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
-        this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
-      }
+      this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
+      this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
       void this.bridge.getQueue().then((msgs) => this.renderHistory(msgs));
       this.inputEl.focus();
     }
