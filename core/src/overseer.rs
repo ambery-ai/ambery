@@ -6,7 +6,7 @@ use crate::llm::{tool_set, Llm};
 use crate::queue::{QueueMessage, Role, ToolCall};
 use crate::timer::TimerWheel;
 use crate::{
-    default_agents_md, AgentEntry, AgentStatus, Config, ContextRecord, Harness, KaomojiEntry,
+    default_agents_md, AgentEntry, AgentStatus, Config, ContextRecord, Harness,
     TerminalContentRecord, AGENTS_MD_FILE,
 };
 use serde_json::{json, Value};
@@ -21,7 +21,8 @@ pub enum Effect {
         motion: Option<String>,
         ttl_ms: Option<u64>,
     },
-    ConfigChanged,
+    /// llm_changed=true 时 server 广播前重建 LlmBackend
+    ConfigChanged { llm_changed: bool },
 }
 
 pub struct OverseerBackend<L: Llm> {
@@ -91,7 +92,7 @@ impl<L: Llm> OverseerBackend<L> {
             .save(self.harness.config_dir())
             .map_err(|e| format!("persist 失败: {e}"))?;
         Ok(ConfigOutcome {
-            effects: vec![Effect::ConfigChanged],
+            effects: vec![Effect::ConfigChanged { llm_changed }],
             llm_changed,
             restart_required: if restart_required_for(path) {
                 vec![path.to_string()]
@@ -448,34 +449,20 @@ impl<L: Llm> OverseerBackend<L> {
                 )
             }
             "edit_config" => {
-                let key = args.get("key").and_then(Value::as_str).unwrap_or("");
-                let face = args.get("face").and_then(Value::as_str);
-                let motion = args.get("motion").and_then(Value::as_str);
-                if face.is_none() && motion.is_none() {
-                    return (
-                        json!({ "ok": false, "error": "face/motion 至少传一个" }),
-                        vec![],
-                    );
+                let path = args.get("path").and_then(Value::as_str).unwrap_or("");
+                let Some(value) = args.get("value").cloned() else {
+                    return (json!({ "ok": false, "error": "path/value 都必传" }), vec![]);
+                };
+                match self.apply_config_by_path(path, value) {
+                    Ok(outcome) => {
+                        let mut r = json!({ "ok": true, "path": path });
+                        if !outcome.restart_required.is_empty() {
+                            r["restartRequired"] = json!(outcome.restart_required);
+                        }
+                        (r, outcome.effects)
+                    }
+                    Err(e) => (json!({ "ok": false, "error": e }), vec![]),
                 }
-                let entry = self
-                    .config
-                    .kaomoji
-                    .entry(key.to_string())
-                    .or_insert_with(|| KaomojiEntry {
-                        face: String::new(),
-                        motion: "still".into(),
-                    });
-                if let Some(f) = face {
-                    entry.face = f.to_string();
-                }
-                if let Some(m) = motion {
-                    entry.motion = m.to_string();
-                }
-                let saved = self.config.save(self.harness.config_dir()).is_ok();
-                (
-                    json!({ "ok": saved, "key": key }),
-                    vec![Effect::ConfigChanged],
-                )
             }
             other => (
                 json!({ "ok": false, "error": format!("unknown tool: {other}") }),
@@ -980,11 +967,17 @@ mod tests {
         let call = ToolCall {
             id: "c1".into(),
             name: "edit_config".into(),
-            arguments: json!({ "key": "celebrate", "face": "(≧▽≦)", "motion": "bounce" }).to_string(),
+            arguments: json!({
+                "path": "kaomoji.celebrate",
+                "value": { "face": "(≧▽≦)", "motion": "bounce" }
+            })
+            .to_string(),
         };
         let (result, effects) = ov.execute_tool(&call);
         assert_eq!(result["ok"], json!(true));
-        assert!(effects.contains(&Effect::ConfigChanged));
+        assert!(effects
+            .iter()
+            .any(|e| matches!(e, Effect::ConfigChanged { llm_changed: false })));
         assert_eq!(ov.config.kaomoji["celebrate"].face, "(≧▽≦)");
         // config.json 已持久化
         let reloaded = Config::load_or_default(ov.harness.config_dir());

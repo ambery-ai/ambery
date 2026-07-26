@@ -2,7 +2,7 @@
 //! serde + schemars 即 Rust 的 type reflection：reflect() 泛型 walker 产出节点列表，
 //! CLI / 托盘面板 / LLM tool 全是节点的薄渲染器——加字段零成本。
 
-use schemars::schema::{InstanceType, RootSchema, Schema, SchemaObject, SingleOrVec};
+use schemars::schema::{InstanceType, Schema, SchemaObject, SingleOrVec};
 use serde::Serialize;
 use serde_json::Value;
 

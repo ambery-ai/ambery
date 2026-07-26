@@ -48,15 +48,14 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_config",
-            description: "修改 Config 的 kaomoji 映射（key → face/motion）",
+            description: "修改 Config（统一配置管道，非法值被拒绝并返回错误）。path 为点分路径，value 为新值（JSON）。例：新增表情状态 path=kaomoji.celebrate value={\"face\":\"(≧▽≦)\",\"motion\":\"bounce\"}；调阈值 path=token_threshold value=5000",
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "key": { "type": "string" },
-                    "face": { "type": "string" },
-                    "motion": { "type": "string", "enum": ["still", "float", "bounce", "shake"] }
+                    "path": { "type": "string" },
+                    "value": {}
                 },
-                "required": ["key"]
+                "required": ["path", "value"]
             }),
         },
     ]

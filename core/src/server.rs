@@ -99,7 +99,13 @@ async fn broadcast_effects(s: &AppState, effects: Vec<Effect>) {
                 motion,
                 ttl_ms,
             } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms }),
-            Effect::ConfigChanged => {
+            Effect::ConfigChanged { llm_changed } => {
+                // LLM tool 也能改 llm.*——重建在广播处统一，不只 POST /config
+                if llm_changed {
+                    let mut ov = s.overseer.lock().await;
+                    let backend = LlmBackend::from_config(&ov.config.llm);
+                    ov.replace_llm(backend);
+                }
                 let cfg = s.overseer.lock().await.config.clone();
                 json!({ "kind": "config", "config": config_json(&cfg) })
             }
@@ -191,10 +197,6 @@ async fn post_config(
     let mut ov = s.overseer.lock().await;
     match ov.apply_config_by_path(&body.path, body.value) {
         Ok(outcome) => {
-            if outcome.llm_changed {
-                let backend = LlmBackend::from_config(&ov.config.llm);
-                ov.replace_llm(backend);
-            }
             let restart = outcome.restart_required.clone();
             drop(ov);
             broadcast_effects(&s, outcome.effects).await;
