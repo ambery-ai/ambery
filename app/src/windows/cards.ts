@@ -21,7 +21,11 @@ export async function main() {
   new ComponentManager(mount, bridge, () => ({ x: 0, y: 0 }), true);
 
   if ("__TAURI_INTERNALS__" in window) {
-    const observer = new MutationObserver(() => { positionWindow(); });
+    let posTimer: ReturnType<typeof setTimeout> | null = null;
+    const observer = new MutationObserver(() => {
+      if (posTimer) clearTimeout(posTimer);
+      posTimer = setTimeout(() => positionWindow(), 50);
+    });
     observer.observe(mount, { childList: true, subtree: true });
   }
 }

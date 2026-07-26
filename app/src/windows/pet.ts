@@ -70,7 +70,7 @@ export async function main() {
 
     const onMove = dragDebounce(
       () => { engine.hideAll(); emit("chat:hide"); },
-      (latest) => { const r = engine.restoreAll(latest); if (r.length > 0) emit("chat:show"); },
+      (latest: { x: number; y: number }) => { const r = engine.restoreAll(latest); if (r.length > 0) emit("chat:show"); },
       200,
     );
 
