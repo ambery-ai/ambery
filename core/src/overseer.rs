@@ -56,6 +56,56 @@ impl<L: Llm> OverseerBackend<L> {
         }
     }
 
+    /// 统一配置修改管道（docs/config.md「修改入口」）：CLI/面板/LLM tool 共用。
+    /// set_by_path 写入 → serde 反序列化验证 → 动态 enum 校验 → 热应用 → persist。
+    /// restart_required = 运行时 diff 如实上报（不假装生效，行为即真相）。
+    pub fn apply_config_by_path(
+        &mut self,
+        path: &str,
+        value: Value,
+    ) -> Result<ConfigOutcome, String> {
+        if self.config.read_only {
+            return Err("只读降级模式：config 写被禁止（docs/config.md）".into());
+        }
+        let mut v = serde_json::to_value(&self.config).map_err(|e| e.to_string())?;
+        crate::config::reflect::set_by_path(&mut v, path, value.clone())?;
+        let new: Config = serde_json::from_value(v).map_err(|e| format!("验证失败: {e}"))?;
+        // 动态 enum 校验（OPTIONS 注册表，验证集中一份）
+        if let (Some(opts), Value::String(s)) =
+            (crate::config::reflect::valid_options(&new, path), &value)
+        {
+            if !opts.contains(s) {
+                return Err(format!("{path}: '{s}' 不在合法选项 {opts:?} 中"));
+            }
+        }
+        let old = std::mem::replace(&mut self.config, new);
+        // 热应用：filter 重建 / queue 阈值同步（其余字段每轮现读，天然热）
+        if self.config.filter_strategy != old.filter_strategy {
+            self.filter = crate::filter::by_name(&self.config.filter_strategy);
+        }
+        if self.config.token_threshold != old.token_threshold {
+            self.harness.queue.token_threshold = self.config.token_threshold;
+        }
+        let llm_changed = self.config.llm != old.llm;
+        self.config
+            .save(self.harness.config_dir())
+            .map_err(|e| format!("persist 失败: {e}"))?;
+        Ok(ConfigOutcome {
+            effects: vec![Effect::ConfigChanged],
+            llm_changed,
+            restart_required: if restart_required_for(path) {
+                vec![path.to_string()]
+            } else {
+                vec![]
+            },
+        })
+    }
+
+    /// llm_changed 后由 server 重建具体 LlmBackend 注入（overseer 泛型擦除不认识它）
+    pub fn replace_llm(&mut self, llm: L) {
+        self.llm = llm;
+    }
+
     /// 现拼 system prompt 请求头（concepts §12：Config 引用的各概念数据运行时拼装）
     /// = base_prompt（Config）+ AGENTS.md（Storage，热生效）+ kaomoji 表。
     /// 内容稳定、天然 cache 友好，不落 Queue（docs/storage.md）。
@@ -433,6 +483,21 @@ impl<L: Llm> OverseerBackend<L> {
             ),
         }
     }
+}
+
+/// 配置修改结果（apply_config_by_path 返回）
+pub struct ConfigOutcome {
+    pub effects: Vec<Effect>,
+    pub llm_changed: bool,
+    pub restart_required: Vec<String>,
+}
+
+/// 冷字段（行为即真相：本进程不重建 TimerWheel，错峰调度状态会丢 → 如实上报需重启）
+fn restart_required_for(path: &str) -> bool {
+    matches!(
+        path.split('.').next().unwrap_or(""),
+        "timer_interval_ms" | "timer_stagger_ms"
+    )
 }
 
 #[cfg(test)]
@@ -925,5 +990,43 @@ mod tests {
         let reloaded = Config::load_or_default(ov.harness.config_dir());
         assert_eq!(reloaded.kaomoji["celebrate"].motion, "bounce");
         let _ = std::fs::remove_dir_all(tmp_dir("cfg"));
+    }
+
+    #[test]
+    fn apply_config_by_path_hot_apply_and_persist() {
+        let mut ov = make_overseer("apply");
+        let out = ov
+            .apply_config_by_path("token_threshold", json!(5000))
+            .unwrap();
+        assert!(out.restart_required.is_empty());
+        assert!(!out.llm_changed);
+        assert_eq!(ov.harness.queue.token_threshold, 5000); // 热同步
+        let reloaded = Config::load_or_default(ov.harness.config_dir());
+        assert_eq!(reloaded.token_threshold, 5000); // persist
+        let _ = std::fs::remove_dir_all(tmp_dir("apply"));
+    }
+
+    #[test]
+    fn apply_config_by_path_validates_and_reports_restart() {
+        let mut ov = make_overseer("apply2");
+        // serde 验证失败
+        assert!(ov.apply_config_by_path("token_threshold", json!("oops")).is_err());
+        // 动态 enum 校验
+        assert!(ov.apply_config_by_path("llm.active", json!("nonexist")).is_err());
+        // 合法 active
+        let out = ov.apply_config_by_path("llm.active", json!("deepseek")).unwrap();
+        assert!(out.llm_changed);
+        // 冷字段如实上报
+        let out2 = ov.apply_config_by_path("timer_interval_ms", json!(60000)).unwrap();
+        assert_eq!(out2.restart_required, vec!["timer_interval_ms".to_string()]);
+        let _ = std::fs::remove_dir_all(tmp_dir("apply2"));
+    }
+
+    #[test]
+    fn apply_config_by_path_readonly_rejected() {
+        let mut ov = make_overseer("apply3");
+        ov.config.read_only = true;
+        assert!(ov.apply_config_by_path("token_threshold", json!(1)).is_err());
+        let _ = std::fs::remove_dir_all(tmp_dir("apply3"));
     }
 }

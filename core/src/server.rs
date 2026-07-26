@@ -58,6 +58,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/queue/user", post(post_user))
         .route("/events", post(post_event))
         .route("/config", get(get_config))
+        .route("/config/schema", get(get_config_schema))
+        .route("/config", post(post_config))
         .route("/hook", post(post_hook))
         .route("/debug/terminal", post(post_debug_terminal))
         .route("/ws", get(ws_upgrade))
@@ -163,6 +165,46 @@ async fn post_event(
 async fn get_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let ov = s.overseer.lock().await;
     Json(config_json(&ov.config))
+}
+
+/// 声明式 UI 反射（docs/config.md）：schema 节点 + 当前值，CLI/托盘面板的唯一数据源
+async fn get_config_schema(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+    let ov = s.overseer.lock().await;
+    Json(json!({
+        "version": crate::config::migrate::CURRENT_VERSION,
+        "readOnly": ov.config.read_only,
+        "nodes": crate::config::reflect::config_nodes(&ov.config),
+    }))
+}
+
+#[derive(Deserialize)]
+struct SetConfigBody {
+    path: String,
+    value: Value,
+}
+
+/// 统一修改管道：验证 → 热应用 → persist → 广播；restart_required 如实上报
+async fn post_config(
+    State(s): State<Arc<AppState>>,
+    Json(body): Json<SetConfigBody>,
+) -> impl IntoResponse {
+    let mut ov = s.overseer.lock().await;
+    match ov.apply_config_by_path(&body.path, body.value) {
+        Ok(outcome) => {
+            if outcome.llm_changed {
+                let backend = LlmBackend::from_config(&ov.config.llm);
+                ov.replace_llm(backend);
+            }
+            let restart = outcome.restart_required.clone();
+            drop(ov);
+            broadcast_effects(&s, outcome.effects).await;
+            (StatusCode::OK, Json(json!({ "ok": true, "restartRequired": restart })))
+        }
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": e })),
+        ),
+    }
 }
 
 /// mock hook（docs/agent-loop.md §Mock Hook 契约）

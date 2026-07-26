@@ -67,6 +67,14 @@ pub fn config_nodes(config: &Config) -> Vec<ConfigNode> {
     nodes
 }
 
+/// 动态 enum 校验：path 有 OPTIONS 提供者时返回当前合法选项（验证集中于此）
+pub fn valid_options(config: &Config, path: &str) -> Option<Vec<String>> {
+    OPTIONS
+        .iter()
+        .find(|(p, _)| *p == path)
+        .map(|(_, f)| f(config))
+}
+
 /// 动态 enum 注册表（唯二手工钩子之一）：path → 选项提供者
 static OPTIONS: &[(&str, fn(&Config) -> Vec<String>)] = &[("llm.active", |c| {
     let mut v = vec!["debug".to_string()];
