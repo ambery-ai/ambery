@@ -45,8 +45,11 @@ export async function main() {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const { emit } = await import("@tauri-apps/api/event");
     const win = getCurrentWindow();
-    setupServer(); // 注册 engine:place/remove 事件处理
+    setupServer();
     view.tauriStartDrag = () => win.startDragging();
+
+    const { dragDebounce } = await import("../utils/debounce");
+
     async function broadcastPosition() {
       const pos = await win.outerPosition();
       const size = await win.outerSize();
@@ -54,7 +57,15 @@ export async function main() {
       const vr = view.el.getBoundingClientRect();
       engine.registerPet(c, { w: Math.round(vr.width), h: Math.round(vr.height) });
       emit("pet:moved", c);
+      onMove(c);
     }
+
+    const onMove = dragDebounce(
+      () => { engine.hideAll(); emit("chat:hide"); },
+      (latest) => { const r = engine.restoreAll(latest); if (r.length > 0) emit("chat:show"); },
+      200,
+    );
+
     broadcastPosition();
     await win.onMoved(() => broadcastPosition());
   } else if (!import.meta.env.PROD) {

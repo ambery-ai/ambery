@@ -20,6 +20,8 @@ export async function main() {
       if (chatPanel?.isVisible()) hideChat();
       else showChat();
     });
+    await listen("chat:hide", () => hideChat());
+    await listen("chat:show", () => showChat());
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     getCurrentWindow().onCloseRequested(async () => {
       await adapter?.hide();
