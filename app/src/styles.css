@@ -31,12 +31,6 @@ html.browser body {
   touch-action: none;
 }
 
-#view[data-docked] {
-  cursor: default;
-  animation: none !important; /* 吸附后不再浮动 */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-}
-
 #face {
   font-size: calc(25px * var(--view-scale));
   line-height: 1;
@@ -69,6 +63,7 @@ html.browser body {
 
 /* ── Component（concepts §5 / docs/components.md） ── */
 /* cards 窗口模式：卡片自然流式布局，窗口自身定位（docs/multi-window.md） */
+.cards-mode { height: 100vh; }
 .cards-mode .component { position: static; margin-bottom: 8px; }
 
 .component {
@@ -166,6 +161,7 @@ html.browser body {
 
 /* ── Chat Panel（concepts §3a / docs/chat-panel.md） ── */
 /* chat 窗口模式：面板填充整个窗口（docs/multi-window.md） */
+.chat-mode { height: 100vh; }
 .chat-mode #chat-panel { position: static; width: 100%; height: 100%; }
 
 #chat-panel {

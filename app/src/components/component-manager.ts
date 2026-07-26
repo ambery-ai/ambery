@@ -5,7 +5,7 @@
 // multi-window 模式（windowed=true）：卡片在窗口内自然流式布局，窗口外部定位；
 // 浏览器/maximized 模式（默认）：卡片 position:fixed 在 View 锚点周围弹出。
 
-import type { Bridge, ComponentSpec, Direction } from "./bridge";
+import type { Bridge, ComponentSpec, Direction } from "../bridge";
 
 const GAP = 12;
 const VIEW_RADIUS_X = 36;

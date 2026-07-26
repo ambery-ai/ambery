@@ -1,15 +1,12 @@
-// Chat Panel（concepts §3a，设计 docs/chat-panel.md）：
-// View 右键吸附时唤出，Queue 的视图投影——只渲染 user/assistant，输入写 Queue user role。
-//
-// multi-window 模式（windowed=true）：面板填充整个窗口（窗口外部定位）；
-// 浏览器/maximized 模式（默认）：面板 position:fixed 在 View 锚点周围弹出。
+// Chat Panel（concepts §3a，设计 docs/chat-panel.md）：View 右键切换唤出/隐藏
+// engine.place(Direction.sse) 定位，不重叠其他窗口
 
-import type { Bridge, QueueMessage } from "./bridge";
-import type { Edge } from "./view";
+import type { Bridge, QueueMessage } from "../bridge";
+import type { PositioningEngine } from "../positioning/engine";
+import { Direction } from "../positioning/types";
 
 const PANEL_W = 320;
 const PANEL_H = 380;
-const MARGIN = 12;
 
 export class ChatPanel {
   private el: HTMLDivElement;
@@ -20,7 +17,7 @@ export class ChatPanel {
   constructor(
     mount: HTMLElement,
     private bridge: Bridge,
-    private viewCenter: () => { x: number; y: number },
+    private engine?: PositioningEngine,
     /** multi-window 模式：跳过 DOM 定位，面板填充窗口 */
     public windowed = false,
   ) {
@@ -47,7 +44,6 @@ export class ChatPanel {
     this.inputEl.placeholder = "和ペット说话…";
     this.inputEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && this.inputEl.value.trim()) {
-        // 用户输入写 Queue 的 user role（concepts §3a）
         this.bridge.appendUserMessage(this.inputEl.value.trim());
         this.inputEl.value = "";
       }
@@ -59,47 +55,33 @@ export class ChatPanel {
     bridge.onQueueChanged((msgs) => this.renderHistory(msgs));
   }
 
-  /** docked 唤出；edge 决定面板向屏幕内侧展开的方向 */
-  show(edge: Edge) {
-    this.visible = true;
-    this.el.hidden = false;
-    if (!this.windowed) this.place(edge);
-    void this.bridge.getQueue().then((msgs) => this.renderHistory(msgs));
-    this.inputEl.focus();
-  }
-
-  hide() {
-    this.visible = false;
-    this.el.hidden = true;
-  }
-
+  showPanel() { this.el.hidden = false; this.visible = true; }
+  hidePanel() { this.engine?.remove("chat-panel"); this.el.hidden = true; this.visible = false; }
   isVisible() {
     return this.visible;
   }
 
-  private place(edge: Edge) {
-    const { x, y } = this.viewCenter();
-    let left: number;
-    let top: number;
-    if (edge === "top") {
-      left = x - PANEL_W / 2;
-      top = y + 20 + MARGIN; // View 半径(纵) + 间距
-    } else if (edge === "bottom") {
-      left = x - PANEL_W / 2;
-      top = y - 20 - MARGIN - PANEL_H;
-    } else if (edge === "left") {
-      left = x + 36 + MARGIN; // View 半径(横)
-      top = y - PANEL_H / 2;
+  hide() { this.visible = false; this.el.hidden = true; this.engine?.remove("chat-panel"); }
+
+  /** 右键 toggle：engine.place(Direction.sse) 定位 */
+  toggle() {
+    if (this.visible) {
+      this.hide();
     } else {
-      left = x - 36 - MARGIN - PANEL_W;
-      top = y - PANEL_H / 2;
+      this.el.hidden = false;
+      this.visible = true;
+      if (!this.engine) { console.error("[chat] toggle called without engine"); return; }
+      const pos = this.engine.place(
+        { id: "chat-panel", width: PANEL_W, height: PANEL_H },
+        Direction.sse,
+      );
+      this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
+      this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
+      void this.bridge.getQueue().then((msgs) => this.renderHistory(msgs));
+      this.inputEl.focus();
     }
-    this.el.style.left = `${clamp(left, 8, window.innerWidth - PANEL_W - 8)}px`;
-    this.el.style.top = `${clamp(top, 8, window.innerHeight - PANEL_H - 8)}px`;
   }
 
-  /** 只渲染 user/assistant 的非空 content（system/tool 是运行态消息；
-   *  assistant 的 tool_calls 载体消息 content 为空，面板无需感知——docs/chat-panel.md） */
   private renderHistory(msgs: QueueMessage[]) {
     this.historyEl.replaceChildren();
     for (const m of msgs) {
