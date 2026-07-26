@@ -14,6 +14,29 @@ mod menu_window;
 mod window;
 mod tray;
 
+/// debug 前端从 devUrl（tauri.conf.json，5199 vite dev server）加载——
+/// vite 没跑时 webview 只能拿到过期/空白内容，必须报警而不是静默
+#[cfg(debug_assertions)]
+fn warn_if_dev_server_down() {
+    let down = std::net::TcpStream::connect_timeout(
+        &std::net::SocketAddr::from(([127, 0, 0, 1], 5199)),
+        std::time::Duration::from_millis(300),
+    )
+    .is_err();
+    if down {
+        eprintln!("[dev] vite dev server (5199) 没在跑！先起：cd app && npx vite --port 5199 --strictPort");
+        unsafe {
+            use windows::Win32::UI::WindowsAndMessaging::*;
+            MessageBoxW(
+                windows::Win32::Foundation::HWND(std::ptr::null_mut()),
+                windows::core::w!("debug 前端从 devUrl 加载，但 vite dev server (5199) 没在跑。\n\n先起：cd app && npx vite --port 5199 --strictPort\n再起本 app。"),
+                windows::core::w!("terminal-overseer (debug)"),
+                MB_ICONWARNING,
+            );
+        }
+    }
+}
+
 /// 面板底部按钮（原托盘菜单动作）
 #[tauri::command]
 fn toggle_pet(app: tauri::AppHandle) {
@@ -34,6 +57,8 @@ fn quit_app(app: tauri::AppHandle) {
 }
 
 fn main() {
+    #[cfg(debug_assertions)]
+    warn_if_dev_server_down();
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![toggle_pet, quit_app])
         .setup(|app| {
