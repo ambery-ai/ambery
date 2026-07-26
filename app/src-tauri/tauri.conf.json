@@ -40,6 +40,21 @@
         "resizable": false
       },
       {
+        "label": "menu",
+        "title": "menu",
+        "url": "index.html#menu",
+        "width": 380,
+        "height": 560,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "focus": false,
+        "shadow": false,
+        "skipTaskbar": true,
+        "visible": false,
+        "resizable": false
+      },
+      {
         "label": "chat",
         "title": "chat",
         "url": "index.html#chat",

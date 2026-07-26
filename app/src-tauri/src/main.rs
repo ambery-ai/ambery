@@ -10,22 +10,45 @@ use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::broadcast;
 
+mod menu_window;
 mod window;
 mod tray;
 
+/// 面板底部按钮（原托盘菜单动作）
+#[tauri::command]
+fn toggle_pet(app: tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("pet") {
+        if w.is_visible().unwrap_or(false) {
+            let _ = w.hide();
+            if let Some(c) = app.get_webview_window("cards") { let _ = c.hide(); }
+            if let Some(ch) = app.get_webview_window("chat") { let _ = ch.hide(); }
+        } else {
+            let _ = w.show();
+        }
+    }
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 fn main() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![toggle_pet, quit_app])
         .setup(|app| {
             let pet = app.get_webview_window("pet").expect("pet window");
             let cards = app.get_webview_window("cards").expect("cards window");
             let chat = app.get_webview_window("chat").expect("chat window");
+            let menu = app.get_webview_window("menu").expect("menu window");
 
-            // 所有窗口统一 pin + fight-back
+            // 所有窗口统一 pin + fight-back（menu 面板除外：它是菜单行为，失焦即隐）
             window::init_window(&pet);
             window::init_window(&cards);
             window::init_window(&chat);
+            menu_window::init_menu_window(&menu);
 
-            // 托盘：控制 pet 窗口（连带隐藏 cards/chat）
+            // 托盘：右键弹设置面板
             tray::init_tray(app.handle(), &pet)?;
 
             // 复用 Tauri async runtime 启动 overseer-core
