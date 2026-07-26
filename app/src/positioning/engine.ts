@@ -60,10 +60,12 @@ export class PositioningEngine {
     } else {
       this.occupied.push({ id: newWindow.id, center: result, w: newWindow.width, h: newWindow.height });
     }
+    console.info("[engine] place", newWindow.id, "→", Math.round(result.x), Math.round(result.y));
     return result;
   }
 
   remove(id: string): void {
+    console.info("[engine] remove", id);
     this.occupied = this.occupied.filter((o) => o.id !== id);
   }
 
@@ -73,6 +75,7 @@ export class PositioningEngine {
   }
 
   hideAll(): void {
+    console.info("[engine] hideAll", this.occupied.filter(o => o.id !== "_pet_").length, "windows");
     if (this.occupied.length === 0) return;
     const pet = this.occupied.find((o) => o.id === "_pet_");
     const petCtr = pet?.center ?? { x: 0, y: 0 };
@@ -91,6 +94,7 @@ export class PositioningEngine {
       const oc = this.occupied.find((o) => o.id === r.id);
       if (oc) oc.center = r.center;
     }
+    console.info("[engine] restoreAll", result.length, "windows");
     this.hidden = null;
     return result;
   }
