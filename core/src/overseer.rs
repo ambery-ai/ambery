@@ -259,7 +259,7 @@ impl<L: Llm> OverseerBackend<L> {
             ts,
         })?;
         // Filter：Content → Context 链路（concepts §11），存归一后文本，字数按归一后计
-        let filtered = self.filter.apply(content);
+        let filtered = self.filter.digest(content).render();
         // Hook 到达 → Timer 重排（近期有 Hook 的实例不该被补扫，docs/timer.md）
         self.timers.reset(instance, ts);
         match event {
@@ -341,7 +341,7 @@ impl<L: Llm> OverseerBackend<L> {
             source: RecordSource::Timer,
             ts,
         })?;
-        let filtered = self.filter.apply(content);
+        let filtered = self.filter.digest(content).render();
         let prev = self
             .harness
             .context
@@ -416,7 +416,7 @@ impl<L: Llm> OverseerBackend<L> {
                             source: RecordSource::FetchTerminal,
                             ts: crate::server::now_ms(),
                         });
-                        let filtered = self.filter.apply(&raw);
+                        let filtered = self.filter.digest(&raw).render();
                         let _ = self.harness.append_context(ContextRecord {
                             instance: inst.into(),
                             content: filtered.clone(),
