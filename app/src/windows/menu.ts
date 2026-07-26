@@ -26,7 +26,10 @@ interface SchemaResp {
 
 export async function main() {
   document.body.innerHTML = `<div id="menu-panel">
-    <div id="panel-head">⚙ 设置 <span id="panel-status"></span></div>
+    <div id="panel-head">
+      <span>⚙ 设置</span>
+      <span id="panel-head-right"><span id="panel-status"></span><button id="btn-close" title="关闭">✕</button></span>
+    </div>
     <div id="panel-body">加载中…</div>
     <div id="panel-foot">
       <button id="btn-toggle">显示/隐藏</button>
@@ -35,6 +38,12 @@ export async function main() {
   </div>`;
   document.getElementById("btn-toggle")!.onclick = () => invoke("toggle_pet");
   document.getElementById("btn-quit")!.onclick = () => invoke("quit_app");
+  document.getElementById("btn-close")!.onclick = async () => {
+    if ("__TAURI_INTERNALS__" in window) {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().hide();
+    }
+  };
   await render();
 }
 
