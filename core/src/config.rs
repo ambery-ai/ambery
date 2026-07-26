@@ -1,12 +1,15 @@
 //! Config 域（concepts §12，docs/config.md）：类型 + load/save。
 //! 子模块：reflect（声明式 UI 反射）、migrate（版本与迁移加载管线）。
 
+pub mod reflect;
+
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG_FILE: &str = "config.json";
 
 /// Config（concepts §12）：持久化单文件 config.json，edit_config tool 可写
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Config {
     /// 状态 key → 颜文字映射（Autonomy 默认行为表，concepts §4）
     pub kaomoji: std::collections::HashMap<String, KaomojiEntry>,
@@ -35,7 +38,7 @@ pub struct Config {
 }
 
 /// LLM 配置 v2：多 provider profile + active 选择器（切换不丢配置）
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LlmConfig {
     /// "debug" = DebugAgent（内置规则）；其他值 = providers 里的 key
     pub active: String,
@@ -44,7 +47,7 @@ pub struct LlmConfig {
 }
 
 /// 一个 OpenAI 兼容端点 profile；key 本体只在环境变量里，这里只存变量名
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LlmProvider {
     pub base_url: String,
     pub model: String,
@@ -106,7 +109,7 @@ fn default_timer_stagger() -> i64 {
     30_000
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct KaomojiEntry {
     pub face: String,
     pub motion: String,
