@@ -1,34 +1,19 @@
-//! Filter（concepts §11，docs/filter.md）：去噪 + 归一 + 变化检测。
+//! claude 策略（docs/filter.md）：Claude Code 终端的行级去噪 + 归一。
 //! 规则取自真实 Claude Code 标签页的 UIA 文本样本（UIA 返回渲染后纯文本，无 ANSI 码）。
 
 use regex::Regex;
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum Change {
-    Unchanged,
-    /// 相似度（spinner 残留、计数器微变级别）
-    Minor(f64),
-    /// 相似度（实质内容变化，值得通知）
-    Substantive(f64),
-}
+use super::{Change, Filter};
 
-pub trait Filter {
-    /// 去噪 + 归一
-    fn apply(&self, raw: &str) -> String;
-    /// 变化检测（作用于归一后文本）
-    fn detect_change(&self, prev: &str, next: &str) -> Change;
-}
-
-/// default 策略（docs/filter.md §规则）
-pub struct DefaultFilter {
+/// claude 策略（docs/filter.md §claude.rs 噪音清单）
+pub struct ClaudeFilter {
     /// Jaccard 相似度阈值，≥ 判 Minor
     pub similarity_threshold: f64,
 }
 
-impl Default for DefaultFilter {
+impl Default for ClaudeFilter {
     fn default() -> Self {
         Self {
             similarity_threshold: 0.8,
@@ -81,7 +66,7 @@ fn is_noise(line: &str) -> bool {
         || TOKEN_HINT.is_match(line)
 }
 
-impl Filter for DefaultFilter {
+impl Filter for ClaudeFilter {
     fn apply(&self, raw: &str) -> String {
         raw.lines()
             .map(|l| GIT_STATUS_SUFFIX.replace(l, "").into_owned()) // 剥离粘附的右对齐状态后缀
@@ -108,14 +93,6 @@ impl Filter for DefaultFilter {
     }
 }
 
-/// 按 Config.filter_strategy 选择实现（concepts §11 可替换策略）
-pub fn by_name(name: &str) -> Box<dyn Filter + Send> {
-    match name {
-        "default" => Box::new(DefaultFilter::default()),
-        _ => Box::new(DefaultFilter::default()), // 未知策略回退 default
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,11 +105,11 @@ mod tests {
             .join("\n")
     }
 
-    const PROCESSING: &str = include_str!("../tests/fixtures/processing.txt");
-    const IDLE: &str = include_str!("../tests/fixtures/idle.txt");
+    const PROCESSING: &str = include_str!("../../tests/fixtures/processing.txt");
+    const IDLE: &str = include_str!("../../tests/fixtures/idle.txt");
 
-    fn filter() -> DefaultFilter {
-        DefaultFilter::default()
+    fn filter() -> ClaudeFilter {
+        ClaudeFilter::default()
     }
 
     #[test]
