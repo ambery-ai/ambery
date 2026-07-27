@@ -25,7 +25,8 @@ fn warn_if_dev_server_down() {
     .is_err();
     if down {
         eprintln!("[dev] vite dev server (5199) 没在跑！先起：cd app && npx vite --port 5199 --strictPort");
-        unsafe {
+        // 后台线程弹框：报警不能阻塞启动（模态框卡死过启动链路）
+        std::thread::spawn(|| unsafe {
             use windows::Win32::UI::WindowsAndMessaging::*;
             MessageBoxW(
                 windows::Win32::Foundation::HWND(std::ptr::null_mut()),
@@ -33,7 +34,7 @@ fn warn_if_dev_server_down() {
                 windows::core::w!("terminal-overseer (debug)"),
                 MB_ICONWARNING,
             );
-        }
+        });
     }
 }
 
