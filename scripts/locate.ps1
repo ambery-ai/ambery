@@ -21,21 +21,30 @@ public class LocateWin {
 $ovPid = (Get-Process terminal-overseer -ErrorAction SilentlyContinue | Select-Object -First 1).Id
 if (-not $ovPid) { Write-Host "terminal-overseer not running"; exit 1 }
 
-$windows = @()
+# 用 List 而非 @()：.NET delegate 回调内 $windows 是局部变量，+= 只写局部副本；
+# List 是引用类型，.Add() 直接操作同一实例
+$windows = [System.Collections.Generic.List[Object]]::new()
+
 $cb = [LocateWin+EnumP]{ param($h,$_)
     $p = 0u; [LocateWin]::GetWindowThreadProcessId($h,[ref]$p)|Out-Null
     if ($p -ne $ovPid) { return $true }
     $c = New-Object System.Text.StringBuilder(256); [LocateWin]::GetClassName($h,$c,256)|Out-Null
     $t = New-Object System.Text.StringBuilder(256); [LocateWin]::GetWindowText($h,$t,256)|Out-Null
     $r = New-Object LocateWin+RECT; [LocateWin]::GetWindowRect($h,[ref]$r)|Out-Null
-    if ($c.ToString() -eq 'Tauri Window') {
-        $global:windows += [PSCustomObject]@{
-            Name = $t.ToString()
+    $cls = $c.ToString()
+    $title = $t.ToString()
+    # 诊断：打印进程下所有可见窗口的类和标题
+    if ([LocateWin]::IsWindowVisible($h)) {
+        Write-Host "  [DEBUG] cls='$cls' title='$title' rect=($($r.L),$($r.T),$($r.R),$($r.B))" -ForegroundColor DarkGray
+    }
+    if ($cls -eq 'Tauri Window') {
+        $windows.Add([PSCustomObject]@{
+            Name = $title
             X = $r.L; Y = $r.T
             W = $r.R - $r.L; H = $r.B - $r.T
             Visible = [LocateWin]::IsWindowVisible($h)
             HWND = $h
-        }
+        })
     }
     return $true
 }
