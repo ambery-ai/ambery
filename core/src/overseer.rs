@@ -464,7 +464,12 @@ impl<L: Llm> OverseerBackend<L> {
     }
 
     /// 提取到期的兜底扫描实例（docs/timer.md）
+    /// 提取到期的兜底扫描实例（docs/timer.md）；
+    /// timer_interval_ms ≤ 0 = 禁用（真实 hook 接入初期只留 hook 驱动，设计决定）
     pub fn due_timer_scans(&mut self, now: i64, batch: usize) -> Vec<String> {
+        if self.config.timer_interval_ms <= 0 {
+            return vec![];
+        }
         self.timers.due(now, batch)
     }
 

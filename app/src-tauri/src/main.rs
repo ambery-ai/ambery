@@ -97,12 +97,11 @@ async fn run_core() {
     )
     .expect("load harness");
     let backend = LlmBackend::from_config(&config.llm);
+    let (timer_tick, timer_batch) = (config.timer_tick_ms, config.timer_batch);
     let mut overseer = OverseerBackend::new(harness, config, backend);
-    // 读通道链（docs/sidecar.md）：sidecar → MockTerminals → Context
     // 读通道链（docs/sidecar.md）：sidecar（路径自动发现，env 可覆盖）→ MockTerminals → Context
     let sidecar = overseer_core::paths::sidecar_exe()
         .map(overseer_core::sidecar::SidecarClient::new)
-        .map(Arc::new);
         .map(Arc::new);
     overseer.sidecar_enabled = sidecar.is_some();
     let mock = Arc::new(std::sync::Mutex::new(
@@ -119,7 +118,7 @@ async fn run_core() {
     }
     let (tx, _) = broadcast::channel(64);
     let state = Arc::new(AppState::new(overseer, tx, mock));
-    spawn_timer_task(state.clone(), 60_000, 2); // 真实 tick：60s（Config 的 5min 间隔由 TimerWheel 控制）
+    spawn_timer_task(state.clone(), timer_tick, timer_batch); // tick/batch 由 Config 控制（docs/timer.md）
     let app = router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:47600")
         .await

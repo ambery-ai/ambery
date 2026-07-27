@@ -82,7 +82,8 @@ async fn main() {
     let tick_ms: u64 = std::env::var("OVERSEER_TIMER_TICK_MS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(5_000);
+        .unwrap_or(config.timer_tick_ms as u64);
+    let timer_batch = config.timer_batch;
     let harness = Harness::load(&storage_dir, &config_dir, config.token_threshold, now_ms())
         .expect("load harness");
     let backend = match LlmBackend::from_config(&config.llm) {
@@ -104,8 +105,8 @@ async fn main() {
         .map(overseer_core::sidecar::SidecarClient::new)
         .map(Arc::new);
     overseer.sidecar_enabled = sidecar.is_some();
-    if sidecar.is_some() {
-        println!("sidecar enabled: {}", std::env::var("OVERSEER_SIDECAR").unwrap());
+    if let Some(p) = overseer_core::paths::sidecar_exe() {
+        println!("sidecar enabled: {}", p.display());
     }
     let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
     {
@@ -119,7 +120,7 @@ async fn main() {
     }
     let (tx, _) = broadcast::channel(64);
     let state = Arc::new(AppState::new(overseer, tx, mock));
-    spawn_timer_task(state.clone(), tick_ms, 2);
+    spawn_timer_task(state.clone(), tick_ms, timer_batch);
     let app = router(state);
 
     let addr = "127.0.0.1:47600";

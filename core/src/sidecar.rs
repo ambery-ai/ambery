@@ -7,10 +7,17 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// tab 切换限流（docs/hook.md §auto_read）：全局 5 秒内最多一次
+const SWITCH_THROTTLE: Duration = Duration::from_secs(5);
 
 pub struct SidecarClient {
     exe: PathBuf,
     proc: Mutex<Option<Proc>>,
+    /// 定位缓存：name → (hwnd, index)；读失败驱逐重找（自愈）
+    cache: Mutex<std::collections::HashMap<String, (i64, i64)>>,
+    last_switch: Mutex<Option<Instant>>,
 }
 
 struct Proc(Child, ChildStdin, BufReader<ChildStdout>);
@@ -20,6 +27,8 @@ impl SidecarClient {
         Self {
             exe: exe.into(),
             proc: Mutex::new(None),
+            cache: Mutex::new(std::collections::HashMap::new()),
+            last_switch: Mutex::new(None),
         }
     }
 
@@ -38,13 +47,39 @@ impl SidecarClient {
         None
     }
 
-    /// terminal_reader 入口（docs/sidecar.md §读通道接线）：
-    /// find_tab(instance) → read_tab(hwnd, index)；任一步失败返回 None（回退 Context）
-    pub fn read_instance(&self, instance: &str) -> Option<String> {
-        let found = self.request(&json!({ "cmd": "find_tab", "name": instance }))?;
-        let (hwnd, index) = (found["hwnd"].as_i64()?, found["index"].as_i64()?);
+    /// read_tab（切 tab 读全文）：限流 5s 一次
+    fn read_tab(&self, hwnd: i64, index: i64) -> Option<String> {
+        {
+            let mut last = self.last_switch.lock().ok()?;
+            if let Some(t) = *last {
+                let remain = SWITCH_THROTTLE.saturating_sub(t.elapsed());
+                if !remain.is_zero() {
+                    std::thread::sleep(remain);
+                }
+            }
+            *last = Some(Instant::now());
+        }
         let resp = self.request(&json!({ "cmd": "read_tab", "hwnd": hwnd, "index": index }))?;
         Some(resp["text"].as_str()?.to_string())
+    }
+
+    /// terminal_reader 入口（docs/sidecar.md §读通道接线）：
+    /// 缓存定位直读 → 失败驱逐 → find_tab 重找并刷新缓存；任一步失败返回 None（回退 Context）
+    pub fn read_instance(&self, instance: &str) -> Option<String> {
+        // 缓存命中：直读（tab 重排/窗重开导致失败则驱逐）
+        let cached = self.cache.lock().ok()?.get(instance).copied();
+        if let Some((hwnd, index)) = cached {
+            if let Some(text) = self.read_tab(hwnd, index) {
+                return Some(text);
+            }
+            self.cache.lock().ok()?.remove(instance);
+        }
+        // 重找
+        let found = self.request(&json!({ "cmd": "find_tab", "name": instance }))?;
+        let (hwnd, index) = (found["hwnd"].as_i64()?, found["index"].as_i64()?);
+        let text = self.read_tab(hwnd, index)?;
+        self.cache.lock().ok()?.insert(instance.to_string(), (hwnd, index));
+        Some(text)
     }
 }
 

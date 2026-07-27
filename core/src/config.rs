@@ -22,12 +22,18 @@ pub struct Config {
     /// Filter 策略名（concepts §11/§12，docs/filter.md）
     #[serde(default = "default_filter_strategy")]
     pub filter_strategy: String,
-    /// Timer 兜底扫描间隔（concepts §1a，docs/timer.md）
+    /// Timer 兜底扫描间隔（concepts §1a，docs/timer.md）；≤ 0 = 整体禁用
     #[serde(default = "default_timer_interval")]
     pub timer_interval_ms: i64,
     /// Timer 错峰窗口（concepts §1a「错峰分布偏移量」）
     #[serde(default = "default_timer_stagger")]
     pub timer_stagger_ms: i64,
+    /// Timer 主循环粒度（docs/timer.md；interval 小于它也最多每 tick 一扫）
+    #[serde(default = "default_timer_tick")]
+    pub timer_tick_ms: u64,
+    /// Timer 每 tick 最多扫描实例数（限流，docs/timer.md）
+    #[serde(default = "default_timer_batch")]
+    pub timer_batch: usize,
     /// stop hook 模式（docs/hook.md §stop 三模式）：queue_only（默认，hint 按需读）/ auto_read / message
     #[serde(default = "default_stop_hook_mode")]
     pub stop_hook_mode: String,
@@ -121,6 +127,14 @@ fn default_timer_stagger() -> i64 {
     30_000
 }
 
+fn default_timer_tick() -> u64 {
+    60_000
+}
+
+fn default_timer_batch() -> usize {
+    2
+}
+
 fn default_stop_hook_mode() -> String {
     "queue_only".into()
 }
@@ -162,6 +176,8 @@ impl Default for Config {
             filter_strategy: default_filter_strategy(),
             timer_interval_ms: default_timer_interval(),
             timer_stagger_ms: default_timer_stagger(),
+            timer_tick_ms: default_timer_tick(),
+            timer_batch: default_timer_batch(),
             stop_hook_mode: default_stop_hook_mode(),
             base_prompt:
                 "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
