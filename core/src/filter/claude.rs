@@ -148,20 +148,19 @@ fn blockify(rows: &[String]) -> Vec<ContentBlock> {
                     .trim()
                     .to_string();
                 let mut j = i + 2;
-                let mut body_lines = 0;
+                let mut body: Vec<String> = Vec::new();
                 let mut truncated = false;
                 while j < rows.len() && !is_glyph_head(&rows[j]) {
                     if FOLD_TAIL.is_match(&rows[j]) {
                         truncated = true;
-                    } else {
-                        body_lines += 1;
                     }
+                    body.push(rows[j].clone()); // 全量保留（含原文折叠标记行）
                     j += 1;
                 }
                 blocks.push(ContentBlock::ToolCall {
                     head,
                     result: Some(result),
-                    body_lines,
+                    body: body.join("\n"),
                     truncated,
                 });
                 i = j;
@@ -246,26 +245,28 @@ mod tests {
     }
 
     #[test]
-    fn processing_toolcall_folded() {
+    fn processing_toolcall_body_kept_in_full() {
         let d = filter().digest(&pad(PROCESSING));
         assert_eq!(d.blocks.len(), 1);
         match &d.blocks[0] {
             ContentBlock::ToolCall {
                 head,
                 result,
-                body_lines,
+                body,
                 truncated,
             } => {
                 assert_eq!(head, "● Update(settings.json)");
                 assert_eq!(result.as_deref(), Some("Added 3 lines"));
-                assert_eq!(*body_lines, 3);
+                assert_eq!(body.lines().count(), 3);
+                assert!(body.contains("\"hooks\""));
                 assert!(!truncated);
             }
             other => panic!("expected ToolCall, got {other:?}"),
         }
+        // render 全量不省略（设计决定）
         assert_eq!(
             d.render(),
-            "● Update(settings.json)\n  ⎿  Added 3 lines\n  … (3 行)"
+            "● Update(settings.json)\n  ⎿  Added 3 lines\n      13 +  \"hooks\": {\n      14 +    \"SessionStart\": []\n      15 +  }"
         );
     }
 
@@ -414,15 +415,15 @@ mod tests {
         let d = filter().digest(raw);
         match &d.blocks[0] {
             ContentBlock::ToolCall {
-                body_lines,
+                body,
                 truncated,
                 ..
             } => {
-                assert_eq!(*body_lines, 3);
+                assert_eq!(body.lines().count(), 4); // 3 编号行 + 原文折叠标记行（如实保留）
+                assert!(body.contains("… +5 lines"));
                 assert!(*truncated);
             }
             other => panic!("expected ToolCall, got {other:?}"),
         }
-        assert!(d.render().contains("(3 行, 原文有折叠)"));
     }
 }

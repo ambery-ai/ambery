@@ -28,11 +28,13 @@ pub enum ContentBlock {
     UserPrompt { text: String },
     /// 助手正文（● 头，续行缩进无 glyph）
     AssistantText { text: String },
-    /// tool 调用：● Tool(args) 头 + ⎿ 结果 + 展开体 + 内置折叠尾
+    /// tool 调用：● Tool(args) 头 + ⎿ 结果 + 展开体全文 + 原文自带折叠标记
     ToolCall {
         head: String,
         result: Option<String>,
-        body_lines: usize,
+        /// 展开体全文（diff/编号内容行）——不做任何省略（设计决定）
+        body: String,
+        /// 原文自带折叠尾（… +N lines，源已丢信息，filter 无法复原，仅标记）
         truncated: bool,
     },
     /// 会话压缩摘要（※ recap: 头）
@@ -44,8 +46,8 @@ pub enum ContentBlock {
 }
 
 impl TerminalDigest {
-    /// 归一文本：ToolCall 折叠（head + ⎿ result + 行数），其余块正文原样；
-    /// 不做截断（设计决定：限量问题不解决）
+    /// 归一文本：全量保留，不做任何省略/折叠（设计决定：限量问题不解决，
+    /// 折叠=对 LLM 省略内容，同样不做）；原文自带折叠标记如实保留在 body 里
     pub fn render(&self) -> String {
         self.blocks
             .iter()
@@ -55,18 +57,16 @@ impl TerminalDigest {
                 ContentBlock::ToolCall {
                     head,
                     result,
-                    body_lines,
-                    truncated,
+                    body,
+                    ..
                 } => {
                     let mut s = head.clone();
                     if let Some(r) = result {
                         s.push_str(&format!("\n  ⎿  {r}"));
                     }
-                    if *body_lines > 0 || *truncated {
-                        s.push_str(&format!(
-                            "\n  … ({body_lines} 行{})",
-                            if *truncated { ", 原文有折叠" } else { "" }
-                        ));
+                    if !body.is_empty() {
+                        s.push('\n');
+                        s.push_str(body);
                     }
                     s
                 }
