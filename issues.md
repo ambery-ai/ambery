@@ -10,7 +10,7 @@
 
 Card 窗口弹出后位置一次性计算完成，pet 被拖到新位置时 card 停留在原地不动。
 
-2026-07-27 首次尝试（打回）：已加 `listen("pet:moved", () => positionWindow())`（cards.ts:21），事件通道本身可用（与 cards:hide/cards:show 同机制）。打回原因：`positionWindow()` 内部调 `requestPlace()` 即 `engine.place()`，会重新搜索全局最优位置——这不适用于"跟随"语义。跟随应该是保持与 pet 的相对偏移量 delta 平移，不是每次重算最优解。需要改为：记住 card 与 pet 的相对偏移，pet 移动时直接平移窗口。
+2026-07-27 二次尝试（打回）：改为 engine.hideAll/restoreAll delta 方案——pet.ts dragDebounce 的 done 回调中 `engine.restoreAll` 返回新位置后 `emit("cards:show", center)`，cards.ts 接收后 setPosition + show。打回原因：实测 pet 移动后 card 窗口**消失**而非跟随。疑点：(1) `cards:hide` 触发后 `cards:show` 可能未被 emit（`r.find(id.startsWith("card-"))` 未匹配）；(2) `cards:show` handler 收到 payload 但 `document.querySelector(".component")` 返回 null；(3) setPosition 抛出异常被 catch 吞掉导致窗口保持隐藏。需加 console.log 探针二分定位。
 
 ## #2 Card 窗口尺寸不适应内容，右下方被截断 (2026-07-27) — open
 
