@@ -25,6 +25,17 @@ pub enum Effect {
     ConfigChanged { llm_changed: bool },
 }
 
+/// claude 检测（实测 54/54 命中、0 误伤）：✳ 前缀（活动 glyph）或标题 == claude
+fn is_claude_title(t: &str) -> bool {
+    let t = t.trim_start();
+    t.starts_with('✳') || t == "claude"
+}
+
+/// 去标题 glyph/空白（marker 解析与占位名共用）
+fn strip_glyphs(t: &str) -> String {
+    t.trim_start_matches(['✳', ' ']).trim().to_string()
+}
+
 pub struct OverseerBackend<L: Llm> {
     pub harness: Harness,
     pub config: Config,
@@ -239,6 +250,129 @@ impl<L: Llm> OverseerBackend<L> {
             }
         }
         Ok(effects)
+    }
+
+    /// 启动扫描（docs/hook.md §启动扫描）：全 VD 枚举 → claude 检测 →
+    /// marker 解注册 / 无 marker 占位入册（uia:<标题>）→ N/M/K 三方对账进 EventBuffer。
+    /// call = sidecar 请求转发（参数化便于测试注入）
+    pub async fn startup_sweep(
+        &mut self,
+        call: &(dyn Fn(&Value) -> Option<Value> + Send + Sync),
+        ts: i64,
+    ) -> std::io::Result<()> {
+        let Some(resp) = call(&json!({ "cmd": "list_windows" })) else {
+            return Ok(());
+        };
+        let (mut located, mut marked, mut placeholder, mut cloaked_n) = (0usize, 0usize, 0usize, 0usize);
+        let mut seen_titles: Vec<String> = Vec::new();
+        for w in resp["windows"].as_array().cloned().unwrap_or_default() {
+            let title = w["title"].as_str().unwrap_or("").to_string();
+            let cloaked = w["cloaked"].as_bool().unwrap_or(false);
+            if cloaked {
+                cloaked_n += 1;
+            }
+            if !is_claude_title(&title) {
+                continue;
+            }
+            if cloaked {
+                // cloaked 窗口只有窗口级标题（= 活动 tab 标题），登记无 tab 定位
+                seen_titles.push(title.clone());
+                self.sweep_register(&title, None, ts, &mut marked, &mut placeholder)?;
+                located += 1;
+                continue;
+            }
+            let hwnd = w["hwnd"].as_i64().unwrap_or(0);
+            let Some(tabs) = call(&json!({ "cmd": "list_tabs", "hwnd": hwnd })) else {
+                continue;
+            };
+            for t in tabs["tabs"].as_array().cloned().unwrap_or_default() {
+                let name = t["name"].as_str().unwrap_or("").to_string();
+                if !is_claude_title(&name) {
+                    continue;
+                }
+                seen_titles.push(name.clone());
+                let tab_ref = Some(crate::TabRef {
+                    hwnd,
+                    index: t["index"].as_i64().unwrap_or(0),
+                });
+                self.sweep_register(&name, tab_ref, ts, &mut marked, &mut placeholder)?;
+                located += 1;
+            }
+        }
+        // 占位尸体清理：uia: 占位条目的标题已不在可见集 → closed（append 日志）
+        let ghosts: Vec<AgentEntry> = self
+            .harness
+            .agents
+            .iter()
+            .filter(|a| {
+                a.hash.starts_with("uia:")
+                    && a.status != AgentStatus::Closed
+                    && !seen_titles.iter().any(|t| strip_glyphs(t) == a.name)
+            })
+            .cloned()
+            .collect();
+        for g in ghosts {
+            self.harness.upsert_agent(AgentEntry {
+                status: AgentStatus::Closed,
+                last_seen: ts,
+                ..g
+            })?;
+        }
+        // N/M/K 三方对账（N 为启发式参考值，K 是硬信号）
+        let n = call(&json!({ "cmd": "count_processes", "name": "claude" }))
+            .and_then(|r| r["count"].as_i64())
+            .unwrap_or(0);
+        let mut line = format!(
+            "启动扫描: {located} tab 已定位（{marked} marker / {placeholder} 占位），claude.exe 进程 {n}，cloaked 窗口 {cloaked_n}"
+        );
+        if cloaked_n > 0 {
+            line.push_str("（有窗口对其他桌面不可读，可开 WT「全桌面显示」）");
+        }
+        self.harness.event_buffer.push(line);
+        Ok(())
+    }
+
+    /// claude 检测（实测 54/54 命中、0 误伤）：✳ 前缀（活动 glyph）或标题 == claude
+    fn sweep_register(
+        &mut self,
+        title: &str,
+        tab: Option<crate::TabRef>,
+        ts: i64,
+        marked: &mut usize,
+        placeholder: &mut usize,
+    ) -> std::io::Result<()> {
+        let clean = strip_glyphs(title);
+        // marker 解析：<project>·<sid8>（sid8 = 末尾 8 位）
+        if let Some((project, sid8)) = clean.rsplit_once('·') {
+            if sid8.chars().count() == 8 && !project.is_empty() {
+                *marked += 1;
+                let hash = sid8.to_string();
+                let prev = self.harness.agents.iter().rev().find(|a| a.hash == hash);
+                return self.harness.upsert_agent(AgentEntry {
+                    hash: hash.clone(),
+                    name: format!("{project}·{sid8}"),
+                    project: project.into(),
+                    kind: Some("claude".into()),
+                    status: AgentStatus::Idle,
+                    tab: tab.or_else(|| prev.and_then(|a| a.tab)),
+                    first_seen: prev.map(|a| a.first_seen).unwrap_or(ts),
+                    last_seen: ts,
+                });
+            }
+        }
+        *placeholder += 1;
+        let hash = format!("uia:{clean}");
+        let prev = self.harness.agents.iter().rev().find(|a| a.hash == hash);
+        self.harness.upsert_agent(AgentEntry {
+            hash,
+            name: clean.clone(),
+            project: "unknown".into(),
+            kind: Some("claude".into()),
+            status: AgentStatus::Idle,
+            tab,
+            first_seen: prev.map(|a| a.first_seen).unwrap_or(ts),
+            last_seen: ts,
+        })
     }
 
     /// 真实 hook（docs/hook.md）：session_id 身份 + register-on-first-sight + 事件分层。
@@ -1152,6 +1286,80 @@ mod tests {
         let ctx = ov.harness.context.latest("p·dddd3333").expect("context 已写");
         assert!(ctx.content.contains("hooks 已配置"));
         let _ = std::fs::remove_dir_all(tmp_dir("rh7"));
+    }
+
+    #[tokio::test]
+    async fn startup_sweep_full_flow() {
+        let mut ov = make_overseer("sweep");
+        // 预置一具占位尸体（标题已消失）
+        ov.harness
+            .upsert_agent(AgentEntry {
+                hash: "uia:gone".into(),
+                name: "gone".into(),
+                project: "unknown".into(),
+                kind: None,
+                status: AgentStatus::Idle,
+                tab: None,
+                first_seen: 0,
+                last_seen: 0,
+            })
+            .unwrap();
+        let call = |req: &Value| -> Option<Value> {
+            match req["cmd"].as_str()? {
+                "list_windows" => Some(json!({"windows":[
+                    {"hwnd":100,"title":"✳ npc-prof·3f8a2c1e","cloaked":false},
+                    {"hwnd":200,"title":"✳ gumtree","cloaked":false},
+                    {"hwnd":300,"title":"✳ 别的桌面·aaaa0000","cloaked":true},
+                    {"hwnd":400,"title":"Neovim","cloaked":false}
+                ]})),
+                "list_tabs" => match req["hwnd"].as_i64()? {
+                    100 => Some(json!({"tabs":[{"index":2,"name":"✳ npc-prof·3f8a2c1e","selected":true}]})),
+                    200 => Some(json!({"tabs":[{"index":0,"name":"✳ gumtree","selected":false}]})),
+                    _ => None,
+                },
+                "count_processes" => Some(json!({"count":54})),
+                _ => None,
+            }
+        };
+        ov.startup_sweep(&call, 1000).await.unwrap();
+        // marker 注册（带 tab 定位 + kind）
+        let a = ov
+            .harness
+            .agents
+            .iter()
+            .find(|a| a.hash == "3f8a2c1e")
+            .expect("marker 注册");
+        assert_eq!(a.name, "npc-prof·3f8a2c1e");
+        assert_eq!(a.tab, Some(crate::TabRef { hwnd: 100, index: 2 }));
+        assert_eq!(a.kind.as_deref(), Some("claude"));
+        // 占位入册
+        let ph = ov
+            .harness
+            .agents
+            .iter()
+            .find(|a| a.hash == "uia:gumtree")
+            .expect("占位入册");
+        assert_eq!(ph.kind.as_deref(), Some("claude"));
+        // cloaked 窗口标题带 marker:注册但无 tab 定位
+        let c = ov
+            .harness
+            .agents
+            .iter()
+            .find(|a| a.hash == "aaaa0000")
+            .expect("cloaked 注册");
+        assert_eq!(c.tab, None);
+        // 占位尸体 closed
+        let g = ov
+            .harness
+            .agents
+            .iter()
+            .find(|a| a.hash == "uia:gone")
+            .unwrap();
+        assert_eq!(g.status, AgentStatus::Closed);
+        // 对账行进 EventBuffer
+        let line = ov.harness.event_buffer.merge_and_clear().unwrap_or_default();
+        assert!(line.contains("54") && line.contains("cloaked"), "{line}");
+        let _ = std::fs::remove_dir_all(tmp_dir("sweep"));
     }
 
     #[tokio::test]

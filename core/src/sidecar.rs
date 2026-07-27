@@ -32,6 +32,11 @@ impl SidecarClient {
         }
     }
 
+    /// 公开请求口（启动扫描等 core 逻辑用，docs/hook.md §启动扫描）
+    pub fn call(&self, req: &Value) -> Option<Value> {
+        self.request(req)
+    }
+
     fn request(&self, req: &Value) -> Option<Value> {
         let mut g = self.proc.lock().ok()?;
         for _ in 0..2 {

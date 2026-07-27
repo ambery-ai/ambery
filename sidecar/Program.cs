@@ -4,6 +4,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Automation;
+using System.Runtime.InteropServices;
 
 namespace OverseerSidecar;
 
@@ -42,10 +43,17 @@ class Program
         {
             case "list_windows":
             {
+                // EnumWindows + DWM cloaked：全 VD 视野（cloaked 窗口只有窗口级信息，docs/sidecar.md §视野模型）
                 var wins = new JsonArray();
-                foreach (var (hwnd, title) in Uia.ListWindows())
-                    wins.Add(new JsonObject { ["hwnd"] = hwnd.ToInt64(), ["title"] = title });
+                foreach (var (hwnd, title, cloaked) in Uia.ListWindowsAllVds())
+                    wins.Add(new JsonObject { ["hwnd"] = hwnd.ToInt64(), ["title"] = title, ["cloaked"] = cloaked });
                 return Ok(new JsonObject { ["windows"] = wins });
+            }
+            case "count_processes":
+            {
+                var name = req["name"]?.GetValue<string>() ?? "";
+                var n = name.Length == 0 ? 0 : System.Diagnostics.Process.GetProcessesByName(name).Length;
+                return Ok(new JsonObject { ["count"] = n });
             }
             case "list_tabs":
             {
@@ -106,6 +114,41 @@ static class Uia
             if (hwnd != IntPtr.Zero)
                 result.Add((hwnd, w.Current.Name ?? ""));
         }
+        return result;
+    }
+
+    // ── 全 VD 枚举（EnumWindows + DWM cloaked；UIA root 只看得见当前 VD） ──
+    private const int DWMWA_CLOAKED = 14;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int attr, out int value, int size);
+
+    private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hwnd, System.Text.StringBuilder cls, int max);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hwnd, System.Text.StringBuilder text, int max);
+
+    /// 全 VD 的 CASCADIA 窗口：hwnd + 窗口标题（= 活动 tab 标题）+ cloaked 标记
+    public static List<(IntPtr Hwnd, string Title, bool Cloaked)> ListWindowsAllVds()
+    {
+        var result = new List<(IntPtr, string, bool)>();
+        EnumWindows((hwnd, _) =>
+        {
+            var cls = new System.Text.StringBuilder(256);
+            GetClassName(hwnd, cls, 256);
+            if (cls.ToString() != "CASCADIA_HOSTING_WINDOW_CLASS") return true;
+            var title = new System.Text.StringBuilder(512);
+            GetWindowText(hwnd, title, 512);
+            _ = DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, out var c, sizeof(int));
+            result.Add((hwnd, title.ToString(), c != 0));
+            return true;
+        }, IntPtr.Zero);
         return result;
     }
 
@@ -190,3 +233,4 @@ static class Uia
         return null;
     }
 }
+

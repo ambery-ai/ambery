@@ -103,6 +103,7 @@ async fn run_core() {
     let sidecar = overseer_core::paths::sidecar_exe()
         .map(overseer_core::sidecar::SidecarClient::new)
         .map(Arc::new);
+    let sidecar_for_sweep = sidecar.clone();
     overseer.sidecar_enabled = sidecar.is_some();
     let mock = Arc::new(std::sync::Mutex::new(
         std::collections::HashMap::<String, String>::new(),
@@ -118,6 +119,13 @@ async fn run_core() {
     }
     let (tx, _) = broadcast::channel(64);
     let state = Arc::new(AppState::new(overseer, tx, mock));
+    // 启动扫描（docs/hook.md §启动扫描）：全 VD 枚举注册 + N/M/K 对账进 EventBuffer
+    if let Some(sc) = sidecar_for_sweep.clone() {
+        let mut ov = state.overseer().lock().await;
+        if let Err(e) = ov.startup_sweep(&move |req| sc.call(req), now_ms()).await {
+            eprintln!("startup sweep: {e}");
+        }
+    }
     spawn_timer_task(state.clone(), timer_tick, timer_batch); // tick/batch 由 Config 控制（docs/timer.md）
     let app = router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:47600")

@@ -49,6 +49,11 @@ impl AppState {
     ) -> &Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> {
         &self.mock_terminals
     }
+
+    /// overseer 访问口（main.rs 启动扫描等装配侧用）
+    pub fn overseer(&self) -> &Mutex<OverseerBackend<LlmBackend>> {
+        &self.overseer
+    }
 }
 
 pub fn now_ms() -> i64 {
