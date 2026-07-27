@@ -682,6 +682,13 @@ impl<L: Llm> OverseerBackend<L> {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
+                // Tauri label 规则：只允许 [A-Za-z0-9_\-/.]+
+                if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/') {
+                    return (
+                        json!({ "ok": false, "error": format!("spec.id '{id}' 不合法：窗口名只允许 A-Z a-z 0-9 _ - . /，不含空格、中文或特殊字符") }),
+                        vec![],
+                    );
+                }
                 (
                     json!({ "ok": true, "rendered": id }),
                     vec![Effect::RenderComponent(spec)],
