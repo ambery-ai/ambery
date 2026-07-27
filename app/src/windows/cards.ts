@@ -14,10 +14,11 @@ export async function main() {
     const win = getCurrentWindow();
     win.onCloseRequested(async () => { await adapter?.hide(); });
     await adapter.hide();
-    // 拖拽 hide/restore 事件
+    // 拖拽 hide/restore 事件 + pet 移动跟随
     const { listen } = await import("@tauri-apps/api/event");
     await listen("cards:hide", () => adapter?.hide());
     await listen("cards:show", () => adapter?.show());
+    await listen("pet:moved", () => positionWindow());
   }
 
   const bridge = await createBridge();
@@ -30,7 +31,7 @@ export async function main() {
       if (posTimer) clearTimeout(posTimer);
       posTimer = setTimeout(() => positionWindow(), 50);
     });
-    observer.observe(mount, { childList: true, subtree: true });
+    observer.observe(mount, { childList: true, subtree: true, characterData: true });
   }
 }
 
@@ -48,6 +49,7 @@ async function positionWindow() {
   const card = document.querySelector(".component") as HTMLElement | null;
   if (!card) { await adapter.hide(); return; }
   const dir = cardDirection(card);
+  // offsetWidth/Height = 当前渲染尺寸，搭配 CSS 无固定宽高 + min/max 约束
   const cw = card.offsetWidth || 260;
   const ch = card.offsetHeight || 140;
   const id = `card-${card.dataset.id || Date.now()}`;

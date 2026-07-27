@@ -8,11 +8,15 @@
 
 ## #1 Card 没有跟随 pet 移动 (2026-07-27) — open
 
-Card 窗口弹出后位置一次性计算完成，pet 被拖到新位置时 card 停留在原地不动。应该监听 pet:moved 事件并重新请求 engine.place 更新卡片位置。
+Card 窗口弹出后位置一次性计算完成，pet 被拖到新位置时 card 停留在原地不动。
+
+2026-07-27 首次尝试（打回）：已加 `listen("pet:moved", () => positionWindow())`（cards.ts:21），事件通道本身可用（与 cards:hide/cards:show 同机制）。打回原因：`positionWindow()` 内部调 `requestPlace()` 即 `engine.place()`，会重新搜索全局最优位置——这不适用于"跟随"语义。跟随应该是保持与 pet 的相对偏移量 delta 平移，不是每次重算最优解。需要改为：记住 card 与 pet 的相对偏移，pet 移动时直接平移窗口。
 
 ## #2 Card 窗口尺寸不适应内容，右下方被截断 (2026-07-27) — open
 
 Card 窗口初始尺寸写死为 300×200（tauri.conf.json），但卡片实际渲染内容可能超出该尺寸，导致右下方超出部分无法在窗口中看到。卡片内容区域出现文字滚动条而非根据内容自动撑开窗口。Card 应当支持动态大小：根据内容测量结果实时调整窗口尺寸，避免内容截断和滚动条。
+
+2026-07-27 首次尝试（打回）：CSS 改 min-width + 删 max-height/overflow 方向正确，但 `positionWindow()` 改用 `scrollWidth`/`scrollHeight` 测量——证据：Tauri 隐藏窗口（adapter.hide()）中两者返回 0，导致 `setSize(4,4)` 窗口缩成不可见。`offsetWidth`/`offsetHeight` 在隐藏窗口中有值但存在鸡生蛋蛋：卡片被窗口约束后测量值始终是约束后的值（300×200 窗口内的卡片 offset 永远 ≤ 300×200），无法通过测量撑大窗口。需要先放宽窗口尺寸再测量收缩的方案。
 
 ## #3 界面主题单一，缺少可配置的亮色模式 (2026-07-27) — open
 

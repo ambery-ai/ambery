@@ -81,7 +81,7 @@ export class ComponentManager {
         const copy = document.createElement("button");
         copy.textContent = "复制";
         copy.addEventListener("click", () => {
-          void navigator.clipboard?.writeText(spec.text);
+          void navigator.clipboard?.writeText(spec.text ?? "");
           this.bridge.pushEvent(`用户复制了 text_card「${spec.title}」的内容`);
         });
         body.append(p, copy);
