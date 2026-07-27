@@ -99,9 +99,8 @@ async fn main() {
         }
     );
     let mut overseer = OverseerBackend::new(harness, config, backend);
-    // 读通道链（docs/sidecar.md）：sidecar（OVERSEER_SIDECAR 指定）→ MockTerminals → Context
-    let sidecar = std::env::var("OVERSEER_SIDECAR")
-        .ok()
+    // 读通道链（docs/sidecar.md）：sidecar（路径自动发现，env 可覆盖）→ MockTerminals → Context
+    let sidecar = overseer_core::paths::sidecar_exe()
         .map(overseer_core::sidecar::SidecarClient::new)
         .map(Arc::new);
     overseer.sidecar_enabled = sidecar.is_some();
