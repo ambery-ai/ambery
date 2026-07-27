@@ -80,15 +80,40 @@ pub enum AgentStatus {
 /// hash 区分每次生命周期——名字会重复，同名不同命（docs/storage.md）
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentEntry {
+    /// 真实 hook：sid8（session_id 前 8 位，docs/hook.md）；mock：agent_hash 回退
     pub hash: String,
+    /// display 名 = `<project>·<sid8>`，同时就是 tab 定位 marker（一名两用）
     pub name: String,
     pub project: String,
+    /// CLI 种类（"claude"，per-instance filter 策略输入，docs/filter.md）
+    #[serde(default)]
+    pub kind: Option<String>,
     pub status: AgentStatus,
+    /// tab 定位快照（与 status 同待遇：快照字段，投影取最新；无原地更新）
+    #[serde(default)]
+    pub tab: Option<TabRef>,
     pub first_seen: i64,
     pub last_seen: i64,
 }
 
-/// 生命周期 hash：short_hash(name + project + first_seen)；真实 hook payload 接入后可换 session_id
+/// tab 定位（docs/hook.md §定位缓存）
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct TabRef {
+    pub hwnd: i64,
+    pub index: i64,
+}
+
+/// 实例身份 = session_id 前 8 位（docs/hook.md §marker 定位）
+pub fn sid8(session_id: &str) -> String {
+    session_id.chars().take(8).collect()
+}
+
+/// display 名 = `<project>·<sid8>`（与 tab marker 同构，一名两用）
+pub fn instance_name(project: &str, session_id: &str) -> String {
+    format!("{project}·{}", sid8(session_id))
+}
+
+/// 生命周期 hash：short_hash(name + project + first_seen)——mock hook 无 session_id 时回退
 pub fn agent_hash(name: &str, project: &str, first_seen: i64) -> String {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -335,7 +360,9 @@ mod tests {
                 hash: "h1".into(),
                 name: "ft".into(),
                 project: "proj".into(),
+                    kind: None,
                 status: AgentStatus::Processing,
+                    tab: None,
                 first_seen: 1,
                 last_seen: 2,
             })
@@ -365,7 +392,9 @@ mod tests {
             hash: "h1".into(),
             name: "ft".into(),
             project: "p".into(),
+            kind: None,
             status,
+            tab: None,
             first_seen: 1,
             last_seen: ts,
         };

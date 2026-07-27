@@ -241,6 +241,98 @@ impl<L: Llm> OverseerBackend<L> {
         Ok(effects)
     }
 
+    /// 真实 hook（docs/hook.md）：session_id 身份 + register-on-first-sight + 事件分层。
+    /// mock hook（handle_hook）保留为 debug 手段，两条路径并存。
+    #[allow(clippy::too_many_arguments)]
+    pub async fn handle_real_hook(
+        &mut self,
+        event: &str,
+        session_id: &str,
+        cwd: &str,
+        kind: Option<&str>,
+        prompt: Option<&str>,
+        message: Option<&str>,
+        last_assistant_message: Option<&str>,
+        ts: i64,
+        pending_notifications: usize,
+    ) -> std::io::Result<Vec<Effect>> {
+        let project = std::path::Path::new(cwd)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+        let hash = crate::sid8(session_id);
+        let name = crate::instance_name(project, &hash);
+        // register-on-first-sight：未知 session_id 先落注册（first_seen = 后端初见时刻），
+        // 已有条目沿用 first_seen / tab / kind（快照字段不被事件覆盖）
+        let prev = self.harness.agents.iter().rev().find(|a| a.hash == hash);
+        let first_seen = prev.map(|a| a.first_seen).unwrap_or(ts);
+        let tab = prev.and_then(|a| a.tab);
+        let kind = kind
+            .map(String::from)
+            .or_else(|| prev.and_then(|a| a.kind.clone()));
+        // Hook 到达 → Timer 重排（docs/timer.md）
+        self.timers.reset(&name, ts);
+        let mut upsert = |status: AgentStatus| {
+            self.harness.upsert_agent(AgentEntry {
+                hash: hash.clone(),
+                name: name.clone(),
+                project: project.into(),
+                kind: kind.clone(),
+                status,
+                tab,
+                first_seen,
+                last_seen: ts,
+            })
+        };
+        match event {
+            // 静默簿记（EventBuffer，pet 不醒）
+            "session_start" => {
+                upsert(AgentStatus::Idle)?;
+                self.harness.event_buffer.push(format!("+ {name} 注册"));
+                Ok(vec![])
+            }
+            "session_end" => {
+                upsert(AgentStatus::Closed)?;
+                self.harness.event_buffer.push(format!("− {name} 关闭"));
+                Ok(vec![])
+            }
+            // Queue 触发
+            "user_prompt" => {
+                upsert(AgentStatus::Processing)?;
+                let p = prompt.unwrap_or("").trim();
+                self.harness.append_queue(QueueMessage::new(
+                    Role::System,
+                    format!("[观察] 用户在 {name} 输入：{p}"),
+                    ts,
+                ))?;
+                self.run_trigger(ts, pending_notifications).await
+            }
+            "notification" => {
+                let m = message.unwrap_or("").trim();
+                self.harness.append_queue(QueueMessage::new(
+                    Role::System,
+                    format!("[{name}] 请求注意：{m}"),
+                    ts,
+                ))?;
+                self.run_trigger(ts, pending_notifications).await
+            }
+            "stop" => {
+                upsert(AgentStatus::Idle)?;
+                // stop_hook_mode 默认 queue_only（B）：hint 注入，宠物按需 fetch（docs/hook.md §stop 三模式）
+                let hint = last_assistant_message.unwrap_or("").trim();
+                let text = if hint.is_empty() {
+                    format!("{name} 完成，无汇报内容。评估是否通知。")
+                } else {
+                    format!("{name} 完成：{hint}。评估是否通知。")
+                };
+                self.harness
+                    .append_queue(QueueMessage::new(Role::System, text, ts))?;
+                self.run_trigger(ts, pending_notifications).await
+            }
+            _ => Ok(vec![]),
+        }
+    }
+
     /// mock hook（docs/agent-loop.md §Mock Hook 契约）
     pub async fn handle_hook(
         &mut self,
@@ -268,7 +360,9 @@ impl<L: Llm> OverseerBackend<L> {
                     hash: crate::agent_hash(instance, project, ts),
                     name: instance.into(),
                     project: project.into(),
+                    kind: None,
                     status: AgentStatus::Processing,
+                    tab: None,
                     first_seen: ts,
                     last_seen: ts,
                 })?;
@@ -298,7 +392,9 @@ impl<L: Llm> OverseerBackend<L> {
                     hash,
                     name: instance.into(),
                     project: project.into(),
+                    kind: None,
                     status: AgentStatus::Idle,
+                    tab: None,
                     first_seen,
                     last_seen: ts,
                 })?;
@@ -379,6 +475,7 @@ impl<L: Llm> OverseerBackend<L> {
         {
             self.harness.upsert_agent(AgentEntry {
                 status: AgentStatus::Closed,
+                    tab: None,
                 last_seen: ts,
                 ..a
             })?;
@@ -865,7 +962,9 @@ mod tests {
                 hash: "h1".into(),
                 name: "ft".into(),
                 project: "p".into(),
+                    kind: None,
                 status: AgentStatus::Idle,
+                    tab: None,
                 first_seen: 0,
                 last_seen: 0,
             })
@@ -959,6 +1058,128 @@ mod tests {
             Effect::SetAutonomy { face: Some(f), motion: None, .. } if f == "(・ω・)ノ"
         )));
         let _ = std::fs::remove_dir_all(tmp_dir("face-key"));
+    }
+
+    #[tokio::test]
+    async fn real_hook_first_sight_registers_silently() {
+        let mut ov = make_overseer("rh1");
+        let effects = ov
+            .handle_real_hook(
+                "session_start",
+                "3f8a2c1e-9b7d-4e5f-a6c1-02d4e6f8a9b0",
+                r"/tmp/p",
+                Some("claude"),
+                None,
+                None,
+                None,
+                1000,
+                0,
+            )
+            .await
+            .unwrap();
+        assert!(effects.is_empty()); // 静默:不触发 LLM
+        let a = ov
+            .harness
+            .agents
+            .iter()
+            .find(|a| a.hash == "3f8a2c1e")
+            .expect("已注册");
+        assert_eq!(a.name, "npc-prof·3f8a2c1e");
+        assert_eq!(a.kind.as_deref(), Some("claude"));
+        assert_eq!(a.status, AgentStatus::Idle);
+        assert_eq!(a.first_seen, 1000);
+        assert!(ov.harness.queue.messages().is_empty()); // 无 queue 注入
+        let _ = std::fs::remove_dir_all(tmp_dir("rh1"));
+    }
+
+    #[tokio::test]
+    async fn real_hook_late_start_self_heals() {
+        let mut ov = make_overseer("rh2");
+        // backend 当时不在线,start 丢失:初见恰好是 stop(register-on-first-sight)
+        let _ = ov
+            .handle_real_hook(
+                "stop",
+                "aaaa0000-1111-2222",
+                r"/tmp/p",
+                None,
+                None,
+                None,
+                Some("修完了"),
+                2000,
+                0,
+            )
+            .await
+            .unwrap();
+        let a = ov
+            .harness
+            .agents
+            .iter()
+            .find(|a| a.hash == "aaaa0000")
+            .expect("自愈注册");
+        assert_eq!(a.status, AgentStatus::Idle);
+        assert_eq!(a.first_seen, 2000); // first_seen = 后端初见时刻
+        assert!(ov
+            .harness
+            .queue
+            .messages()
+            .iter()
+            .any(|m| m.content.as_deref().unwrap_or("").contains("修完了")));
+        let _ = std::fs::remove_dir_all(tmp_dir("rh2"));
+    }
+
+    #[tokio::test]
+    async fn real_hook_resume_upserts_no_duplicate() {
+        let mut ov = make_overseer("rh3");
+        for ts in [1000, 5000] {
+            let _ = ov
+                .handle_real_hook(
+                    "session_start",
+                    "bbbb1111-2222-3333",
+                    r"/tmp/p",
+                    None,
+                    None,
+                    None,
+                    None,
+                    ts,
+                    0,
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(ov.harness.agents.len(), 1); // 同 sid8 自然 upsert
+        assert_eq!(ov.harness.agents[0].first_seen, 1000); // first_seen 保留
+        assert_eq!(ov.harness.agents[0].last_seen, 5000);
+        let _ = std::fs::remove_dir_all(tmp_dir("rh3"));
+    }
+
+    #[tokio::test]
+    async fn real_hook_prompt_processing_and_session_end_closed() {
+        let mut ov = make_overseer("rh4");
+        let sid = "cccc2222-3333-4444";
+        let _ = ov
+            .handle_real_hook("session_start", sid, r"/tmp/p", None, None, None, None, 1000, 0)
+            .await
+            .unwrap();
+        let _ = ov
+            .handle_real_hook("user_prompt", sid, r"/tmp/p", None, Some("帮我修 bug"), None, None, 2000, 0)
+            .await
+            .unwrap();
+        let a = ov.harness.agents.iter().find(|a| a.hash == "cccc2222").unwrap();
+        assert_eq!(a.status, AgentStatus::Processing); // 派活驱动
+        assert!(ov
+            .harness
+            .queue
+            .messages()
+            .iter()
+            .any(|m| m.content.as_deref().unwrap_or("").contains("[观察] 用户在")));
+        let _ = ov
+            .handle_real_hook("session_end", sid, r"/tmp/p", None, None, None, None, 3000, 0)
+            .await
+            .unwrap();
+        let a = ov.harness.agents.iter().find(|a| a.hash == "cccc2222").unwrap();
+        assert_eq!(a.status, AgentStatus::Closed); // 真信号终态
+        assert_eq!(a.tab, None);
+        let _ = std::fs::remove_dir_all(tmp_dir("rh4"));
     }
 
     #[tokio::test]

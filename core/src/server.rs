@@ -217,38 +217,66 @@ async fn post_config(
     }
 }
 
-/// mock hook（docs/agent-loop.md §Mock Hook 契约）
+/// Hook（docs/hook.md §Payload）：真实字段（session_id 族）与 mock 字段（instance 族）并存——
+/// 有 session_id 走真实路径，否则走 mock 路径（debug 兼容）
 #[derive(Deserialize)]
 struct HookBody {
     event: String,
-    instance: String,
+    // 真实字段（docs/hook.md）
+    session_id: Option<String>,
+    cwd: Option<String>,
+    kind: Option<String>,
+    prompt: Option<String>,
+    message: Option<String>,
+    // mock 字段（docs/agent-loop.md §Mock Hook 契约）
+    instance: Option<String>,
     project: Option<String>,
     content: Option<String>,
-    /// 模拟真实 Stop hook 自带字段（concepts §9b）；content 缺省时作为回退
+    /// 两路共用：Stop 时的汇报文本
     last_assistant_message: Option<String>,
 }
 
 async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -> impl IntoResponse {
     let mut ov = s.overseer.lock().await;
-    // content 模拟「Overseer 读 Terminal Content」；读不到时回退 hook 自带的 last_assistant_message
-    let content = body
-        .content
-        .or(body.last_assistant_message)
-        .unwrap_or_default();
     let pending = *s.pending_notifications.lock().await;
-    let effects = match ov
-        .handle_hook(
-            &body.event,
-            &body.instance,
-            body.project.as_deref().unwrap_or(""),
-            &content,
-            now_ms(),
-            pending,
-        )
-        .await
-    {
-        Ok(e) => e,
-        Err(err) => return err_response(err),
+    let effects = if let Some(session_id) = body.session_id.as_deref() {
+        match ov
+            .handle_real_hook(
+                &body.event,
+                session_id,
+                body.cwd.as_deref().unwrap_or(""),
+                body.kind.as_deref(),
+                body.prompt.as_deref(),
+                body.message.as_deref(),
+                body.last_assistant_message.as_deref(),
+                now_ms(),
+                pending,
+            )
+            .await
+        {
+            Ok(e) => e,
+            Err(err) => return err_response(err),
+        }
+    } else {
+        // mock 路径：content 模拟「读 Terminal Content」；读不到回退 last_assistant_message
+        let content = body
+            .content
+            .or(body.last_assistant_message)
+            .unwrap_or_default();
+        match ov
+            .handle_hook(
+                &body.event,
+                body.instance.as_deref().unwrap_or(""),
+                body.project.as_deref().unwrap_or(""),
+                &content,
+                now_ms(),
+                pending,
+            )
+            .await
+        {
+            Ok(e) => e,
+            Err(err) => return err_response(err),
+        }
     };
     drop(ov);
     broadcast_effects(&s, effects).await;
