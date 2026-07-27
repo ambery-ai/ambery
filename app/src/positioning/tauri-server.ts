@@ -32,8 +32,20 @@ export function requestPlace(
   return new Promise(async (resolve) => {
     const { emit } = await import("@tauri-apps/api/event");
     const { listen } = await import("@tauri-apps/api/event");
+    let settled = false;
+    // B8: 2s 超时——pet 窗崩溃/reload 时防止 Promise 永不 resolve
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      unlisten();
+      console.warn("[requestPlace] timeout for", id);
+      resolve({ x: 0, y: 0 }); // 回退到原点，至少窗口可见
+    }, 2000);
     const unlisten = await listen<{ id: string; x: number; y: number }>("engine:placed", (ev) => {
       if (ev.payload.id === id) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         unlisten();
         resolve({ x: ev.payload.x, y: ev.payload.y });
       }
