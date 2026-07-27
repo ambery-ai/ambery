@@ -689,6 +689,21 @@ impl<L: Llm> OverseerBackend<L> {
                         vec![],
                     );
                 }
+                // 校验 spec 结构：type=text_card 时 title 和 text 必须是顶层字段
+                if let Some(typ) = spec.get("type").and_then(Value::as_str) {
+                    if typ == "text_card" {
+                        let missing: Vec<&str> = [
+                            ("title", spec.get("title").and_then(Value::as_str)),
+                            ("text", spec.get("text").and_then(Value::as_str)),
+                        ].iter().filter(|(_, v)| v.is_none() || v.unwrap().is_empty()).map(|(k, _)| *k).collect();
+                        if !missing.is_empty() {
+                            return (
+                                json!({ "ok": false, "error": format!("text_card 缺少必填字段：{}。title 和 text 是顶层字段，不要包在 props 里", missing.join("、")) }),
+                                vec![],
+                            );
+                        }
+                    }
+                }
                 (
                     json!({ "ok": true, "rendered": id }),
                     vec![Effect::RenderComponent(spec)],

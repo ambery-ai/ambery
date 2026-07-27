@@ -18,10 +18,25 @@ pub fn tool_set() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "call_component",
-            description: "调用 Component 展示信息（text_card/quick_jump/git_display/data_chart/todobox）",
+            description: "弹出卡片窗口展示信息。id 仅限 A-Z a-z 0-9 _ - . /，不含空格或中文。type=text_card 时必填 title+text（这些是顶层字段，不要包在 props 里）",
             parameters: json!({
                 "type": "object",
-                "properties": { "spec": { "type": "object", "description": "ComponentSpec，见 docs/components.md" } },
+                "properties": {
+                    "spec": {
+                        "type": "object",
+                        "description": "ComponentSpec：id(type 必填顶层字段)",
+                        "properties": {
+                            "id": { "type": "string", "description": "唯一标识：仅 A-Z a-z 0-9 _ - . /" },
+                            "type": { "type": "string", "enum": ["text_card", "quick_jump", "git_display", "data_chart", "todobox"] },
+                            "direction": { "type": "string", "description": "可选方位：auto/n/ne/e/se/s/sw/w/nw" },
+                            "title": { "type": "string", "description": "卡片标题（text_card/git_display/data_chart/todobox 必填）" },
+                            "text": { "type": "string", "description": "卡片正文（text_card 必填）" },
+                            "label": { "type": "string", "description": "按钮标签（quick_jump 必填）" },
+                            "target": { "type": "string", "description": "跳转目标（quick_jump 必填）" }
+                        },
+                        "required": ["id", "type"]
+                    }
+                },
                 "required": ["spec"]
             }),
         },
