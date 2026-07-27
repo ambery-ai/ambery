@@ -66,4 +66,4 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 当前 `tauri.conf.json` 只有一个 cards 窗口，ComponentManager 在其中做 DOM 流式布局。正确设计应当是每个 card 一个独立 Tauri 窗口（类似 chat 窗口），各自有独立的 engine entry、位置、尺寸、生命周期。`positionWindow` 当前用 `querySelector(".component")` 只取第一个 DOM 元素测量，无法区分多 card。改为多窗口后：(1) 每个 card 窗口独立监听 `pet:moved` delta 跟随；(2) 每个 card 窗口按自身内容独立测量 resize；(3) 关闭时清理各自的 engine entry。
 
-2026-07-27 实现中：删静态 cards 窗口，pet.ts `onRenderComponent` → 动态 `WebviewWindow(label=card-${spec.id})`，新增 `card-window.ts` 单窗入口。实测 `context.jsonl` 末尾有 `call_component` 记录（`id: "notify-OC | 实验1完成后的后续实验探讨"`），但 `spec.id` 含空格、`|`、中文——不符合 Tauri label 规则 `[A-Za-z0-9_\-/.]+`，`new WebviewWindow` 会静默失败。需要 sanitize label：取 spec.id 的 md5/hex 前 8 位作为安全标识符，或过滤非法字符。
+2026-07-27 实现中：删静态 cards 窗口，pet.ts `onRenderComponent` → 动态 `WebviewWindow(label=card-${spec.id})`，新增 `card-window.ts` 单窗入口。实测 `context.jsonl` 末尾有 `call_component` 记录（`id: "notify-OC | 实验1完成后的后续实验探讨"`），但 `spec.id` 含空格、`|`、中文——不符合 Tauri label 规则 `[A-Za-z0-9_\-/.]+`，`new WebviewWindow` 会静默失败。同时后端 tool call response 返回 `{"ok":true}` 而非 error——后端不知道前端窗口创建失败了，需要将前端失败信号传回 tool call response。
