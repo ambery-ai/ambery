@@ -11,8 +11,8 @@ async function route() {
   }
   if (!key) key = window.location.hash.replace("#", "");
 
-  if (key === "cards") {
-    import("./windows/cards").then((m) => m.main());
+  if (key.startsWith("card-")) {
+    import("./windows/card-window").then((m) => m.main());
   } else if (key === "chat") {
     import("./windows/chat-window").then((m) => m.main());
   } else if (key === "menu") {

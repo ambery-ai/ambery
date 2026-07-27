@@ -51,7 +51,7 @@ export async function main() {
   if (isTauri) {
     view.el.dataset.tauriDragRegion = "";
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const { emit } = await import("@tauri-apps/api/event");
+    const { emit, emitTo } = await import("@tauri-apps/api/event");
     const win = getCurrentWindow();
     setupServer();
     view.tauriStartDrag = () => win.startDragging();
@@ -72,14 +72,36 @@ export async function main() {
       () => { engine.hideAll(); emit("chat:hide"); emit("cards:hide"); },
       (latest: { x: number; y: number }) => {
         const r = engine.restoreAll(latest);
-        console.log("[pet] restoreAll returned:", r.length, "windows", r.map(w => w.id));
         if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
-        const cardRestored = r.find((w) => w.id.startsWith("card-"));
-        if (cardRestored) { console.log("[pet] emit cards:show", cardRestored.center); emit("cards:show", cardRestored.center); }
-        else console.log("[pet] no card-* in restoreAll result");
+        for (const w of r) {
+          if (w.id.startsWith("card-")) emit("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
+        }
       },
       200,
     );
+
+    // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
+    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+    bridge.onRenderComponent(async (spec) => {
+      const label = `card-${spec.id}`;
+      const existing = await WebviewWindow.getByLabel(label);
+      if (existing) { existing.close(); engine.remove(label); return; }
+      const webview = new WebviewWindow(label, {
+        url: "index.html#card",
+        width: 520,
+        height: 440,
+        decorations: false,
+        transparent: true,
+        alwaysOnTop: true,
+        focus: false,
+        shadow: false,
+        skipTaskbar: true,
+        visible: false,
+      });
+      webview.once("tauri://created", () => {
+        emitTo(label, "card:spec", spec);
+      });
+    });
 
     broadcastPosition();
     await win.onMoved(() => broadcastPosition());

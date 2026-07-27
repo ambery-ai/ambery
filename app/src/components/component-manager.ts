@@ -32,7 +32,7 @@ export class ComponentManager {
     bridge.onRenderComponent((spec) => this.render(spec));
   }
 
-  private render(spec: ComponentSpec) {
+  render(spec: ComponentSpec) {
     // 同 id 重复调用 = toggle 关闭（docs/components.md）
     const existing = this.cards.get(spec.id);
     if (existing) {

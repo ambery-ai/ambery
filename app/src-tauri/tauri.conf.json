@@ -25,21 +25,6 @@
         "resizable": false
       },
       {
-        "label": "cards",
-        "title": "cards",
-        "url": "index.html#cards",
-        "width": 520,
-        "height": 440,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "focus": false,
-        "shadow": false,
-        "skipTaskbar": true,
-        "visible": true,
-        "resizable": false
-      },
-      {
         "label": "menu",
         "title": "menu",
         "url": "index.html#menu",

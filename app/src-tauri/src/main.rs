@@ -7,6 +7,7 @@ use overseer_core::overseer::OverseerBackend;
 use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
 use std::sync::Arc;
+use tauri::Emitter;
 use tauri::Manager;
 use tokio::sync::broadcast;
 
@@ -44,8 +45,9 @@ fn toggle_pet(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("pet") {
         if w.is_visible().unwrap_or(false) {
             let _ = w.hide();
-            if let Some(c) = app.get_webview_window("cards") { let _ = c.hide(); }
             if let Some(ch) = app.get_webview_window("chat") { let _ = ch.hide(); }
+            // 动态 card 窗口由前端 engine 控，pet toggle 时广播 cards:hide
+            let _ = app.emit("cards:hide", ());
         } else {
             let _ = w.show();
         }
@@ -64,13 +66,12 @@ fn main() {
         .invoke_handler(tauri::generate_handler![toggle_pet, quit_app])
         .setup(|app| {
             let pet = app.get_webview_window("pet").expect("pet window");
-            let cards = app.get_webview_window("cards").expect("cards window");
             let chat = app.get_webview_window("chat").expect("chat window");
             let menu = app.get_webview_window("menu").expect("menu window");
 
             // 所有窗口统一 pin + fight-back（menu 面板除外：它是菜单行为，失焦即隐）
+            // 动态 card 窗口由前端 WebviewWindow 创建，不在此处初始化
             window::init_window(&pet);
-            window::init_window(&cards);
             window::init_window(&chat);
             menu_window::init_menu_window(&menu);
 
