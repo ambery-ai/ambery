@@ -13,7 +13,11 @@ function projectOf([string]$cwd) {
 function postHook([hashtable]$body) {
     try {
         $json = $body | ConvertTo-Json -Compress
-        curl.exe -s -m 3 -X POST http://127.0.0.1:47600/hook -H "Content-Type: application/json" -d $json | Out-Null
+        # 临时文件传 body：PS5.1 管道会给 UTF8 加 BOM（server 400 的根因）；PS 原生命令行又吃内层引号
+        $tmp = [IO.Path]::Combine($env:TEMP, "overseer-hook-$PID.json")
+        [IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding($false)))
+        curl.exe -s -m 3 -X POST http://127.0.0.1:47600/hook -H "Content-Type: application/json" -d "@$tmp" | Out-Null
+        Remove-Item $tmp -ErrorAction SilentlyContinue
     } catch {
         "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | postHook | $($_.Exception.Message)" | Out-File -Append -Encoding UTF8 $logFile
     }

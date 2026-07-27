@@ -47,7 +47,8 @@ foreach ($e in $events) {
         $entry = [pscustomobject]@{
             hooks = @([pscustomobject]@{
                 type = "command"
-                command = "powershell -NoProfile -File `"$scriptDst`""
+                command = "powershell -NoProfile -File $scriptDst"
+                shell = "powershell"
                 timeout = 5
                 async = $true
             })
