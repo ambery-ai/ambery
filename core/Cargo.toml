@@ -20,3 +20,8 @@ path = "src/lib.rs"
 [[bin]]
 name = "overseer-debug"
 path = "src/bin/overseer-debug.rs"
+
+[features]
+default = ["mock"]
+# mock 面（core/src/mock.rs）：真实 hook 接入后删此 feature 及模块
+mock = []

@@ -42,6 +42,13 @@ impl AppState {
             tx,
         }
     }
+
+    /// mock 面访问口（core/src/mock.rs 专用；真实 hook 接入后随 mock 面一起删）
+    pub(crate) fn mock_terminals(
+        &self,
+    ) -> &Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> {
+        &self.mock_terminals
+    }
 }
 
 pub fn now_ms() -> i64 {
@@ -52,7 +59,7 @@ pub fn now_ms() -> i64 {
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
-    Router::new()
+    let app = Router::new()
         .route("/state", get(get_state))
         .route("/queue", get(get_queue))
         .route("/queue/user", post(post_user))
@@ -61,10 +68,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/config/schema", get(get_config_schema))
         .route("/config", post(post_config))
         .route("/hook", post(post_hook))
-        .route("/debug/terminal", post(post_debug_terminal))
-        .route("/ws", get(ws_upgrade))
-        .layer(CorsLayer::permissive())
-        .with_state(state)
+        .route("/ws", get(ws_upgrade));
+    // mock 面路由（core/src/mock.rs，真实 hook 接入后随 feature 一起删）
+    #[cfg(feature = "mock")]
+    let app = app.route("/debug/terminal", post(crate::mock::post_debug_terminal));
+    app.layer(CorsLayer::permissive()).with_state(state)
 }
 
 fn config_json(cfg: &Config) -> Value {
@@ -244,24 +252,6 @@ async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -
     };
     drop(ov);
     broadcast_effects(&s, effects).await;
-    Json(json!({ "ok": true })).into_response()
-}
-
-/// debug：注入「终端当前显示什么」（MockTerminals，docs/timer.md §Scanner）
-#[derive(Deserialize)]
-struct DebugTerminalBody {
-    instance: String,
-    content: String,
-}
-
-async fn post_debug_terminal(
-    State(s): State<Arc<AppState>>,
-    Json(body): Json<DebugTerminalBody>,
-) -> impl IntoResponse {
-    s.mock_terminals
-        .lock()
-        .unwrap()
-        .insert(body.instance, body.content);
     Json(json!({ "ok": true })).into_response()
 }
 

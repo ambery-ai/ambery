@@ -6,6 +6,8 @@ pub mod context;
 pub mod event_buffer;
 pub mod filter;
 pub mod llm;
+#[cfg(feature = "mock")]
+pub mod mock;
 pub mod overseer;
 pub mod paths;
 pub mod queue;
