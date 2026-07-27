@@ -83,9 +83,12 @@ export async function main() {
     // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     bridge.onRenderComponent(async (spec) => {
+      (window as any).__overseer_last_render = { ts: Date.now(), id: spec.id, type: spec.type };
       const label = `card-${spec.id}`;
       const existing = await WebviewWindow.getByLabel(label);
+      (window as any).__overseer_last_label = label;
       if (existing) { existing.close(); engine.remove(label); return; }
+      try {
       const webview = new WebviewWindow(label, {
         url: "index.html#card",
         width: 520,
@@ -101,6 +104,11 @@ export async function main() {
       webview.once("tauri://created", () => {
         emitTo(label, "card:spec", spec);
       });
+      (window as any).__overseer_last_window = "created";
+      } catch (e: any) {
+        (window as any).__overseer_last_error = String(e?.message ?? e);
+        console.error("[pet] WebviewWindow error:", e);
+      }
     });
 
     broadcastPosition();
@@ -191,6 +199,7 @@ export async function main() {
       face: document.getElementById("face")?.textContent ?? null,
       motion: view.el.dataset.motion ?? "still",
     }) as any,
+    _diag: () => ({ lastRender: (window as any).__overseer_last_render, lastLabel: (window as any).__overseer_last_label, lastWindow: (window as any).__overseer_last_window, lastError: (window as any).__overseer_last_error }),
   };
   if (bridge instanceof BrowserMockBridge) {
     debug.setInstanceStatus = (n, s) => bridge.debugSetInstanceStatus(n, s);
