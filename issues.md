@@ -18,6 +18,8 @@ Card 窗口初始尺寸写死为 300×200（tauri.conf.json），但卡片实际
 
 2026-07-27 首次尝试（打回）：CSS 改 min-width + 删 max-height/overflow 方向正确，但 `positionWindow()` 改用 `scrollWidth`/`scrollHeight` 测量——证据：Tauri 隐藏窗口（adapter.hide()）中两者返回 0，导致 `setSize(4,4)` 窗口缩成不可见。`offsetWidth`/`offsetHeight` 在隐藏窗口中有值但存在鸡生蛋蛋：卡片被窗口约束后测量值始终是约束后的值（300×200 窗口内的卡片 offset 永远 ≤ 300×200），无法通过测量撑大窗口。需要先放宽窗口尺寸再测量收缩的方案。
 
+2026-07-27 二次尝试（打回）：窗口放大到 520×440 + DPR 修正，但测量时序仍然错误——`positionWindow()` 在窗口隐藏时测 `offsetWidth`，此时卡片被窗口 520×440 约束且 `max-width:480px`，测得永远是 480 而非内容真实需求。正确顺序：先让卡片脱离窗口宽度约束（如 `width:max-content`）自然渲染 → 测真实内容尺寸 → 提交引擎布局 → resize 窗口。当前顺序是"被约束→测约束值→提交→resize"，永远测不到内容真实大小。
+
 ## #3 界面主题单一，缺少可配置的亮色模式 (2026-07-27) — open
 
 所有窗口（pet / card / chat / menu）统一使用深色背景，card 面板与背景融为一体，文字和面板之间没有足够的层次区分。两个建议方向：(1) 优化现有深色模式——为 card/chat 面板增加颜色层次（面板底色、边框、阴影），与 pet 主界面拉开视觉距离；(2) 增加可配置的 light mode（亮色模式），用户可在 config 中切换主题。
