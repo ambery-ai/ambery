@@ -72,9 +72,11 @@ export async function main() {
       () => { engine.hideAll(); emit("chat:hide"); emit("cards:hide"); },
       (latest: { x: number; y: number }) => {
         const r = engine.restoreAll(latest);
+        console.log("[pet] restoreAll returned:", r.length, "windows", r.map(w => w.id));
         if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
         const cardRestored = r.find((w) => w.id.startsWith("card-"));
-        if (cardRestored) emit("cards:show", cardRestored.center);
+        if (cardRestored) { console.log("[pet] emit cards:show", cardRestored.center); emit("cards:show", cardRestored.center); }
+        else console.log("[pet] no card-* in restoreAll result");
       },
       200,
     );

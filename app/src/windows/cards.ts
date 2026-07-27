@@ -22,16 +22,18 @@ export async function main() {
     await adapter.hide();
     // 拖拽 hide/restore 事件
     const { listen } = await import("@tauri-apps/api/event");
-    await listen("cards:hide", () => adapter?.hide());
+    await listen("cards:hide", () => { console.log("[cards] hide"); adapter?.hide(); });
     await listen<{ x: number; y: number }>("cards:show", async (ev) => {
       const pos = ev.payload;
+      console.log("[cards] show event, payload:", pos);
       // B5: 无 payload 或无 card → 重新 place，不盲 show
       if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
+        console.log("[cards] show: bad payload, fallback positionWindow");
         void positionWindow();
         return;
       }
       const card = document.querySelector(".component") as HTMLElement | null;
-      if (!card) { await adapter?.hide(); return; }
+      if (!card) { console.log("[cards] show: no .component in DOM"); await adapter?.hide(); return; }
       try {
         // B2: await setPosition，避免 show 时位置未更新
         // B1: 用缓存物理尺寸（positionWindow 测量时窗口刚 show 完、尺寸准确）
@@ -77,7 +79,10 @@ async function positionWindow() {
     return;
   }
   const dir = cardDirection(card);
-  // B3: offsetWidth/Height 是 CSS 像素，×dpr 转物理像素（engine 坐标系）
+  // 先 show 让卡片脱离隐藏约束，按 fit-content 自然渲染
+  await adapter.show();
+  await new Promise(r => requestAnimationFrame(r));
+  // 此时 offsetWidth/Height 反映内容真实需求（CSS fit-content + max-width:480px）
   const pw = Math.ceil((card.offsetWidth || 260) * dpr);
   const ph = Math.ceil((card.offsetHeight || 140) * dpr);
   // B1: 缓存物理尺寸，供 cards:show 隐藏状态复用
@@ -85,8 +90,7 @@ async function positionWindow() {
   lastPh = ph;
   lastCardId = `card-${card.dataset.id || Date.now()}`;
   const pos = await requestPlace(lastCardId, { id: lastCardId, width: pw, height: ph }, dir);
-  // pos 是 engine 返回的物理坐标中心点
+  // pos 是 engine 返回的物理坐标中心点，调整窗口到正确位置和尺寸
   await adapter.setPosition(Math.round(pos.x - pw / 2), Math.round(pos.y - ph / 2));
   await adapter.setSize(pw + 8, ph + 8);
-  await adapter.show();
 }
