@@ -85,6 +85,14 @@ class Program
                 var text = Uia.ReadActiveTab(hwnd);
                 return text == null ? Err("read failed") : Ok(new JsonObject { ["text"] = text });
             }
+            case "switch_to_window_desktop":
+            {
+                // VD 切换（docs/hook.md §VD 切换能力）：目标窗口所在桌面 → 切过去（不切回）
+                var hwnd = new IntPtr(req["hwnd"]!.GetValue<long>());
+                return Vd.SwitchToWindowDesktop(hwnd)
+                    ? Ok(new JsonObject { ["switched"] = true })
+                    : Err("switch failed");
+            }
             default:
                 return Err($"unknown cmd: {cmd}");
         }
@@ -97,6 +105,70 @@ class Program
     }
 
     static JsonObject Err(string msg) => new() { ["ok"] = false, ["error"] = msg };
+}
+
+
+// VD 切换（GUID/vtable 与 winvd 一致：IVirtualDesktopManagerInternal 53F5CA0B,
+// ImmersiveShell C2F03A33, 服务 C5E0CDCA；IVirtualDesktop 3F07F4BE 仅作不透明引用）
+static class Vd
+{
+    [ComImport, Guid("A5CD92FF-29BE-454C-8D04-D82879FB3F1B"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IVirtualDesktopManager
+    {
+        [PreserveSig] int IsWindowOnCurrentVirtualDesktop(IntPtr hwnd, out int onCurrent);
+        [PreserveSig] int GetWindowDesktopId(IntPtr hwnd, out Guid desktopId);
+        [PreserveSig] int MoveWindowToDesktop(IntPtr hwnd, in Guid desktopId);
+    }
+
+    [ComImport, Guid("3F07F4BE-B107-441A-AF0F-39D82529072C"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IVirtualDesktop { }
+
+    [ComImport, Guid("53F5CA0B-158F-4124-900C-057158060B27"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IVirtualDesktopManagerInternal
+    {
+        [PreserveSig] int GetCount(out int count);
+        [PreserveSig] int MoveViewToDesktop([MarshalAs(UnmanagedType.IUnknown)] object view, IVirtualDesktop desktop);
+        [PreserveSig] int CanMoveViewBetweenDesktops([MarshalAs(UnmanagedType.IUnknown)] object view, out int canMove);
+        [PreserveSig] int GetCurrentDesktop(out IVirtualDesktop desktop);
+        [PreserveSig] int GetDesktops([MarshalAs(UnmanagedType.IUnknown)] out object desktops);
+        [PreserveSig] int GetAdjacentDesktop(IVirtualDesktop inDesktop, uint direction, out IVirtualDesktop outDesktop);
+        [PreserveSig] int SwitchDesktop(IVirtualDesktop desktop);
+        [PreserveSig] int SwitchDesktopAndMoveForegroundView(IVirtualDesktop desktop);
+        [PreserveSig] int CreateDesktop(out IVirtualDesktop desktop);
+        [PreserveSig] int MoveDesktop(IVirtualDesktop inDesktop, uint index);
+        [PreserveSig] int RemoveDesktop(IVirtualDesktop destroyDesktop, IVirtualDesktop fallbackDesktop);
+        [PreserveSig] int FindDesktop(in Guid guid, out IVirtualDesktop outDesktop);
+    }
+
+    [ComImport, Guid("6D5140C1-7436-11CE-8034-00AA006009FA"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IServiceProvider
+    {
+        [PreserveSig] int QueryService(in Guid service, in Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object obj);
+    }
+
+    private static readonly Guid ClsidImmersiveShell = new("C2F03A33-21F5-47FA-B4BB-156362A2F239");
+    private static readonly Guid ClsidVdmInternal = new("C5E0CDCA-7B6E-41B2-9FC4-D93975CC467B");
+    private static readonly Guid IidVdmInternal = new("53F5CA0B-158F-4124-900C-057158060B27");
+
+    public static bool SwitchToWindowDesktop(IntPtr hwnd)
+    {
+        try
+        {
+            var vdmType = Type.GetTypeFromCLSID(new Guid("AA509086-5CA9-4C25-8F95-589D3C07B48A"))!;
+            var vdm = (IVirtualDesktopManager)Activator.CreateInstance(vdmType)!;
+            if (vdm.IsWindowOnCurrentVirtualDesktop(hwnd, out int onCurrent) != 0 || onCurrent != 0)
+                return true; // 已在当前桌面
+            if (vdm.GetWindowDesktopId(hwnd, out Guid g) != 0) return false;
+
+            var shellType = Type.GetTypeFromCLSID(ClsidImmersiveShell)!;
+            var sp = (IServiceProvider)Activator.CreateInstance(shellType)!;
+            var svc = ClsidVdmInternal; var iid = IidVdmInternal;
+            if (sp.QueryService(in svc, in iid, out object o) != 0 || o is not IVirtualDesktopManagerInternal vdi) return false;
+            if (vdi.FindDesktop(in g, out IVirtualDesktop? d) != 0 || d == null) return false;
+            return vdi.SwitchDesktop(d) == 0;
+        }
+        catch { return false; }
+    }
 }
 
 // UIA 封装（exp01 验证过的路径：EnumWindows → TabItem → Select → TermControl TextPattern）

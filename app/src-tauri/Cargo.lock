@@ -3711,6 +3711,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "overseer-core",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tokio",

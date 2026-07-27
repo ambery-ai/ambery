@@ -104,6 +104,7 @@ async fn run_core() {
         .map(overseer_core::sidecar::SidecarClient::new)
         .map(Arc::new);
     let sidecar_for_sweep = sidecar.clone();
+    let sidecar_for_vd = sidecar.clone();
     overseer.sidecar_enabled = sidecar.is_some();
     let mock = Arc::new(std::sync::Mutex::new(
         std::collections::HashMap::<String, String>::new(),
@@ -115,6 +116,30 @@ async fn run_core() {
                 .as_ref()
                 .and_then(|s| s.read_instance(inst))
                 .or_else(|| mock.lock().unwrap().get(inst).cloned())
+        }));
+    }
+    // VD 切换器（docs/hook.md §VD 切换能力）：全 VD 窗口标题匹配 → 切到目标桌面（不切回）
+    {
+        let sc = sidecar_for_vd.clone();
+        overseer.vd_switcher = Some(Arc::new(move |inst: &str| {
+            let Some(sc) = sc.as_ref() else { return false };
+            let Some(resp) = sc.call(&serde_json::json!({ "cmd": "list_windows" })) else {
+                return false;
+            };
+            let win = resp["windows"].as_array().and_then(|ws| {
+                ws.iter().find(|w| {
+                    w["title"]
+                        .as_str()
+                        .map(|t| t.contains(inst))
+                        .unwrap_or(false)
+                })
+            });
+            let Some(hwnd) = win.and_then(|w| w["hwnd"].as_i64()) else {
+                return false;
+            };
+            sc.call(&serde_json::json!({ "cmd": "switch_to_window_desktop", "hwnd": hwnd }))
+                .and_then(|r| r["switched"].as_bool())
+                .unwrap_or(false)
         }));
     }
     let (tx, _) = broadcast::channel(64);

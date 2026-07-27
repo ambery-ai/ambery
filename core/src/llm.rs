@@ -27,11 +27,14 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "fetch_terminal",
-            description: "按需读取指定实例的当前 Terminal Content",
+            description: "按需读取指定实例的当前 Terminal Content。vd_switch 必填：false=不切桌面（读不到且目标可能在其他虚拟桌面时失败，提示重试）；true=目标在其他虚拟桌面时切过去读（不切回）",
             parameters: json!({
                 "type": "object",
-                "properties": { "instance": { "type": "string" } },
-                "required": ["instance"]
+                "properties": {
+                    "instance": { "type": "string" },
+                    "vd_switch": { "type": "boolean" }
+                },
+                "required": ["instance", "vd_switch"]
             }),
         },
         ToolDef {

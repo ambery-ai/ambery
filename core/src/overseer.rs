@@ -46,6 +46,8 @@ pub struct OverseerBackend<L: Llm> {
     pub timers: TimerWheel,
     /// 读通道（docs/timer.md §Scanner）：sidecar 或 MockTerminals；fetch_terminal 优先于 Context
     pub terminal_reader: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    /// VD 切换器（docs/hook.md §VD 切换能力）：instance → 切到目标窗口所在桌面（不切回）
+    pub vd_switcher: Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>,
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
     /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
     pub sidecar_enabled: bool,
@@ -63,6 +65,7 @@ impl<L: Llm> OverseerBackend<L> {
             filter,
             timers,
             terminal_reader: None,
+            vd_switcher: None,
             sidecar_enabled: false,
             max_tool_iters: 8, // 防 tool 循环死转
         }
@@ -686,30 +689,58 @@ impl<L: Llm> OverseerBackend<L> {
             }
             "fetch_terminal" => {
                 let inst = args.get("instance").and_then(Value::as_str).unwrap_or("");
-                // 读通道优先（sidecar/MockTerminals），回退 Context 最新记录（docs/timer.md）
-                // 读到原文：先存档再过滤（docs/storage.md 读取链）；失败仅日志不阻断
-                let content = self
-                    .terminal_reader
-                    .as_ref()
-                    .and_then(|r| r(inst))
-                    .map(|raw| {
-                        let _ = self.harness.append_terminal_content(TerminalContentRecord {
-                            instance: inst.into(),
-                            raw: raw.clone(),
-                            source: RecordSource::FetchTerminal,
-                            ts: crate::server::now_ms(),
-                        });
-                        let filtered = self.filter.digest(&raw).render();
-                        let _ = self.harness.append_context(ContextRecord {
-                            instance: inst.into(),
-                            content: filtered.clone(),
-                            source: RecordSource::FetchTerminal,
-                            ts: crate::server::now_ms(),
-                        });
-                        filtered
-                    })
-                    .or_else(|| self.harness.context.latest(inst).map(|r| r.content.clone()))
-                    .unwrap_or_else(|| "（无记录）".into());
+                // vd_switch 必填（docs/hook.md §VD 切换能力）：打断性决策每次显式面对
+                let Some(vd_switch) = args.get("vd_switch").and_then(Value::as_bool) else {
+                    return (
+                        json!({ "ok": false, "error": "vd_switch 必填（false=不切桌面；true=目标在其他虚拟桌面时切过去读，不切回）" }),
+                        vec![],
+                    );
+                };
+                // 读通道优先（sidecar/MockTerminals）：读到原文先存档再过滤（docs/storage.md 读取链）
+                let read_fresh = |ov: &mut Self| {
+                    ov.terminal_reader
+                        .as_ref()
+                        .and_then(|r| r(inst))
+                        .map(|raw| {
+                            let _ = ov.harness.append_terminal_content(TerminalContentRecord {
+                                instance: inst.into(),
+                                raw: raw.clone(),
+                                source: RecordSource::FetchTerminal,
+                                ts: crate::server::now_ms(),
+                            });
+                            let filtered = ov.filter.digest(&raw).render();
+                            let _ = ov.harness.append_context(ContextRecord {
+                                instance: inst.into(),
+                                content: filtered.clone(),
+                                source: RecordSource::FetchTerminal,
+                                ts: crate::server::now_ms(),
+                            });
+                            filtered
+                        })
+                };
+                if let Some(content) = read_fresh(self) {
+                    return (json!({ "instance": inst, "content": content }), vec![]);
+                }
+                // 新鲜读失败 → Context 最新记录回退（有历史给历史）
+                if let Some(rec) = self.harness.context.latest(inst) {
+                    return (json!({ "instance": inst, "content": rec.content.clone() }), vec![]);
+                }
+                // 什么都没有：vd_switch=false → 失败教学；true → 切桌面重试
+                if !vd_switch {
+                    return (
+                        json!({ "ok": false, "error": format!("读不到 {inst}：可能不存在，也可能在另一个虚拟桌面；确认存在的话用 vd_switch=true 重试") }),
+                        vec![],
+                    );
+                }
+                let switched = self.vd_switcher.as_ref().map(|f| f(inst)).unwrap_or(false);
+                if !switched {
+                    return (
+                        json!({ "ok": false, "error": format!("切换失败：全 VD 窗口标题无 {inst} 匹配（可能不存在，或它是 cloaked 窗口的背景 tab）") }),
+                        vec![],
+                    );
+                }
+                let content = read_fresh(self)
+                    .unwrap_or_else(|| "（已切换到目标桌面，但仍读不到内容）".into());
                 (json!({ "instance": inst, "content": content }), vec![])
             }
             "set_autonomy" => {
@@ -918,7 +949,7 @@ mod tests {
         // mock 脚本：hook 沉默 → 追问时 fetch_terminal → 汇总回复
         let agent = scripted(vec![
             silence(),
-            calls(vec![("fetch_terminal", json!({"instance": "ft"}))]),
+            calls(vec![("fetch_terminal", json!({"instance": "ft", "vd_switch": false}))]),
             say("[debug] 查到：全文"),
         ]);
         let mut ov = make_overseer_with("fetch", agent);
@@ -1360,6 +1391,35 @@ mod tests {
         let line = ov.harness.event_buffer.merge_and_clear().unwrap_or_default();
         assert!(line.contains("54") && line.contains("cloaked"), "{line}");
         let _ = std::fs::remove_dir_all(tmp_dir("sweep"));
+    }
+
+    #[tokio::test]
+    async fn fetch_terminal_vd_switch_semantics() {
+        // 必填:忘传报错教学
+        let mut ov = make_overseer("vd1");
+        let call = ToolCall { id: "c1".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"x"}).to_string() };
+        let (r, _) = ov.execute_tool(&call);
+        assert!(r["error"].as_str().unwrap_or("").contains("vd_switch 必填"), "{r}");
+        // false 且读不到:报错含重试提示
+        let call2 = ToolCall { id: "c2".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"x","vd_switch":false}).to_string() };
+        let (r2, _) = ov.execute_tool(&call2);
+        assert!(r2["error"].as_str().unwrap_or("").contains("vd_switch=true 重试"), "{r2}");
+        let _ = std::fs::remove_dir_all(tmp_dir("vd1"));
+
+        // true + 切换成功:重读命中
+        let mut ov = make_overseer("vd2");
+        ov.terminal_reader = Some(std::sync::Arc::new(|inst: &str| {
+            if std::env::var("VD_TEST_READY").is_ok() { Some(format!("内容:{inst}")) } else { None }
+        }));
+        ov.vd_switcher = Some(std::sync::Arc::new(|_: &str| {
+            std::env::set_var("VD_TEST_READY", "1");
+            true
+        }));
+        let call3 = ToolCall { id: "c3".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"x","vd_switch":true}).to_string() };
+        let (r3, _) = ov.execute_tool(&call3);
+        std::env::remove_var("VD_TEST_READY");
+        assert_eq!(r3["content"].as_str().unwrap_or(""), "内容:x");
+        let _ = std::fs::remove_dir_all(tmp_dir("vd2"));
     }
 
     #[tokio::test]
