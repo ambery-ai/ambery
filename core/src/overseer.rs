@@ -318,12 +318,59 @@ impl<L: Llm> OverseerBackend<L> {
             }
             "stop" => {
                 upsert(AgentStatus::Idle)?;
-                // stop_hook_mode 默认 queue_only（B）：hint 注入，宠物按需 fetch（docs/hook.md §stop 三模式）
                 let hint = last_assistant_message.unwrap_or("").trim();
-                let text = if hint.is_empty() {
-                    format!("{name} 完成，无汇报内容。评估是否通知。")
-                } else {
-                    format!("{name} 完成：{hint}。评估是否通知。")
+                // stop_hook_mode 三模式（docs/hook.md，Config 热生效）
+                let text = match self.config.stop_hook_mode.as_str() {
+                    // A：stop 到达即读通道全量（tab 切换限流见 timer，此处只读）
+                    "auto_read" => {
+                        let content = self
+                            .terminal_reader
+                            .as_ref()
+                            .and_then(|r| r(&name))
+                            .map(|raw| {
+                                let _ = self.harness.append_terminal_content(
+                                    TerminalContentRecord {
+                                        instance: name.clone(),
+                                        raw: raw.clone(),
+                                        source: RecordSource::Hook,
+                                        ts,
+                                    },
+                                );
+                                let filtered = self.filter.digest(&raw).render();
+                                let _ = self.harness.append_context(ContextRecord {
+                                    instance: name.clone(),
+                                    content: filtered.clone(),
+                                    source: RecordSource::Hook,
+                                    ts,
+                                });
+                                filtered
+                            });
+                        match content {
+                            Some(filtered) => {
+                                let len = filtered.chars().count();
+                                format!(
+                                    "{name} 完成，Context 已更新（{len} 字）。评估是否通知。"
+                                )
+                            }
+                            None => format!("{name} 完成：{hint}。评估是否通知。"),
+                        }
+                    }
+                    // C：汇报原文直达（零 UIA）
+                    "message" => {
+                        if hint.is_empty() {
+                            format!("{name} 完成，无汇报内容。评估是否通知。")
+                        } else {
+                            format!("[汇报] {name} 完成：{hint}")
+                        }
+                    }
+                    // B（默认）：hint 注入，宠物按需 fetch
+                    _ => {
+                        if hint.is_empty() {
+                            format!("{name} 完成，无汇报内容。评估是否通知。")
+                        } else {
+                            format!("{name} 完成：{hint}。评估是否通知。")
+                        }
+                    }
                 };
                 self.harness
                     .append_queue(QueueMessage::new(Role::System, text, ts))?;
@@ -1058,6 +1105,48 @@ mod tests {
             Effect::SetAutonomy { face: Some(f), motion: None, .. } if f == "(・ω・)ノ"
         )));
         let _ = std::fs::remove_dir_all(tmp_dir("face-key"));
+    }
+
+    #[tokio::test]
+    async fn real_hook_stop_three_modes() {
+        let sid = "dddd3333-4444-5555";
+        // B（默认 queue_only）：hint 形态
+        let mut ov = make_overseer("rh5");
+        let _ = ov
+            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000, 0)
+            .await
+            .unwrap();
+        let m = ov.harness.queue.messages().last().unwrap().content.clone().unwrap();
+        assert!(m.contains("完成：修了 3 个文件。评估是否通知"), "B: {m}");
+        let _ = std::fs::remove_dir_all(tmp_dir("rh5"));
+
+        // C（message）：汇报原文直达
+        let mut ov = make_overseer("rh6");
+        ov.config.stop_hook_mode = "message".into();
+        let _ = ov
+            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000, 0)
+            .await
+            .unwrap();
+        let m = ov.harness.queue.messages().last().unwrap().content.clone().unwrap();
+        assert_eq!(m, "[汇报] p·dddd3333 完成：修了 3 个文件");
+        let _ = std::fs::remove_dir_all(tmp_dir("rh6"));
+
+        // A（auto_read）：读通道全量,Context 更新
+        let mut ov = make_overseer("rh7");
+        ov.config.stop_hook_mode = "auto_read".into();
+        ov.terminal_reader = Some(std::sync::Arc::new(|inst: &str| {
+            assert_eq!(inst, "p·dddd3333");
+            Some("● 完成。hooks 已配置".to_string())
+        }));
+        let _ = ov
+            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, None, 1000, 0)
+            .await
+            .unwrap();
+        let m = ov.harness.queue.messages().last().unwrap().content.clone().unwrap();
+        assert!(m.contains("Context 已更新"), "A: {m}");
+        let ctx = ov.harness.context.latest("p·dddd3333").expect("context 已写");
+        assert!(ctx.content.contains("hooks 已配置"));
+        let _ = std::fs::remove_dir_all(tmp_dir("rh7"));
     }
 
     #[tokio::test]
