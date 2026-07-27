@@ -73,7 +73,8 @@ export async function main() {
       (latest: { x: number; y: number }) => {
         const r = engine.restoreAll(latest);
         if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
-        if (r.some((w) => w.id.startsWith("card-"))) emit("cards:show");
+        const cardRestored = r.find((w) => w.id.startsWith("card-"));
+        if (cardRestored) emit("cards:show", cardRestored.center);
       },
       200,
     );
