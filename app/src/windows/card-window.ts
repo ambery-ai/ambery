@@ -23,6 +23,13 @@ export async function main() {
 
   const { listen } = await import("@tauri-apps/api/event");
 
+  // #8 拖拽：card header mousedown → 开始移动窗口
+  document.addEventListener("mousedown", (e) => {
+    if ((e.target as HTMLElement).closest(".cmp-header")) {
+      win.startDragging();
+    }
+  });
+
   // 接收 pet 发来的组件 spec
   await listen<ComponentSpec>("card:spec", async (ev) => {
     mgr.render(ev.payload);
