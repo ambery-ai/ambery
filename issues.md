@@ -6,13 +6,13 @@
 
 **表现**: Card 和 ChatPanel 在 pet 移动后留在原位，没有跟随 pet 重新定位；Card 窗口尺寸不随内容自适应，文字区域出现滚动条而非撑开窗口，且右下方内容被截断无法完整显示；全界面使用纯深色背景缺乏层次感；点击 card 上的"复制"按钮，剪贴板写入内容为 undefined。
 
-## #1 Card 没有跟随 pet 移动 (2026-07-27) — open
+## #1 Card 没有跟随 pet 移动 (2026-07-27) — fixed
 
 Card 窗口弹出后位置一次性计算完成，pet 被拖到新位置时 card 停留在原地不动。
 
 2026-07-27 二次尝试（打回）：改为 engine.hideAll/restoreAll delta 方案——pet.ts dragDebounce 的 done 回调中 `engine.restoreAll` 返回新位置后 `emit("cards:show", center)`，cards.ts 接收后 setPosition + show。打回原因：实测 pet 移动后 card 窗口**消失**而非跟随。疑点：(1) `cards:hide` 触发后 `cards:show` 可能未被 emit（`r.find(id.startsWith("card-"))` 未匹配）；(2) `cards:show` handler 收到 payload 但 `document.querySelector(".component")` 返回 null；(3) setPosition 抛出异常被 catch 吞掉导致窗口保持隐藏。需加 console.log 探针二分定位。
 
-## #2 Card 窗口尺寸不适应内容，右下方被截断 (2026-07-27) — open
+## #2 Card 窗口尺寸不适应内容，右下方被截断 (2026-07-27) — fixed
 
 Card 窗口初始尺寸写死为 300×200（tauri.conf.json），但卡片实际渲染内容可能超出该尺寸，导致右下方超出部分无法在窗口中看到。卡片内容区域出现文字滚动条而非根据内容自动撑开窗口。Card 应当支持动态大小：根据内容测量结果实时调整窗口尺寸，避免内容截断和滚动条。
 
@@ -24,7 +24,7 @@ Card 窗口初始尺寸写死为 300×200（tauri.conf.json），但卡片实际
 
 所有窗口（pet / card / chat / menu）统一使用深色背景，card 面板与背景融为一体，文字和面板之间没有足够的层次区分。两个建议方向：(1) 优化现有深色模式——为 card/chat 面板增加颜色层次（面板底色、边框、阴影），与 pet 主界面拉开视觉距离；(2) 增加可配置的 light mode（亮色模式），用户可在 config 中切换主题。
 
-## #4 复制按钮复制 card 文本得到 undefined (2026-07-27) — open
+## #4 复制按钮复制 card 文本得到 undefined (2026-07-27) — fixed
 
 Card 面板已有"复制"按钮，点击后调用 `navigator.clipboard.writeText(spec.text)`，但剪贴板实际写入内容为 undefined（字面字符串 "undefined"），说明 `spec.text` 字段为空或不存在。需检查组件渲染时传入的 spec 数据路径，确保 text 字段正确传递到复制逻辑。
 
@@ -72,6 +72,6 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 2026-07-28：capabilities 授权 + race condition 修复后 card 窗口正常弹出，基本功能验证通过。连带发现：core-server → Tauri IPC 重构中新 Tauri commands 的 `State` 提取失败（`invoke()` 未到达 Rust），已回退 RemoteBridge HTTP，保留 Tauri command 骨架待独立修复。不影响 #9 功能。
 
-## #10 已消亡实例未标记 closed，僵死数据污染 Event Buffer (2026-07-28) — open
+## #10 已消亡实例未标记 closed，僵死数据污染 Event Buffer (2026-07-28) — fixed
 
 `timer-probe`×2 + `full-body-check` 三个实例 UIA 侧车实证已不存在，但 `work-agents.jsonl` 仍为 `processing`，`last_seen` 自首次注册后从未被 timer 更新。timer 每 5s 扫描，但 `None→closed` 判定未触发，导致实例永不被标 `Closed`。连锁效应：每次 `run_trigger` 的 compression 路径调 `panorama()` 时，这些僵死实例经过滤（仅排除 Closed）被纳入全景同步 → 写入 Event Buffer → flush 到 LLM context → pet 基于虚假数据报告"filter-test 有 3 个 Processing"。缺陷点：(1) timer 扫描未触发 closed；(2) `panorama()` 过滤条件仅排除 `Closed`，未考虑 `last_seen` 远超 timer 周期的僵死实例。
