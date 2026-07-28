@@ -1,7 +1,9 @@
-//! HTTP + WS server（docs/agent-loop.md §协议）：debug 模式下前端与 Harness 的唯一协议。
+//! HTTP server（docs/core-server.md）：
+//! - Tauri 模式：仅 `/hook`（前端走 Tauri IPC）
+//! - debug 模式：完整 HTTP+WS（浏览器前端）
 
 use axum::{
-    extract::ws::{Message, WebSocket, WebSocketUpgrade},
+    extract::ws::Message,
     extract::State,
     http::StatusCode,
     response::IntoResponse,
@@ -11,59 +13,71 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
-use tower_http::cors::CorsLayer;
+use tokio::sync::Mutex;
 
 use crate::llm::LlmBackend;
 use crate::overseer::{Effect, OverseerBackend};
 use crate::queue::{QueueMessage, Role};
 use crate::Config;
 
+pub type EffectSender = Box<dyn Fn(Value) + Send + Sync>;
+
 pub struct AppState {
     overseer: Mutex<OverseerBackend<LlmBackend>>,
-    /// ペット已通知、用户尚未查看的数量（debug 语义：RenderComponent +1，用户发消息清零，关卡片 -1）
     pending_notifications: Mutex<usize>,
-    /// MockTerminals（docs/timer.md §Scanner）：instance → 当前终端文本，模拟读通道
-    /// 与 Overseer.terminal_reader 共享同一份
     mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
-    tx: broadcast::Sender<String>,
+    send: Mutex<Option<EffectSender>>,
 }
 
 impl AppState {
     pub fn new(
         overseer: OverseerBackend<LlmBackend>,
-        tx: broadcast::Sender<String>,
         mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     ) -> Self {
         Self {
             overseer: Mutex::new(overseer),
             pending_notifications: Mutex::new(0),
             mock_terminals,
-            tx,
+            send: Mutex::new(None),
         }
     }
 
-    /// mock 面访问口（core/src/mock.rs 专用；真实 hook 接入后随 mock 面一起删）
-    pub(crate) fn mock_terminals(
-        &self,
-    ) -> &Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> {
-        &self.mock_terminals
+    pub async fn set_sender(&self, send: EffectSender) { *self.send.lock().await = Some(send); }
+    pub async fn broadcast_effect_json(&self, msg: Value) {
+        if let Some(send) = self.send.lock().await.as_ref() { send(msg); }
     }
-
-    /// overseer 访问口（main.rs 启动扫描等装配侧用）
-    pub fn overseer(&self) -> &Mutex<OverseerBackend<LlmBackend>> {
-        &self.overseer
-    }
+    pub(crate) fn mock_terminals(&self) -> &Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> { &self.mock_terminals }
+    pub fn overseer(&self) -> &Mutex<OverseerBackend<LlmBackend>> { &self.overseer }
 }
 
 pub fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
-pub fn router(state: Arc<AppState>) -> Router {
+fn effect_json(e: &Effect) -> Value {
+    match e {
+        Effect::RenderComponent(spec) => json!({ "kind": "render_component", "spec": spec }),
+        Effect::SetAutonomy { face, motion, ttl_ms } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms }),
+        Effect::ConfigChanged { .. } => json!({ "kind": "config" }),
+    }
+}
+
+fn config_json(cfg: &Config) -> Value {
+    json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale })
+}
+
+async fn state_json_value(s: &AppState) -> Value {
+    let ov = s.overseer.lock().await;
+    let pending = *s.pending_notifications.lock().await;
+    json!({ "instances": ov.harness.agents.iter().map(|a| json!({"id":a.hash,"name":a.name,"status":a.status})).collect::<Vec<_>>(), "pendingNotifications": pending })
+}
+
+/// 完整 router（debug 模式：浏览器前端需要 HTTP+WS）
+pub fn router(state: Arc<AppState>, ws_tx: tokio::sync::broadcast::Sender<String>) -> Router {
+    use axum::extract::ws::WebSocketUpgrade;
+    let ws_tx_clone = ws_tx.clone();
+    let state_for_ws = state.clone();
+
     let app = Router::new()
         .route("/state", get(get_state))
         .route("/queue", get(get_queue))
@@ -73,66 +87,32 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/config/schema", get(get_config_schema))
         .route("/config", post(post_config))
         .route("/hook", post(post_hook))
-        .route("/ws", get(ws_upgrade));
-    // mock 面路由（core/src/mock.rs，真实 hook 接入后随 feature 一起删）
+        .route("/ws", get(move |ws: WebSocketUpgrade, State(s): State<Arc<AppState>>| {
+            let tx = ws_tx_clone.clone();
+            async move {
+                ws.on_upgrade(move |mut socket| async move {
+                    let st = state_json_value(&s).await;
+                    if socket.send(Message::Text(json!({"kind":"top_state","state":st}).to_string().into())).await.is_err() { return; }
+                    let mut rx = tx.subscribe();
+                    while let Ok(msg) = rx.recv().await {
+                        if socket.send(Message::Text(msg.into())).await.is_err() { break; }
+                    }
+                })
+            }
+        }));
     #[cfg(feature = "mock")]
     let app = app.route("/debug/terminal", post(crate::mock::post_debug_terminal));
-    app.layer(CorsLayer::permissive()).with_state(state)
+    app.layer(tower_http::cors::CorsLayer::permissive()).with_state(state_for_ws)
 }
 
-fn config_json(cfg: &Config) -> Value {
-    json!({
-        "kaomoji": cfg.kaomoji,
-        "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms,
-        "viewScale": cfg.view_scale,
-    })
+/// Tauri 模式薄 router：仅 `/hook`
+pub fn hook_router(state: Arc<AppState>) -> Router {
+    Router::new().route("/hook", post(post_hook)).with_state(state)
 }
 
-async fn state_json(s: &AppState) -> Value {
-    let ov = s.overseer.lock().await;
-    let pending = *s.pending_notifications.lock().await;
-    json!({
-        "instances": ov.harness.agents.iter().map(|a| json!({
-            "id": a.hash, "name": a.name, "status": a.status
-        })).collect::<Vec<_>>(),
-        "pendingNotifications": pending
-    })
-}
+// ── handlers ──
 
-/// 副作用 → WS 推送 + queue/top_state 变更广播
-async fn broadcast_effects(s: &AppState, effects: Vec<Effect>) {
-    for e in effects {
-        let msg = match e {
-            Effect::RenderComponent(spec) => {
-                *s.pending_notifications.lock().await += 1;
-                json!({ "kind": "render_component", "spec": spec })
-            }
-            Effect::SetAutonomy {
-                face,
-                motion,
-                ttl_ms,
-            } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms }),
-            Effect::ConfigChanged { llm_changed } => {
-                // LLM tool 也能改 llm.*——重建在广播处统一，不只 POST /config
-                if llm_changed {
-                    let mut ov = s.overseer.lock().await;
-                    let backend = LlmBackend::from_config(&ov.config.llm);
-                    ov.replace_llm(backend);
-                }
-                let cfg = s.overseer.lock().await.config.clone();
-                json!({ "kind": "config", "config": config_json(&cfg) })
-            }
-        };
-        let _ = s.tx.send(msg.to_string());
-    }
-    let _ = s.tx.send(json!({ "kind": "queue_changed" }).to_string());
-    let st = state_json(s).await;
-    let _ = s.tx.send(json!({ "kind": "top_state", "state": st }).to_string());
-}
-
-async fn get_state(State(s): State<Arc<AppState>>) -> impl IntoResponse {
-    Json(state_json(&s).await)
-}
+async fn get_state(State(s): State<Arc<AppState>>) -> impl IntoResponse { Json(state_json_value(&s).await) }
 
 async fn get_queue(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let ov = s.overseer.lock().await;
@@ -140,43 +120,32 @@ async fn get_queue(State(s): State<Arc<AppState>>) -> impl IntoResponse {
 }
 
 #[derive(Deserialize)]
-struct UserBody {
-    text: String,
-}
+struct UserBody { text: String }
 
 async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -> impl IntoResponse {
     *s.pending_notifications.lock().await = 0;
     let mut ov = s.overseer.lock().await;
-    if let Err(err) = ov
-        .harness
-        .append_queue(QueueMessage::new(Role::User, body.text, now_ms()))
-    {
+    if let Err(err) = ov.harness.append_queue(QueueMessage::new(Role::User, body.text, now_ms())) {
         return err_response(err);
     }
-    let effects = match ov.run_trigger(now_ms(), 0).await {
-        Ok(e) => e,
-        Err(err) => return err_response(err),
-    };
+    let effects = match ov.run_trigger(now_ms(), 0).await { Ok(e) => e, Err(err) => return err_response(err) };
     drop(ov);
-    broadcast_effects(&s, effects).await;
+    for e in effects {
+        let msg = effect_json(&e);
+        if matches!(&e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
+        s.broadcast_effect_json(msg).await;
+    }
+    s.broadcast_effect_json(json!({ "kind": "queue_changed" })).await;
+    s.broadcast_effect_json(json!({ "kind": "top_state", "state": state_json_value(&s).await })).await;
     Json(json!({ "ok": true })).into_response()
 }
 
 #[derive(Deserialize)]
-struct EventBody {
-    desc: String,
-}
+struct EventBody { desc: String }
 
-async fn post_event(
-    State(s): State<Arc<AppState>>,
-    Json(body): Json<EventBody>,
-) -> impl IntoResponse {
+async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>) -> impl IntoResponse {
     let mut ov = s.overseer.lock().await;
-    // debug 语义：关闭卡片视为已读一个通知
-    if body.desc.starts_with("用户关闭了") {
-        let mut p = s.pending_notifications.lock().await;
-        *p = p.saturating_sub(1);
-    }
+    if body.desc.starts_with("用户关闭了") { *s.pending_notifications.lock().await = s.pending_notifications.lock().await.saturating_sub(1); }
     ov.harness.event_buffer.push(body.desc);
     Json(json!({ "ok": true })).into_response()
 }
@@ -186,58 +155,33 @@ async fn get_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     Json(config_json(&ov.config))
 }
 
-/// 声明式 UI 反射（docs/config.md）：schema 节点 + 当前值，CLI/托盘面板的唯一数据源
 async fn get_config_schema(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let ov = s.overseer.lock().await;
-    Json(json!({
-        "version": crate::config::migrate::CURRENT_VERSION,
-        "readOnly": ov.config.read_only,
-        "nodes": crate::config::reflect::config_nodes(&ov.config),
-    }))
+    Json(json!({ "version": crate::config::migrate::CURRENT_VERSION, "readOnly": ov.config.read_only, "nodes": crate::config::reflect::config_nodes(&ov.config) }))
 }
 
 #[derive(Deserialize)]
-struct SetConfigBody {
-    path: String,
-    value: Value,
-}
+struct SetConfigBody { path: String, value: Value }
 
-/// 统一修改管道：验证 → 热应用 → persist → 广播；restart_required 如实上报
-async fn post_config(
-    State(s): State<Arc<AppState>>,
-    Json(body): Json<SetConfigBody>,
-) -> impl IntoResponse {
+async fn post_config(State(s): State<Arc<AppState>>, Json(body): Json<SetConfigBody>) -> impl IntoResponse {
     let mut ov = s.overseer.lock().await;
     match ov.apply_config_by_path(&body.path, body.value) {
         Ok(outcome) => {
             let restart = outcome.restart_required.clone();
             drop(ov);
-            broadcast_effects(&s, outcome.effects).await;
+            for e in outcome.effects { s.broadcast_effect_json(effect_json(&e)).await; }
             (StatusCode::OK, Json(json!({ "ok": true, "restartRequired": restart })))
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "ok": false, "error": e })),
-        ),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),
     }
 }
 
-/// Hook（docs/hook.md §Payload）：真实字段（session_id 族）与 mock 字段（instance 族）并存——
-/// 有 session_id 走真实路径，否则走 mock 路径（debug 兼容）
 #[derive(Deserialize)]
 struct HookBody {
     event: String,
-    // 真实字段（docs/hook.md）
-    session_id: Option<String>,
-    cwd: Option<String>,
-    kind: Option<String>,
-    prompt: Option<String>,
-    message: Option<String>,
-    // mock 字段（docs/agent-loop.md §Mock Hook 契约）
-    instance: Option<String>,
-    project: Option<String>,
-    content: Option<String>,
-    /// 两路共用：Stop 时的汇报文本
+    session_id: Option<String>, cwd: Option<String>, kind: Option<String>,
+    prompt: Option<String>, message: Option<String>,
+    instance: Option<String>, project: Option<String>, content: Option<String>,
     last_assistant_message: Option<String>,
 }
 
@@ -245,119 +189,51 @@ async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -
     let mut ov = s.overseer.lock().await;
     let pending = *s.pending_notifications.lock().await;
     let effects = if let Some(session_id) = body.session_id.as_deref() {
-        match ov
-            .handle_real_hook(
-                &body.event,
-                session_id,
-                body.cwd.as_deref().unwrap_or(""),
-                body.kind.as_deref(),
-                body.prompt.as_deref(),
-                body.message.as_deref(),
-                body.last_assistant_message.as_deref(),
-                now_ms(),
-                pending,
-            )
-            .await
-        {
-            Ok(e) => e,
-            Err(err) => return err_response(err),
+        match ov.handle_real_hook(&body.event, session_id, body.cwd.as_deref().unwrap_or(""), body.kind.as_deref(), body.prompt.as_deref(), body.message.as_deref(), body.last_assistant_message.as_deref(), now_ms(), pending).await {
+            Ok(e) => e, Err(err) => return err_response(err),
         }
     } else {
-        // mock 路径：content 模拟「读 Terminal Content」；读不到回退 last_assistant_message
-        let content = body
-            .content
-            .or(body.last_assistant_message)
-            .unwrap_or_default();
-        match ov
-            .handle_hook(
-                &body.event,
-                body.instance.as_deref().unwrap_or(""),
-                body.project.as_deref().unwrap_or(""),
-                &content,
-                now_ms(),
-                pending,
-            )
-            .await
-        {
-            Ok(e) => e,
-            Err(err) => return err_response(err),
+        let content = body.content.or(body.last_assistant_message).unwrap_or_default();
+        match ov.handle_hook(&body.event, body.instance.as_deref().unwrap_or(""), body.project.as_deref().unwrap_or(""), &content, now_ms(), pending).await {
+            Ok(e) => e, Err(err) => return err_response(err),
         }
     };
+    for e in effects {
+        if matches!(&e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
+        s.broadcast_effect_json(effect_json(&e)).await;
+    }
     drop(ov);
-    broadcast_effects(&s, effects).await;
     Json(json!({ "ok": true })).into_response()
 }
 
-/// Timer 后台任务（docs/timer.md）：tick → due → scan → Substantive 才触发
+/// Timer 后台任务（docs/timer.md）
 pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(tick_ms));
         loop {
             interval.tick().await;
-            let due = {
-                s.overseer
-                    .lock()
-                    .await
-                    .due_timer_scans(now_ms(), batch)
-            };
+            let due = { s.overseer.lock().await.due_timer_scans(now_ms(), batch) };
             for inst in due {
-                // 读通道统一走 Overseer.terminal_reader（docs/sidecar.md：sidecar → MockTerminals → 跳过）
-                let content = {
-                    let ov = s.overseer.lock().await;
-                    ov.terminal_reader.as_ref().and_then(|r| r(&inst))
-                };
+                let content = { let ov = s.overseer.lock().await; ov.terminal_reader.as_ref().and_then(|r| r(&inst)) };
                 if let Some(content) = content {
                     let pending = *s.pending_notifications.lock().await;
-                    let result = {
-                        s.overseer
-                            .lock()
-                            .await
-                            .handle_timer_scan(&inst, &content, now_ms(), pending)
-                            .await
-                    };
+                    let result = { s.overseer.lock().await.handle_timer_scan(&inst, &content, now_ms(), pending).await };
                     match result {
-                        Ok(effects) => broadcast_effects(&s, effects).await,
+                        Ok(effects) => {
+                            for e in effects {
+                                if matches!(&e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
+                                s.broadcast_effect_json(effect_json(&e)).await;
+                            }
+                        }
                         Err(err) => eprintln!("timer scan {inst}: {err}"),
                     }
                 } else {
-                    // tab 消亡检测（docs/storage.md closed 终态）：
-                    // 仅 sidecar 在链时 None 才是消亡证据；纯 MockTerminals 的 None 只是未注入
                     let mut ov = s.overseer.lock().await;
-                    if ov.sidecar_enabled {
-                        if let Err(err) = ov.mark_instance_closed(&inst, now_ms()) {
-                            eprintln!("mark closed {inst}: {err}");
-                        }
-                    }
+                    if ov.sidecar_enabled { if let Err(err) = ov.mark_instance_closed(&inst, now_ms()) { eprintln!("mark closed {inst}: {err}"); } }
                 }
             }
         }
     });
 }
 
-async fn ws_upgrade(ws: WebSocketUpgrade, State(s): State<Arc<AppState>>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| ws_loop(socket, s))
-}
-
-async fn ws_loop(mut socket: WebSocket, s: Arc<AppState>) {
-    // 连接即推当前 top_state
-    let st = state_json(&s).await;
-    if socket
-        .send(Message::Text(
-            json!({ "kind": "top_state", "state": st }).to_string().into(),
-        ))
-        .await
-        .is_err()
-    {
-        return;
-    }
-    let mut rx = s.tx.subscribe();
-    while let Ok(msg) = rx.recv().await {
-        if socket.send(Message::Text(msg.into())).await.is_err() {
-            break;
-        }
-    }
-}
-
-fn err_response(err: std::io::Error) -> axum::response::Response {
-    (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response()
-}
+fn err_response(err: std::io::Error) -> axum::response::Response { (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response() }

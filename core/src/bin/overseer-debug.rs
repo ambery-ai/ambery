@@ -6,6 +6,7 @@ use overseer_core::overseer::OverseerBackend;
 use overseer_core::queue::{QueueMessage, ToolCall};
 use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -119,9 +120,11 @@ async fn main() {
         }));
     }
     let (tx, _) = broadcast::channel(64);
-    let state = Arc::new(AppState::new(overseer, tx, mock));
+    let state = Arc::new(AppState::new(overseer, mock));
+    let tx_for_ws = tx.clone();
+    state.set_sender(Box::new(move |msg: Value| { let _ = tx.send(msg.to_string()); })).await;
     spawn_timer_task(state.clone(), tick_ms, timer_batch);
-    let app = router(state);
+    let app = router(state, tx_for_ws);
 
     let addr = "127.0.0.1:47600";
     let listener = tokio::net::TcpListener::bind(addr)
