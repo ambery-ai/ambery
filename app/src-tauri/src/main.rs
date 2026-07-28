@@ -40,9 +40,17 @@ fn quit_app(app: tauri::AppHandle) {
 
 type TauriState = Arc<std::sync::Mutex<Option<Arc<AppState>>>>;
 
+fn wait_state(ts: &TauriState) -> Result<Arc<AppState>, String> {
+    for _ in 0..50 {
+        if let Some(s) = ts.lock().unwrap().clone() { return Ok(s); }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    ts.lock().unwrap().clone().ok_or("not ready".into())
+}
+
 #[tauri::command]
 async fn get_state(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
-    let s = state.lock().unwrap().clone().ok_or("not ready")?;
+    let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     Ok(json!({
         "instances": ov.harness.agents.iter().map(|a| json!({"id":a.hash,"name":a.name,"status":a.status})).collect::<Vec<_>>(),
@@ -52,14 +60,14 @@ async fn get_state(state: tauri::State<'_, TauriState>) -> Result<Value, String>
 
 #[tauri::command]
 async fn get_queue(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
-    let s = state.lock().unwrap().clone().ok_or("not ready")?;
+    let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     Ok(json!(ov.harness.queue.messages()))
 }
 
 #[tauri::command]
 async fn append_user(state: tauri::State<'_, TauriState>, text: String) -> Result<Value, String> {
-    let s = state.lock().unwrap().clone().ok_or("not ready")?;
+    let s = wait_state(&state)?;
     let mut ov = s.overseer().lock().await;
     ov.harness.append_queue(QueueMessage::new(Role::User, text, now_ms()))
         .map_err(|e| e.to_string())?;
@@ -75,7 +83,7 @@ async fn append_user(state: tauri::State<'_, TauriState>, text: String) -> Resul
 
 #[tauri::command]
 async fn push_event(state: tauri::State<'_, TauriState>, desc: String) -> Result<Value, String> {
-    let s = state.lock().unwrap().clone().ok_or("not ready")?;
+    let s = wait_state(&state)?;
     let mut ov = s.overseer().lock().await;
     ov.harness.event_buffer.push(desc);
     Ok(json!({ "ok": true }))
@@ -83,7 +91,7 @@ async fn push_event(state: tauri::State<'_, TauriState>, desc: String) -> Result
 
 #[tauri::command]
 async fn get_config(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
-    let s = state.lock().unwrap().clone().ok_or("not ready")?;
+    let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     let cfg = &ov.config;
     Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale }))
@@ -91,7 +99,7 @@ async fn get_config(state: tauri::State<'_, TauriState>) -> Result<Value, String
 
 #[tauri::command]
 async fn get_config_schema(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
-    let s = state.lock().unwrap().clone().ok_or("not ready")?;
+    let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     Ok(json!({ "version": overseer_core::config::migrate::CURRENT_VERSION, "readOnly": ov.config.read_only, "nodes": overseer_core::config::reflect::config_nodes(&ov.config) }))
 }
