@@ -255,7 +255,6 @@ export async function createBridge(): Promise<Bridge> {
     const { RemoteBridge } = await import("./remote");
     const b = new RemoteBridge();
     b.connect();
-    (window as any).__overseer_bridge_type = "RemoteBridge (tauri direct)";
     return b;
   }
   // 浏览器模式：probe 探测，失败回退 mock
@@ -263,9 +262,7 @@ export async function createBridge(): Promise<Bridge> {
   if (await RemoteBridge.probe()) {
     const b = new RemoteBridge();
     b.connect();
-    (window as any).__overseer_bridge_type = "RemoteBridge";
     return b;
   }
-  (window as any).__overseer_bridge_type = "BrowserMockBridge (probe failed)";
   return new BrowserMockBridge();
 }

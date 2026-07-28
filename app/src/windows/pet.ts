@@ -9,7 +9,6 @@ export async function main() {
   if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("browser");
 
   const bridge = await createBridge();
-  (window as any).__overseer_bridge_type = bridge.constructor.name;
   bridge.getConfig().then((cfg) => {
     document.getElementById("view")!.style.setProperty("--view-scale", String(cfg.viewScale ?? 1));
   });
@@ -84,14 +83,9 @@ export async function main() {
     // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     bridge.onRenderComponent(async (spec) => {
-      fetch("http://127.0.0.1:47600/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desc: `[onRenderComponent] ${spec.id}` }) }).catch(() => {});
-      (window as any).__overseer_last_render = { ts: Date.now(), id: spec.id, type: spec.type };
-      win.setTitle(`🟢 ${spec.id}`);
       const label = `card-${spec.id}`;
       const existing = await WebviewWindow.getByLabel(label);
-      (window as any).__overseer_last_label = label;
       if (existing) { existing.close(); engine.remove(label); return; }
-      try {
       const webview = new WebviewWindow(label, {
         url: "index.html#card",
         width: 520,
@@ -104,18 +98,13 @@ export async function main() {
         skipTaskbar: true,
         visible: false,
       });
-      webview.once("tauri://created", () => {
-        fetch("http://127.0.0.1:47600/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desc: `[card] created: ${label}` }) }).catch(() => {});
+      webview.once("tauri://created", async () => {
+        await new Promise(r => setTimeout(r, 500));
         emitTo(label, "card:spec", spec);
       });
       webview.once("tauri://error", (e: any) => {
-        fetch("http://127.0.0.1:47600/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desc: `[card] ERROR: ${label} — ${JSON.stringify(e)}` }) }).catch(() => {});
-      });
-      (window as any).__overseer_last_window = "created";
-      } catch (e: any) {
-        (window as any).__overseer_last_error = String(e?.message ?? e);
         console.error("[pet] WebviewWindow error:", e);
-      }
+      });
     });
 
     broadcastPosition();

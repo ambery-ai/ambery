@@ -46,7 +46,6 @@ export class RemoteBridge implements Bridge {
       console.log("[remote] WS open");
     });
     ws.addEventListener("message", (ev) => {
-      (window as any).__overseer_ws_msg_count = ((window as any).__overseer_ws_msg_count ?? 0) + 1;
       const msg = JSON.parse(ev.data as string) as {
         kind: string;
         state?: TopState;
@@ -61,7 +60,6 @@ export class RemoteBridge implements Bridge {
           if (msg.state) this.topStateListeners.forEach((cb) => cb(msg.state!));
           break;
         case "render_component":
-          fetch("http://127.0.0.1:47600/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desc: `[WS] render_component: ${msg.spec?.id ?? "no-id"}` }) }).catch(() => {});
           if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec!));
           break;
         case "queue_changed":
