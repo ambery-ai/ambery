@@ -77,7 +77,11 @@ export class ChatPanel {
       );
       this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
       this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
-      void this.bridge.getQueue().then((msgs) => this.renderHistory(msgs));
+      void this.bridge.getQueue()
+        .then((msgs) => this.renderHistory(msgs))
+        .catch(() => {
+          this.historyEl.innerHTML = `<div class="chat-msg chat-system" style="opacity:0.7">⚠ 未连接到 core</div>`;
+        });
       this.inputEl.focus();
     }
   }

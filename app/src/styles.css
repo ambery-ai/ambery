@@ -223,6 +223,13 @@ html.browser body {
   background: rgba(166, 227, 161, 0.14);
 }
 
+.chat-system {
+  align-self: center;
+  background: rgba(255, 255, 255, 0.06);
+  color: #9399b2;
+  font-size: 12px;
+}
+
 .chat-input {
   margin: 8px 12px 12px;
   background: rgba(255, 255, 255, 0.08);
