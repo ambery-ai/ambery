@@ -69,3 +69,9 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 2026-07-27 实现中：删静态 cards 窗口，pet.ts `onRenderComponent` → 动态 `WebviewWindow(label=card-${spec.id})`，新增 `card-window.ts` 单窗入口。后端校验 `fe4ec01` 已拦截非法 id。
 
 2026-07-27 context.jsonl 实证：LLM 生成的 `call_component` spec 结构错误——将 `title`/`text` 嵌套在 `props` 对象里而非顶层。根因：工具 schema 中 `spec` 字段是裸 `{"type":"object"}`，LLM 不知道 ComponentSpec 的准确结构，自行发明了 `props` 包装。需在 tool schema 补充各 component 类型的字段定义 + 后端校验 text_card 必须有 `title` 和 `text`。
+
+2026-07-28：capabilities 授权 + race condition 修复后 card 窗口正常弹出，基本功能验证通过。
+
+## #10 已消亡实例未标记 closed，僵死数据污染 Event Buffer (2026-07-28) — open
+
+`timer-probe`×2 + `full-body-check` 三个实例 UIA 侧车实证已不存在，但 `work-agents.jsonl` 仍为 `processing`，`last_seen` 自首次注册后从未被 timer 更新。timer 每 5s 扫描，但 `None→closed` 判定未触发，导致实例永不被标 `Closed`。连锁效应：每次 `run_trigger` 的 compression 路径调 `panorama()` 时，这些僵死实例经过滤（仅排除 Closed）被纳入全景同步 → 写入 Event Buffer → flush 到 LLM context → pet 基于虚假数据报告"filter-test 有 3 个 Processing"。缺陷点：(1) timer 扫描未触发 closed；(2) `panorama()` 过滤条件仅排除 `Closed`，未考虑 `last_seen` 远超 timer 周期的僵死实例。
