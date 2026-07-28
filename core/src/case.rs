@@ -1,9 +1,8 @@
 //! case-runner（docs/case-runner.md）：概念结构观测与 step 执行。
 //! feature "case-runner" gate。
 
-use crate::overseer::{Effect, OverseerBackend};
 use crate::server::AppState;
-use crate::{AgentEntry, AgentStatus};
+use crate::AgentStatus;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
