@@ -84,6 +84,7 @@ export async function main() {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     bridge.onRenderComponent(async (spec) => {
       (window as any).__overseer_last_render = { ts: Date.now(), id: spec.id, type: spec.type };
+      document.title = `🟢 ${spec.id}`;
       const label = `card-${spec.id}`;
       const existing = await WebviewWindow.getByLabel(label);
       (window as any).__overseer_last_label = label;
@@ -192,24 +193,23 @@ export async function main() {
 
   await autonomy.init();
 
-  const debug: Partial<Window["__overseer"]> = {
-    setAutonomy: (args) => autonomy.setAutonomy(args),
+  const debug: Record<string, unknown> = {
+    setAutonomy: (args: any) => autonomy.setAutonomy(args),
     viewState: () => ({
       center: view.center(),
       face: document.getElementById("face")?.textContent ?? null,
       motion: view.el.dataset.motion ?? "still",
-    }) as any,
-    _diag: () => ({ lastRender: (window as any).__overseer_last_render, lastLabel: (window as any).__overseer_last_label, lastWindow: (window as any).__overseer_last_window, lastError: (window as any).__overseer_last_error }),
+    }),
   };
   if (bridge instanceof BrowserMockBridge) {
-    debug.setInstanceStatus = (n, s) => bridge.debugSetInstanceStatus(n, s);
-    debug.addInstance = (n, s) => bridge.debugAddInstance(n, s);
-    debug.notify = (n) => bridge.debugNotify(n);
+    debug.setInstanceStatus = (n: any, s: any) => bridge.debugSetInstanceStatus(n, s);
+    debug.addInstance = (n: any, s: any) => bridge.debugAddInstance(n, s);
+    debug.notify = (n: any) => bridge.debugNotify(n);
     debug.clearNotifications = () => bridge.debugClearNotifications();
-    debug.callComponent = (spec) => bridge.debugCallComponent(spec);
+    debug.callComponent = (spec: any) => bridge.debugCallComponent(spec);
     debug.eventBuffer = () => bridge.debugEventBuffer();
     debug.flushEventBuffer = () => bridge.debugFlushEventBuffer();
-    debug.appendMessage = (role, content) => bridge.debugAppendMessage(role, content);
+    debug.appendMessage = (role: any, content: any) => bridge.debugAppendMessage(role, content);
   }
-  window.__overseer = debug as Window["__overseer"];
+  window.__overseer = debug as any;
 }

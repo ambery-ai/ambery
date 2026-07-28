@@ -37,8 +37,14 @@ export class RemoteBridge implements Bridge {
   }
 
   connect() {
+    this._connect_ws();
+  }
+
+  private _connect_ws() {
     const ws = new WebSocket(WS_URL);
-    // debug 模式不做重连：server 重启后刷新页面即可
+    ws.addEventListener("open", () => {
+      console.log("[remote] WS open");
+    });
     ws.addEventListener("message", (ev) => {
       const msg = JSON.parse(ev.data as string) as {
         kind: string;
@@ -70,6 +76,13 @@ export class RemoteBridge implements Bridge {
           if (msg.config) this.configListeners.forEach((cb) => cb(msg.config!));
           break;
       }
+    });
+    ws.addEventListener("error", (e) => {
+      console.warn("[remote] WS error, will retry in 2s", e);
+    });
+    ws.addEventListener("close", () => {
+      console.warn("[remote] WS closed, reconnecting in 2s…");
+      setTimeout(() => this._connect_ws(), 2000);
     });
   }
 
