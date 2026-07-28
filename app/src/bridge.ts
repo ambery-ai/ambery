@@ -277,8 +277,8 @@ class TauriBridge implements Bridge {
     private invoke: (cmd: string, args?: Record<string, unknown>) => Promise<any>,
     listen: (event: string, cb: (ev: any) => void) => Promise<() => void>,
   ) {
-    listen("effect", (ev) => {
-      const msg = JSON.parse(ev.payload as string);
+    listen("effect", (ev: any) => {
+      const msg = ev.payload;
       if (!msg?.kind) return;
       switch (msg.kind) {
         case "render_component":

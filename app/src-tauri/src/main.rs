@@ -184,7 +184,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: TauriState) {
     // Effects → Tauri 事件 emit 到前端 webview
     let h = handle.clone();
     state.set_sender(Box::new(move |msg: Value| {
-        let _ = h.emit("effect", msg.to_string());
+        let _ = h.emit("effect", msg);
     })).await;
 
     // 启动扫描
