@@ -62,7 +62,7 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 **表现**: 所有 card 共用一个 Tauri 窗口（`tauri.conf.json` 仅一个 `label: "cards"`），而非每个 card 一个独立窗口。这导致 #1（跟随）、#2（独立尺寸）、#8（独立拖动）均无法在单窗模式下正确实现。
 
-## #9 Card 应每个独立为一个 Tauri 窗口 (2026-07-27) — open
+## #9 Card 应每个独立为一个 Tauri 窗口 (2026-07-27) — fixed
 
 当前 `tauri.conf.json` 只有一个 cards 窗口，ComponentManager 在其中做 DOM 流式布局。正确设计应当是每个 card 一个独立 Tauri 窗口（类似 chat 窗口），各自有独立的 engine entry、位置、尺寸、生命周期。`positionWindow` 当前用 `querySelector(".component")` 只取第一个 DOM 元素测量，无法区分多 card。改为多窗口后：(1) 每个 card 窗口独立监听 `pet:moved` delta 跟随；(2) 每个 card 窗口按自身内容独立测量 resize；(3) 关闭时清理各自的 engine entry。
 
@@ -70,7 +70,7 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 2026-07-27 context.jsonl 实证：LLM 生成的 `call_component` spec 结构错误——将 `title`/`text` 嵌套在 `props` 对象里而非顶层。根因：工具 schema 中 `spec` 字段是裸 `{"type":"object"}`，LLM 不知道 ComponentSpec 的准确结构，自行发明了 `props` 包装。需在 tool schema 补充各 component 类型的字段定义 + 后端校验 text_card 必须有 `title` 和 `text`。
 
-2026-07-28：capabilities 授权 + race condition 修复后 card 窗口正常弹出，基本功能验证通过。
+2026-07-28：capabilities 授权 + race condition 修复后 card 窗口正常弹出，基本功能验证通过。连带发现：core-server → Tauri IPC 重构中新 Tauri commands 的 `State` 提取失败（`invoke()` 未到达 Rust），已回退 RemoteBridge HTTP，保留 Tauri command 骨架待独立修复。不影响 #9 功能。
 
 ## #10 已消亡实例未标记 closed，僵死数据污染 Event Buffer (2026-07-28) — open
 
