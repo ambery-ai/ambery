@@ -71,11 +71,16 @@ impl SidecarClient {
     /// terminal_reader 入口（docs/sidecar.md §读通道接线）：
     /// 缓存定位直读 → 失败驱逐 → find_tab 重找并刷新缓存；任一步失败返回 None（回退 Context）
     pub fn read_instance(&self, instance: &str) -> Option<String> {
-        // 缓存命中：直读（tab 重排/窗重开导致失败则驱逐）
+        // 缓存命中：直读后验证 identity（hwnd 可能被回收）
         let cached = self.cache.lock().ok()?.get(instance).copied();
         if let Some((hwnd, index)) = cached {
             if let Some(text) = self.read_tab(hwnd, index) {
-                return Some(text);
+                // #10 修复：读完后 verify tab 名称仍匹配，防止回收 hwnd 返回旧内容
+                if let Some(found) = self.request(&json!({ "cmd": "find_tab", "name": instance })) {
+                    if found["hwnd"].as_i64() == Some(hwnd) {
+                        return Some(text);
+                    }
+                }
             }
             self.cache.lock().ok()?.remove(instance);
         }
