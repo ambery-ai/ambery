@@ -8,6 +8,8 @@ pub mod filter;
 pub mod llm;
 #[cfg(feature = "mock")]
 pub mod mock;
+#[cfg(feature = "case-runner")]
+pub mod case;
 pub mod overseer;
 pub mod paths;
 pub mod queue;
