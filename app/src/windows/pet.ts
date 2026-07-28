@@ -16,6 +16,21 @@ export async function main() {
   const mount = document.getElementById("app")!;
   const view = new View(mount);
 
+  // #5 pet 未读角标
+  const badge = document.createElement("div");
+  badge.id = "pet-badge";
+  badge.style.cssText = "display:none;position:absolute;right:-8px;top:-6px;background:#f38ba8;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;z-index:10";
+  view.el.appendChild(badge);
+  let unreadCount = 0;
+  bridge.onQueueChanged((msgs) => {
+    const userMsgs = msgs.filter(m => m.role === "user").length;
+    const prev = unreadCount > 0 ? unreadCount : userMsgs;
+    const newAssist = msgs.filter(m => m.role === "assistant").length;
+    unreadCount = Math.max(0, newAssist - prev);
+    badge.textContent = String(unreadCount);
+    badge.style.display = unreadCount > 0 ? "" : "none";
+  });
+
   // ── 适配模式 ──
   const isTauri = "__TAURI_INTERNALS__" in window;
   const adapter: WindowAdapter = isTauri
