@@ -297,10 +297,20 @@ class TauriBridge implements Bridge {
     });
   }
 
-  async getConfig(): Promise<AppConfig> { return this.invoke("get_config"); }
-  async getQueue(): Promise<QueueMessage[]> { return this.invoke("get_queue"); }
-  appendUserMessage(text: string): void { void this.invoke("append_user", { text }); }
-  pushEvent(desc: string): void { void this.invoke("push_event", { desc }); }
+  async getConfig(): Promise<AppConfig> {
+    try { return await this.invoke("get_config"); }
+    catch (e) { console.error("[TauriBridge] get_config failed", e); return { kaomoji: {}, setAutonomyDefaultTtlMs: 30000, viewScale: 1 } as AppConfig; }
+  }
+  async getQueue(): Promise<QueueMessage[]> {
+    try { return await this.invoke("get_queue"); }
+    catch (e) { console.error("[TauriBridge] get_queue failed", e); return []; }
+  }
+  appendUserMessage(text: string): void {
+    this.invoke("append_user", { text }).catch(e => console.error("[TauriBridge] append_user failed", e));
+  }
+  pushEvent(desc: string): void {
+    this.invoke("push_event", { desc }).catch(e => console.error("[TauriBridge] push_event failed", e));
+  }
 
   onRenderComponent(cb: (spec: ComponentSpec) => void): void { this.renderListeners.push(cb); }
   onQueueChanged(cb: (m: QueueMessage[]) => void): void { this.queueListeners.push(cb); }
