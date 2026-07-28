@@ -38,18 +38,19 @@ fn quit_app(app: tauri::AppHandle) {
 
 // ── Tauri IPC commands（替代原 HTTP/WS 路由）──
 
-type TauriState = Arc<std::sync::Mutex<Option<Arc<AppState>>>>;
+struct TauriState(pub std::sync::Mutex<Option<Arc<AppState>>>);
+type SharedTauriState = Arc<TauriState>;
 
 fn wait_state(ts: &TauriState) -> Result<Arc<AppState>, String> {
     for _ in 0..50 {
-        if let Some(s) = ts.lock().unwrap().clone() { return Ok(s); }
+        if let Some(s) = ts.0.lock().unwrap().clone() { return Ok(s); }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    ts.lock().unwrap().clone().ok_or("not ready".into())
+    ts.0.lock().unwrap().clone().ok_or("not ready".into())
 }
 
 #[tauri::command]
-async fn get_state(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
+async fn get_state(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     Ok(json!({
@@ -59,14 +60,14 @@ async fn get_state(state: tauri::State<'_, TauriState>) -> Result<Value, String>
 }
 
 #[tauri::command]
-async fn get_queue(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
+async fn get_queue(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     Ok(json!(ov.harness.queue.messages()))
 }
 
 #[tauri::command]
-async fn append_user(state: tauri::State<'_, TauriState>, text: String) -> Result<Value, String> {
+async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let mut ov = s.overseer().lock().await;
     ov.harness.append_queue(QueueMessage::new(Role::User, text, now_ms()))
@@ -82,7 +83,7 @@ async fn append_user(state: tauri::State<'_, TauriState>, text: String) -> Resul
 }
 
 #[tauri::command]
-async fn push_event(state: tauri::State<'_, TauriState>, desc: String) -> Result<Value, String> {
+async fn push_event(state: tauri::State<'_, SharedTauriState>, desc: String) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let mut ov = s.overseer().lock().await;
     ov.harness.event_buffer.push(desc);
@@ -90,7 +91,7 @@ async fn push_event(state: tauri::State<'_, TauriState>, desc: String) -> Result
 }
 
 #[tauri::command]
-async fn get_config(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
+async fn get_config(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     eprintln!("[tauri-cmd] get_config called");
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
@@ -99,7 +100,7 @@ async fn get_config(state: tauri::State<'_, TauriState>) -> Result<Value, String
 }
 
 #[tauri::command]
-async fn get_config_schema(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
+async fn get_config_schema(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     Ok(json!({ "version": overseer_core::config::migrate::CURRENT_VERSION, "readOnly": ov.config.read_only, "nodes": overseer_core::config::reflect::config_nodes(&ov.config) }))
@@ -119,7 +120,7 @@ fn main() {
             toggle_pet, quit_app,
             get_state, get_queue, append_user, push_event, get_config, get_config_schema
         ])
-        .manage(TauriState::new(std::sync::Mutex::new(None)))
+        .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {
             let pet = app.get_webview_window("pet").expect("pet window");
             let chat = app.get_webview_window("chat").expect("chat window");
@@ -131,7 +132,7 @@ fn main() {
             tray::init_tray(app.handle(), &pet)?;
 
             let handle = app.handle().clone();
-            let state_mgr = app.state::<TauriState>().inner().clone();
+            let state_mgr = app.state::<SharedTauriState>().inner().clone();
 
             tauri::async_runtime::spawn(run_core(handle, state_mgr));
 
@@ -141,7 +142,7 @@ fn main() {
         .expect("error while running tauri application");
 }
 
-async fn run_core(handle: tauri::AppHandle, state_mgr: TauriState) {
+async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let config = Config::load_or_default(&overseer_core::paths::config_root());
     let harness = Harness::load(
         &overseer_core::paths::storage_dir(),
@@ -199,7 +200,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: TauriState) {
     spawn_timer_task(state.clone(), timer_tick, timer_batch);
 
     // 注入 Tauri managed state
-    *state_mgr.lock().unwrap() = Some(state.clone());
+    *state_mgr.0.lock().unwrap() = Some(state.clone());
 
     // 薄 HTTP server：仅 /hook
     let app = hook_router(state);
