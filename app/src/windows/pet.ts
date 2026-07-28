@@ -85,7 +85,7 @@ export async function main() {
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     bridge.onRenderComponent(async (spec) => {
       (window as any).__overseer_last_render = { ts: Date.now(), id: spec.id, type: spec.type };
-      document.title = `🟢 ${spec.id}`;
+      win.setTitle(`🟢 ${spec.id}`);
       const label = `card-${spec.id}`;
       const existing = await WebviewWindow.getByLabel(label);
       (window as any).__overseer_last_label = label;
