@@ -46,6 +46,7 @@ export class RemoteBridge implements Bridge {
       console.log("[remote] WS open");
     });
     ws.addEventListener("message", (ev) => {
+      (window as any).__overseer_ws_msg_count = ((window as any).__overseer_ws_msg_count ?? 0) + 1;
       const msg = JSON.parse(ev.data as string) as {
         kind: string;
         state?: TopState;
