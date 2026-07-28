@@ -42,9 +42,22 @@ export class ChatPanel {
     this.inputEl = document.createElement("input");
     this.inputEl.className = "chat-input";
     this.inputEl.placeholder = "和ペット说话…";
+    let loadingEl: HTMLDivElement | null = null;
     this.inputEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && this.inputEl.value.trim()) {
-        this.bridge.appendUserMessage(this.inputEl.value.trim());
+        const text = this.inputEl.value.trim();
+        // 立即回显用户消息
+        const userRow = document.createElement("div");
+        userRow.className = "chat-msg chat-user";
+        userRow.textContent = text;
+        this.historyEl.append(userRow);
+        // loading 指示器
+        loadingEl = document.createElement("div");
+        loadingEl.className = "chat-msg chat-system";
+        loadingEl.textContent = "…";
+        this.historyEl.append(loadingEl);
+        this.historyEl.scrollTop = this.historyEl.scrollHeight;
+        this.bridge.appendUserMessage(text);
         this.inputEl.value = "";
       }
     });
@@ -52,7 +65,10 @@ export class ChatPanel {
     this.el.append(header, this.historyEl, this.inputEl);
     mount.appendChild(this.el);
 
-    bridge.onQueueChanged((msgs) => this.renderHistory(msgs));
+    bridge.onQueueChanged((msgs) => {
+      if (loadingEl) { loadingEl.remove(); loadingEl = null; }
+      this.renderHistory(msgs);
+    });
   }
 
   showPanel() { this.el.hidden = false; this.visible = true; }
