@@ -250,11 +250,10 @@ export class BrowserMockBridge implements Bridge {
 
 /** overseer-core 在跑 → RemoteBridge（真实 Harness 链路）；否则浏览器内存 mock */
 export async function createBridge(): Promise<Bridge> {
-  // Tauri 模式：server 一定在本地，跳过 probe 直接连 WS
   if ("__TAURI_INTERNALS__" in window) {
-    const { RemoteBridge } = await import("./remote");
-    const b = new RemoteBridge();
-    b.connect();
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { listen } = await import("@tauri-apps/api/event");
+    const b = new TauriBridge(invoke, listen);
     return b;
   }
   // 浏览器模式：probe 探测，失败回退 mock
@@ -265,4 +264,48 @@ export async function createBridge(): Promise<Bridge> {
     return b;
   }
   return new BrowserMockBridge();
+}
+
+/** Tauri 原生 IPC bridge（替代原 HTTP+WS RemoteBridge） */
+class TauriBridge implements Bridge {
+  private renderListeners: ((spec: ComponentSpec) => void)[] = [];
+  private queueListeners: ((m: QueueMessage[]) => void)[] = [];
+  private autonomyListeners: ((args: { face?: string; motion?: Motion; ttlMs?: number }) => void)[] = [];
+  private configListeners: ((cfg: AppConfig) => void)[] = [];
+
+  constructor(
+    private invoke: (cmd: string, args?: Record<string, unknown>) => Promise<any>,
+    listen: (event: string, cb: (ev: any) => void) => Promise<() => void>,
+  ) {
+    listen("effect", (ev) => {
+      const msg = JSON.parse(ev.payload as string);
+      if (!msg?.kind) return;
+      switch (msg.kind) {
+        case "render_component":
+          if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec));
+          break;
+        case "set_autonomy":
+          this.autonomyListeners.forEach((cb) => cb({ face: msg.face, motion: msg.motion, ttlMs: msg.ttlMs }));
+          break;
+        case "config":
+          void this.getConfig().then((cfg) => this.configListeners.forEach((cb) => cb(cfg)));
+          break;
+        case "queue_changed":
+          void this.getQueue().then((m) => this.queueListeners.forEach((cb) => cb(m)));
+          break;
+      }
+    });
+  }
+
+  async getConfig(): Promise<AppConfig> { return this.invoke("get_config"); }
+  async getQueue(): Promise<QueueMessage[]> { return this.invoke("get_queue"); }
+  appendUserMessage(text: string): void { void this.invoke("append_user", { text }); }
+  pushEvent(desc: string): void { void this.invoke("push_event", { desc }); }
+
+  onRenderComponent(cb: (spec: ComponentSpec) => void): void { this.renderListeners.push(cb); }
+  onQueueChanged(cb: (m: QueueMessage[]) => void): void { this.queueListeners.push(cb); }
+  onSetAutonomy(cb: (args: { face?: string; motion?: Motion; ttlMs?: number }) => void): void { this.autonomyListeners.push(cb); }
+  onConfigChanged(cb: (cfg: AppConfig) => void): void { this.configListeners.push(cb); }
+  onTopStateChanged(_cb: (s: any) => void): void {}
+  async getTopState(): Promise<any> { return this.invoke("get_state"); }
 }
