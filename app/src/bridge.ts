@@ -250,13 +250,7 @@ export class BrowserMockBridge implements Bridge {
 
 /** overseer-core 在跑 → RemoteBridge（真实 Harness 链路）；否则浏览器内存 mock */
 export async function createBridge(): Promise<Bridge> {
-  if ("__TAURI_INTERNALS__" in window) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const { listen } = await import("@tauri-apps/api/event");
-    const b = new TauriBridge(invoke, listen);
-    return b;
-  }
-  // 浏览器模式：probe 探测，失败回退 mock
+  // Tauri/浏览器模式统一走 HTTP+WS（RemoteBridge），Tauri IPC 后续独立调试
   const { RemoteBridge } = await import("./remote");
   if (await RemoteBridge.probe()) {
     const b = new RemoteBridge();
@@ -264,58 +258,4 @@ export async function createBridge(): Promise<Bridge> {
     return b;
   }
   return new BrowserMockBridge();
-}
-
-/** Tauri 原生 IPC bridge（替代原 HTTP+WS RemoteBridge） */
-class TauriBridge implements Bridge {
-  private renderListeners: ((spec: ComponentSpec) => void)[] = [];
-  private queueListeners: ((m: QueueMessage[]) => void)[] = [];
-  private autonomyListeners: ((args: { face?: string; motion?: Motion; ttlMs?: number }) => void)[] = [];
-  private configListeners: ((cfg: AppConfig) => void)[] = [];
-
-  constructor(
-    private invoke: (cmd: string, args?: Record<string, unknown>) => Promise<any>,
-    listen: (event: string, cb: (ev: any) => void) => Promise<() => void>,
-  ) {
-    listen("effect", (ev: any) => {
-      const msg = ev.payload;
-      if (!msg?.kind) return;
-      switch (msg.kind) {
-        case "render_component":
-          if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec));
-          break;
-        case "set_autonomy":
-          this.autonomyListeners.forEach((cb) => cb({ face: msg.face, motion: msg.motion, ttlMs: msg.ttlMs }));
-          break;
-        case "config":
-          void this.getConfig().then((cfg) => this.configListeners.forEach((cb) => cb(cfg)));
-          break;
-        case "queue_changed":
-          void this.getQueue().then((m) => this.queueListeners.forEach((cb) => cb(m)));
-          break;
-      }
-    });
-  }
-
-  async getConfig(): Promise<AppConfig> {
-    try { return await this.invoke("get_config"); }
-    catch (e) { console.error("[TauriBridge] get_config failed", e); return { kaomoji: {}, setAutonomyDefaultTtlMs: 30000, viewScale: 1 } as AppConfig; }
-  }
-  async getQueue(): Promise<QueueMessage[]> {
-    try { return await this.invoke("get_queue"); }
-    catch (e) { console.error("[TauriBridge] get_queue failed", e); return []; }
-  }
-  appendUserMessage(text: string): void {
-    this.invoke("append_user", { text }).catch(e => console.error("[TauriBridge] append_user failed", e));
-  }
-  pushEvent(desc: string): void {
-    this.invoke("push_event", { desc }).catch(e => console.error("[TauriBridge] push_event failed", e));
-  }
-
-  onRenderComponent(cb: (spec: ComponentSpec) => void): void { this.renderListeners.push(cb); }
-  onQueueChanged(cb: (m: QueueMessage[]) => void): void { this.queueListeners.push(cb); }
-  onSetAutonomy(cb: (args: { face?: string; motion?: Motion; ttlMs?: number }) => void): void { this.autonomyListeners.push(cb); }
-  onConfigChanged(cb: (cfg: AppConfig) => void): void { this.configListeners.push(cb); }
-  onTopStateChanged(_cb: (s: any) => void): void {}
-  async getTopState(): Promise<any> { return this.invoke("get_state"); }
 }

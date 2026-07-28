@@ -6,7 +6,7 @@
 use overseer_core::llm::LlmBackend;
 use overseer_core::overseer::{Effect, OverseerBackend};
 use overseer_core::queue::{QueueMessage, Role};
-use overseer_core::server::{now_ms, hook_router, spawn_timer_task, AppState};
+use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -183,12 +183,6 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
 
     let state = Arc::new(AppState::new(overseer, mock));
 
-    // Effects → Tauri 事件 emit 到前端 webview
-    let h = handle.clone();
-    state.set_sender(Box::new(move |msg: Value| {
-        let _ = h.emit("effect", msg);
-    })).await;
-
     // 启动扫描
     if let Some(sc) = sidecar_for_sweep.clone() {
         let mut ov = state.overseer().lock().await;
@@ -202,9 +196,14 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     // 注入 Tauri managed state
     *state_mgr.0.lock().unwrap() = Some(state.clone());
 
-    // 薄 HTTP server：仅 /hook
-    let app = hook_router(state);
+    // HTTP+WS server（前端 RemoteBridge 暂用，Tauri IPC 后续独立调试）
+    let (tx, _) = tokio::sync::broadcast::channel(64);
+    {
+        let tx = tx.clone();
+        state.set_sender(Box::new(move |msg: Value| { let _ = tx.send(msg.to_string()); })).await;
+    }
+    let app = router(state, tx);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:47600").await.expect("bind 47600");
-    eprintln!("overseer-core listening on 127.0.0.1:47600 (/hook only)");
+    eprintln!("overseer-core listening on http://127.0.0.1:47600");
     axum::serve(listener, app).await.expect("serve core");
 }
