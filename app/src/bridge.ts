@@ -250,11 +250,22 @@ export class BrowserMockBridge implements Bridge {
 
 /** overseer-core 在跑 → RemoteBridge（真实 Harness 链路）；否则浏览器内存 mock */
 export async function createBridge(): Promise<Bridge> {
+  // Tauri 模式：server 一定在本地，跳过 probe 直接连 WS
+  if ("__TAURI_INTERNALS__" in window) {
+    const { RemoteBridge } = await import("./remote");
+    const b = new RemoteBridge();
+    b.connect();
+    (window as any).__overseer_bridge_type = "RemoteBridge (tauri direct)";
+    return b;
+  }
+  // 浏览器模式：probe 探测，失败回退 mock
   const { RemoteBridge } = await import("./remote");
   if (await RemoteBridge.probe()) {
     const b = new RemoteBridge();
     b.connect();
+    (window as any).__overseer_bridge_type = "RemoteBridge";
     return b;
   }
+  (window as any).__overseer_bridge_type = "BrowserMockBridge (probe failed)";
   return new BrowserMockBridge();
 }

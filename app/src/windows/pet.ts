@@ -9,6 +9,7 @@ export async function main() {
   if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("browser");
 
   const bridge = await createBridge();
+  (window as any).__overseer_bridge_type = bridge.constructor.name;
   bridge.getConfig().then((cfg) => {
     document.getElementById("view")!.style.setProperty("--view-scale", String(cfg.viewScale ?? 1));
   });
