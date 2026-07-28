@@ -105,7 +105,11 @@ export async function main() {
         visible: false,
       });
       webview.once("tauri://created", () => {
+        fetch("http://127.0.0.1:47600/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desc: `[card] created: ${label}` }) }).catch(() => {});
         emitTo(label, "card:spec", spec);
+      });
+      webview.once("tauri://error", (e: any) => {
+        fetch("http://127.0.0.1:47600/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desc: `[card] ERROR: ${label} — ${JSON.stringify(e)}` }) }).catch(() => {});
       });
       (window as any).__overseer_last_window = "created";
       } catch (e: any) {
