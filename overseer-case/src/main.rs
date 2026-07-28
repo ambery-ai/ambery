@@ -9,16 +9,19 @@ use std::sync::Arc;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: overseer-case <case.json> [--step-num N]");
+        eprintln!("usage: overseer-case <case.json> [--step-num N] [--health]");
         std::process::exit(2);
     }
     let case_path = &args[1];
+    let health_mode = args.iter().any(|a| a == "--health");
     let max_step = args.iter().position(|a| a == "--step-num")
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse::<usize>().ok());
 
     let case_json = std::fs::read_to_string(case_path).expect("read case file");
     let case: CaseFile = serde_json::from_str(&case_json).expect("parse case");
+
+    if health_mode { health(&case); return; }
 
     // 临时目录写 storage 快照
     let tmp = std::env::temp_dir().join(format!("overseer-case-{}", case.meta.case_id));
@@ -60,6 +63,33 @@ fn main() {
             println!("{}", serde_json::to_string_pretty(&obs).unwrap());
         }
     }
+}
+
+fn health(case: &CaseFile) {
+    let mut ok = true;
+    // 1. JSONL 可解析
+    for (name, content) in &[("work_agents", &case.data.work_agents), ("context", &case.data.context), ("queue", &case.data.queue)] {
+        if content.is_empty() { continue; }
+        for (i, line) in content.lines().enumerate() {
+            if serde_json::from_str::<serde_json::Value>(line).is_err() {
+                eprintln!("FAIL: {name} line {}: invalid JSON", i + 1);
+                ok = false;
+            }
+        }
+    }
+    // 2. meta 必填字段
+    if case.meta.case_id.is_empty() { eprintln!("FAIL: meta.case_id empty"); ok = false; }
+    if case.meta.created.is_empty() { eprintln!("FAIL: meta.created empty"); ok = false; }
+    // 3. 概念结构完整性：work_agents 每行有必填字段
+    for (i, line) in case.data.work_agents.lines().enumerate() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            for f in &["hash", "name", "project", "status"] {
+                if v.get(f).is_none() { eprintln!("FAIL: work_agents line {}: missing {}", i + 1, f); ok = false; }
+            }
+        }
+    }
+    if ok { println!("PASS"); std::process::exit(0); }
+    else { std::process::exit(1); }
 }
 
 fn write_jsonl(dir: &std::path::Path, name: &str, content: &str) {
