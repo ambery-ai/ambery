@@ -84,6 +84,7 @@ export async function main() {
     // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     bridge.onRenderComponent(async (spec) => {
+      fetch("http://127.0.0.1:47600/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ desc: `[onRenderComponent] ${spec.id}` }) }).catch(() => {});
       (window as any).__overseer_last_render = { ts: Date.now(), id: spec.id, type: spec.type };
       win.setTitle(`🟢 ${spec.id}`);
       const label = `card-${spec.id}`;
