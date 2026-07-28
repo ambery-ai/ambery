@@ -91,6 +91,7 @@ async fn push_event(state: tauri::State<'_, TauriState>, desc: String) -> Result
 
 #[tauri::command]
 async fn get_config(state: tauri::State<'_, TauriState>) -> Result<Value, String> {
+    eprintln!("[tauri-cmd] get_config called");
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     let cfg = &ov.config;
