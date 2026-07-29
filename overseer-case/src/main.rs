@@ -74,6 +74,8 @@ async fn main() {
         seq_ts += 1;
         v.and_then(|v| v.as_i64()).unwrap_or(seq_ts)
     };
+    // context_diff 基准：上次 observe 时的 Context 行数
+    let mut last_context_len = 0usize;
 
     for (i, step) in case.steps.iter().enumerate() {
         if let Some(n) = max_step {
@@ -83,9 +85,9 @@ async fn main() {
         }
         println!("── step {}: {} ──", i + 1, step.name());
         match step {
-            overseer_core::case::CaseStep::Observe { observe: _ } => {
+            overseer_core::case::CaseStep::Observe { observe: items } => {
                 let obs = overseer_core::case::observe(&ov);
-                println!("{}", serde_json::to_string_pretty(&obs).unwrap());
+                print_observe(&obs, items, &mut last_context_len);
             }
             overseer_core::case::CaseStep::Cmd { .. } => {
                 println!("(storage 已于启动时 replay)");
@@ -152,6 +154,65 @@ fn print_effects(effects: Vec<Effect>) {
     if !effects.is_empty() {
         println!("effects: {effects:?}");
     }
+}
+
+/// 内容级 observe 输出（docs/case-runner.md §observe 输出）：按请求项分节打印，全文不截断
+fn print_observe(obs: &overseer_core::case::CaseObserve, items: &[String], last_len: &mut usize) {
+    let msg_line = |m: &overseer_core::case::MessageSnapshot| {
+        format!(
+            "  [{}] {}{}",
+            m.role,
+            m.content.as_deref().unwrap_or(""),
+            if m.tool_calls > 0 { format!(" (+{} tool_calls)", m.tool_calls) } else { String::new() }
+        )
+    };
+    for item in items {
+        match item.as_str() {
+            "agents" => {
+                println!("agents:");
+                for a in &obs.agents {
+                    println!("  {} ({}) [{:?}] last_seen={}", a.name, a.hash, a.status, a.last_seen);
+                }
+            }
+            "panorama" => match &obs.panorama {
+                Some(p) => println!("panorama:\n  {}", p.replace('\n', "\n  ")),
+                None => println!("panorama: (无存活实例)"),
+            },
+            "context" => {
+                println!("context: {} 行", obs.context.len());
+                for m in &obs.context {
+                    println!("{}", msg_line(m));
+                }
+            }
+            "context_diff" => {
+                let start = (*last_len).min(obs.context.len());
+                println!("context_diff: +{} 行", obs.context.len() - start);
+                for m in &obs.context[start..] {
+                    println!("{}", msg_line(m));
+                }
+            }
+            "content" => {
+                println!("content: {} 行", obs.content.len());
+                for c in &obs.content {
+                    println!("  ({}) {}: {}", c.source, c.instance, c.content);
+                }
+            }
+            "queue" => {
+                println!("queue: {} 待放行", obs.queue.len());
+                for q in &obs.queue {
+                    println!("  [{:?}] {}", q.role, q.content);
+                }
+            }
+            "event_buffer" => {
+                println!("event_buffer: {} 条", obs.event_buffer.len());
+                for e in &obs.event_buffer {
+                    println!("  - {e}");
+                }
+            }
+            other => println!("(未知 observe 项: {other})"),
+        }
+    }
+    *last_len = obs.context.len();
 }
 
 fn health(case: &CaseFile) {

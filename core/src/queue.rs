@@ -39,6 +39,11 @@ impl Queue {
     pub fn is_empty(&self) -> bool {
         self.pending.is_empty()
     }
+
+    /// 待放行输入（case-runner observe 用，只读）
+    pub fn iter(&self) -> impl Iterator<Item = &QueueInput> {
+        self.pending.iter()
+    }
 }
 
 #[cfg(test)]

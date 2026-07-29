@@ -19,6 +19,11 @@ impl EventBuffer {
         self.events.is_empty()
     }
 
+    /// 积压事件原文（case-runner observe 用，只读）
+    pub fn events(&self) -> &[String] {
+        &self.events
+    }
+
     /// 合并 + 清空；空时返回 None（不注入空消息）
     pub fn merge_and_clear(&mut self) -> Option<String> {
         if self.events.is_empty() {
