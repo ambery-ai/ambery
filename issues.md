@@ -70,7 +70,13 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 2026-07-27 context.jsonl 实证：LLM 生成的 `call_component` spec 结构错误——将 `title`/`text` 嵌套在 `props` 对象里而非顶层。根因：工具 schema 中 `spec` 字段是裸 `{"type":"object"}`，LLM 不知道 ComponentSpec 的准确结构，自行发明了 `props` 包装。需在 tool schema 补充各 component 类型的字段定义 + 后端校验 text_card 必须有 `title` 和 `text`。
 
-2026-07-28：capabilities 授权 + race condition 修复后 card 窗口正常弹出，基本功能验证通过。连带发现：core-server → Tauri IPC 重构中新 Tauri commands 的 `State` 提取失败（`invoke()` 未到达 Rust），已回退 RemoteBridge HTTP，保留 Tauri command 骨架待独立修复。不影响 #9 功能。
+2026-07-28：capabilities 授权 + race condition 修复后 card 窗口正常弹出，基本功能验证通过。
+
+2026-07-29：Tauri IPC 问题单独裂出 #9.5。
+
+## #9.5 core-server → Tauri IPC 迁移 (2026-07-29) — open
+
+`core-server.md` 声明"仅保留 /hook HTTP，前端走 Tauri IPC"，但实际代码仍使用全量 HTTP+WS（`RemoteBridge`），因 Tauri IPC 过程中新 Tauri commands（`get_state`/`get_config`/`append_user`/`push_event`/`get_config_schema`）的 `State` 提取失败——`invoke()` 未到达 Rust handler。旧有 `toggle_pet`/`quit_app` 的 `invoke()` 正常工作，证明 IPC 通道本身可用，问题在新命令的 `tauri::State<SharedTauriState>` 提取链路。当前回退 HTTP 桥，Tauri IPC 骨架保留在 `main.rs` 中（fe39ad9、9c764f1、f308051、27bad37）。需修复 State 提取后切回 Tauri IPC，然后删 HTTP 路由仅留 `/hook`。
 
 ## #10 已消亡实例未标记 closed，僵死数据污染 Event Buffer (2026-07-28) — fixed
 
