@@ -22,7 +22,7 @@ export async function main() {
   badge.style.cssText = "display:none;position:absolute;right:-8px;top:-6px;background:#f38ba8;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;z-index:10";
   view.el.appendChild(badge);
   let unreadCount = 0;
-  bridge.onQueueChanged((msgs) => {
+  bridge.onContextChanged((msgs) => {
     const userMsgs = msgs.filter(m => m.role === "user").length;
     const prev = unreadCount > 0 ? unreadCount : userMsgs;
     const newAssist = msgs.filter(m => m.role === "assistant").length;

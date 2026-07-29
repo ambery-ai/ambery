@@ -6,7 +6,7 @@ import type {
   Bridge,
   ComponentSpec,
   Motion,
-  QueueMessage,
+  ContextMessage,
   TopState,
 } from "./bridge";
 
@@ -16,7 +16,7 @@ const WS_URL = "ws://127.0.0.1:47600/ws";
 export class RemoteBridge implements Bridge {
   private topStateListeners: ((s: TopState) => void)[] = [];
   private renderListeners: ((spec: ComponentSpec) => void)[] = [];
-  private queueListeners: ((m: QueueMessage[]) => void)[] = [];
+  private queueListeners: ((m: ContextMessage[]) => void)[] = [];
   private autonomyListeners: ((args: {
     face?: string;
     motion?: Motion;
@@ -62,8 +62,8 @@ export class RemoteBridge implements Bridge {
         case "render_component":
           if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec!));
           break;
-        case "queue_changed":
-          void this.getQueue().then((m) =>
+        case "context_changed":
+          void this.getContext().then((m) =>
             this.queueListeners.forEach((cb) => cb(m)),
           );
           break;
@@ -94,8 +94,8 @@ export class RemoteBridge implements Bridge {
     return (await fetch(`${BASE}/state`)).json() as Promise<TopState>;
   }
 
-  async getQueue(): Promise<QueueMessage[]> {
-    return (await fetch(`${BASE}/queue`)).json() as Promise<QueueMessage[]>;
+  async getContext(): Promise<ContextMessage[]> {
+    return (await fetch(`${BASE}/context`)).json() as Promise<ContextMessage[]>;
   }
 
   appendUserMessage(text: string): void {
@@ -114,7 +114,7 @@ export class RemoteBridge implements Bridge {
     this.renderListeners.push(cb);
   }
 
-  onQueueChanged(cb: (m: QueueMessage[]) => void): void {
+  onContextChanged(cb: (m: ContextMessage[]) => void): void {
     this.queueListeners.push(cb);
   }
 

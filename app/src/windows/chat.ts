@@ -1,7 +1,7 @@
 // Chat Panel（concepts §3a，设计 docs/chat-panel.md）：View 右键切换唤出/隐藏
 // engine.place(Direction.sse) 定位，不重叠其他窗口
 
-import type { Bridge, QueueMessage } from "../bridge";
+import type { Bridge, ContextMessage } from "../bridge";
 import type { PositioningEngine } from "../positioning/engine";
 import { Direction } from "../positioning/types";
 
@@ -65,7 +65,7 @@ export class ChatPanel {
     this.el.append(header, this.historyEl, this.inputEl);
     mount.appendChild(this.el);
 
-    bridge.onQueueChanged((msgs) => {
+    bridge.onContextChanged((msgs) => {
       if (loadingEl) { loadingEl.remove(); loadingEl = null; }
       this.renderHistory(msgs);
     });
@@ -93,7 +93,7 @@ export class ChatPanel {
       );
       this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
       this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
-      void this.bridge.getQueue()
+      void this.bridge.getContext()
         .then((msgs) => this.renderHistory(msgs))
         .catch(() => {
           this.historyEl.innerHTML = `<div class="chat-msg chat-system" style="opacity:0.7">⚠ 未连接到 core</div>`;
@@ -102,7 +102,7 @@ export class ChatPanel {
     }
   }
 
-  private renderHistory(msgs: QueueMessage[]) {
+  private renderHistory(msgs: ContextMessage[]) {
     this.historyEl.replaceChildren();
     for (const m of msgs) {
       if (m.role !== "user" && m.role !== "assistant") continue;

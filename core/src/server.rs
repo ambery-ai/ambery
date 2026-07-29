@@ -83,7 +83,7 @@ pub fn router(state: Arc<AppState>, ws_tx: tokio::sync::broadcast::Sender<String
 
     let app = Router::new()
         .route("/state", get(get_state))
-        .route("/queue", get(get_queue))
+        .route("/context", get(get_context))
         .route("/queue/user", post(post_user))
         .route("/events", post(post_event))
         .route("/config", get(get_config))
@@ -117,7 +117,7 @@ pub fn hook_router(state: Arc<AppState>) -> Router {
 
 async fn get_state(State(s): State<Arc<AppState>>) -> impl IntoResponse { Json(state_json_value(&s).await) }
 
-async fn get_queue(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+async fn get_context(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let ov = s.overseer.lock().await;
     Json(json!(ov.harness.context.messages()))
 }
@@ -251,7 +251,7 @@ pub fn spawn_queue_consumer(s: Arc<AppState>) {
                     if matches!(e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
                     s.broadcast_effect_json(effect_json(e)).await;
                 }
-                s.broadcast_effect_json(json!({ "kind": "queue_changed" })).await;
+                s.broadcast_effect_json(json!({ "kind": "context_changed" })).await;
                 s.broadcast_effect_json(json!({ "kind": "top_state", "state": state_json_value(&s).await })).await;
             }
         }

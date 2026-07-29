@@ -81,7 +81,7 @@ export type ComponentSpec =
     };
 
 /** docs/chat-panel.md：Queue 消息（concepts §10c 四 role） */
-export interface QueueMessage {
+export interface ContextMessage {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
   ts: number;
@@ -96,9 +96,9 @@ export interface Bridge {
   /** UI → Harness：Component 交互事件写入 Event Buffer（concepts §10e） */
   pushEvent(desc: string): void;
   /** Queue：对话历史读取 + 用户输入写入 user role（concepts §3a） */
-  getQueue(): Promise<QueueMessage[]>;
+  getContext(): Promise<ContextMessage[]>;
   appendUserMessage(text: string): void;
-  onQueueChanged(cb: (msgs: QueueMessage[]) => void): void;
+  onContextChanged(cb: (msgs: ContextMessage[]) => void): void;
   /** 可选（RemoteBridge）：Overseer 推送 set_autonomy（ペット的 tool call 结果） */
   onSetAutonomy?(
     cb: (args: { face?: string; motion?: Motion; ttlMs?: number }) => void,
@@ -128,7 +128,7 @@ export interface DebugApi {
   /** 模拟 LLM 触发时合并注入后清空 Buffer */
   flushEventBuffer(): string[];
   /** 模拟ペット回复 / Overseer 注入 system 消息（真实链路由 Rust Harness 写入） */
-  appendMessage(role: QueueMessage["role"], content: string): void;
+  appendMessage(role: ContextMessage["role"], content: string): void;
 }
 
 declare global {
@@ -159,9 +159,9 @@ export class BrowserMockBridge implements Bridge {
   };
   private listeners: ((s: TopState) => void)[] = [];
   private renderListeners: ((spec: ComponentSpec) => void)[] = [];
-  private queueListeners: ((msgs: QueueMessage[]) => void)[] = [];
+  private queueListeners: ((msgs: ContextMessage[]) => void)[] = [];
   private events: string[] = [];
-  private queue: QueueMessage[] = [];
+  private queue: ContextMessage[] = [];
 
   async getConfig(): Promise<AppConfig> {
     return structuredClone(DEFAULT_CONFIG);
@@ -197,7 +197,7 @@ export class BrowserMockBridge implements Bridge {
     return out;
   }
 
-  async getQueue(): Promise<QueueMessage[]> {
+  async getContext(): Promise<ContextMessage[]> {
     return structuredClone(this.queue);
   }
 
@@ -206,11 +206,11 @@ export class BrowserMockBridge implements Bridge {
     this.emitQueue();
   }
 
-  onQueueChanged(cb: (msgs: QueueMessage[]) => void): void {
+  onContextChanged(cb: (msgs: ContextMessage[]) => void): void {
     this.queueListeners.push(cb);
   }
 
-  debugAppendMessage(role: QueueMessage["role"], content: string) {
+  debugAppendMessage(role: ContextMessage["role"], content: string) {
     this.queue.push({ role, content, ts: Date.now() });
     this.emitQueue();
   }

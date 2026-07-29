@@ -60,7 +60,7 @@ async fn get_state(state: tauri::State<'_, SharedTauriState>) -> Result<Value, S
 }
 
 #[tauri::command]
-async fn get_queue(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
+async fn get_context(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     Ok(json!(ov.harness.context.messages()))
@@ -106,7 +106,7 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             toggle_pet, quit_app,
-            get_state, get_queue, append_user, push_event, get_config, get_config_schema
+            get_state, get_context, append_user, push_event, get_config, get_config_schema
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {
