@@ -8,12 +8,20 @@ use overseer_core::server::now_ms;
 use overseer_core::Config;
 use std::sync::Arc;
 
+mod export;
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("usage: overseer-case <case.json> [--step-num N] [--health]");
+        eprintln!("       overseer-case export [--storage DIR] [--instances a,b] [--window 30m]");
+        eprintln!("              [--before TS] [--after TS] [--keep-last N] [--trim-context] [--dedup] [--case-id ID]");
         std::process::exit(2);
+    }
+    if args[1] == "export" {
+        run_export(&args[2..]);
+        return;
     }
     let case_path = &args[1];
     let health_mode = args.iter().any(|a| a == "--health");
@@ -266,4 +274,34 @@ fn write_jsonl(dir: &std::path::Path, name: &str, content: &str) {
         return;
     }
     std::fs::write(dir.join(name), content).expect("write jsonl");
+}
+
+/// 实时 storage → case 导出（docs/case-runner.md §导出工具）：过滤 → 最小化 → JSON 输出
+fn run_export(args: &[String]) {
+    let opt_val = |flag: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let has = |flag: &str| args.iter().any(|a| a == flag);
+    let storage_dir = opt_val("--storage")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(overseer_core::paths::storage_dir);
+    let case_id = opt_val("--case-id").unwrap_or_else(|| {
+        format!("export-{}", std::process::id())
+    });
+    let opts = export::ExportOpts {
+        case_id,
+        notes: "导出自实时 storage，需手修 meta/notes 与 steps".into(),
+        instances: opt_val("--instances")
+            .map(|s| s.split(',').map(|x| x.trim().to_string()).collect()),
+        before: opt_val("--before").and_then(|v| v.parse().ok()),
+        after: opt_val("--after").and_then(|v| v.parse().ok()),
+        window_ms: opt_val("--window").and_then(|v| export::parse_duration(&v)),
+        keep_last: opt_val("--keep-last").and_then(|v| v.parse().ok()),
+        trim_context: has("--trim-context"),
+        dedup: has("--dedup"),
+    };
+    println!("{}", export::export(&storage_dir, &opts));
 }
