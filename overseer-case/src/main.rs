@@ -183,6 +183,34 @@ fn health(case: &CaseFile) {
             }
         }
     }
+    // 4. Context 行：type/ts 必填，message 行须 role；Queue 行：role/ts 必填
+    for (i, line) in case.data.context.lines().enumerate() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            for f in &["type", "ts"] {
+                if v.get(f).is_none() {
+                    eprintln!("FAIL: context line {}: missing {}", i + 1, f);
+                    ok = false;
+                }
+            }
+            if v["type"].as_str() == Some("message") && v.get("role").is_none() {
+                eprintln!("FAIL: context line {}: message missing role", i + 1);
+                ok = false;
+            }
+        }
+    }
+    for (i, line) in case.data.queue.lines().enumerate() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            for f in &["role", "ts"] {
+                if v.get(f).is_none() {
+                    eprintln!("FAIL: queue line {}: missing {}", i + 1, f);
+                    ok = false;
+                }
+            }
+        }
+    }
+    // 5. replay 烟测：Harness::load 不 panic + observe 可执行
+    let ov = setup(case);
+    let _ = overseer_core::case::observe(&ov);
     if ok {
         println!("PASS");
         std::process::exit(0);
