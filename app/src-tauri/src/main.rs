@@ -102,11 +102,30 @@ async fn get_config_schema(state: tauri::State<'_, SharedTauriState>) -> Result<
     Ok(json!({ "version": overseer_core::config::migrate::CURRENT_VERSION, "readOnly": ov.config.read_only, "nodes": overseer_core::config::reflect::config_nodes(&ov.config) }))
 }
 
+/// 设置面板改值（对齐 server post_config：apply + 广播 + restartRequired）
+#[tauri::command]
+async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, value: Value) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let mut ov = s.overseer().lock().await;
+    match ov.apply_config_by_path(&path, value) {
+        Ok(outcome) => {
+            let restart = outcome.restart_required.clone();
+            let effects = outcome.effects;
+            drop(ov);
+            for e in &effects {
+                s.broadcast_effect_json(overseer_core::server::effect_json(e)).await;
+            }
+            Ok(json!({ "ok": true, "restartRequired": restart }))
+        }
+        Err(e) => Ok(json!({ "ok": false, "error": e })),
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             toggle_pet, quit_app,
-            get_state, get_context, append_user, push_event, get_config, get_config_schema
+            get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {
@@ -235,7 +254,7 @@ mod ipc_tests {
     fn mock_app_with_commands() -> tauri::App<tauri::test::MockRuntime> {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
-            .invoke_handler(tauri::generate_handler![get_state, get_config])
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
     }
@@ -256,6 +275,15 @@ mod ipc_tests {
         // 新 command：get_state
         let resp = tauri::test::get_ipc_response(&window, ipc("get_state"));
         assert!(resp.is_ok(), "get_state invoke 失败: {resp:?}");
+        // 设置面板链路：get_config_schema + set_config（apply_config_by_path 全管道）
+        let resp = tauri::test::get_ipc_response(&window, ipc("get_config_schema"));
+        assert!(resp.is_ok(), "get_config_schema invoke 失败: {resp:?}");
+        let mut req = ipc("set_config");
+        req.body = tauri::ipc::InvokeBody::Json(json!({ "path": "view_scale", "value": 0.6 }));
+        let resp = tauri::test::get_ipc_response(&window, req);
+        assert!(resp.is_ok(), "set_config invoke 失败: {resp:?}");
+        let body = resp.unwrap().deserialize::<Value>().unwrap();
+        assert_eq!(body["ok"], json!(true), "set_config apply 失败: {body}");
     }
 
     #[test]

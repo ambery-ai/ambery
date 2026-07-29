@@ -1,10 +1,8 @@
 // 托盘设置面板（docs/config.md）：schema 驱动的声明式 config UI。
 // 本文件不认识 Config——只是 GET /config/schema 节点的薄渲染器，
-// 加字段零成本自动出现；改值 → POST /config（验证/热生效/广播都在 core）。
+// 加字段零成本自动出现；改值 → set_config（验证/热生效/广播都在 core）。
 
 import { invoke } from "@tauri-apps/api/core";
-
-const BASE = "http://127.0.0.1:47600";
 
 interface NodeType {
   kind: "bool" | "int" | "float" | "str" | "enum" | "map" | "other";
@@ -51,7 +49,7 @@ async function render() {
   const body = document.getElementById("panel-body")!;
   let resp: SchemaResp;
   try {
-    resp = await (await fetch(`${BASE}/config/schema`)).json();
+    resp = await invoke<SchemaResp>("get_config_schema");
   } catch {
     body.innerHTML = `<div class="err">连不上 core</div>`;
     return;
@@ -164,13 +162,10 @@ async function apply(path: string, value: unknown, control: HTMLElement) {
   const status = document.getElementById("panel-status")!;
   status.textContent = "…";
   try {
-    const resp = await (
-      await fetch(`${BASE}/config`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path, value }),
-      })
-    ).json();
+    const resp = await invoke<{ ok: boolean; restartRequired?: string[]; error?: string }>(
+      "set_config",
+      { path, value },
+    );
     if (resp.ok) {
       const rr = resp.restartRequired as string[];
       status.textContent = rr?.length ? `⚠ ${rr.join(",")} 需重启` : "✓";

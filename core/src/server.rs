@@ -57,7 +57,7 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
-fn effect_json(e: &Effect) -> Value {
+pub fn effect_json(e: &Effect) -> Value {
     match e {
         Effect::RenderComponent(spec) => json!({ "kind": "render_component", "spec": spec }),
         Effect::SetAutonomy { face, motion, ttl_ms } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms }),
