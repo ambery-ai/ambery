@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::llm::LlmBackend;
 use crate::overseer::{Effect, OverseerBackend};
-use crate::queue::{QueueMessage, Role};
+use crate::context::{ContextMessage, Role};
 use crate::Config;
 
 pub type EffectSender = Box<dyn Fn(Value) + Send + Sync>;
@@ -116,7 +116,7 @@ async fn get_state(State(s): State<Arc<AppState>>) -> impl IntoResponse { Json(s
 
 async fn get_queue(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let ov = s.overseer.lock().await;
-    Json(json!(ov.harness.queue.messages()))
+    Json(json!(ov.harness.context.messages()))
 }
 
 #[derive(Deserialize)]
@@ -125,7 +125,7 @@ struct UserBody { text: String }
 async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -> impl IntoResponse {
     *s.pending_notifications.lock().await = 0;
     let mut ov = s.overseer.lock().await;
-    if let Err(err) = ov.harness.append_queue(QueueMessage::new(Role::User, body.text, now_ms())) {
+    if let Err(err) = ov.harness.append_context(ContextMessage::new(Role::User, body.text, now_ms())) {
         return err_response(err);
     }
     let effects = match ov.run_trigger(now_ms(), 0).await { Ok(e) => e, Err(err) => return err_response(err) };

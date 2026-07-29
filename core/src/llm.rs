@@ -2,7 +2,7 @@
 //! DebugAgent 是纯 mock：零逻辑，返回什么完全由外部决策源注入
 //! （测试脚本闭包 / debug CLI / 沉默兜底），它只负责转发。
 
-use crate::queue::{QueueMessage, Role, ToolCall};
+use crate::context::{ContextMessage, Role, ToolCall};
 use serde_json::{json, Value};
 use std::future::Future;
 
@@ -90,7 +90,7 @@ pub struct LlmOutput {
 pub trait Llm {
     fn complete(
         &self,
-        messages: &[QueueMessage],
+        messages: &[ContextMessage],
         tools: &[ToolDef],
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send;
 
@@ -98,7 +98,7 @@ pub trait Llm {
     /// 默认确定性 stub（DebugAgent / 测试保证确定性）；OpenAiClient 覆写为真实调用。
     fn summarize(
         &self,
-        messages: &[QueueMessage],
+        messages: &[ContextMessage],
     ) -> impl Future<Output = Result<String, String>> + Send {
         let summary = deterministic_summary(messages);
         async move { Ok(summary) }
@@ -106,7 +106,7 @@ pub trait Llm {
 }
 
 /// 确定性摘要 stub（Compression 的 debug 回退，docs/harness.md：保证测试确定性）
-pub fn deterministic_summary(messages: &[QueueMessage]) -> String {
+pub fn deterministic_summary(messages: &[ContextMessage]) -> String {
     let n = messages.len();
     let first = messages
         .first()
@@ -128,12 +128,12 @@ pub fn deterministic_summary(messages: &[QueueMessage]) -> String {
 /// debug 模式 agent：纯 mock，零逻辑。决策源由外部注入——
 /// 测试用脚本闭包、debug 二进制用 CLI、降级兜底用沉默。
 pub struct DebugAgent {
-    decide: Box<dyn Fn(&[QueueMessage]) -> LlmOutput + Send + Sync>,
+    decide: Box<dyn Fn(&[ContextMessage]) -> LlmOutput + Send + Sync>,
 }
 
 impl DebugAgent {
     /// 注入外部决策源（mock 的「人为控制返回」）
-    pub fn new(decide: impl Fn(&[QueueMessage]) -> LlmOutput + Send + Sync + 'static) -> Self {
+    pub fn new(decide: impl Fn(&[ContextMessage]) -> LlmOutput + Send + Sync + 'static) -> Self {
         Self {
             decide: Box::new(decide),
         }
@@ -158,7 +158,7 @@ impl Default for DebugAgent {
 impl Llm for DebugAgent {
     fn complete(
         &self,
-        messages: &[QueueMessage],
+        messages: &[ContextMessage],
         _tools: &[ToolDef],
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         let out = (self.decide)(messages);
@@ -206,8 +206,8 @@ impl OpenAiClient {
         })
     }
 
-    /// QueueMessage → OpenAI messages（assistant tool_calls / tool tool_call_id 对齐 §10）
-    fn build_body(&self, messages: &[QueueMessage], tools: &[ToolDef]) -> Value {
+    /// ContextMessage → OpenAI messages（assistant tool_calls / tool tool_call_id 对齐 §10）
+    fn build_body(&self, messages: &[ContextMessage], tools: &[ToolDef]) -> Value {
         let msgs: Vec<Value> = messages
             .iter()
             .map(|m| {
@@ -269,7 +269,7 @@ impl OpenAiClient {
 
     async fn complete_async(
         &self,
-        messages: &[QueueMessage],
+        messages: &[ContextMessage],
         tools: &[ToolDef],
     ) -> Result<LlmOutput, String> {
         let resp = self
@@ -291,7 +291,7 @@ impl OpenAiClient {
 
 impl OpenAiClient {
     /// 专项摘要调用（无 tools）：历史序列化为对话文本，要求直接输出摘要
-    async fn summarize_async(&self, messages: &[QueueMessage]) -> Result<String, String> {
+    async fn summarize_async(&self, messages: &[ContextMessage]) -> Result<String, String> {
         let mut transcript = String::new();
         for m in messages {
             let role = match m.role {
@@ -304,12 +304,12 @@ impl OpenAiClient {
             transcript.push_str(&format!("{role}: {}\n", truncate(body, 500)));
         }
         let prompt = vec![
-            QueueMessage::new(
+            ContextMessage::new(
                 Role::System,
                 "你是摘要器：把监工宠物的对话历史压缩为简洁中文摘要，保留：实例名、状态变化、用户意图、未决事项。只输出摘要文本。",
                 0,
             ),
-            QueueMessage::new(Role::User, transcript, 0),
+            ContextMessage::new(Role::User, transcript, 0),
         ];
         let out = self.complete_async(&prompt, &[]).await?;
         out.content
@@ -321,7 +321,7 @@ impl OpenAiClient {
 impl Llm for OpenAiClient {
     fn complete(
         &self,
-        messages: &[QueueMessage],
+        messages: &[ContextMessage],
         tools: &[ToolDef],
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         self.complete_async(messages, tools)
@@ -329,7 +329,7 @@ impl Llm for OpenAiClient {
 
     fn summarize(
         &self,
-        messages: &[QueueMessage],
+        messages: &[ContextMessage],
     ) -> impl Future<Output = Result<String, String>> + Send {
         self.summarize_async(messages)
     }
@@ -404,7 +404,7 @@ impl LlmBackend {
 impl Llm for LlmBackend {
     fn complete(
         &self,
-        messages: &[QueueMessage],
+        messages: &[ContextMessage],
         tools: &[ToolDef],
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         async move {
@@ -423,7 +423,7 @@ impl Llm for LlmBackend {
 
     fn summarize(
         &self,
-        messages: &[QueueMessage],
+        messages: &[ContextMessage],
     ) -> impl Future<Output = Result<String, String>> + Send {
         async move {
             match self {
@@ -471,7 +471,7 @@ mod tests {
             })
         });
         // 脚本怎么写，就怎么返回；耗尽 → 沉默
-        let msgs = [QueueMessage::new(Role::User, "任意输入", 0)];
+        let msgs = [ContextMessage::new(Role::User, "任意输入", 0)];
         let out1 = agent.complete(&msgs, &tool_set()).await.unwrap();
         assert_eq!(out1.content.as_deref(), Some("脚本第一句"));
         let out2 = agent.complete(&msgs, &tool_set()).await.unwrap();
@@ -494,8 +494,8 @@ mod tests {
     fn openai_body_maps_tool_flow() {
         let client = test_client();
         let msgs = vec![
-            QueueMessage::new(Role::System, "prefix", 0),
-            QueueMessage::assistant_tool_calls(
+            ContextMessage::new(Role::System, "prefix", 0),
+            ContextMessage::assistant_tool_calls(
                 vec![ToolCall {
                     id: "c1".into(),
                     name: "fetch_terminal".into(),
@@ -503,7 +503,7 @@ mod tests {
                 }],
                 1,
             ),
-            QueueMessage::tool_result("c1", "{\"ok\":true}", 2),
+            ContextMessage::tool_result("c1", "{\"ok\":true}", 2),
         ];
         let body = client.build_body(&msgs, &tool_set());
         assert_eq!(body["model"], json!("m"));

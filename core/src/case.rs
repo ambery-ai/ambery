@@ -11,9 +11,9 @@ use serde_json::Value;
 pub struct CaseObserve {
     pub agents: Vec<AgentSnapshot>,
     pub panorama: Option<String>,
+    pub content_rows: usize,
+    pub content_latest_ts: Option<i64>,
     pub context_rows: usize,
-    pub context_latest_ts: Option<i64>,
-    pub queue_rows: usize,
     pub event_buffer: Vec<String>,
 }
 
@@ -42,12 +42,12 @@ pub fn observe(state: &AppState) -> CaseObserve {
         })
         .collect();
     let panorama = crate::panorama(&ov.harness.agents);
-    let ctx_records = ov.harness.context.records();
-    let context_rows = ctx_records.len();
-    let context_latest_ts = ctx_records.last().map(|r| r.ts);
-    let queue_rows = ov.harness.queue.messages().len();
+    let cnt_records = ov.harness.content.records();
+    let content_rows = cnt_records.len();
+    let content_latest_ts = cnt_records.last().map(|r| r.ts);
+    let context_rows = ov.harness.context.messages().len();
     let event_buffer_count = ov.harness.event_buffer.len();
-    CaseObserve { agents, panorama, context_rows, context_latest_ts, queue_rows, event_buffer: vec![format!("{} events", event_buffer_count)] }
+    CaseObserve { agents, panorama, content_rows, content_latest_ts, context_rows, event_buffer: vec![format!("{} events", event_buffer_count)] }
 }
 
 /// Case JSON 结构

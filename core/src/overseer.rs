@@ -1,12 +1,12 @@
 //! OverseerBackend（concepts §1）：触发循环 + tool 执行 + hook 处理（docs/agent-loop.md）。
 
-use crate::context::RecordSource;
+use crate::content::RecordSource;
 use crate::filter::{Change, Filter};
 use crate::llm::{tool_set, Llm};
-use crate::queue::{QueueMessage, Role, ToolCall};
+use crate::context::{ContextMessage, Role, ToolCall};
 use crate::timer::TimerWheel;
 use crate::{
-    default_agents_md, AgentEntry, AgentStatus, Config, ContextRecord, Harness,
+    default_agents_md, AgentEntry, AgentStatus, Config, ContentRecord, Harness,
     TerminalContentRecord, AGENTS_MD_FILE,
 };
 use serde_json::{json, Value};
@@ -99,7 +99,7 @@ impl<L: Llm> OverseerBackend<L> {
             self.filter = crate::filter::by_name(&self.config.filter_strategy);
         }
         if self.config.token_threshold != old.token_threshold {
-            self.harness.queue.token_threshold = self.config.token_threshold;
+            self.harness.context.token_threshold = self.config.token_threshold;
         }
         let llm_changed = self.config.llm != old.llm;
         self.config
@@ -186,7 +186,7 @@ impl<L: Llm> OverseerBackend<L> {
         // 1. merge Event Buffer → 一条 system message
         if let Some(merged) = self.harness.event_buffer.merge_and_clear() {
             self.harness
-                .append_queue(QueueMessage::new(Role::System, merged, ts))?;
+                .append_context(ContextMessage::new(Role::System, merged, ts))?;
         }
         // 2. 现拼 system prompt 请求头（不落 Queue）；变化才写 head 快照（docs/storage.md）
         let head = self.assemble_system_prompt();
@@ -198,16 +198,16 @@ impl<L: Llm> OverseerBackend<L> {
         self.harness.log_autonomy(autonomy.clone(), ts)?;
         // 4. Compression（auto-compact，concepts §10d）：专项摘要调用 → 内存 shaking
         //    → compact_boundary 标记（文件不删历史）→ 归零重 diff 全景
-        if self.harness.queue.needs_compression() {
-            let pre_tokens = self.harness.queue.total_tokens();
+        if self.harness.context.needs_compression() {
+            let pre_tokens = self.harness.context.total_tokens();
             let t0 = std::time::Instant::now();
             let summary = self
                 .llm
-                .summarize(self.harness.queue.messages())
+                .summarize(self.harness.context.messages())
                 .await
                 .map_err(std::io::Error::other)?;
-            self.harness.queue.compress(summary.clone(), ts);
-            let post_tokens = self.harness.queue.total_tokens();
+            self.harness.context.compress(summary.clone(), ts);
+            let post_tokens = self.harness.context.total_tokens();
             self.harness.log_compact_boundary(
                 summary,
                 pre_tokens,
@@ -217,17 +217,17 @@ impl<L: Llm> OverseerBackend<L> {
             )?;
             if let Some(p) = crate::panorama(&self.harness.agents) {
                 self.harness
-                    .append_queue(QueueMessage::new(Role::System, p, ts))?;
+                    .append_context(ContextMessage::new(Role::System, p, ts))?;
             }
         }
         // 5. tool 循环（请求 = 请求头 + Queue 全部消息 + Autonomy 末端）
         let tools = tool_set();
         let mut effects = vec![];
         for _ in 0..self.max_tool_iters {
-            let mut request = Vec::with_capacity(self.harness.queue.messages().len() + 2);
-            request.push(QueueMessage::new(Role::System, head.clone(), ts));
-            request.extend_from_slice(self.harness.queue.messages());
-            request.push(QueueMessage::new(Role::System, autonomy.clone(), ts));
+            let mut request = Vec::with_capacity(self.harness.context.messages().len() + 2);
+            request.push(ContextMessage::new(Role::System, head.clone(), ts));
+            request.extend_from_slice(self.harness.context.messages());
+            request.push(ContextMessage::new(Role::System, autonomy.clone(), ts));
             let out = self
                 .llm
                 .complete(&request, &tools)
@@ -237,19 +237,19 @@ impl<L: Llm> OverseerBackend<L> {
                 // 沉默语义：空 content 不追加（docs/agent-loop.md）
                 if let Some(content) = out.content.filter(|c| !c.is_empty()) {
                     self.harness
-                        .append_queue(QueueMessage::new(Role::Assistant, content, ts))?;
+                        .append_context(ContextMessage::new(Role::Assistant, content, ts))?;
                 }
                 break;
             }
-            let mut assistant_msg = QueueMessage::assistant_tool_calls(out.tool_calls.clone(), ts);
+            let mut assistant_msg = ContextMessage::assistant_tool_calls(out.tool_calls.clone(), ts);
             // thinking 模型：存思维链，回放时必须带回（docs/agent-loop.md）
             assistant_msg.reasoning_content = out.reasoning_content.clone();
-            self.harness.append_queue(assistant_msg)?;
+            self.harness.append_context(assistant_msg)?;
             for call in &out.tool_calls {
                 let (result, mut eff) = self.execute_tool(call);
                 effects.append(&mut eff);
                 self.harness
-                    .append_queue(QueueMessage::tool_result(&call.id, result.to_string(), ts))?;
+                    .append_context(ContextMessage::tool_result(&call.id, result.to_string(), ts))?;
             }
         }
         Ok(effects)
@@ -437,7 +437,7 @@ impl<L: Llm> OverseerBackend<L> {
             "user_prompt" => {
                 upsert(AgentStatus::Processing)?;
                 let p = prompt.unwrap_or("").trim();
-                self.harness.append_queue(QueueMessage::new(
+                self.harness.append_context(ContextMessage::new(
                     Role::System,
                     format!("[观察] 用户在 {name} 输入：{p}"),
                     ts,
@@ -446,7 +446,7 @@ impl<L: Llm> OverseerBackend<L> {
             }
             "notification" => {
                 let m = message.unwrap_or("").trim();
-                self.harness.append_queue(QueueMessage::new(
+                self.harness.append_context(ContextMessage::new(
                     Role::System,
                     format!("[{name}] 请求注意：{m}"),
                     ts,
@@ -474,7 +474,7 @@ impl<L: Llm> OverseerBackend<L> {
                                     },
                                 );
                                 let filtered = self.filter.digest(&raw).render();
-                                let _ = self.harness.append_context(ContextRecord {
+                                let _ = self.harness.append_content(ContentRecord {
                                     instance: name.clone(),
                                     content: filtered.clone(),
                                     source: RecordSource::Hook,
@@ -510,7 +510,7 @@ impl<L: Llm> OverseerBackend<L> {
                     }
                 };
                 self.harness
-                    .append_queue(QueueMessage::new(Role::System, text, ts))?;
+                    .append_context(ContextMessage::new(Role::System, text, ts))?;
                 self.run_trigger(ts, pending_notifications).await
             }
             _ => Ok(vec![]),
@@ -550,13 +550,13 @@ impl<L: Llm> OverseerBackend<L> {
                     first_seen: ts,
                     last_seen: ts,
                 })?;
-                self.harness.append_context(ContextRecord {
+                self.harness.append_content(ContentRecord {
                     instance: instance.into(),
                     content: filtered,
                     source: RecordSource::Hook,
                     ts,
                 })?;
-                self.harness.append_queue(QueueMessage::new(
+                self.harness.append_context(ContextMessage::new(
                     Role::System,
                     format!("新实例 {instance} 已注册"),
                     ts,
@@ -582,14 +582,14 @@ impl<L: Llm> OverseerBackend<L> {
                     first_seen,
                     last_seen: ts,
                 })?;
-                self.harness.append_context(ContextRecord {
+                self.harness.append_content(ContentRecord {
                     instance: instance.into(),
                     content: filtered.clone(),
                     source: RecordSource::Hook,
                     ts,
                 })?;
                 let len = filtered.chars().count();
-                self.harness.append_queue(QueueMessage::new(
+                self.harness.append_context(ContextMessage::new(
                     Role::System,
                     format!("{instance} 完成，Context 已更新（{len} 字）。评估是否通知。"),
                     ts,
@@ -629,20 +629,20 @@ impl<L: Llm> OverseerBackend<L> {
         let filtered = self.filter.digest(content).render();
         let prev = self
             .harness
-            .context
+            .content
             .latest(instance)
             .map(|r| r.content.clone())
             .unwrap_or_default();
         let change = self.filter.detect_change(&prev, &filtered);
         let len = filtered.chars().count();
-        self.harness.append_context(ContextRecord {
+        self.harness.append_content(ContentRecord {
             instance: instance.into(),
             content: filtered,
             source: RecordSource::Timer,
             ts,
         })?;
         if matches!(change, Change::Substantive(_)) {
-            self.harness.append_queue(QueueMessage::new(
+            self.harness.append_context(ContextMessage::new(
                 Role::System,
                 format!("{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。"),
                 ts,
@@ -731,7 +731,7 @@ impl<L: Llm> OverseerBackend<L> {
                                 ts: crate::server::now_ms(),
                             });
                             let filtered = ov.filter.digest(&raw).render();
-                            let _ = ov.harness.append_context(ContextRecord {
+                            let _ = ov.harness.append_content(ContentRecord {
                                 instance: inst.into(),
                                 content: filtered.clone(),
                                 source: RecordSource::FetchTerminal,
@@ -744,7 +744,7 @@ impl<L: Llm> OverseerBackend<L> {
                     return (json!({ "instance": inst, "content": content }), vec![]);
                 }
                 // 新鲜读失败 → Context 最新记录回退（有历史给历史）
-                if let Some(rec) = self.harness.context.latest(inst) {
+                if let Some(rec) = self.harness.content.latest(inst) {
                     return (json!({ "instance": inst, "content": rec.content.clone() }), vec![]);
                 }
                 // 什么都没有：vd_switch=false → 失败教学；true → 切桌面重试
@@ -904,7 +904,7 @@ mod tests {
         let effects = ov.handle_hook("stop", "ft", "proj", &long, 1, 0).await.unwrap();
         assert!(effects.iter().any(|e| matches!(e, Effect::RenderComponent(_))));
         assert!(effects.iter().any(|e| matches!(e, Effect::SetAutonomy { .. })));
-        let roles: Vec<Role> = ov.harness.queue.messages().iter().map(|m| m.role).collect();
+        let roles: Vec<Role> = ov.harness.context.messages().iter().map(|m| m.role).collect();
         // system(hook) + assistant(tool_calls) + tool + tool
         assert_eq!(
             roles,
@@ -920,7 +920,7 @@ mod tests {
         let mut ov = make_overseer("silence");
         let effects = ov.handle_hook("stop", "oss", "proj", "清理了 2 行注释", 1, 0).await.unwrap();
         assert!(effects.is_empty());
-        let roles: Vec<Role> = ov.harness.queue.messages().iter().map(|m| m.role).collect();
+        let roles: Vec<Role> = ov.harness.context.messages().iter().map(|m| m.role).collect();
         // system(hook)，沉默不追加 assistant
         assert_eq!(roles, vec![Role::System]);
         let _ = std::fs::remove_dir_all(tmp_dir("silence"));
@@ -948,7 +948,7 @@ mod tests {
         assert_eq!(ov.harness.agents[0].status, AgentStatus::Processing);
         assert!(ov
             .harness
-            .queue
+            .context
             .messages()
             .iter()
             .any(|m| m.content.as_deref() == Some("新实例 new-feature 已注册")));
@@ -978,10 +978,10 @@ mod tests {
         let long = "y".repeat(100);
         ov.handle_hook("stop", "ft", "proj", &long, 1, 0).await.unwrap();
         ov.harness
-            .append_queue(QueueMessage::new(Role::User, "那个 bug 具体怎么回事？", 2))
+            .append_context(ContextMessage::new(Role::User, "那个 bug 具体怎么回事？", 2))
             .unwrap();
         ov.run_trigger(3, 0).await.unwrap();
-        let msgs = ov.harness.queue.messages();
+        let msgs = ov.harness.context.messages();
         // fetch_terminal 被执行，tool result 含 Context 全文
         assert!(msgs.iter().any(|m| m.role == Role::Tool
             && m.content.as_deref().unwrap_or("").contains(&"y".repeat(100))));
@@ -999,7 +999,7 @@ mod tests {
         ov.run_trigger(1, 0).await.unwrap();
         let sys: Vec<_> = ov
             .harness
-            .queue
+            .context
             .messages()
             .iter()
             .filter(|m| m.role == Role::System)
@@ -1018,10 +1018,10 @@ mod tests {
         let agent = scripted(vec![say("[debug] 收到：你好")]);
         let mut ov = make_overseer_with("reply", agent);
         ov.harness
-            .append_queue(QueueMessage::new(Role::User, "你好", 1))
+            .append_context(ContextMessage::new(Role::User, "你好", 1))
             .unwrap();
         ov.run_trigger(2, 0).await.unwrap();
-        let last = ov.harness.queue.messages().last().unwrap();
+        let last = ov.harness.context.messages().last().unwrap();
         assert_eq!(last.role, Role::Assistant);
         assert_eq!(last.content.as_deref(), Some("[debug] 收到：你好"));
         let _ = std::fs::remove_dir_all(tmp_dir("reply"));
@@ -1037,7 +1037,7 @@ mod tests {
         );
         let effects = ov.handle_hook("stop", "ft", "proj", &raw, 1, 0).await.unwrap();
         assert!(effects.is_empty());
-        assert_eq!(ov.harness.context.latest("ft").unwrap().content, "● 完成");
+        assert_eq!(ov.harness.content.latest("ft").unwrap().content, "● 完成");
         let _ = std::fs::remove_dir_all(tmp_dir("filter"));
     }
 
@@ -1062,12 +1062,12 @@ mod tests {
             .handle_timer_scan("cship", &new_content, 2, 0)
             .await
             .unwrap();
-        let rec = ov.harness.context.latest("cship").unwrap();
+        let rec = ov.harness.content.latest("cship").unwrap();
         assert_eq!(rec.source, RecordSource::Timer);
         assert_eq!(rec.content, new_content);
         assert!(ov
             .harness
-            .queue
+            .context
             .messages()
             .iter()
             .any(|m| m.content.as_deref().unwrap_or("").contains("兜底扫描发现变化")));
@@ -1081,15 +1081,15 @@ mod tests {
         ov.handle_hook("session_start", "cship", "proj", "内容不变", 1, 0)
             .await
             .unwrap();
-        let msgs_before = ov.harness.queue.messages().len();
+        let msgs_before = ov.harness.context.messages().len();
         // 内容相同 → Unchanged → 存档但不打扰
         let effects = ov
             .handle_timer_scan("cship", "内容不变", 2, 0)
             .await
             .unwrap();
         assert!(effects.is_empty());
-        assert_eq!(ov.harness.queue.messages().len(), msgs_before);
-        assert_eq!(ov.harness.context.latest("cship").unwrap().source, RecordSource::Timer);
+        assert_eq!(ov.harness.context.messages().len(), msgs_before);
+        assert_eq!(ov.harness.content.latest("cship").unwrap().source, RecordSource::Timer);
         let _ = std::fs::remove_dir_all(tmp_dir("timer-min"));
     }
 
@@ -1117,7 +1117,7 @@ mod tests {
         .unwrap();
         assert!(archive.contains("✻ Crunched for 12s")); // 原文噪音还在
         assert!(archive.contains("\"source\":\"hook\""));
-        assert_eq!(ov.harness.context.latest("ft").unwrap().content, "● 完成");
+        assert_eq!(ov.harness.content.latest("ft").unwrap().content, "● 完成");
         let _ = std::fs::remove_dir_all(tmp_dir("raw-archive"));
     }
 
@@ -1147,7 +1147,7 @@ mod tests {
         // 末端状态不落 Queue（内存视图无它）
         assert!(ov
             .harness
-            .queue
+            .context
             .messages()
             .iter()
             .all(|m| m.content.as_deref() != Some("[face: idle, motion: still]")));
@@ -1210,11 +1210,11 @@ mod tests {
             .unwrap();
         for i in 0..5 {
             ov.harness
-                .append_queue(QueueMessage::new(Role::User, format!("第 {i} 条消息内容内容"), i as i64))
+                .append_context(ContextMessage::new(Role::User, format!("第 {i} 条消息内容内容"), i as i64))
                 .unwrap();
         }
         ov.run_trigger(10, 0).await.unwrap();
-        let msgs = ov.harness.queue.messages();
+        let msgs = ov.harness.context.messages();
         // 内存视图：摘要为首条（shaking）
         assert!(msgs[0].content.as_deref().unwrap().starts_with("[历史摘要]"));
         // 归零重 diff：全景消息在摘要之后（压缩不丢实例认知）
@@ -1308,7 +1308,7 @@ mod tests {
             .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000, 0)
             .await
             .unwrap();
-        let m = ov.harness.queue.messages().last().unwrap().content.clone().unwrap();
+        let m = ov.harness.context.messages().last().unwrap().content.clone().unwrap();
         assert!(m.contains("完成：修了 3 个文件。评估是否通知"), "B: {m}");
         let _ = std::fs::remove_dir_all(tmp_dir("rh5"));
 
@@ -1319,7 +1319,7 @@ mod tests {
             .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000, 0)
             .await
             .unwrap();
-        let m = ov.harness.queue.messages().last().unwrap().content.clone().unwrap();
+        let m = ov.harness.context.messages().last().unwrap().content.clone().unwrap();
         assert_eq!(m, "[汇报] p·dddd3333 完成：修了 3 个文件");
         let _ = std::fs::remove_dir_all(tmp_dir("rh6"));
 
@@ -1334,9 +1334,9 @@ mod tests {
             .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, None, 1000, 0)
             .await
             .unwrap();
-        let m = ov.harness.queue.messages().last().unwrap().content.clone().unwrap();
+        let m = ov.harness.context.messages().last().unwrap().content.clone().unwrap();
         assert!(m.contains("Context 已更新"), "A: {m}");
-        let ctx = ov.harness.context.latest("p·dddd3333").expect("context 已写");
+        let ctx = ov.harness.content.latest("p·dddd3333").expect("context 已写");
         assert!(ctx.content.contains("hooks 已配置"));
         let _ = std::fs::remove_dir_all(tmp_dir("rh7"));
     }
@@ -1472,7 +1472,7 @@ mod tests {
         assert_eq!(a.kind.as_deref(), Some("claude"));
         assert_eq!(a.status, AgentStatus::Idle);
         assert_eq!(a.first_seen, 1000);
-        assert!(ov.harness.queue.messages().is_empty()); // 无 queue 注入
+        assert!(ov.harness.context.messages().is_empty()); // 无 queue 注入
         let _ = std::fs::remove_dir_all(tmp_dir("rh1"));
     }
 
@@ -1504,7 +1504,7 @@ mod tests {
         assert_eq!(a.first_seen, 2000); // first_seen = 后端初见时刻
         assert!(ov
             .harness
-            .queue
+            .context
             .messages()
             .iter()
             .any(|m| m.content.as_deref().unwrap_or("").contains("修完了")));
@@ -1552,7 +1552,7 @@ mod tests {
         assert_eq!(a.status, AgentStatus::Processing); // 派活驱动
         assert!(ov
             .harness
-            .queue
+            .context
             .messages()
             .iter()
             .any(|m| m.content.as_deref().unwrap_or("").contains("[观察] 用户在")));
@@ -1598,7 +1598,7 @@ mod tests {
             .unwrap();
         assert!(out.restart_required.is_empty());
         assert!(!out.llm_changed);
-        assert_eq!(ov.harness.queue.token_threshold, 5000); // 热同步
+        assert_eq!(ov.harness.context.token_threshold, 5000); // 热同步
         let reloaded = Config::load_or_default(ov.harness.config_dir());
         assert_eq!(reloaded.token_threshold, 5000); // persist
         let _ = std::fs::remove_dir_all(tmp_dir("apply"));

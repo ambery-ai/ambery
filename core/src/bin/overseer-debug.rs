@@ -3,7 +3,7 @@
 
 use overseer_core::llm::{DebugAgent, LlmBackend, LlmOutput};
 use overseer_core::overseer::OverseerBackend;
-use overseer_core::queue::{QueueMessage, ToolCall};
+use overseer_core::context::{ContextMessage, ToolCall};
 use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
 use serde_json::Value;
@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 /// 每次调用把全量 Queue 以机读帧打到 stdout（@@@ 前缀与 server 日志区分），
 /// 再从 stdin 读响应：`c <文本>` | `t <tool名> <json参数>`（可多行）| 空行提交。
 /// 外部脚本（如 scripts/debug_brain.py）接管本进程 stdin/stdout 即可驱动。
-fn cli_decide(messages: &[QueueMessage]) -> LlmOutput {
+fn cli_decide(messages: &[ContextMessage]) -> LlmOutput {
     use std::io::BufRead;
     println!("@@@QUEUE_BEGIN");
     for (i, m) in messages.iter().enumerate() {

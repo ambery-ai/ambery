@@ -5,7 +5,7 @@
 
 use overseer_core::llm::LlmBackend;
 use overseer_core::overseer::{Effect, OverseerBackend};
-use overseer_core::queue::{QueueMessage, Role};
+use overseer_core::context::{ContextMessage, Role};
 use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
 use serde_json::{json, Value};
@@ -63,14 +63,14 @@ async fn get_state(state: tauri::State<'_, SharedTauriState>) -> Result<Value, S
 async fn get_queue(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
-    Ok(json!(ov.harness.queue.messages()))
+    Ok(json!(ov.harness.context.messages()))
 }
 
 #[tauri::command]
 async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let mut ov = s.overseer().lock().await;
-    ov.harness.append_queue(QueueMessage::new(Role::User, text, now_ms()))
+    ov.harness.append_context(ContextMessage::new(Role::User, text, now_ms()))
         .map_err(|e| e.to_string())?;
     let effects = ov.run_trigger(now_ms(), 0).await.map_err(|e| e.to_string())?;
     drop(ov);

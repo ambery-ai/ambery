@@ -1,7 +1,8 @@
 //! Harness（concepts §10，docs/harness.md）：ペット和 OverseerBackend 共享的数据层。
-//! Queue / Context / Event Buffer / agents 注册表 + JSONL Storage replay。
+//! Context（消息数组）/ Content 存档 / Event Buffer / agents 注册表 + JSONL Storage replay。
 
 pub mod config;
+pub mod content;
 pub mod context;
 pub mod event_buffer;
 pub mod filter;
@@ -12,17 +13,16 @@ pub mod mock;
 pub mod case;
 pub mod overseer;
 pub mod paths;
-pub mod queue;
 pub mod server;
 pub mod sidecar;
 pub mod storage;
 pub mod timer;
 
 pub use config::{Config, KaomojiEntry, LlmConfig, LlmProvider, CONFIG_FILE};
-use context::Context;
-pub use context::{ContextRecord, RecordSource, TerminalContentRecord};
+use content::ContentArchive;
+pub use content::{ContentRecord, RecordSource, TerminalContentRecord};
+use context::{Context, ContextMessage};
 use event_buffer::EventBuffer;
-use queue::{Queue, QueueMessage};
 use serde::{Deserialize, Serialize};
 use storage::JsonlStore;
 
@@ -40,10 +40,10 @@ pub const AGENTS_MD_FILE: &str = "AGENTS.md";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContextLine {
-    /// QueueMessage 全保真（含 tool_calls/reasoning_content）
+    /// ContextMessage 全保真（含 tool_calls/reasoning_content）
     Message {
         #[serde(flatten)]
-        msg: QueueMessage,
+        msg: ContextMessage,
     },
     /// Autonomy 状态记录：每轮一条，最新一条挂请求末端（concepts §4）
     Autonomy { content: String, ts: i64 },
@@ -124,8 +124,10 @@ pub fn agent_hash(name: &str, project: &str, first_seen: i64) -> String {
 }
 
 pub struct Harness {
-    pub queue: Queue,
+    /// Context（concepts §10b）：完整消息数组，LLM 请求的上下文源
     pub context: Context,
+    /// Content 存档（concepts §8/§11）：Filter 后归一全文参考数据
+    pub content: ContentArchive,
     pub event_buffer: EventBuffer,
     pub agents: Vec<AgentEntry>,
     /// 最近一次写入的请求头（head diff：变化才写，docs/storage.md）
@@ -153,7 +155,7 @@ pub fn panorama(agents: &[AgentEntry]) -> Option<String> {
 
 impl Harness {
     /// 启动：replay JSONL 恢复世界状态（concepts §13「跨生命周期保留」）。
-    /// Queue 是内存视图：起步为空 + 写 session 标记 + 存活实例归零重同步（docs/storage.md）。
+    /// Context 是内存视图：起步为空 + 写 session 标记 + 存活实例归零重同步（docs/storage.md）。
     pub fn load(
         dir: &std::path::Path,
         config_dir: &std::path::Path,
@@ -161,7 +163,7 @@ impl Harness {
         ts: i64,
     ) -> std::io::Result<Self> {
         let store = JsonlStore::new(dir)?;
-        // context.jsonl 统一信封 replay：content → 内存 Context；head → last_head；其余为历史留痕
+        // context.jsonl 统一信封 replay：content → 内存 ContentArchive；head → last_head；其余为历史留痕
         let mut content_records = vec![];
         let mut last_head = None;
         for line in store.read_all::<ContextLine>(CONTEXT_FILE)? {
@@ -171,7 +173,7 @@ impl Harness {
                     content,
                     source,
                     ts,
-                } => content_records.push(ContextRecord {
+                } => content_records.push(ContentRecord {
                     instance,
                     content,
                     source,
@@ -181,7 +183,7 @@ impl Harness {
                 _ => {}
             }
         }
-        let context = Context::from_records(content_records);
+        let content = ContentArchive::from_records(content_records);
         // agents 是 upsert 日志：replay 须逐条折叠（同 id 取最后一条）
         let mut agents: Vec<AgentEntry> = vec![];
         for entry in store.read_all::<AgentEntry>(WORK_AGENTS_FILE)? {
@@ -194,8 +196,8 @@ impl Harness {
             std::fs::write(agents_md_path, default_agents_md())?;
         }
         let mut h = Self {
-            queue: Queue::new(token_threshold),
-            context,
+            context: Context::new(token_threshold),
+            content,
             // Event Buffer 不持久化：暂存区语义，崩溃丢失可接受（docs/harness.md 设计决定）
             event_buffer: EventBuffer::default(),
             agents,
@@ -206,21 +208,21 @@ impl Harness {
         // session 分界 + 启动归零重同步（存活实例全景一条 system 消息，落 message 行）
         h.log_session(&format!("{:x}", ts), ts)?;
         if let Some(p) = panorama(&h.agents) {
-            h.append_queue(QueueMessage::new(queue::Role::System, p, ts))?;
+            h.append_context(ContextMessage::new(context::Role::System, p, ts))?;
         }
         Ok(h)
     }
 
-    /// 追加消息：内存 Queue + context.jsonl message 行双写（docs/storage.md）
-    pub fn append_queue(&mut self, msg: QueueMessage) -> std::io::Result<()> {
+    /// 追加消息：内存 Context + context.jsonl message 行双写（docs/storage.md）
+    pub fn append_context(&mut self, msg: ContextMessage) -> std::io::Result<()> {
         self.store
             .append(CONTEXT_FILE, &ContextLine::Message { msg: msg.clone() })?;
-        self.queue.push(msg);
+        self.context.push(msg);
         Ok(())
     }
 
-    /// Filter 后归一全文：context.jsonl content 行 + 内存 Context
-    pub fn append_context(&mut self, rec: ContextRecord) -> std::io::Result<()> {
+    /// Filter 后归一全文：context.jsonl content 行 + 内存 ContentArchive
+    pub fn append_content(&mut self, rec: ContentRecord) -> std::io::Result<()> {
         self.store.append(
             CONTEXT_FILE,
             &ContextLine::Content {
@@ -230,7 +232,7 @@ impl Harness {
                 ts: rec.ts,
             },
         )?;
-        self.context.push(rec);
+        self.content.push(rec);
         Ok(())
     }
 
@@ -332,8 +334,8 @@ pub fn default_agents_md() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use context::RecordSource;
-    use queue::Role;
+    use content::RecordSource;
+    use context::Role;
 
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -350,8 +352,8 @@ mod tests {
         let dir = tmp_dir("replay");
         {
             let mut h = Harness::load(&dir, &dir, 1000, 0).unwrap();
-            h.append_queue(QueueMessage::new(Role::User, "你好", 1)).unwrap();
-            h.append_context(ContextRecord {
+            h.append_context(ContextMessage::new(Role::User, "你好", 1)).unwrap();
+            h.append_content(ContentRecord {
                 instance: "ft".into(),
                 content: "终端全文".into(),
                 source: RecordSource::Hook,
@@ -370,13 +372,13 @@ mod tests {
             })
             .unwrap();
         }
-        // 重启 replay：世界状态恢复；Queue 起步为空 + 存活实例归零重同步一条
+        // 重启 replay：世界状态恢复；Context 起步为空 + 存活实例归零重同步一条
         let h = Harness::load(&dir, &dir, 1000, 9).unwrap();
-        assert_eq!(h.queue.messages().len(), 1);
-        let resync = h.queue.messages()[0].content.as_deref().unwrap();
+        assert_eq!(h.context.messages().len(), 1);
+        let resync = h.context.messages()[0].content.as_deref().unwrap();
         assert!(resync.contains("实例全景同步"));
         assert!(resync.contains("ft"));
-        assert_eq!(h.context.latest("ft").unwrap().content, "终端全文");
+        assert_eq!(h.content.latest("ft").unwrap().content, "终端全文");
         assert_eq!(h.agents.len(), 1);
         assert_eq!(h.agents[0].status, AgentStatus::Processing);
         // context.jsonl 统一信封：session 标记每次启动一条
