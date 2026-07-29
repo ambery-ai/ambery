@@ -248,9 +248,96 @@ export class BrowserMockBridge implements Bridge {
   }
 }
 
-/** overseer-core 在跑 → RemoteBridge（真实 Harness 链路）；否则浏览器内存 mock */
+/** Tauri 原生 IPC bridge（invoke + listen，docs/core-server.md） */
+class TauriBridge implements Bridge {
+  private renderListeners: ((spec: ComponentSpec) => void)[] = [];
+  private contextListeners: ((m: ContextMessage[]) => void)[] = [];
+  private topStateListeners: ((s: TopState) => void)[] = [];
+  private autonomyListeners: ((args: { face?: string; motion?: Motion; ttlMs?: number }) => void)[] = [];
+  private configListeners: ((cfg: AppConfig) => void)[] = [];
+
+  constructor(
+    private invokeFn: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
+    listenFn: (event: string, cb: (ev: { payload: unknown }) => void) => Promise<unknown>,
+  ) {
+    void listenFn("effect", (ev) => {
+      const msg = ev.payload as {
+        kind?: string;
+        spec?: ComponentSpec;
+        face?: string;
+        motion?: Motion;
+        ttlMs?: number;
+        state?: TopState;
+      };
+      if (!msg?.kind) return;
+      switch (msg.kind) {
+        case "render_component":
+          if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec!));
+          break;
+        case "set_autonomy":
+          this.autonomyListeners.forEach((cb) =>
+            cb({ face: msg.face, motion: msg.motion, ttlMs: msg.ttlMs }),
+          );
+          break;
+        case "config":
+          void this.getConfig().then((cfg) => this.configListeners.forEach((cb) => cb(cfg)));
+          break;
+        case "context_changed":
+          void this.getContext().then((m) => this.contextListeners.forEach((cb) => cb(m)));
+          break;
+        case "top_state":
+          if (msg.state) this.topStateListeners.forEach((cb) => cb(msg.state!));
+          break;
+      }
+    });
+  }
+
+  async getConfig(): Promise<AppConfig> {
+    return this.invokeFn("get_config") as Promise<AppConfig>;
+  }
+  async getTopState(): Promise<TopState> {
+    // wait_state 竞态期（run_core 未注入）保底：不炸前端，返回空态
+    return (this.invokeFn("get_state") as Promise<TopState>).catch((e) => {
+      console.error("[bridge] get_state", e);
+      return { instances: [], pendingNotifications: 0 };
+    });
+  }
+  async getContext(): Promise<ContextMessage[]> {
+    return (this.invokeFn("get_context") as Promise<ContextMessage[]>).catch((e) => {
+      console.error("[bridge] get_context", e);
+      return [];
+    });
+  }
+  appendUserMessage(text: string): void {
+    void this.invokeFn("append_user", { text }).catch((e) => console.error("[bridge] append_user", e));
+  }
+  pushEvent(desc: string): void {
+    void this.invokeFn("push_event", { desc }).catch((e) => console.error("[bridge] push_event", e));
+  }
+  onRenderComponent(cb: (spec: ComponentSpec) => void): void {
+    this.renderListeners.push(cb);
+  }
+  onContextChanged(cb: (m: ContextMessage[]) => void): void {
+    this.contextListeners.push(cb);
+  }
+  onTopStateChanged(cb: (s: TopState) => void): void {
+    this.topStateListeners.push(cb);
+  }
+  onSetAutonomy(cb: (args: { face?: string; motion?: Motion; ttlMs?: number }) => void): void {
+    this.autonomyListeners.push(cb);
+  }
+  onConfigChanged(cb: (cfg: AppConfig) => void): void {
+    this.configListeners.push(cb);
+  }
+}
+
+/** Tauri 模式 → TauriBridge（原生 IPC）；浏览器 → overseer-core 在跑用 RemoteBridge，否则内存 mock */
 export async function createBridge(): Promise<Bridge> {
-  // Tauri/浏览器模式统一走 HTTP+WS（RemoteBridge），Tauri IPC 后续独立调试
+  if ("__TAURI_INTERNALS__" in window) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { listen } = await import("@tauri-apps/api/event");
+    return new TauriBridge(invoke, listen);
+  }
   const { RemoteBridge } = await import("./remote");
   if (await RemoteBridge.probe()) {
     const b = new RemoteBridge();

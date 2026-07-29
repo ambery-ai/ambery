@@ -6,7 +6,7 @@
 use overseer_core::llm::LlmBackend;
 use overseer_core::overseer::OverseerBackend;
 use overseer_core::context::Role;
-use overseer_core::server::{now_ms, router, spawn_queue_consumer, spawn_timer_task, AppState};
+use overseer_core::server::{now_ms, hook_router, spawn_queue_consumer, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -185,14 +185,89 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     // 注入 Tauri managed state
     *state_mgr.0.lock().unwrap() = Some(state.clone());
 
-    // HTTP+WS server（前端 RemoteBridge 暂用，Tauri IPC 后续独立调试）
+    // effects 推送：WS（浏览器 debug 兼容期）+ Tauri 原生事件（#9.5 emit 链路接通）
     let (tx, _) = tokio::sync::broadcast::channel(64);
     {
         let tx = tx.clone();
-        state.set_sender(Box::new(move |msg: Value| { let _ = tx.send(msg.to_string()); })).await;
+        let handle = handle.clone();
+        state
+            .set_sender(Box::new(move |msg: Value| {
+                let _ = tx.send(msg.to_string());
+                let _ = handle.emit("effect", msg);
+            }))
+            .await;
     }
-    let app = router(state, tx);
+    // Tauri 模式：前端走 IPC（TauriBridge），HTTP 仅留 /hook（外部 hook 脚本，进程外不可走 command）
+    let app = hook_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:47600").await.expect("bind 47600");
     eprintln!("overseer-core listening on http://127.0.0.1:47600");
     axum::serve(listener, app).await.expect("serve core");
+}
+
+// ── #9.5 二分测试：invoke 是否到达 handler + State 是否提取成功（tauri::test mock runtime）──
+#[cfg(test)]
+mod ipc_tests {
+    use super::*;
+
+    fn build_harness_state(tag: &str) -> Arc<AppState> {
+        let dir = std::env::temp_dir().join(format!("overseer-ipc-test-{tag}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let config = Config::load_or_default(&dir);
+        let harness = Harness::load(&dir, &dir, config.token_threshold, 0).unwrap();
+        let backend = LlmBackend::from_config(&config.llm);
+        let ov = OverseerBackend::new(harness, config, backend);
+        let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        Arc::new(AppState::new(ov, mock))
+    }
+
+    fn ipc(cmd: &str) -> tauri::webview::InvokeRequest {
+        tauri::webview::InvokeRequest {
+            cmd: cmd.into(),
+            callback: tauri::ipc::CallbackFn(0),
+            error: tauri::ipc::CallbackFn(1),
+            url: "http://tauri.localhost".parse().unwrap(),
+            body: tauri::ipc::InvokeBody::default(),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_string(),
+        }
+    }
+
+    fn mock_app_with_commands() -> tauri::App<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
+            .invoke_handler(tauri::generate_handler![get_state, get_config])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap()
+    }
+
+    #[test]
+    fn invoke_reaches_handler_and_extracts_state() {
+        let app = mock_app_with_commands();
+        // 注入 AppState（模拟 run_core 完成，wait_state 立即返回）
+        let mgr = app.state::<SharedTauriState>();
+        *mgr.0.lock().unwrap() = Some(build_harness_state("extract"));
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+
+        // 新 command：get_config（含 eprintln 探针，test 输出可见 [tauri-cmd]）
+        let resp = tauri::test::get_ipc_response(&window, ipc("get_config"));
+        assert!(resp.is_ok(), "get_config invoke 失败: {resp:?}");
+        // 新 command：get_state
+        let resp = tauri::test::get_ipc_response(&window, ipc("get_state"));
+        assert!(resp.is_ok(), "get_state invoke 失败: {resp:?}");
+    }
+
+    #[test]
+    fn invoke_before_state_injection_fails_not_hangs() {
+        // race 场景：state 未注入时 wait_state 5s 超时返回 Err（而非 panic/挂死）
+        let app = mock_app_with_commands();
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let resp = tauri::test::get_ipc_response(&window, ipc("get_config"));
+        // handler 到达但返回 "not ready" 错误（证明 invoke 链路通，只是 state 未就绪）
+        let err = resp.expect_err("state 未注入时应返回错误");
+        assert!(err.to_string().contains("not ready"), "意外错误: {err}");
+    }
 }
