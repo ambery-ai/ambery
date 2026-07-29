@@ -184,14 +184,33 @@ impl<L: Llm> OverseerBackend<L> {
     }
 
     /// 放行一条输入：Context 写输入 → run_trigger（一轮完整处理，concepts §10c）
+    /// Event Buffer 附带（concepts §10e）：放行时 merge 清空——system 输入与之合并为
+    /// 一条消息；user 输入则 buffer 以独立 system 消息先行附带（与 user role 严格分离）。
     pub async fn release_one(
         &mut self,
         input: crate::queue::QueueInput,
         pending_notifications: usize,
     ) -> std::io::Result<Vec<Effect>> {
         let ts = input.ts;
-        self.harness
-            .append_context(ContextMessage::new(input.role, input.content, ts))?;
+        let merged = self.harness.event_buffer.merge_and_clear();
+        match (input.role, merged) {
+            (Role::System, Some(buf)) => {
+                // 附带合并为一条 system 消息
+                self.harness.append_context(ContextMessage::new(
+                    Role::System,
+                    format!("{}\n\n{}", input.content, buf),
+                    ts,
+                ))?;
+            }
+            (role, maybe_buf) => {
+                if let Some(buf) = maybe_buf {
+                    self.harness
+                        .append_context(ContextMessage::new(Role::System, buf, ts))?;
+                }
+                self.harness
+                    .append_context(ContextMessage::new(role, input.content, ts))?;
+            }
+        }
         self.run_trigger(ts, pending_notifications).await
     }
 
@@ -205,26 +224,22 @@ impl<L: Llm> OverseerBackend<L> {
     }
 
     /// 一轮触发（docs/agent-loop.md §一轮触发）
+    /// 调用前输入已写 Context、Event Buffer 已在放行点附带（release_one）。
     /// pending_notifications：未决通知数（server 层计数传入，推导 notify key 用）
     pub async fn run_trigger(
         &mut self,
         ts: i64,
         pending_notifications: usize,
     ) -> std::io::Result<Vec<Effect>> {
-        // 1. merge Event Buffer → 一条 system message
-        if let Some(merged) = self.harness.event_buffer.merge_and_clear() {
-            self.harness
-                .append_context(ContextMessage::new(Role::System, merged, ts))?;
-        }
-        // 2. 现拼 system prompt 请求头（不落 Queue）；变化才写 head 快照（docs/storage.md）
+        // 1. 现拼 system prompt 请求头（不落 Context）；变化才写 head 快照（docs/storage.md）
         let head = self.assemble_system_prompt();
         if self.harness.last_head.as_deref() != Some(head.as_str()) {
             self.harness.log_head(head.clone(), ts)?;
         }
-        // 3. Autonomy 状态：每轮一条写 context.jsonl，最新一条挂请求末端（concepts §4）
+        // 2. Autonomy 状态：每轮一条写 context.jsonl，最新一条挂请求末端（concepts §4）
         let autonomy = self.state_key(pending_notifications);
         self.harness.log_autonomy(autonomy.clone(), ts)?;
-        // 4. Compression（auto-compact，concepts §10d）：专项摘要调用 → 内存 shaking
+        // 3. Compression（auto-compact，concepts §10d）：专项摘要调用 → 内存 shaking
         //    → compact_boundary 标记（文件不删历史）→ 归零重 diff 全景
         if self.harness.context.needs_compression() {
             let pre_tokens = self.harness.context.total_tokens();
@@ -248,7 +263,7 @@ impl<L: Llm> OverseerBackend<L> {
                     .append_context(ContextMessage::new(Role::System, p, ts))?;
             }
         }
-        // 5. tool 循环（请求 = 请求头 + Queue 全部消息 + Autonomy 末端）
+        // 4. tool 循环（请求 = 请求头 + Context 全部消息 + Autonomy 末端）
         let tools = tool_set();
         let mut effects = vec![];
         for _ in 0..self.max_tool_iters {
@@ -985,11 +1000,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn event_buffer_merged_on_trigger() {
+    async fn event_buffer_attached_on_release() {
+        // 定案（concepts §10e）：放行 system 输入时 Event Buffer 附带合并为一条消息
         let mut ov = make_overseer("merge");
         ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
         ov.harness.event_buffer.push("用户勾选了 todobox 条目「跑测试」");
-        ov.run_trigger(1, 0).await.unwrap();
+        ov.enqueue(Role::System, "ft 完成。评估是否通知。".into(), 1)
+            .unwrap();
+        ov.drain_queue(0).await.unwrap();
         let sys: Vec<_> = ov
             .harness
             .context
@@ -997,13 +1015,36 @@ mod tests {
             .iter()
             .filter(|m| m.role == Role::System)
             .collect();
-        // 合并的一条
+        // 附带合并的一条（输入 + buffer，不独立成条）
         assert_eq!(sys.len(), 1);
         let merged = sys[0].content.as_deref().unwrap();
+        assert!(merged.contains("ft 完成"));
         assert!(merged.contains("用户关闭了 text_card「摘要」"));
         assert!(merged.contains("用户勾选了 todobox 条目「跑测试」"));
         assert!(ov.harness.event_buffer.is_empty());
         let _ = std::fs::remove_dir_all(tmp_dir("merge"));
+    }
+
+    #[tokio::test]
+    async fn event_buffer_keeps_user_role_clean() {
+        // 定案（concepts §10e 末句）：与 user role 严格分离——user 输入放行时
+        // buffer 以独立 system 消息先行附带，不污染 user 消息
+        let mut ov = make_overseer("merge-user");
+        ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
+        ov.enqueue(Role::User, "那个 bug 怎么回事？".into(), 1)
+            .unwrap();
+        ov.drain_queue(0).await.unwrap();
+        let msgs = ov.harness.context.messages();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].role, Role::System);
+        assert!(msgs[0]
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("用户关闭了 text_card「摘要」"));
+        assert_eq!(msgs[1].role, Role::User);
+        assert_eq!(msgs[1].content.as_deref(), Some("那个 bug 怎么回事？"));
+        let _ = std::fs::remove_dir_all(tmp_dir("merge-user"));
     }
 
     #[tokio::test]
