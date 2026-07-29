@@ -97,3 +97,17 @@ concepts.md §10c 与实际代码之间存在重大架构偏差。用户模型�
 2026-07-29 grill 定案——Event Buffer/Context/LLM 链路：`Component 交互 → Event Buffer（积压） → LLM 触发时合并为 system 消息 → Queue → Context 写输入 → LLM → assistant 回复 → Context 写输出`。两边输入最终汇入同一条 Queue→Context→LLM→Context 管道。
 
 2026-07-29 修复——先文档后代码两轮对齐。文档：concepts §3a/§5/§10a/§10b/§10d/§13 修正 + Data Flow 重画，harness/storage/agent-loop 等 10 文件同步（Queue=输入串行化关口、Context=完整消息数组、EventBuffer=放行附带、Compression 作用于 Context、storage 新增 queue.jsonl 排队轨迹节）。代码四连：①重命名归位——消息数组正名 Context/ContextMessage，终端内容存档正名 ContentArchive/ContentRecord；②真 Queue 输入排队器——QueueInput+FIFO，handle_hook/handle_real_hook/handle_timer_scan 改生产者入队即返（不再持锁等 LLM），spawn_queue_consumer 单消费者串行放行（放行→Context 写输入→LLM→写输出→下一条），queue.jsonl append-only 留痕；③EventBuffer 附带语义——merge 锚到放行点，system 输入合并为一条消息，user 输入不污染 user role；④IPC/HTTP 面更名——GET /context、context_changed、get_context、ContextMessage。78 测试绿 + 前端构建绿，生产冒烟用户确认 harness 可用。
+
+***
+
+**触发场景**: 用户拖动 card/chat 窗口到合适位置；通过托盘按钮切换 pet 显示/隐藏。
+
+**表现**: 窗口被从 A 拖到 B 后，pet 一移动窗口就弹回 A；重启后拖过的位置也丢失；pet 隐藏期间新 card 窗口仍然弹出。
+
+## #12 窗口拖动位置不持久、不作为跟随基准 (2026-07-29) — open
+
+card/chat 窗口从自动布局位置 A 拖到 B 后，新位置只生效于当下：(1) pet 移动时窗口跟随的偏移基准仍是 A——pet 一动窗口就恢复显示在 A 处，而不是以用户拖到的 B 为新偏移基准跟随；(2) 拖到的位置没有持久化，重启后丢失。#8 预期的「松手后记录新位置到布局引擎，后续 pet 移动时以新位置为偏移基准重新跟随」未真正落地。建议：拖动松手即更新布局引擎中该窗口的偏移基准，并持久化（重启后恢复）。
+
+## #13 pet 隐藏后新 card 窗口仍然弹出 (2026-07-29) — open
+
+托盘切换为隐藏后（pet/chat 隐藏、cards:hide 广播已发出的存量窗口），后续 ペット call_component 触发的新 card 窗口仍然会创建并显示。隐藏状态应对 card 窗口全局生效：隐藏期间新 card 不弹出（延迟到恢复显示时呈现，或直接抑制创建）。
