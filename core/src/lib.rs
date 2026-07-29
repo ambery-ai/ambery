@@ -1,5 +1,6 @@
 //! Harness（concepts §10，docs/harness.md）：ペット和 OverseerBackend 共享的数据层。
-//! Context（消息数组）/ Content 存档 / Event Buffer / agents 注册表 + JSONL Storage replay。
+//! Queue（输入排队）/ Context（消息数组）/ Content 存档 / Event Buffer / agents 注册表
+//! + JSONL Storage replay。
 
 pub mod config;
 pub mod content;
@@ -13,6 +14,7 @@ pub mod mock;
 pub mod case;
 pub mod overseer;
 pub mod paths;
+pub mod queue;
 pub mod server;
 pub mod sidecar;
 pub mod storage;
@@ -23,10 +25,13 @@ use content::ContentArchive;
 pub use content::{ContentRecord, RecordSource, TerminalContentRecord};
 use context::{Context, ContextMessage};
 use event_buffer::EventBuffer;
+use queue::{Queue, QueueInput};
 use serde::{Deserialize, Serialize};
 use storage::JsonlStore;
 
 pub const CONTEXT_FILE: &str = "context.jsonl";
+/// Queue 输入排队记录（排队轨迹非对话本体，docs/storage.md）
+pub const QUEUE_FILE: &str = "queue.jsonl";
 /// Terminal Content 原文存档（Filter 前，docs/storage.md）
 pub const TERMINAL_CONTENT_FILE: &str = "terminal-content.jsonl";
 /// work-agents 注册表（被盯的干活 Code CLI 实例清单，append-only upsert 日志）
@@ -124,6 +129,8 @@ pub fn agent_hash(name: &str, project: &str, first_seen: i64) -> String {
 }
 
 pub struct Harness {
+    /// Queue（concepts §10c）：输入串行化关口，只装待放行输入
+    pub queue: Queue,
     /// Context（concepts §10b）：完整消息数组，LLM 请求的上下文源
     pub context: Context,
     /// Content 存档（concepts §8/§11）：Filter 后归一全文参考数据
@@ -196,6 +203,8 @@ impl Harness {
             std::fs::write(agents_md_path, default_agents_md())?;
         }
         let mut h = Self {
+            // Queue 不 replay：崩溃丢失未放行输入可接受（docs/storage.md 设计决定）
+            queue: Queue::default(),
             context: Context::new(token_threshold),
             content,
             // Event Buffer 不持久化：暂存区语义，崩溃丢失可接受（docs/harness.md 设计决定）
@@ -211,6 +220,13 @@ impl Harness {
             h.append_context(ContextMessage::new(context::Role::System, p, ts))?;
         }
         Ok(h)
+    }
+
+    /// 入队一条输入：内存 Queue + queue.jsonl 留痕双写（docs/storage.md）
+    pub fn enqueue_input(&mut self, input: QueueInput) -> std::io::Result<()> {
+        self.store.append(QUEUE_FILE, &input)?;
+        self.queue.enqueue(input);
+        Ok(())
     }
 
     /// 追加消息：内存 Context + context.jsonl message 行双写（docs/storage.md）

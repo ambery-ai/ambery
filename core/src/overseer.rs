@@ -176,6 +176,34 @@ impl<L: Llm> OverseerBackend<L> {
         format!("[face: {key}, motion: {motion}]")
     }
 
+    /// 入队一条输入（concepts §10c：hook 内容 = system，user 消息 = user）。
+    /// 生产者只入队不触发——放行由 drain_queue / server 消费者任务驱动。
+    pub fn enqueue(&mut self, role: Role, content: String, ts: i64) -> std::io::Result<()> {
+        self.harness
+            .enqueue_input(crate::queue::QueueInput { role, content, ts })
+    }
+
+    /// 放行一条输入：Context 写输入 → run_trigger（一轮完整处理，concepts §10c）
+    pub async fn release_one(
+        &mut self,
+        input: crate::queue::QueueInput,
+        pending_notifications: usize,
+    ) -> std::io::Result<Vec<Effect>> {
+        let ts = input.ts;
+        self.harness
+            .append_context(ContextMessage::new(input.role, input.content, ts))?;
+        self.run_trigger(ts, pending_notifications).await
+    }
+
+    /// 放行循环：有输入就一轮一条处理完（server 消费者任务与测试共用）
+    pub async fn drain_queue(&mut self, pending_notifications: usize) -> std::io::Result<Vec<Effect>> {
+        let mut effects = vec![];
+        while let Some(input) = self.harness.queue.release() {
+            effects.append(&mut self.release_one(input, pending_notifications).await?);
+        }
+        Ok(effects)
+    }
+
     /// 一轮触发（docs/agent-loop.md §一轮触发）
     /// pending_notifications：未决通知数（server 层计数传入，推导 notify key 用）
     pub async fn run_trigger(
@@ -391,8 +419,7 @@ impl<L: Llm> OverseerBackend<L> {
         message: Option<&str>,
         last_assistant_message: Option<&str>,
         ts: i64,
-        pending_notifications: usize,
-    ) -> std::io::Result<Vec<Effect>> {
+    ) -> std::io::Result<()> {
         let project = std::path::Path::new(cwd)
             .file_name()
             .and_then(|s| s.to_str())
@@ -426,32 +453,20 @@ impl<L: Llm> OverseerBackend<L> {
             "session_start" => {
                 upsert(AgentStatus::Idle)?;
                 self.harness.event_buffer.push(format!("+ {name} 注册"));
-                Ok(vec![])
             }
             "session_end" => {
                 upsert(AgentStatus::Closed)?;
                 self.harness.event_buffer.push(format!("− {name} 关闭"));
-                Ok(vec![])
             }
-            // Queue 触发
+            // Queue 注入（放行后触发）
             "user_prompt" => {
                 upsert(AgentStatus::Processing)?;
                 let p = prompt.unwrap_or("").trim();
-                self.harness.append_context(ContextMessage::new(
-                    Role::System,
-                    format!("[观察] 用户在 {name} 输入：{p}"),
-                    ts,
-                ))?;
-                self.run_trigger(ts, pending_notifications).await
+                self.enqueue(Role::System, format!("[观察] 用户在 {name} 输入：{p}"), ts)?;
             }
             "notification" => {
                 let m = message.unwrap_or("").trim();
-                self.harness.append_context(ContextMessage::new(
-                    Role::System,
-                    format!("[{name}] 请求注意：{m}"),
-                    ts,
-                ))?;
-                self.run_trigger(ts, pending_notifications).await
+                self.enqueue(Role::System, format!("[{name}] 请求注意：{m}"), ts)?;
             }
             "stop" => {
                 upsert(AgentStatus::Idle)?;
@@ -509,12 +524,11 @@ impl<L: Llm> OverseerBackend<L> {
                         }
                     }
                 };
-                self.harness
-                    .append_context(ContextMessage::new(Role::System, text, ts))?;
-                self.run_trigger(ts, pending_notifications).await
+                self.enqueue(Role::System, text, ts)?;
             }
-            _ => Ok(vec![]),
+            _ => {}
         }
+        Ok(())
     }
 
     /// mock hook（docs/agent-loop.md §Mock Hook 契约）
@@ -525,8 +539,7 @@ impl<L: Llm> OverseerBackend<L> {
         project: &str,
         content: &str,
         ts: i64,
-        pending_notifications: usize,
-    ) -> std::io::Result<Vec<Effect>> {
+    ) -> std::io::Result<()> {
         // 读取链（docs/storage.md）：原文先存 terminal-content.jsonl，再 Filter 存 context.jsonl
         self.harness.append_terminal_content(TerminalContentRecord {
             instance: instance.into(),
@@ -539,13 +552,14 @@ impl<L: Llm> OverseerBackend<L> {
         // Hook 到达 → Timer 重排（近期有 Hook 的实例不该被补扫，docs/timer.md）
         self.timers.reset(instance, ts);
         match event {
+            // 静默簿记（EventBuffer，pet 不醒；docs/agent-loop.md mock 契约对齐真实分层）
             "session_start" => {
                 self.harness.upsert_agent(AgentEntry {
                     hash: crate::agent_hash(instance, project, ts),
                     name: instance.into(),
                     project: project.into(),
                     kind: None,
-                    status: AgentStatus::Processing,
+                    status: AgentStatus::Idle,
                     tab: None,
                     first_seen: ts,
                     last_seen: ts,
@@ -556,11 +570,9 @@ impl<L: Llm> OverseerBackend<L> {
                     source: RecordSource::Hook,
                     ts,
                 })?;
-                self.harness.append_context(ContextMessage::new(
-                    Role::System,
-                    format!("新实例 {instance} 已注册"),
-                    ts,
-                ))?;
+                self.harness
+                    .event_buffer
+                    .push(format!("新实例 {instance} 已注册"));
             }
             "stop" => {
                 // 同名不同命：沿用该名字最近一条未 closed 的生命周期（hash/first_seen）
@@ -589,15 +601,15 @@ impl<L: Llm> OverseerBackend<L> {
                     ts,
                 })?;
                 let len = filtered.chars().count();
-                self.harness.append_context(ContextMessage::new(
+                self.enqueue(
                     Role::System,
                     format!("{instance} 完成，Context 已更新（{len} 字）。评估是否通知。"),
                     ts,
-                ))?;
+                )?;
             }
             _ => {}
         }
-        self.run_trigger(ts, pending_notifications).await
+        Ok(())
     }
 
     /// 提取到期的兜底扫描实例（docs/timer.md）
@@ -617,8 +629,7 @@ impl<L: Llm> OverseerBackend<L> {
         instance: &str,
         content: &str,
         ts: i64,
-        pending_notifications: usize,
-    ) -> std::io::Result<Vec<Effect>> {
+    ) -> std::io::Result<()> {
         // 原文先存档（docs/storage.md），再 Filter + 变化检测
         self.harness.append_terminal_content(TerminalContentRecord {
             instance: instance.into(),
@@ -642,14 +653,13 @@ impl<L: Llm> OverseerBackend<L> {
             ts,
         })?;
         if matches!(change, Change::Substantive(_)) {
-            self.harness.append_context(ContextMessage::new(
+            self.enqueue(
                 Role::System,
                 format!("{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。"),
                 ts,
-            ))?;
-            return self.run_trigger(ts, pending_notifications).await;
+            )?;
         }
-        Ok(vec![])
+        Ok(())
     }
 
     /// Timer 兜底扫描发现 tab 不复存在 → closed 终态（docs/storage.md：永久日志的消亡语义）
@@ -901,7 +911,8 @@ mod tests {
         ]);
         let mut ov = make_overseer_with("notify", agent);
         let long = "x".repeat(120);
-        let effects = ov.handle_hook("stop", "ft", "proj", &long, 1, 0).await.unwrap();
+        ov.handle_hook("stop", "ft", "proj", &long, 1).await.unwrap();
+        let effects = ov.drain_queue(0).await.unwrap();
         assert!(effects.iter().any(|e| matches!(e, Effect::RenderComponent(_))));
         assert!(effects.iter().any(|e| matches!(e, Effect::SetAutonomy { .. })));
         let roles: Vec<Role> = ov.harness.context.messages().iter().map(|m| m.role).collect();
@@ -918,7 +929,8 @@ mod tests {
     #[tokio::test]
     async fn stop_short_content_silence() {
         let mut ov = make_overseer("silence");
-        let effects = ov.handle_hook("stop", "oss", "proj", "清理了 2 行注释", 1, 0).await.unwrap();
+        ov.handle_hook("stop", "oss", "proj", "清理了 2 行注释", 1).await.unwrap();
+        let effects = ov.drain_queue(0).await.unwrap();
         assert!(effects.is_empty());
         let roles: Vec<Role> = ov.harness.context.messages().iter().map(|m| m.role).collect();
         // system(hook)，沉默不追加 assistant
@@ -927,42 +939,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn session_start_registers_and_triggers() {
-        // mock 脚本：问候 (・ω・)ノ + 实例一览卡片（Example A 的人为剧本）
-        let agent = scripted(vec![
-            calls(vec![
-                ("set_autonomy", json!({"face": "(・ω・)ノ", "ttlMs": 3000})),
-                (
-                    "call_component",
-                    json!({"spec": {"id": "roster", "type": "text_card", "title": "实例一览", "text": "- new-feature [Processing]", "direction": "auto"}}),
-                ),
-            ]),
-            silence(),
-        ]);
-        let mut ov = make_overseer_with("register", agent);
-        let effects = ov
-            .handle_hook("session_start", "new-feature", "proj", "启动画面", 1, 0)
+    async fn session_start_silent_bookkeeping() {
+        // 定案（concepts §9b / docs/agent-loop.md mock 契约）：session_start = 静默簿记，
+        // pet 不醒——注册 Idle + EventBuffer，不进 Context 不触发 LLM
+        let mut ov = make_overseer("register");
+        ov.handle_hook("session_start", "new-feature", "proj", "启动画面", 1)
             .await
             .unwrap();
         assert_eq!(ov.harness.agents.len(), 1);
-        assert_eq!(ov.harness.agents[0].status, AgentStatus::Processing);
-        assert!(ov
-            .harness
-            .context
-            .messages()
-            .iter()
-            .any(|m| m.content.as_deref() == Some("新实例 new-feature 已注册")));
-        // Example A：问候 (・ω・)ノ + 实例一览卡片
-        assert!(effects.iter().any(|e| matches!(
-            e,
-            Effect::SetAutonomy { face: Some(f), .. } if f == "(・ω・)ノ"
-        )));
-        assert!(effects.iter().any(|e| matches!(
-            e,
-            Effect::RenderComponent(spec)
-                if spec.get("id").and_then(|v| v.as_str()) == Some("roster")
-                && spec.get("text").and_then(|v| v.as_str()).unwrap_or("").contains("new-feature")
-        )));
+        assert_eq!(ov.harness.agents[0].status, AgentStatus::Idle);
+        assert!(ov.harness.context.messages().is_empty()); // 无 Queue 注入
+        assert_eq!(ov.harness.event_buffer.len(), 1); // 簿记待附带
+        // mock 读链存档仍发生（原文 → terminal-content → Filter → content 存档）
+        assert_eq!(
+            ov.harness.content.latest("new-feature").unwrap().content,
+            "启动画面"
+        );
         let _ = std::fs::remove_dir_all(tmp_dir("register"));
     }
 
@@ -976,7 +968,8 @@ mod tests {
         ]);
         let mut ov = make_overseer_with("fetch", agent);
         let long = "y".repeat(100);
-        ov.handle_hook("stop", "ft", "proj", &long, 1, 0).await.unwrap();
+        ov.handle_hook("stop", "ft", "proj", &long, 1).await.unwrap();
+        ov.drain_queue(0).await.unwrap(); // stop 放行（脚本帧 1 沉默）
         ov.harness
             .append_context(ContextMessage::new(Role::User, "那个 bug 具体怎么回事？", 2))
             .unwrap();
@@ -1035,7 +1028,8 @@ mod tests {
             "● 完成\n✻ Crunched for 12s\n⏵⏵ bypass permissions on (shift+tab to cycle)\n{}",
             "─".repeat(100)
         );
-        let effects = ov.handle_hook("stop", "ft", "proj", &raw, 1, 0).await.unwrap();
+        ov.handle_hook("stop", "ft", "proj", &raw, 1).await.unwrap();
+        let effects = ov.drain_queue(0).await.unwrap();
         assert!(effects.is_empty());
         assert_eq!(ov.harness.content.latest("ft").unwrap().content, "● 完成");
         let _ = std::fs::remove_dir_all(tmp_dir("filter"));
@@ -1043,9 +1037,9 @@ mod tests {
 
     #[tokio::test]
     async fn timer_scan_substantive_notifies_and_records() {
-        // mock 脚本：session_start 沉默 → 兜底触发后通知（call_component）→ 沉默
+        // mock 脚本：兜底触发后通知（call_component）→ 沉默
+        //（session_start 定案后为静默簿记，不消耗脚本帧）
         let agent = scripted(vec![
-            silence(),
             calls(vec![(
                 "call_component",
                 json!({"spec": {"id": "notify-cship", "type": "text_card", "title": "cship 有变化", "text": "去看看", "direction": "auto"}}),
@@ -1053,15 +1047,15 @@ mod tests {
             silence(),
         ]);
         let mut ov = make_overseer_with("timer-sub", agent);
-        ov.handle_hook("session_start", "cship", "proj", "旧内容", 1, 0)
+        ov.handle_hook("session_start", "cship", "proj", "旧内容", 1)
             .await
             .unwrap();
-        // 兜底扫描读到全新长内容 → Substantive → 存 Context(timer) + 注入 + 触发通知
+        // 兜底扫描读到全新长内容 → Substantive → 存 Context(timer) + 入队 → 放行触发通知
         let new_content = "z".repeat(150);
-        let effects = ov
-            .handle_timer_scan("cship", &new_content, 2, 0)
+        ov.handle_timer_scan("cship", &new_content, 2)
             .await
             .unwrap();
+        let effects = ov.drain_queue(0).await.unwrap();
         let rec = ov.harness.content.latest("cship").unwrap();
         assert_eq!(rec.source, RecordSource::Timer);
         assert_eq!(rec.content, new_content);
@@ -1078,15 +1072,15 @@ mod tests {
     #[tokio::test]
     async fn timer_scan_minor_stays_silent() {
         let mut ov = make_overseer("timer-min");
-        ov.handle_hook("session_start", "cship", "proj", "内容不变", 1, 0)
+        ov.handle_hook("session_start", "cship", "proj", "内容不变", 1)
             .await
             .unwrap();
         let msgs_before = ov.harness.context.messages().len();
-        // 内容相同 → Unchanged → 存档但不打扰
-        let effects = ov
-            .handle_timer_scan("cship", "内容不变", 2, 0)
+        // 内容相同 → Unchanged → 存档但不入队不打扰
+        ov.handle_timer_scan("cship", "内容不变", 2)
             .await
             .unwrap();
+        let effects = ov.drain_queue(0).await.unwrap();
         assert!(effects.is_empty());
         assert_eq!(ov.harness.context.messages().len(), msgs_before);
         assert_eq!(ov.harness.content.latest("cship").unwrap().source, RecordSource::Timer);
@@ -1110,7 +1104,7 @@ mod tests {
         let mut ov = make_overseer("raw-archive");
         // 原文含噪音 → terminal-content.jsonl 存 filter 前全文，context.jsonl 存归一后
         let raw = format!("● 完成\n✻ Crunched for 12s\n{}", "─".repeat(100));
-        ov.handle_hook("stop", "ft", "proj", &raw, 1, 0).await.unwrap();
+        ov.handle_hook("stop", "ft", "proj", &raw, 1).await.unwrap();
         let archive = std::fs::read_to_string(
             ov.harness.storage_dir().join(crate::TERMINAL_CONTENT_FILE),
         )
@@ -1233,7 +1227,7 @@ mod tests {
     #[tokio::test]
     async fn tab_gone_marks_closed_and_exits_panorama() {
         let mut ov = make_overseer("closed");
-        ov.handle_hook("session_start", "ft", "proj", "启动", 1, 0)
+        ov.handle_hook("session_start", "ft", "proj", "启动", 1)
             .await
             .unwrap();
         assert!(crate::panorama(&ov.harness.agents).is_some());
@@ -1242,13 +1236,13 @@ mod tests {
         assert_eq!(ov.harness.agents[0].status, AgentStatus::Closed);
         assert!(crate::panorama(&ov.harness.agents).is_none());
         // 同名再注册 = 新生命周期（同名不同命，hash 不同）
-        ov.handle_hook("session_start", "ft", "proj", "又开了", 3, 0)
+        ov.handle_hook("session_start", "ft", "proj", "又开了", 3)
             .await
             .unwrap();
         assert_eq!(ov.harness.agents.len(), 2);
         assert_ne!(ov.harness.agents[0].hash, ov.harness.agents[1].hash);
         // stop 沿用最近一条未 closed 的生命周期
-        ov.handle_hook("stop", "ft", "proj", "完成", 4, 0).await.unwrap();
+        ov.handle_hook("stop", "ft", "proj", "完成", 4).await.unwrap();
         assert_eq!(ov.harness.agents[0].status, AgentStatus::Closed);
         assert_eq!(ov.harness.agents[1].status, AgentStatus::Idle);
         let _ = std::fs::remove_dir_all(tmp_dir("closed"));
@@ -1257,7 +1251,7 @@ mod tests {
     #[tokio::test]
     async fn hook_resets_timer_wheel() {
         let mut ov = make_overseer("timer-reset");
-        ov.handle_hook("session_start", "a", "proj", "x", 1000, 0)
+        ov.handle_hook("session_start", "a", "proj", "x", 1000)
             .await
             .unwrap();
         // reset 后 due ≥ 1000 + interval（Config 默认 300s）
@@ -1305,9 +1299,10 @@ mod tests {
         // B（默认 queue_only）：hint 形态
         let mut ov = make_overseer("rh5");
         let _ = ov
-            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000, 0)
+            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000)
             .await
             .unwrap();
+        ov.drain_queue(0).await.unwrap();
         let m = ov.harness.context.messages().last().unwrap().content.clone().unwrap();
         assert!(m.contains("完成：修了 3 个文件。评估是否通知"), "B: {m}");
         let _ = std::fs::remove_dir_all(tmp_dir("rh5"));
@@ -1316,9 +1311,10 @@ mod tests {
         let mut ov = make_overseer("rh6");
         ov.config.stop_hook_mode = "message".into();
         let _ = ov
-            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000, 0)
+            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000)
             .await
             .unwrap();
+        ov.drain_queue(0).await.unwrap();
         let m = ov.harness.context.messages().last().unwrap().content.clone().unwrap();
         assert_eq!(m, "[汇报] p·dddd3333 完成：修了 3 个文件");
         let _ = std::fs::remove_dir_all(tmp_dir("rh6"));
@@ -1331,9 +1327,10 @@ mod tests {
             Some("● 完成。hooks 已配置".to_string())
         }));
         let _ = ov
-            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, None, 1000, 0)
+            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, None, 1000)
             .await
             .unwrap();
+        ov.drain_queue(0).await.unwrap();
         let m = ov.harness.context.messages().last().unwrap().content.clone().unwrap();
         assert!(m.contains("Context 已更新"), "A: {m}");
         let ctx = ov.harness.content.latest("p·dddd3333").expect("context 已写");
@@ -1447,8 +1444,7 @@ mod tests {
     #[tokio::test]
     async fn real_hook_first_sight_registers_silently() {
         let mut ov = make_overseer("rh1");
-        let effects = ov
-            .handle_real_hook(
+        ov.handle_real_hook(
                 "session_start",
                 "3f8a2c1e-9b7d-4e5f-a6c1-02d4e6f8a9b0",
                 r"/tmp/p",
@@ -1457,11 +1453,10 @@ mod tests {
                 None,
                 None,
                 1000,
-                0,
             )
             .await
             .unwrap();
-        assert!(effects.is_empty()); // 静默:不触发 LLM
+        // 静默：只入 EventBuffer 簿记，不触发 LLM
         let a = ov
             .harness
             .agents
@@ -1490,10 +1485,10 @@ mod tests {
                 None,
                 Some("修完了"),
                 2000,
-                0,
             )
             .await
             .unwrap();
+        ov.drain_queue(0).await.unwrap();
         let a = ov
             .harness
             .agents
@@ -1525,7 +1520,6 @@ mod tests {
                     None,
                     None,
                     ts,
-                    0,
                 )
                 .await
                 .unwrap();
@@ -1541,13 +1535,14 @@ mod tests {
         let mut ov = make_overseer("rh4");
         let sid = "cccc2222-3333-4444";
         let _ = ov
-            .handle_real_hook("session_start", sid, r"/tmp/p", None, None, None, None, 1000, 0)
+            .handle_real_hook("session_start", sid, r"/tmp/p", None, None, None, None, 1000)
             .await
             .unwrap();
         let _ = ov
-            .handle_real_hook("user_prompt", sid, r"/tmp/p", None, Some("帮我修 bug"), None, None, 2000, 0)
+            .handle_real_hook("user_prompt", sid, r"/tmp/p", None, Some("帮我修 bug"), None, None, 2000)
             .await
             .unwrap();
+        ov.drain_queue(0).await.unwrap();
         let a = ov.harness.agents.iter().find(|a| a.hash == "cccc2222").unwrap();
         assert_eq!(a.status, AgentStatus::Processing); // 派活驱动
         assert!(ov
@@ -1557,7 +1552,7 @@ mod tests {
             .iter()
             .any(|m| m.content.as_deref().unwrap_or("").contains("[观察] 用户在")));
         let _ = ov
-            .handle_real_hook("session_end", sid, r"/tmp/p", None, None, None, None, 3000, 0)
+            .handle_real_hook("session_end", sid, r"/tmp/p", None, None, None, None, 3000)
             .await
             .unwrap();
         let a = ov.harness.agents.iter().find(|a| a.hash == "cccc2222").unwrap();

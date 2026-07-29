@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::llm::LlmBackend;
 use crate::overseer::{Effect, OverseerBackend};
-use crate::context::{ContextMessage, Role};
+use crate::context::Role;
 use crate::Config;
 
 pub type EffectSender = Box<dyn Fn(Value) + Send + Sync>;
@@ -27,6 +27,8 @@ pub struct AppState {
     pending_notifications: Mutex<usize>,
     mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     send: Mutex<Option<EffectSender>>,
+    /// Queue 放行信号（concepts §10c）：生产者入队后唤醒单消费者
+    pub queue_notify: tokio::sync::Notify,
 }
 
 impl AppState {
@@ -39,6 +41,7 @@ impl AppState {
             pending_notifications: Mutex::new(0),
             mock_terminals,
             send: Mutex::new(None),
+            queue_notify: tokio::sync::Notify::new(),
         }
     }
 
@@ -124,19 +127,14 @@ struct UserBody { text: String }
 
 async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -> impl IntoResponse {
     *s.pending_notifications.lock().await = 0;
-    let mut ov = s.overseer.lock().await;
-    if let Err(err) = ov.harness.append_context(ContextMessage::new(Role::User, body.text, now_ms())) {
-        return err_response(err);
+    {
+        let mut ov = s.overseer.lock().await;
+        if let Err(err) = ov.enqueue(Role::User, body.text, now_ms()) {
+            return err_response(err);
+        }
     }
-    let effects = match ov.run_trigger(now_ms(), 0).await { Ok(e) => e, Err(err) => return err_response(err) };
-    drop(ov);
-    for e in effects {
-        let msg = effect_json(&e);
-        if matches!(&e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
-        s.broadcast_effect_json(msg).await;
-    }
-    s.broadcast_effect_json(json!({ "kind": "queue_changed" })).await;
-    s.broadcast_effect_json(json!({ "kind": "top_state", "state": state_json_value(&s).await })).await;
+    // 生产者只入队，放行由消费者任务串行驱动（concepts §10c）
+    s.queue_notify.notify_one();
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -186,23 +184,20 @@ struct HookBody {
 }
 
 async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -> impl IntoResponse {
-    let mut ov = s.overseer.lock().await;
-    let pending = *s.pending_notifications.lock().await;
-    let effects = if let Some(session_id) = body.session_id.as_deref() {
-        match ov.handle_real_hook(&body.event, session_id, body.cwd.as_deref().unwrap_or(""), body.kind.as_deref(), body.prompt.as_deref(), body.message.as_deref(), body.last_assistant_message.as_deref(), now_ms(), pending).await {
-            Ok(e) => e, Err(err) => return err_response(err),
+    {
+        let mut ov = s.overseer.lock().await;
+        let result = if let Some(session_id) = body.session_id.as_deref() {
+            ov.handle_real_hook(&body.event, session_id, body.cwd.as_deref().unwrap_or(""), body.kind.as_deref(), body.prompt.as_deref(), body.message.as_deref(), body.last_assistant_message.as_deref(), now_ms()).await
+        } else {
+            let content = body.content.or(body.last_assistant_message).unwrap_or_default();
+            ov.handle_hook(&body.event, body.instance.as_deref().unwrap_or(""), body.project.as_deref().unwrap_or(""), &content, now_ms()).await
+        };
+        if let Err(err) = result {
+            return err_response(err);
         }
-    } else {
-        let content = body.content.or(body.last_assistant_message).unwrap_or_default();
-        match ov.handle_hook(&body.event, body.instance.as_deref().unwrap_or(""), body.project.as_deref().unwrap_or(""), &content, now_ms(), pending).await {
-            Ok(e) => e, Err(err) => return err_response(err),
-        }
-    };
-    for e in effects {
-        if matches!(&e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
-        s.broadcast_effect_json(effect_json(&e)).await;
     }
-    drop(ov);
+    // hook 只当触发信号：入队后唤醒消费者，不等 LLM 轮次（fire-and-forget 友好）
+    s.queue_notify.notify_one();
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -216,21 +211,48 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
             for inst in due {
                 let content = { let ov = s.overseer.lock().await; ov.terminal_reader.as_ref().and_then(|r| r(&inst)) };
                 if let Some(content) = content {
-                    let pending = *s.pending_notifications.lock().await;
-                    let result = { s.overseer.lock().await.handle_timer_scan(&inst, &content, now_ms(), pending).await };
+                    let result = { s.overseer.lock().await.handle_timer_scan(&inst, &content, now_ms()).await };
                     match result {
-                        Ok(effects) => {
-                            for e in effects {
-                                if matches!(&e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
-                                s.broadcast_effect_json(effect_json(&e)).await;
-                            }
-                        }
+                        Ok(()) => s.queue_notify.notify_one(),
                         Err(err) => eprintln!("timer scan {inst}: {err}"),
                     }
                 } else {
                     let mut ov = s.overseer.lock().await;
                     if ov.sidecar_enabled { if let Err(err) = ov.mark_instance_closed(&inst, now_ms()) { eprintln!("mark closed {inst}: {err}"); } }
                 }
+            }
+        }
+    });
+}
+
+/// Queue 单消费者（concepts §10c 串行放行）：唤醒后逐条放行——
+/// 放行一条 → Context 写输入 → run_trigger（LLM 一轮）→ 广播副作用 → 放行下一条。
+/// 一轮一条地持锁：生产者在轮次之间可继续入队，不等整个积压清空。
+pub fn spawn_queue_consumer(s: Arc<AppState>) {
+    tokio::spawn(async move {
+        loop {
+            s.queue_notify.notified().await;
+            loop {
+                let mut ov = s.overseer.lock().await;
+                let Some(input) = ov.harness.queue.release() else {
+                    drop(ov);
+                    break;
+                };
+                let pending = *s.pending_notifications.lock().await;
+                let effects = match ov.release_one(input, pending).await {
+                    Ok(e) => e,
+                    Err(err) => {
+                        eprintln!("queue release: {err}");
+                        vec![]
+                    }
+                };
+                drop(ov);
+                for e in &effects {
+                    if matches!(e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
+                    s.broadcast_effect_json(effect_json(e)).await;
+                }
+                s.broadcast_effect_json(json!({ "kind": "queue_changed" })).await;
+                s.broadcast_effect_json(json!({ "kind": "top_state", "state": state_json_value(&s).await })).await;
             }
         }
     });

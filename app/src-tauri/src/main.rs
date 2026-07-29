@@ -4,9 +4,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use overseer_core::llm::LlmBackend;
-use overseer_core::overseer::{Effect, OverseerBackend};
-use overseer_core::context::{ContextMessage, Role};
-use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
+use overseer_core::overseer::OverseerBackend;
+use overseer_core::context::Role;
+use overseer_core::server::{now_ms, router, spawn_queue_consumer, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -69,16 +69,12 @@ async fn get_queue(state: tauri::State<'_, SharedTauriState>) -> Result<Value, S
 #[tauri::command]
 async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let mut ov = s.overseer().lock().await;
-    ov.harness.append_context(ContextMessage::new(Role::User, text, now_ms()))
-        .map_err(|e| e.to_string())?;
-    let effects = ov.run_trigger(now_ms(), 0).await.map_err(|e| e.to_string())?;
-    drop(ov);
-    for e in &effects {
-        if matches!(e, Effect::RenderComponent(_)) {}
-        let msg = effect_to_json(e);
-        s.broadcast_effect_json(msg).await;
+    {
+        let mut ov = s.overseer().lock().await;
+        ov.enqueue(Role::User, text, now_ms()).map_err(|e| e.to_string())?;
     }
+    // 生产者只入队，放行由消费者任务驱动（concepts §10c）
+    s.queue_notify.notify_one();
     Ok(json!({ "ok": true }))
 }
 
@@ -104,14 +100,6 @@ async fn get_config_schema(state: tauri::State<'_, SharedTauriState>) -> Result<
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     Ok(json!({ "version": overseer_core::config::migrate::CURRENT_VERSION, "readOnly": ov.config.read_only, "nodes": overseer_core::config::reflect::config_nodes(&ov.config) }))
-}
-
-fn effect_to_json(e: &Effect) -> Value {
-    match e {
-        Effect::RenderComponent(spec) => json!({ "kind": "render_component", "spec": spec }),
-        Effect::SetAutonomy { face, motion, ttl_ms } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms }),
-        Effect::ConfigChanged { .. } => json!({ "kind": "config" }),
-    }
 }
 
 fn main() {
@@ -192,6 +180,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     }
 
     spawn_timer_task(state.clone(), timer_tick, timer_batch);
+    spawn_queue_consumer(state.clone());
 
     // 注入 Tauri managed state
     *state_mgr.0.lock().unwrap() = Some(state.clone());

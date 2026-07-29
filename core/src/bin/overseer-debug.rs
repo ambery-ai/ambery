@@ -4,7 +4,7 @@
 use overseer_core::llm::{DebugAgent, LlmBackend, LlmOutput};
 use overseer_core::overseer::OverseerBackend;
 use overseer_core::context::{ContextMessage, ToolCall};
-use overseer_core::server::{now_ms, router, spawn_timer_task, AppState};
+use overseer_core::server::{now_ms, router, spawn_queue_consumer, spawn_timer_task, AppState};
 use overseer_core::{Config, Harness};
 use serde_json::Value;
 use std::sync::Arc;
@@ -124,6 +124,7 @@ async fn main() {
     let tx_for_ws = tx.clone();
     state.set_sender(Box::new(move |msg: Value| { let _ = tx.send(msg.to_string()); })).await;
     spawn_timer_task(state.clone(), tick_ms, timer_batch);
+    spawn_queue_consumer(state.clone());
     let app = router(state, tx_for_ws);
 
     let addr = "127.0.0.1:47600";
