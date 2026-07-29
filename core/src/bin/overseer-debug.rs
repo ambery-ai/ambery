@@ -123,6 +123,7 @@ async fn main() {
     let state = Arc::new(AppState::new(overseer, mock));
     let tx_for_ws = tx.clone();
     state.set_sender(Box::new(move |msg: Value| { let _ = tx.send(msg.to_string()); })).await;
+    state.wire_effect_sink().await;
     spawn_timer_task(state.clone(), tick_ms, timer_batch);
     spawn_queue_consumer(state.clone());
     let app = router(state, tx_for_ws);

@@ -86,13 +86,42 @@ pub struct LlmOutput {
     pub reasoning_content: Option<String>,
 }
 
+/// 流式增量（docs/streaming.md）：content / reasoning_content 两路，互斥非空。
+/// Delta 纯显示优化——不经 Queue/Context，完整回复最后才写 Context。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Delta {
+    pub content: Option<String>,
+    pub reasoning_content: Option<String>,
+}
+
 /// 返回 Result：OpenAiClient 网络/解析失败时 LlmBackend 可降级 DebugAgent
-pub trait Llm {
+pub trait Llm: Send + Sync {
     fn complete(
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send;
+    /// 流式补全（docs/streaming.md）：边收边回调 Delta。
+    /// 默认回落：一次性 complete 后把全文作为单个 delta 回调（不支持流式的客户端零改动）。
+    fn complete_streaming(
+        &self,
+        messages: &[ContextMessage],
+        tools: &[ToolDef],
+        on_delta: &(dyn Fn(&Delta) + Send + Sync),
+    ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
+        async move {
+            let out = self.complete(messages, tools).await?;
+            if let Some(c) = &out.content {
+                if !c.is_empty() {
+                    on_delta(&Delta {
+                        content: Some(c.clone()),
+                        reasoning_content: None,
+                    });
+                }
+            }
+            Ok(out)
+        }
+    }
 
     /// Compression 专项摘要（concepts §10d / docs/storage.md compact_boundary）。
     /// 默认确定性 stub（DebugAgent / 测试保证确定性）；OpenAiClient 覆写为真实调用。

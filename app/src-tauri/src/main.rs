@@ -216,6 +216,8 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
             }))
             .await;
     }
+    // 流式 delta 旁路（docs/streaming.md）
+    state.wire_effect_sink().await;
     // Tauri 模式：前端走 IPC（TauriBridge），HTTP 仅留 /hook（外部 hook 脚本，进程外不可走 command）
     let app = hook_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:47600").await.expect("bind 47600");

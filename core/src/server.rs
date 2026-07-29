@@ -49,6 +49,18 @@ impl AppState {
     pub async fn broadcast_effect_json(&self, msg: Value) {
         if let Some(send) = self.send.lock().await.as_ref() { send(msg); }
     }
+    /// 流式 delta 旁路接线（docs/streaming.md）：OverseerBackend.effect_sink →
+    /// effect 通道广播（Tauri emit / WS 由 sender 双发）。Weak 防循环引用。
+    pub async fn wire_effect_sink(self: &Arc<AppState>) {
+        let weak = Arc::downgrade(self);
+        let mut ov = self.overseer.lock().await;
+        ov.effect_sink = Some(Arc::new(move |e: &Effect| {
+            if let Some(s) = weak.upgrade() {
+                let msg = effect_json(e);
+                tokio::spawn(async move { s.broadcast_effect_json(msg).await; });
+            }
+        }));
+    }
     pub(crate) fn mock_terminals(&self) -> &Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> { &self.mock_terminals }
     pub fn overseer(&self) -> &Mutex<OverseerBackend<LlmBackend>> { &self.overseer }
 }
@@ -62,6 +74,8 @@ pub fn effect_json(e: &Effect) -> Value {
         Effect::RenderComponent(spec) => json!({ "kind": "render_component", "spec": spec }),
         Effect::SetAutonomy { face, motion, ttl_ms } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms }),
         Effect::ConfigChanged { .. } => json!({ "kind": "config" }),
+        Effect::AssistantDelta { content, reasoning_content } => json!({ "kind": "assistant_delta", "content": content, "reasoning_content": reasoning_content }),
+        Effect::AssistantDone => json!({ "kind": "assistant_done" }),
     }
 }
 

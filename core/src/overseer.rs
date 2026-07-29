@@ -23,6 +23,14 @@ pub enum Effect {
     },
     /// llm_changed=true 时 server 广播前重建 LlmBackend
     ConfigChanged { llm_changed: bool },
+    /// 流式增量（docs/streaming.md）：LLM 回复片段——纯显示优化，不经 Queue/Context。
+    /// 不走 effects Vec（实时性），经 effect_sink 旁路直推。
+    AssistantDelta {
+        content: Option<String>,
+        reasoning_content: Option<String>,
+    },
+    /// 一轮触发结束（loading 收尾信号，完整回复已写 Context）
+    AssistantDone,
 }
 
 /// claude 检测（实测 54/54 命中、0 误伤）：✳ 前缀（活动 glyph）或标题 == claude
@@ -51,6 +59,9 @@ pub struct OverseerBackend<L: Llm> {
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
     /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
     pub sidecar_enabled: bool,
+    /// 流式 delta 旁路（docs/streaming.md）：run_trigger 每收到 delta 即发——
+    /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播
+    pub effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>,
     max_tool_iters: usize,
 }
 
@@ -67,6 +78,7 @@ impl<L: Llm> OverseerBackend<L> {
             terminal_reader: None,
             vd_switcher: None,
             sidecar_enabled: false,
+            effect_sink: None,
             max_tool_iters: 8, // 防 tool 循环死转
         }
     }
@@ -264,6 +276,7 @@ impl<L: Llm> OverseerBackend<L> {
             }
         }
         // 4. tool 循环（请求 = 请求头 + Context 全部消息 + Autonomy 末端）
+        //    流式：complete_streaming 边收边经 effect_sink 发 AssistantDelta（docs/streaming.md）
         let tools = tool_set();
         let mut effects = vec![];
         for _ in 0..self.max_tool_iters {
@@ -271,9 +284,18 @@ impl<L: Llm> OverseerBackend<L> {
             request.push(ContextMessage::new(Role::System, head.clone(), ts));
             request.extend_from_slice(self.harness.context.messages());
             request.push(ContextMessage::new(Role::System, autonomy.clone(), ts));
+            let sink = self.effect_sink.clone();
+            let on_delta = move |d: &crate::llm::Delta| {
+                if let Some(sink) = &sink {
+                    sink(&Effect::AssistantDelta {
+                        content: d.content.clone(),
+                        reasoning_content: d.reasoning_content.clone(),
+                    });
+                }
+            };
             let out = self
                 .llm
-                .complete(&request, &tools)
+                .complete_streaming(&request, &tools, &on_delta)
                 .await
                 .map_err(std::io::Error::other)?;
             if out.tool_calls.is_empty() {
@@ -294,6 +316,10 @@ impl<L: Llm> OverseerBackend<L> {
                 self.harness
                     .append_context(ContextMessage::tool_result(&call.id, result.to_string(), ts))?;
             }
+        }
+        // 一轮完毕：loading 收尾（docs/streaming.md，完整回复已写 Context）
+        if let Some(sink) = &self.effect_sink {
+            sink(&Effect::AssistantDone);
         }
         Ok(effects)
     }
@@ -1333,6 +1359,46 @@ mod tests {
             Effect::SetAutonomy { face: Some(f), motion: None, .. } if f == "(・ω・)ノ"
         )));
         let _ = std::fs::remove_dir_all(tmp_dir("face-key"));
+    }
+
+    #[tokio::test]
+    async fn streaming_delta_flows_to_sink() {
+        // 默认回落路径（docs/streaming.md）：complete 一次性 → 全文单 delta → AssistantDone
+        let agent = scripted(vec![say("流式回复全文")]);
+        let mut ov = make_overseer_with("stream", agent);
+        let got = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Effect>::new()));
+        let got2 = got.clone();
+        ov.effect_sink = Some(std::sync::Arc::new(move |e: &Effect| {
+            got2.lock().unwrap().push(e.clone());
+        }));
+        ov.enqueue(Role::User, "打个招呼".into(), 1).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        let got = got.lock().unwrap();
+        // 完整回复作为单个 delta 到达 + Done 收尾；回复本体已写 Context
+        assert!(got.iter().any(|e| matches!(
+            e,
+            Effect::AssistantDelta { content: Some(c), .. } if c == "流式回复全文"
+        )));
+        assert!(got.iter().any(|e| matches!(e, Effect::AssistantDone)));
+        assert_eq!(
+            ov.harness.context.messages().last().unwrap().content.as_deref(),
+            Some("流式回复全文")
+        );
+        let _ = std::fs::remove_dir_all(tmp_dir("stream"));
+    }
+
+    #[tokio::test]
+    async fn no_sink_no_delta_no_panic() {
+        // 未接 sink 时流式路径静默无副作用（debug/测试模式默认）
+        let agent = scripted(vec![say("你好")]);
+        let mut ov = make_overseer_with("stream-none", agent);
+        ov.enqueue(Role::User, "hi".into(), 1).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        assert_eq!(
+            ov.harness.context.messages().last().unwrap().content.as_deref(),
+            Some("你好")
+        );
+        let _ = std::fs::remove_dir_all(tmp_dir("stream-none"));
     }
 
     #[tokio::test]
