@@ -316,6 +316,55 @@ impl OpenAiClient {
         }
         parse_chat_response(&text)
     }
+
+    /// SSE 流式补全（docs/streaming.md）：stream:true + 逐事件解析，
+    /// content/reasoning_content 两路边收边回调；tool_calls 分片按 index 聚合。
+    /// 字节级缓冲：\n\n 事件边界不可能切开 UTF-8 多字节字符（0x0A 不出现在多字节序列内）。
+    async fn complete_streaming_async(
+        &self,
+        messages: &[ContextMessage],
+        tools: &[ToolDef],
+        on_delta: &(dyn Fn(&Delta) + Send + Sync),
+    ) -> Result<LlmOutput, String> {
+        use futures_util::StreamExt;
+        let mut body = self.build_body(messages, tools);
+        body["stream"] = serde_json::json!(true);
+        let resp = self
+            .http
+            .post(format!("{}/chat/completions", self.base_url))
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("http: {e}"))?;
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.map_err(|e| format!("read: {e}"))?;
+            return Err(format!("{status}: {}", truncate(&text, 200)));
+        }
+        let mut acc = StreamAcc::default();
+        let mut buf: Vec<u8> = vec![];
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("stream: {e}"))?;
+            buf.extend_from_slice(&chunk);
+            while let Some(pos) = buf.windows(2).position(|w| w == b"\n\n") {
+                let event: Vec<u8> = buf.drain(..pos + 2).collect();
+                for line in String::from_utf8_lossy(&event).lines() {
+                    let Some(data) = line.strip_prefix("data:") else { continue };
+                    let data = data.trim();
+                    if data == "[DONE]" {
+                        continue;
+                    }
+                    let Ok(v) = serde_json::from_str::<Value>(data) else { continue };
+                    if let Some(d) = acc.apply(&v) {
+                        on_delta(&d);
+                    }
+                }
+            }
+        }
+        Ok(acc.finish())
+    }
 }
 
 impl OpenAiClient {
@@ -356,11 +405,87 @@ impl Llm for OpenAiClient {
         self.complete_async(messages, tools)
     }
 
+    fn complete_streaming(
+        &self,
+        messages: &[ContextMessage],
+        tools: &[ToolDef],
+        on_delta: &(dyn Fn(&Delta) + Send + Sync),
+    ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
+        self.complete_streaming_async(messages, tools, on_delta)
+    }
+
     fn summarize(
         &self,
         messages: &[ContextMessage],
     ) -> impl Future<Output = Result<String, String>> + Send {
         self.summarize_async(messages)
+    }
+}
+
+/// SSE 流式聚合器（docs/streaming.md）：content/reasoning 拼接，tool_calls 分片按 index 聚合
+#[derive(Default)]
+struct StreamAcc {
+    content: String,
+    reasoning: String,
+    tool_acc: std::collections::BTreeMap<u64, (Option<String>, Option<String>, String)>,
+}
+
+impl StreamAcc {
+    /// 应用一个 SSE chunk；有增量则返回 Delta（两路互斥由发送方保证，容忍同时非空）
+    fn apply(&mut self, v: &Value) -> Option<Delta> {
+        let delta = &v["choices"][0]["delta"];
+        let mut d = Delta::default();
+        if let Some(c) = delta["content"].as_str() {
+            if !c.is_empty() {
+                self.content.push_str(c);
+                d.content = Some(c.to_string());
+            }
+        }
+        if let Some(r) = delta["reasoning_content"].as_str() {
+            if !r.is_empty() {
+                self.reasoning.push_str(r);
+                d.reasoning_content = Some(r.to_string());
+            }
+        }
+        if let Some(calls) = delta["tool_calls"].as_array() {
+            for c in calls {
+                let idx = c["index"].as_u64().unwrap_or(0);
+                let e = self.tool_acc.entry(idx).or_default();
+                if let Some(id) = c["id"].as_str() {
+                    e.0 = Some(id.to_string());
+                }
+                if let Some(name) = c["function"]["name"].as_str() {
+                    e.1 = Some(name.to_string());
+                }
+                if let Some(args) = c["function"]["arguments"].as_str() {
+                    e.2.push_str(args);
+                }
+            }
+        }
+        if d.content.is_some() || d.reasoning_content.is_some() {
+            Some(d)
+        } else {
+            None
+        }
+    }
+
+    fn finish(self) -> LlmOutput {
+        let tool_calls = self
+            .tool_acc
+            .into_values()
+            .filter_map(|(id, name, arguments)| {
+                Some(ToolCall {
+                    id: id?,
+                    name: name?,
+                    arguments,
+                })
+            })
+            .collect();
+        LlmOutput {
+            content: if self.content.is_empty() { None } else { Some(self.content) },
+            tool_calls,
+            reasoning_content: if self.reasoning.is_empty() { None } else { Some(self.reasoning) },
+        }
     }
 }
 
@@ -450,6 +575,28 @@ impl Llm for LlmBackend {
         }
     }
 
+    fn complete_streaming(
+        &self,
+        messages: &[ContextMessage],
+        tools: &[ToolDef],
+        on_delta: &(dyn Fn(&Delta) + Send + Sync),
+    ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
+        async move {
+            match self {
+                Self::Debug(agent) => agent.complete_streaming(messages, tools, on_delta).await,
+                Self::OpenAi { client, fallback } => {
+                    match client.complete_streaming(messages, tools, on_delta).await {
+                        Ok(out) => Ok(out),
+                        Err(err) => {
+                            eprintln!("[llm] openai streaming 失败（{err}），本轮回退 DebugAgent");
+                            fallback.complete_streaming(messages, tools, on_delta).await
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn summarize(
         &self,
         messages: &[ContextMessage],
@@ -472,6 +619,49 @@ impl Llm for LlmBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_acc_content_and_reasoning_two_channels() {
+        // docs/streaming.md §OpenAI SSE 格式：reasoning(thinking 阶段)→content(回复阶段)
+        let mut acc = StreamAcc::default();
+        let mut deltas = vec![];
+        for v in [
+            json!({"choices":[{"delta":{"reasoning_content":"用户想要"}}]}),
+            json!({"choices":[{"delta":{"content":"好的，"}}]}),
+            json!({"choices":[{"delta":{"content":"没问题"}}]}),
+            json!({"choices":[{"delta":{},"finish_reason":"stop"}]}),
+        ] {
+            if let Some(d) = acc.apply(&v) {
+                deltas.push(d);
+            }
+        }
+        assert_eq!(deltas.len(), 3); // finish_reason 帧无增量
+        assert_eq!(deltas[0].reasoning_content.as_deref(), Some("用户想要"));
+        assert_eq!(deltas[1].content.as_deref(), Some("好的，"));
+        assert_eq!(deltas[2].content.as_deref(), Some("没问题"));
+        let out = acc.finish();
+        assert_eq!(out.content.as_deref(), Some("好的，没问题"));
+        assert_eq!(out.reasoning_content.as_deref(), Some("用户想要"));
+        assert!(out.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn stream_acc_tool_call_fragments_assembled_by_index() {
+        // OpenAI 流式 tool_calls：index 定位 + id/name 首帧 + arguments 分片拼接
+        let mut acc = StreamAcc::default();
+        for v in [
+            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"fetch_terminal","arguments":"{\"inst"}}]}}]}),
+            json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"ance\":\"ft\"}"}}]}}]}),
+        ] {
+            let _ = acc.apply(&v);
+        }
+        let out = acc.finish();
+        assert_eq!(out.tool_calls.len(), 1);
+        assert_eq!(out.tool_calls[0].id, "c1");
+        assert_eq!(out.tool_calls[0].name, "fetch_terminal");
+        assert_eq!(out.tool_calls[0].arguments, "{\"instance\":\"ft\"}");
+        assert!(out.content.is_none());
+    }
 
     #[tokio::test]
     async fn mock_returns_exactly_what_source_gives() {
