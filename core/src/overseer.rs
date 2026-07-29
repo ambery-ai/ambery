@@ -697,7 +697,8 @@ impl<L: Llm> OverseerBackend<L> {
         Ok(())
     }
 
-    fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
+    /// 执行 tool call（run_trigger tool 循环与 case-runner tool_call step 共用）
+    pub fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(Value::Null);
         match call.name.as_str() {
             "call_component" => {

@@ -1,7 +1,8 @@
 //! case-runner（docs/case-runner.md）：概念结构观测与 step 执行。
 //! feature "case-runner" gate。
 
-use crate::server::AppState;
+use crate::llm::Llm;
+use crate::overseer::OverseerBackend;
 use crate::AgentStatus;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,8 +28,7 @@ pub struct AgentSnapshot {
 }
 
 /// 观测当前概念结构
-pub fn observe(state: &AppState) -> CaseObserve {
-    let ov = state.overseer().blocking_lock();
+pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
     let agents: Vec<AgentSnapshot> = ov
         .harness
         .agents
