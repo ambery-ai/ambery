@@ -88,10 +88,12 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 **表现**: concepts.md §10c 定义 Queue 为"对话队列"，角色仅为对话消息 thread。但用户的预期模型是 Queue 作为**所有信息的串行化关口**：hook 内容、user 消息、component 交互事件全部先入 Queue 排队，Queue 再分发给 Context 和 LLM。当前实现有多条并行管道：终端内容走 Context 直通（不经过 Queue）、component 事件走 Event Buffer 暂存、user 消息直接写 Queue。Queue 丧失了"唯一串行入口"的语义。
 
-## Queue 概念预期违背 (2026-07-29) — open
+## #11 Queue 概念预期违背 (2026-07-29) — fixed
 
 concepts.md §10c 与实际代码之间存在重大架构偏差。用户模型中 Queue 是全局串行化关口——所有输入（hook 内容、user 消息、component 交互）先入 Queue，再由 Queue 分发给 Context 和 LLM。当前实现中 Queue 仅扮演对话线程角色，终端内容经 Context 管道直达 LLM、Event Buffer 独立于 Queue 存在。这导致：(1) 多条并行管道各自推送，时序不可控；(2) Queue 不承载「串行化」语义，无法保证 LLM 调用的顺序一致性；(3) Event Buffer 的存在本身就是 Queue 未承担统一入口职责的补丁。
 
 2026-07-29 grill 定案——Queue 链路：`输入 → Queue（排队） → Queue 放行 → Context 写输入 → LLM → 输出 → Context 写输出 → Queue 放行下一条`。Queue 是处理节奏控制器——不放行输出，不放行下一条直到当前完整处理结束。
 
 2026-07-29 grill 定案——Event Buffer/Context/LLM 链路：`Component 交互 → Event Buffer（积压） → LLM 触发时合并为 system 消息 → Queue → Context 写输入 → LLM → assistant 回复 → Context 写输出`。两边输入最终汇入同一条 Queue→Context→LLM→Context 管道。
+
+2026-07-29 修复——先文档后代码两轮对齐。文档：concepts §3a/§5/§10a/§10b/§10d/§13 修正 + Data Flow 重画，harness/storage/agent-loop 等 10 文件同步（Queue=输入串行化关口、Context=完整消息数组、EventBuffer=放行附带、Compression 作用于 Context、storage 新增 queue.jsonl 排队轨迹节）。代码四连：①重命名归位——消息数组正名 Context/ContextMessage，终端内容存档正名 ContentArchive/ContentRecord；②真 Queue 输入排队器——QueueInput+FIFO，handle_hook/handle_real_hook/handle_timer_scan 改生产者入队即返（不再持锁等 LLM），spawn_queue_consumer 单消费者串行放行（放行→Context 写输入→LLM→写输出→下一条），queue.jsonl append-only 留痕；③EventBuffer 附带语义——merge 锚到放行点，system 输入合并为一条消息，user 输入不污染 user role；④IPC/HTTP 面更名——GET /context、context_changed、get_context、ContextMessage。78 测试绿 + 前端构建绿，生产冒烟用户确认 harness 可用。
