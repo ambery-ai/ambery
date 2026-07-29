@@ -42,9 +42,11 @@ Card 面板已有"复制"按钮，点击后调用 `navigator.clipboard.writeText
 
 发送消息后聊天区域既没有回显用户刚发的消息，也没有任何"处理中"的状态指示（如加载动画、省略号等）。用户不知道消息是否已被提交、是否正在被 AI 处理、还是已经静默失败。用户消息应当立即出现在聊天历史中，同时显示一个处理中指示器（如输入框右侧 loading spinner），收到回复后清除。
 
-## #7 聊天需要流式输出，thinking 只显示透明气泡 (2026-07-27) — fixed
+## #7 聊天需要流式输出，thinking 只显示透明气泡 (2026-07-27) — open
 
 AI 回复是一次性渲染到聊天区域的，缺少字符逐步蹦出的流式效果。LLM thinking 过程不显示具体文字（隐私），但应当展示一个透明/半透明气泡动画来表示"正在思考"，让用户感知到 AI 在活动。
+
+2026-07-29 reopen——首次修复只落地了 loading 动画 + 透明气泡，流式输出本体 deferred 未做，回复仍整段一次性出现。打回原因：用户实测「chat 基本正常，但还没有连续显示」。流式部分现由 docs/streaming.md 定稿（Streaming Delta：LLM SSE chunk → AssistantDelta 逐片推送前端，reasoning 走 ThinkingBubble/ThinkingModal；Delta 纯显示优化不经 Queue/Context，完整回复最后写 Context）。
 
 ***
 
@@ -74,9 +76,11 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 2026-07-29：Tauri IPC 问题单独裂出 #9.5。
 
-## #9.5 core-server → Tauri IPC 迁移 (2026-07-29) — open
+## #9.5 core-server → Tauri IPC 迁移 (2026-07-29) — fixed
 
 `core-server.md` 声明"仅保留 /hook HTTP，前端走 Tauri IPC"，但实际代码仍使用全量 HTTP+WS（`RemoteBridge`），因 Tauri IPC 过程中新 Tauri commands（`get_state`/`get_config`/`append_user`/`push_event`/`get_config_schema`）的 `State` 提取失败——`invoke()` 未到达 Rust handler。旧有 `toggle_pet`/`quit_app` 的 `invoke()` 正常工作，证明 IPC 通道本身可用，问题在新命令的 `tauri::State<SharedTauriState>` 提取链路。当前回退 HTTP 桥，Tauri IPC 骨架保留在 `main.rs` 中（fe39ad9、9c764f1、f308051、27bad37）。需修复 State 提取后切回 Tauri IPC，然后删 HTTP 路由仅留 `/hook`。
+
+2026-07-29 修复——三个根因分层处置：①State 提取：mock_app IPC 二分测试（tauri::test）证实 newtype+Arc 链路已通（invoke 到达 handler + 提取成功；race 期 wait_state 返回 not ready 不挂死），当年未二分完就回退了；②emit 推送链路实锤未接：run_core 的 handle 参数从未使用（effects 只进 WS 不进 Tauri 事件）——sender 改为 WS+handle.emit("effect") 双发；③前端恢复 TauriBridge（invoke+listen，get_context/context_changed 新名，竞态期保底），createBridge Tauri 模式启用 IPC，Tauri 模式 thin router 仅留 /hook（实测 /state/queue/context 全 404、/hook 200）。menu 设置面板「连不上 core」顺带修复：新增 set_config command，menu.ts fetch→invoke。用户实测确认：menu 正常、chat 正常、card 弹出正常。
 
 ## #10 已消亡实例未标记 closed，僵死数据污染 Event Buffer (2026-07-28) — fixed
 
