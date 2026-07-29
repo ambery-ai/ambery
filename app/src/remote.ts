@@ -23,6 +23,8 @@ export class RemoteBridge implements Bridge {
     ttlMs?: number;
   }) => void)[] = [];
   private configListeners: ((cfg: AppConfig) => void)[] = [];
+  private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
+  private doneListeners: (() => void)[] = [];
 
   /** 探测 overseer-core debug server 是否在跑（决定用 Remote 还是 Mock） */
   static async probe(timeoutMs = 800): Promise<boolean> {
@@ -54,6 +56,8 @@ export class RemoteBridge implements Bridge {
         motion?: Motion;
         ttlMs?: number;
         config?: AppConfig;
+        content?: string;
+        reasoning_content?: string;
       };
       switch (msg.kind) {
         case "top_state":
@@ -74,6 +78,14 @@ export class RemoteBridge implements Bridge {
           break;
         case "config":
           if (msg.config) this.configListeners.forEach((cb) => cb(msg.config!));
+          break;
+        case "assistant_delta":
+          this.deltaListeners.forEach((cb) =>
+            cb({ content: msg.content, reasoning_content: msg.reasoning_content }),
+          );
+          break;
+        case "assistant_done":
+          this.doneListeners.forEach((cb) => cb());
           break;
       }
     });
@@ -126,6 +138,14 @@ export class RemoteBridge implements Bridge {
 
   onConfigChanged(cb: (cfg: AppConfig) => void): void {
     this.configListeners.push(cb);
+  }
+
+  onAssistantDelta(cb: (d: { content?: string; reasoning_content?: string }) => void): void {
+    this.deltaListeners.push(cb);
+  }
+
+  onAssistantDone(cb: () => void): void {
+    this.doneListeners.push(cb);
   }
 }
 

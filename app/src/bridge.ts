@@ -105,6 +105,10 @@ export interface Bridge {
   ): void;
   /** 可选（RemoteBridge）：Overseer 推送 Config 变更（edit_config 的结果） */
   onConfigChanged?(cb: (cfg: AppConfig) => void): void;
+  /** 可选：流式增量（docs/streaming.md）——assistant 回复片段，纯显示优化 */
+  onAssistantDelta?(cb: (d: { content?: string; reasoning_content?: string }) => void): void;
+  /** 可选：一轮回复完毕（loading 收尾，完整回复已写 Context） */
+  onAssistantDone?(cb: () => void): void;
 }
 
 // ── Chrome DevTools 调试驱动接口（window.__overseer） ──
@@ -255,6 +259,8 @@ class TauriBridge implements Bridge {
   private topStateListeners: ((s: TopState) => void)[] = [];
   private autonomyListeners: ((args: { face?: string; motion?: Motion; ttlMs?: number }) => void)[] = [];
   private configListeners: ((cfg: AppConfig) => void)[] = [];
+  private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
+  private doneListeners: (() => void)[] = [];
 
   constructor(
     private invokeFn: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
@@ -268,6 +274,8 @@ class TauriBridge implements Bridge {
         motion?: Motion;
         ttlMs?: number;
         state?: TopState;
+        content?: string;
+        reasoning_content?: string;
       };
       if (!msg?.kind) return;
       switch (msg.kind) {
@@ -287,6 +295,14 @@ class TauriBridge implements Bridge {
           break;
         case "top_state":
           if (msg.state) this.topStateListeners.forEach((cb) => cb(msg.state!));
+          break;
+        case "assistant_delta":
+          this.deltaListeners.forEach((cb) =>
+            cb({ content: msg.content, reasoning_content: msg.reasoning_content }),
+          );
+          break;
+        case "assistant_done":
+          this.doneListeners.forEach((cb) => cb());
           break;
       }
     });
@@ -328,6 +344,12 @@ class TauriBridge implements Bridge {
   }
   onConfigChanged(cb: (cfg: AppConfig) => void): void {
     this.configListeners.push(cb);
+  }
+  onAssistantDelta(cb: (d: { content?: string; reasoning_content?: string }) => void): void {
+    this.deltaListeners.push(cb);
+  }
+  onAssistantDone(cb: () => void): void {
+    this.doneListeners.push(cb);
   }
 }
 
