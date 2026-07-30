@@ -81,7 +81,7 @@ async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) ->
 }
 
 #[tauri::command]
-async fn push_event(state: tauri::State<'_, SharedTauriState>, desc: String, card_id: Option<String>) -> Result<Value, String> {
+async fn push_event(state: tauri::State<'_, SharedTauriState>, desc: String, card_id: Option<String>, state: Option<Value>) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let mut ov = s.overseer().lock().await;
     // 用户 × 关卡：closed_by_user 双行事件（docs/components.md）
@@ -96,7 +96,10 @@ async fn push_event(state: tauri::State<'_, SharedTauriState>, desc: String, car
             return Ok(json!({ "ok": true }));
         }
     }
-    ov.harness.event_buffer.push(desc);
+    match state {
+        Some(st) => ov.harness.event_buffer.push_with_state(desc, st),
+        None => ov.harness.event_buffer.push(desc),
+    }
     Ok(json!({ "ok": true }))
 }
 

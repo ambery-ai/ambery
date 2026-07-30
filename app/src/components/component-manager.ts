@@ -104,7 +104,7 @@ export class ComponentManager {
     close.textContent = "×";
     close.addEventListener("click", () => {
       // closed_by_user 双行生命周期事件（docs/components.md）：desc + cardId
-      this.bridge.pushEvent(`用户关闭了 ${spec.type}「${title.textContent}」`, spec.id);
+      this.bridge.pushEvent(`用户关闭了 ${spec.type}「${title.textContent}」`, { cardId: spec.id });
       this.closeById(spec.id);
     });
     header.append(title, close);
@@ -283,8 +283,10 @@ export class ComponentManager {
       cb.type = "checkbox";
       cb.checked = done;
       cb.addEventListener("change", () => {
+        // 双载荷（docs/harness.md）：自然语言 + 该 card 当前完整 items 快照（同 card 去重合并）
         this.bridge.pushEvent(
           `用户${cb.checked ? "勾选" : "取消勾选"}了 todobox 条目「${text}」`,
+          { state: { id: spec.id, type: "todobox", items: collectItems() } },
         );
       });
       const span = document.createElement("span");
@@ -292,6 +294,11 @@ export class ComponentManager {
       li.append(cb, span);
       ul.append(li);
     };
+    const collectItems = (): { text: string; done: boolean }[] =>
+      [...ul.querySelectorAll("li")].map((li) => ({
+        text: (li.querySelector("span")?.textContent ?? "").trim(),
+        done: (li.querySelector("input") as HTMLInputElement | null)?.checked ?? false,
+      }));
     for (const item of spec.items) addItem(item.text, item.done);
 
     const input = document.createElement("input");
@@ -300,7 +307,9 @@ export class ComponentManager {
       if (ev.key === "Enter" && input.value.trim()) {
         const text = input.value.trim();
         addItem(text, false);
-        this.bridge.pushEvent(`用户新增 todobox 条目「${text}」`);
+        this.bridge.pushEvent(`用户新增 todobox 条目「${text}」`, {
+          state: { id: spec.id, type: "todobox", items: collectItems() },
+        });
         input.value = "";
       }
     });

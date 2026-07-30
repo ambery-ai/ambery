@@ -97,9 +97,10 @@ export interface Bridge {
   onTopStateChanged(cb: (s: TopState) => void): void;
   /** Overseer → UI：渲染 Component（ペット call_component 的执行结果） */
   onRenderComponent(cb: (spec: ComponentSpec) => void): void;
-  /** UI → Harness：Component 交互事件写入 Event Buffer（concepts §10e）；
-   *  cardId：用户 × 关卡时携带（closed_by_user 双行生命周期事件） */
-  pushEvent(desc: string, cardId?: string): void;
+  /** UI → Harness：Component 交互事件写入 Event Buffer（concepts §10e）。
+   *  opts.cardId：用户 × 关卡（closed_by_user 双行事件）；
+   *  opts.state：结构化快照（双载荷，todobox 交互附带，同 card 去重合并） */
+  pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void;
   /** Queue：对话历史读取 + 用户输入写入 user role（concepts §3a） */
   getContext(): Promise<ContextMessage[]>;
   appendUserMessage(text: string): void;
@@ -339,8 +340,8 @@ class TauriBridge implements Bridge {
   appendUserMessage(text: string): void {
     void this.invokeFn("append_user", { text }).catch((e) => console.error("[bridge] append_user", e));
   }
-  pushEvent(desc: string, cardId?: string): void {
-    void this.invokeFn("push_event", { desc, cardId }).catch((e) => console.error("[bridge] push_event", e));
+  pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void {
+    void this.invokeFn("push_event", { desc, cardId: opts?.cardId, state: opts?.state }).catch((e) => console.error("[bridge] push_event", e));
   }
   onRenderComponent(cb: (spec: ComponentSpec) => void): void {
     this.renderListeners.push(cb);

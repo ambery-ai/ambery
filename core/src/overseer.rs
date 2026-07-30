@@ -1591,7 +1591,8 @@ mod tests {
         assert!(matches!(e3[0], Effect::CloseComponent(_)));
         assert!(!ov.cards.contains_key("todo-1"));
         // 生命周期事件（docs/components.md）：created 一行 + closed 一行，均进 EventBuffer 静默簿记
-        let events: Vec<&str> = ov.harness.event_buffer.events().iter().map(|s| s.as_str()).collect();
+        let owned = ov.harness.event_buffer.events();
+        let events: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
         assert!(events.iter().any(|l| l.starts_with("card created: todobox「t」(todo-1) @ ") && l.ends_with(", → 存活 1")), "created 事件: {events:?}");
         assert!(events.iter().any(|l| l.starts_with("card closed: todobox「t」(todo-1), ") && l.contains(" / ") && l.ends_with(", → 存活 0")), "closed 事件: {events:?}");
         let _ = std::fs::remove_dir_all(tmp_dir("cmp-mgmt"));

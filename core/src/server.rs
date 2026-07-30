@@ -159,6 +159,8 @@ struct EventBody {
     desc: String,
     /// 用户 × 关闭卡片时的 card id（生命周期 closed_by_user 双行事件，docs/components.md）
     card_id: Option<String>,
+    /// 结构化状态快照（双载荷，todobox 交互附带，docs/harness.md）
+    state: Option<Value>,
 }
 
 async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>) -> impl IntoResponse {
@@ -175,7 +177,11 @@ async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>)
             return Json(json!({ "ok": true }));
         }
     }
-    ov.harness.event_buffer.push(body.desc);
+    // 双载荷（docs/harness.md）：带快照走 push_with_state，否则普通描述
+    match body.state {
+        Some(state) => ov.harness.event_buffer.push_with_state(body.desc, state),
+        None => ov.harness.event_buffer.push(body.desc),
+    }
     Json(json!({ "ok": true }))
 }
 
