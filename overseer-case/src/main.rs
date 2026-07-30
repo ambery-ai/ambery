@@ -125,7 +125,7 @@ fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
         .and_then(|v| v.as_i64())
         .unwrap_or(5_000) as u64;
 
-    let harness = overseer_core::Harness::load(&tmp, &tmp, config.token_threshold, now_ms())
+    let harness = overseer_core::Harness::load(&tmp, &tmp, config.effective_token_threshold(), now_ms())
         .expect("load harness");
     let backend = LlmBackend::from_config(&config.llm);
     let mut ov = OverseerBackend::new(harness, config, backend);

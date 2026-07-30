@@ -156,7 +156,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let harness = Harness::load(
         &overseer_core::paths::storage_dir(),
         &overseer_core::paths::config_root(),
-        config.token_threshold,
+        config.effective_token_threshold(),
         now_ms(),
     ).expect("load harness");
     let backend = LlmBackend::from_config(&config.llm);

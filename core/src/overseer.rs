@@ -121,13 +121,12 @@ impl<L: Llm> OverseerBackend<L> {
             }
         }
         let old = std::mem::replace(&mut self.config, new);
-        // 热应用：filter 重建 / queue 阈值同步（其余字段每轮现读，天然热）
+        // 热应用：filter 重建 / compression 阈值同步（effective 唯一出口，#16：
+        // llm.active 切换、provider 阈值变更、全局 fallback 变更都经此同步）
         if self.config.filter_strategy != old.filter_strategy {
             self.filter = crate::filter::by_name(&self.config.filter_strategy);
         }
-        if self.config.token_threshold != old.token_threshold {
-            self.harness.context.token_threshold = self.config.token_threshold;
-        }
+        self.harness.context.token_threshold = self.config.effective_token_threshold();
         let llm_changed = self.config.llm != old.llm;
         self.config
             .save(self.harness.config_dir())

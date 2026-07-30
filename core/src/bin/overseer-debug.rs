@@ -86,7 +86,7 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(config.timer_tick_ms as u64);
     let timer_batch = config.timer_batch;
-    let harness = Harness::load(&storage_dir, &config_dir, config.token_threshold, now_ms())
+    let harness = Harness::load(&storage_dir, &config_dir, config.effective_token_threshold(), now_ms())
         .expect("load harness");
     let backend = match LlmBackend::from_config(&config.llm) {
         // debug 分支换 CLI 决策源（OpenAi 变体的内部降级仍是沉默 mock）
