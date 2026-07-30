@@ -52,6 +52,13 @@ pub enum ContextLine {
     },
     /// Autonomy 状态记录：每轮一条，最新一条挂请求末端（concepts §4）
     Autonomy { content: String, ts: i64 },
+    /// LLM 调用 token 真值（#16，docs/storage.md §usage）：每次调用一条，
+    /// 读取覆盖语义取最新；replay 不恢复为压缩基准（重启 last_usage=None）
+    Usage {
+        prompt_tokens: u64,
+        completion_tokens: u64,
+        ts: i64,
+    },
     /// 请求头快照：装配结果变化才写
     Head { content: String, ts: i64 },
     /// 压缩边界：标记不是删除，文件全保留（可审计）
@@ -139,6 +146,8 @@ pub struct Harness {
     pub agents: Vec<AgentEntry>,
     /// 最近一次写入的请求头（head diff：变化才写，docs/storage.md）
     pub last_head: Option<String>,
+    /// 最近一次 LLM 调用的 token 真值（#16；重启 = None，不背旧 session）
+    pub last_usage: Option<crate::llm::Usage>,
     store: JsonlStore,
     config_dir: std::path::PathBuf,
 }
@@ -211,6 +220,7 @@ impl Harness {
             event_buffer: EventBuffer::default(),
             agents,
             last_head,
+            last_usage: None, // 重启 = None（#16：不背旧 session，首轮 est 兜底）
             store,
             config_dir: config_dir.to_path_buf(),
         };
@@ -257,9 +267,22 @@ impl Harness {
         self.store.append(TERMINAL_CONTENT_FILE, &rec)
     }
 
+    /// LLM 调用 token 真值（#16）：usage 行落盘 + last_usage 覆盖刷新
+    pub fn log_usage(&mut self, usage: crate::llm::Usage, ts: i64) -> std::io::Result<()> {
+        self.store.append(
+            CONTEXT_FILE,
+            &ContextLine::Usage {
+                prompt_tokens: usage.prompt_tokens,
+                completion_tokens: usage.completion_tokens,
+                ts,
+            },
+        )?;
+        self.last_usage = Some(usage);
+        Ok(())
+    }
+
     /// Autonomy 状态记录：每轮一条（concepts §4 / docs/storage.md）
-    pub fn log_autonomy(&self, content: String, ts: i64) -> std::io::Result<()> {
-        self.store
+    pub fn log_autonomy(&self, content: String, ts: i64) -> std::io::Result<()> {        self.store
             .append(CONTEXT_FILE, &ContextLine::Autonomy { content, ts })
     }
 
@@ -402,6 +425,24 @@ mod tests {
         assert_eq!(raw.matches("\"type\":\"session\"").count(), 2);
         assert!(raw.contains("\"type\":\"message\""));
         assert!(raw.contains("\"type\":\"content\""));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn usage_logged_and_reset_on_reload() {
+        let dir = tmp_dir("usage");
+        {
+            let mut h = Harness::load(&dir, &dir, 1000, 0).unwrap();
+            h.log_usage(crate::llm::Usage { prompt_tokens: 100, completion_tokens: 5 }, 1)
+                .unwrap();
+            assert_eq!(h.last_usage.unwrap().prompt_tokens, 100);
+        }
+        // 重启 = None（#16：不背旧 session 的压缩基准）；usage 行仍落盘可审计
+        let h = Harness::load(&dir, &dir, 1000, 9).unwrap();
+        assert!(h.last_usage.is_none());
+        let raw = std::fs::read_to_string(dir.join(CONTEXT_FILE)).unwrap();
+        assert!(raw.contains("\"type\":\"usage\""));
+        assert!(raw.contains("\"prompt_tokens\":100"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

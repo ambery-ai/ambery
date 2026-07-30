@@ -271,12 +271,15 @@ impl<L: Llm> OverseerBackend<L> {
         if self.harness.context.needs_compression() {
             let pre_tokens = self.harness.context.total_tokens();
             let t0 = std::time::Instant::now();
-            // summarize 返回（摘要, usage 真值）；usage 留痕在 C2 接入（本提交只通类型）
-            let (summary, _usage) = self
+            // summarize 返回（摘要, usage 真值）；摘要调用也留真值（#16）
+            let (summary, summary_usage) = self
                 .llm
                 .summarize(self.harness.context.messages())
                 .await
                 .map_err(std::io::Error::other)?;
+            if let Some(u) = summary_usage {
+                self.harness.log_usage(u, ts)?;
+            }
             self.harness.context.compress(summary.clone(), ts);
             let post_tokens = self.harness.context.total_tokens();
             self.harness.log_compact_boundary(
@@ -314,6 +317,10 @@ impl<L: Llm> OverseerBackend<L> {
                 .complete_streaming(&request, &tools, &on_delta)
                 .await
                 .map_err(std::io::Error::other)?;
+            // usage 真值留痕（#16：每轮一条，覆盖刷新 last_usage）
+            if let Some(u) = out.usage {
+                self.harness.log_usage(u, ts)?;
+            }
             if out.tool_calls.is_empty() {
                 // 沉默语义：空 content 不追加（docs/agent-loop.md）
                 if let Some(content) = out.content.filter(|c| !c.is_empty()) {
