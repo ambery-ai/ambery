@@ -88,6 +88,10 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 `timer-probe`×2 + `full-body-check` 三个实例 UIA 侧车实证已不存在，但 `work-agents.jsonl` 仍为 `processing`，`last_seen` 自首次注册后从未被 timer 更新。timer 每 5s 扫描，但 `None→closed` 判定未触发，导致实例永不被标 `Closed`。连锁效应：每次 `run_trigger` 的 compression 路径调 `panorama()` 时，这些僵死实例经过滤（仅排除 Closed）被纳入全景同步 → 写入 Event Buffer → flush 到 LLM context → pet 基于虚假数据报告"filter-test 有 3 个 Processing"。缺陷点：(1) timer 扫描未触发 closed；(2) `panorama()` 过滤条件仅排除 `Closed`，未考虑 `last_seen` 远超 timer 周期的僵死实例。
 
+2026-07-30 reopen——用户从 pet 汇报中发现三个实例仍为 Processing。打回原因：首次修复只覆盖「扫描判定」环节，**调度盲区**未覆盖——`timers.reset` 的唯一调用点是 hook 事件，无 hook 实例（僵尸）从不进入 TimerWheel 调度集，`due()` 永不返回它们，判定逻辑根本没有执行机会。case 复现链：case-runner timer_scan 对齐生产 due 路径后跑僵尸切片，`0 scanned`、僵尸保持 Processing、panorama 3 存活（复现成功，证明 case 能抓住此 bug）。
+
+2026-07-30 修复——①启动批量调度：OverseerBackend::new 对投影中全部存活实例批量 reset 入 TimerWheel（无 hook 实例也进兜底扫描集）；②mark_instance_closed 同名连坐：读通道按 name 读取，同名实例在读取侧不可区分，判死须同判（原只闭最新一条，同名僵尸漏网）。case 验证：修复后僵尸切片 3 实例全闭、panorama 空；82 测试绿。生产重启后三个真实僵尸随首个 timer 周期判死。
+
 ***
 
 **触发场景**: 2026-07-29 grill 发现——Queue 概念与实现严重偏差。
