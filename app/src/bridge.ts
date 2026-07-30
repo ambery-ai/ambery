@@ -341,7 +341,7 @@ class TauriBridge implements Bridge {
     void this.invokeFn("append_user", { text }).catch((e) => console.error("[bridge] append_user", e));
   }
   pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void {
-    void this.invokeFn("push_event", { desc, cardId: opts?.cardId, state: opts?.state }).catch((e) => console.error("[bridge] push_event", e));
+    void this.invokeFn("push_event", { desc, cardId: opts?.cardId, stateSnapshot: opts?.state }).catch((e) => console.error("[bridge] push_event", e));
   }
   onRenderComponent(cb: (spec: ComponentSpec) => void): void {
     this.renderListeners.push(cb);
