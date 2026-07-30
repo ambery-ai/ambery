@@ -6,6 +6,8 @@
 // 浏览器/maximized 模式（默认）：卡片 position:fixed 在 View 锚点周围弹出。
 
 import type { Bridge, ComponentSpec, Direction } from "../bridge";
+import type { PositioningEngine } from "../positioning/engine";
+import { directionFromName, type Point } from "../positioning/types";
 
 const GAP = 12;
 const VIEW_RADIUS_X = 36;
@@ -23,6 +25,8 @@ export class ComponentManager {
     private anchor: Anchor,
     /** multi-window 模式：跳过 DOM 定位，卡片在窗口内自然流式布局 */
     public windowed = false,
+    /** browser 模式：卡片纳入 engine 语义（place 注册 / follow 重排，docs/window-follow.md） */
+    private engine?: PositioningEngine,
   ) {
     this.layer = document.createElement("div");
     this.layer.id = "components";
@@ -37,6 +41,7 @@ export class ComponentManager {
     if (existing) {
       existing.remove();
       this.cards.delete(spec.id);
+      this.engine?.remove(`card-${spec.id}`);
       return;
     }
     const card = this.buildCard(spec);
@@ -44,6 +49,17 @@ export class ComponentManager {
     this.layer.appendChild(card);
     this.cards.set(spec.id, card);
     if (!this.windowed) this.place(card, spec.direction ?? "auto");
+  }
+
+  /** pet 移动后重排（browser）：按 restorePositions 的结果重定位卡片 DOM */
+  followRestore(restored: { id: string; center: Point }[]) {
+    for (const r of restored) {
+      if (!r.id.startsWith("card-")) continue;
+      const card = this.cards.get(r.id.slice(5));
+      if (!card) continue;
+      card.style.left = `${r.center.x - card.offsetWidth / 2}px`;
+      card.style.top = `${r.center.y - card.offsetHeight / 2}px`;
+    }
   }
 
   private buildCard(spec: ComponentSpec): HTMLDivElement {
@@ -266,16 +282,25 @@ export class ComponentManager {
     return wrap;
   }
 
-  /** 方位几何（docs/components.md）：锚点偏移。不做 clamp（docs/window-follow.md
-   *  §出屏与重叠：不压人 > 完全可见，clamp 拉回是重叠元凶） */
+  /** 方位几何（docs/components.md）：engine 优先（单源语义），无 engine 时本地锚点偏移。
+   *  不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见） */
   private place(card: HTMLDivElement, dir: Direction) {
     const d =
       dir === "auto"
         ? this.autoDirection()
         : dir;
-    const { x, y } = this.anchor();
     const cw = card.offsetWidth || 260;
     const ch = card.offsetHeight || 140;
+    if (this.engine) {
+      // engine 语义：注册进 occupied（跟随/恢复由 engine 管）
+      const specId = card.dataset.id!;
+      const edir = directionFromName(d) ?? 7; // 默认 sse（16 方位枚举值）
+      const pos = this.engine.place({ id: `card-${specId}`, width: cw, height: ch }, edir);
+      card.style.left = `${pos.x - cw / 2}px`;
+      card.style.top = `${pos.y - ch / 2}px`;
+      return;
+    }
+    const { x, y } = this.anchor();
     let left = x - cw / 2;
     let top = y - ch / 2;
     if (d.includes("left")) left = x - VIEW_RADIUS_X - GAP - cw;

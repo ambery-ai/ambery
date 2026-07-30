@@ -158,7 +158,7 @@ export async function main() {
     // 浏览器模式（仅 Vite dev / preview，prod build tree-shaking 剔除）
     const { ChatPanel } = await import("./chat");
     const { ComponentManager } = await import("../components/component-manager");
-    new ComponentManager(mount, bridge, () => view.center());
+    const mgr = new ComponentManager(mount, bridge, () => view.center(), false, engine);
     const chatPanel = new ChatPanel(mount, bridge, engine);
     view.el.addEventListener("chat:toggle", () => chatPanel.toggle());
 
@@ -202,6 +202,8 @@ export async function main() {
           chatPanel.showAt(r.center);
         }
       }
+      // card 跟随（browser DOM 卡片纳入 engine 语义，#12）
+      mgr.followRestore(restored);
       // 恢复 debug marks
       for (const mo of markOffsets) {
         const mark = document.createElement("div");
