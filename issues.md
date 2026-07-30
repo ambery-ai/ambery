@@ -191,3 +191,7 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 当前 card 窗口高度完全由内容决定，没有上限约束。内容较长时（如 text_card 的 `text` 字段数千字、git_display 几十条 commit）窗口会撑到超出屏幕高度，底部内容被截断且无法滚动查看。
 
 2026-07-30 grill 定案——**屏幕高度走 WindowAdapter 新方法**（不能直接调 `window.screen.height`，card-window 已适配 Tauri/浏览器双模式，新增能力必须走同一抽象层）：(1) `WindowAdapter` trait 新增 `getScreenHeight()`（返回值 = 逻辑像素），Tauri 实现走 `getCurrentWindow().currentMonitor()` → `size.height / scaleFactor`（多屏正确，窗口实际所在屏），浏览器实现走 `window.screen.height`；(2) `card-window.ts` 测量后用 `adapter.getScreenHeight() * 0.5` 作 cap，`Math.min(offsetHeight, cap)`，再 `* dpr` 转物理像素给 `setSize()`；(3) `.cmp-body` 设 `max-height` 对应 cap（减 header 约 40px）并 `overflow-y: auto`。
+
+## #21 pet 贴屏幕边缘唤出 chat 时出屏不可见 (2026-07-30) — open
+
+pet 拖到桌面底部后右键唤出 chat，chat 没有出现在可见范围内。根因：出屏兜底的方向环重试只覆盖原方向 ±1~±3（如 sse → s/se/ssw/ese/sw/e，全在南/东半球），pet 贴边时可用方向在反半球（北/西），重试环永远够不到 → 7 次全失败后回落最初方向，chat 被放在屏外。Tauri 与 browser 两种环境同一 engine 同病。修复方向：重试覆盖全 16 方位环（placeOnce 成本极低），或 ±3 失败后跳反半球再试。
