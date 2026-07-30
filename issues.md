@@ -213,3 +213,9 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 pet 拖到桌面底部后右键唤出 chat，chat 没有出现在可见范围内。根因：出屏兜底的方向环重试只覆盖原方向 ±1~±3（如 sse → s/se/ssw/ese/sw/e，全在南/东半球），pet 贴边时可用方向在反半球（北/西），重试环永远够不到 → 7 次全失败后回落最初方向，chat 被放在屏外。Tauri 与 browser 两种环境同一 engine 同病。修复方向：重试覆盖全 16 方位环（placeOnce 成本极低），或 ±3 失败后跳反半球再试。
 
 2026-07-30 修复——三件套：①重试扩为全 16 方位环（±1~±8，首个「非完全出屏」即止，部分可见即可）；②monitors Tauri 分支存物理原始矩形（原转逻辑像素与 engine 物理世界错配，petCenter 永不命中触发自愈并集，重试被旁路）；③browser 分支视口化（window.innerWidth/Height 取代 window.screen，视口外曾被误判可见）。browser 实测：pet 贴底（y=736/791）右键唤 chat，落 (30,339) 完整可见。
+
+## #22 Component 协议升级：toggle 改持续管理 + 生命周期事件 + Event Buffer 双载荷 (2026-07-30) — fixed
+
+旧 call_component 协议的「同 id = toggle 关闭」使「原地更新」无法表达（todobox 加条目、git_display 刷新等同 id 再调即关），且 pet 无法得知卡片后续命运（无生命周期事件），todobox 多次勾选后终态需自行推算（无结构化快照）。定案（docs/components.md/toolset.md/harness.md，用户会话先行定稿）：①调用协议改持续管理——同 id 首次创建、后续原地更新、action:close 显式关闭，return 区分 rendered/updated/closed；②五类生命周期事件（created/closed_by_user/closed_by_agent/user_action，含 start/end 与存活 N），lifecycle 语义以 Rust trait 单源在 core；③Event Buffer 双载荷——自然语言（必填）+ 结构化状态快照（可选，todobox 交互附带），同 card 单次 flush 去重合并为一份最终状态。
+
+2026-07-30 修复——五连落地：①C1 持续管理（core cards 注册表 + Effect::CloseComponent + 返回区分；ComponentManager.render 同 id replaceChildren 原地更新，browser 实测 V1→V2 同卡换内容不闪关）；②C2 校验表补全（五类必填字段全量 + todobox items 结构校验；close 前移只需合法 id）；③C3 lifecycle trait（core/src/lifecycle.rs，created/closed 行含 YYMMDD-HH:MM 与存活 N；closed_by_user 双行经前端 × 带 card_id 上报组行）；④C4 双载荷（push_with_state + 按 card 去重合并，todobox 交互带完整 items 快照）；⑤D0 components.md 漂移修正（clamp/不跟随两处与 window-follow.md 对齐）。93 core 测试绿 + vite build 绿。
