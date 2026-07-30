@@ -60,11 +60,13 @@ AI 回复是一次性渲染到聊天区域的，缺少字符逐步蹦出的流�
 
 **表现**: Card 和 chat panel 窗口无标题栏、无法被单独拖动，只能通过 pet 右键 toggle 显示/隐藏。用户不能手动将 panel 拖到更合适的位置。
 
-## #8 Card 和 Chat panel 窗口应当支持独立拖动 (2026-07-27) — open
+## #8 Card 和 Chat panel 窗口应当支持独立拖动 (2026-07-27) — fixed
 
 Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过 pet 右键 toggle 显示/隐藏，用户不能手动将 panel 拖到更合适的位置。两个窗口都需要支持独立拖动：拖动时暂停 pet 跟随（解除与 pet 中心的偏移绑定），松手后记录新位置到布局引擎（engine.place 更新 center 坐标），后续 pet 移动时以新位置为偏移基准重新跟随。
 
 2026-07-30 reopen（打回）：card 拖动可移动窗口但松手后未更新 engine 坐标——pet 移动时 card 仍从旧位置 delta 平移回弹。chat 窗口完全未实现拖动——chat.ts / chat-window.ts / window.rs 均无 drag handler。
+
+2026-07-30 修复——①松手回写：card/chat 窗 onMoved 防抖 250ms → outerPosition（OS 钳制后的真实位置）→ engine:moved → engine.updateCenter（换算 pet 偏移 + manual 标记），pet 移动时以拖后位置为偏移基准跟随；②chat 补 drag handler（chat-header 可拖，× 除外）+ 记忆修复（hide 不再 remove occupied，place() 手动位优先）；③可见性语义单源：ChatPanel 统一 API（intentClose/intentOpen/systemHide/systemRestore/showAt），Tauri/browser 两路径只做事件翻译；④browser DOM 拖拽：drag.ts attachDrag 共享助手，card/chat 挂上，松手 engine.updateCenter。浏览器实测全过（拖动落位 + pet 移动后以拖点为基准跟随 + ×关后不被唤回）。
 
 ***
 
@@ -122,11 +124,13 @@ concepts.md §10c 与实际代码之间存在重大架构偏差。用户模型�
 
 **表现**: 窗口被从 A 拖到 B 后，pet 一移动窗口就弹回 A；重启后拖过的位置也丢失；pet 隐藏期间新 card 窗口仍然弹出。
 
-## #12 窗口拖动位置不持久、不作为跟随基准 (2026-07-29) — open
+## #12 窗口拖动位置不持久、不作为跟随基准 (2026-07-29) — fixed
 
 card/chat 窗口从自动布局位置 A 拖到 B 后，新位置只生效于当下：(1) pet 移动时窗口跟随的偏移基准仍是 A——pet 一动窗口就恢复显示在 A 处，而不是以用户拖到的 B 为新偏移基准跟随；(2) 拖到的位置没有持久化，重启后丢失。#8 预期的「松手后记录新位置到布局引擎，后续 pet 移动时以新位置为偏移基准重新跟随」未真正落地。建议：拖动松手即更新布局引擎中该窗口的偏移基准，并持久化（重启后恢复）。
 
 2026-07-30 设计收敛（降 scope，用户拍板）——**不做持久化**：card 是临时窗口（关闭即销毁，重启后无恢复对象，存位置是伪需求）；chat 重启默认隐藏、唤出时重排可接受。真正的痛只是**会话内**的「拖完被弹回」。修复范围收敛为：拖拽结束用 `outerPosition()` 取真实位置回传 engine 更新该窗口 center（与 #15 的 OS 边缘调整、#8① 的松手回弹同一刀）。持久化砍掉（非挂起）。
+
+2026-07-30 修复——按降 scope 范围落地：①拖拽回写链路（onMoved 防抖 → outerPosition → engine:moved → updateCenter 换算 pet 偏移 + manual）；②pet 相对坐标系重构（engine occupied 全存 pet 偏移，pet 移动只改 petCenter，hideAll/restoreAll 快照机制删除，restorePositions 现算）；③place() 手动位优先（manual 窗口不重排）；④browser 卡片纳入 engine 语义（place 注册 / followRestore 重排 / 关闭注销）；⑤系统藏补齐（Tauri 广播 + browser 整层）。用户实测：card/chat 拖后 pet 移动以拖点为基准跟随，不再弹回。
 
 ## #13 pet 隐藏后新 card 窗口仍然弹出 (2026-07-29) — fixed
 
@@ -144,9 +148,11 @@ card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，
 
 2026-07-29 诊断：根因是 `card-window.ts:27` 的 drag mousedown handler——`e.target.closest(".cmp-header")` 包含了 × 按钮（它在 header 内），`win.startDragging()` 拦截了 mousedown 事件，× 的 `click` 事件根本不触发。`ad39dec` 修复：drag 条件加 `&& !e.target.closest(".cmp-close")` 排除关闭按钮。
 
-## #15 card 拖到屏幕边缘后引擎记录错乱导致重叠 (2026-07-29) — open
+## #15 card 拖到屏幕边缘后引擎记录错乱导致重叠 (2026-07-29) — fixed
 
 拖动 card 到屏幕边缘时 OS 自动调整窗口位置，但 `startDragging()` 松手时记录的位置是 OS 调整前的坐标。后续 pet 移动时 `engine.restoreAll` 用错误坐标恢复 → 多 card 挤在一起重叠。需要在松手时用 `win.outerPosition()` 获取 OS 调整后的实际位置更新 engine。
+
+2026-07-30 修复——松手回写用 OS 真实位置：onMoved 防抖 250ms → `win.outerPosition()`（OS 边缘钳制后的实际坐标）→ engine:moved → engine.updateCenter 换算 pet 偏移。用户实测：card 拖到屏幕边缘后 pet 移动，按真实落点跟随，不再重叠。
 
 ***
 
@@ -186,12 +192,16 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 
 **表现**: Card 高度无上限——`card-window.ts` 按 `offsetHeight` 测量值直接设窗口尺寸，CSS `.component` 有 `max-width: 480px` 但无 `max-height`，长内容导致窗口纵向撑出屏幕边界，内容底部不可见、也无法滚动。
 
-## #20 Card 过长时需限制高度不超过屏幕 1/2 + 内容滚动 (2026-07-30) — open
+## #20 Card 过长时需限制高度不超过屏幕 1/2 + 内容滚动 (2026-07-30) — fixed
 
 当前 card 窗口高度完全由内容决定，没有上限约束。内容较长时（如 text_card 的 `text` 字段数千字、git_display 几十条 commit）窗口会撑到超出屏幕高度，底部内容被截断且无法滚动查看。
 
 2026-07-30 grill 定案——**屏幕高度走 WindowAdapter 新方法**（不能直接调 `window.screen.height`，card-window 已适配 Tauri/浏览器双模式，新增能力必须走同一抽象层）：(1) `WindowAdapter` trait 新增 `getScreenHeight()`（返回值 = 逻辑像素），Tauri 实现走 `getCurrentWindow().currentMonitor()` → `size.height / scaleFactor`（多屏正确，窗口实际所在屏），浏览器实现走 `window.screen.height`；(2) `card-window.ts` 测量后用 `adapter.getScreenHeight() * 0.5` 作 cap，`Math.min(offsetHeight, cap)`，再 `* dpr` 转物理像素给 `setSize()`；(3) `.cmp-body` 设 `max-height` 对应 cap（减 header 约 40px）并 `overflow-y: auto`。
 
-## #21 pet 贴屏幕边缘唤出 chat 时出屏不可见 (2026-07-30) — open
+2026-07-30 修复——定案落地 + 单源修正：cap 实现收进 ComponentManager 渲染路径（Tauri card-window/browser 共用，body.style.maxHeight = 屏高×0.5 − header，下限 120px，`.cmp-body` overflow-y:auto），card-window.ts 不重复实现。首版只修 Tauri 路径时 browser DOM 卡片无 cap（实测 3602px vs 半屏 552）被 devtools 抓出，单源化后 browser 实测：card 557px ≈ 半屏，body 限高 512px，全文 3570px 滚动可达。
+
+## #21 pet 贴屏幕边缘唤出 chat 时出屏不可见 (2026-07-30) — fixed
 
 pet 拖到桌面底部后右键唤出 chat，chat 没有出现在可见范围内。根因：出屏兜底的方向环重试只覆盖原方向 ±1~±3（如 sse → s/se/ssw/ese/sw/e，全在南/东半球），pet 贴边时可用方向在反半球（北/西），重试环永远够不到 → 7 次全失败后回落最初方向，chat 被放在屏外。Tauri 与 browser 两种环境同一 engine 同病。修复方向：重试覆盖全 16 方位环（placeOnce 成本极低），或 ±3 失败后跳反半球再试。
+
+2026-07-30 修复——三件套：①重试扩为全 16 方位环（±1~±8，首个「非完全出屏」即止，部分可见即可）；②monitors Tauri 分支存物理原始矩形（原转逻辑像素与 engine 物理世界错配，petCenter 永不命中触发自愈并集，重试被旁路）；③browser 分支视口化（window.innerWidth/Height 取代 window.screen，视口外曾被误判可见）。browser 实测：pet 贴底（y=736/791）右键唤 chat，落 (30,339) 完整可见。
