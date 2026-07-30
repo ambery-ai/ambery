@@ -6,6 +6,7 @@
 // 浏览器/maximized 模式（默认）：卡片 position:fixed 在 View 锚点周围弹出。
 
 import type { Bridge, ComponentSpec, Direction } from "../bridge";
+import { attachDrag } from "../drag";
 import type { PositioningEngine } from "../positioning/engine";
 import { directionFromName, type Point } from "../positioning/types";
 
@@ -46,6 +47,13 @@ export class ComponentManager {
     }
     const card = this.buildCard(spec);
     if (spec.direction) card.dataset.direction = spec.direction;
+    // browser：DOM 拖拽（docs/window-follow.md §拖拽回写；Tauri 走 OS startDragging）
+    if (this.engine) {
+      const specId = spec.id;
+      attachDrag(card, ".cmp-header", ".cmp-close", (center) =>
+        this.engine!.updateCenter(`card-${specId}`, center),
+      );
+    }
     this.layer.appendChild(card);
     this.cards.set(spec.id, card);
     if (!this.windowed) this.place(card, spec.direction ?? "auto");

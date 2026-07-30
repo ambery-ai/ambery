@@ -2,6 +2,7 @@
 // engine.place(Direction.sse) 定位，不重叠其他窗口
 
 import type { Bridge, ContextMessage } from "../bridge";
+import { attachDrag } from "../drag";
 import type { PositioningEngine } from "../positioning/engine";
 import { Direction } from "../positioning/types";
 
@@ -71,6 +72,13 @@ export class ChatPanel {
 
     this.el.append(header, this.historyEl, this.inputEl);
     mount.appendChild(this.el);
+
+    // browser：DOM 拖拽（docs/window-follow.md §拖拽回写；Tauri 走 OS startDragging）
+    if (engine) {
+      attachDrag(this.el, ".chat-header", ".chat-close", (center) =>
+        engine.updateCenter("chat-panel", center),
+      );
+    }
 
     // 流式增量（docs/streaming.md §前端行为）：
     // reasoning → ThinkingBubble「…」+ ThinkingModal 累积；content → 气泡逐片追加
