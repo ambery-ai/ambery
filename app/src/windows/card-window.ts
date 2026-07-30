@@ -25,7 +25,7 @@ export async function main() {
 
   // #8 拖拽：card header mousedown → 开始移动窗口
   document.addEventListener("mousedown", (e) => {
-    if ((e.target as HTMLElement).closest(".cmp-header")) {
+    if ((e.target as HTMLElement).closest(".cmp-header") && !(e.target as HTMLElement).closest(".cmp-close")) {
       win.startDragging();
     }
   });
@@ -64,14 +64,17 @@ export async function main() {
 
   // 卡片关闭：× 按钮清除 DOM → 清理引擎 + 关闭窗口
   const observer = new MutationObserver(() => {
-    if (!document.querySelector(".component")) {
+    const card = document.querySelector(".component");
+    (window as any).__diag_mutation = { ts: Date.now(), hasCard: !!card };
+    if (!card) {
       requestRemove(win.label);
-      win.close();
+      win.destroy();
     }
   });
   observer.observe(mount, { childList: true, subtree: true });
 
-  win.onCloseRequested(() => {
+  win.onCloseRequested((ev) => {
+    ev.preventDefault();
     requestRemove(win.label);
     win.destroy();
   });
