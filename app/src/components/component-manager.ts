@@ -66,7 +66,12 @@ export class ComponentManager {
       this.cards.delete(spec.id);
     });
     header.append(title, close);
-    card.append(header, this.buildBody(spec));
+    const body = this.buildBody(spec);
+    card.append(header, body);
+    // #20 高度 cap（单源：Tauri/browser 共用渲染路径）——body 限高 = 屏高×0.5 − header，
+    // 超长走 .cmp-body 滚动（styles.css overflow-y:auto），内容不截断
+    const cap = Math.max(window.screen.availHeight * 0.5 - (header.offsetHeight || 40), 120);
+    body.style.maxHeight = `${cap}px`;
     return card;
   }
 

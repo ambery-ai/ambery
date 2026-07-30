@@ -47,13 +47,7 @@ export async function main() {
 
     const card = document.querySelector(".component") as HTMLElement | null;
     if (!card) return;
-    // #20：高度 cap = 屏高×0.5（adapter 通道），超长内容 body 滚动
-    const cap = (await adapter!.getScreenHeight()) * 0.5;
-    const headerH = (card.querySelector(".cmp-header") as HTMLElement | null)?.offsetHeight ?? 40;
-    const body = card.querySelector(".cmp-body") as HTMLElement | null;
-    if (body) {
-      body.style.maxHeight = `${Math.max(cap - headerH, 120)}px`;
-    }
+    // #20：cap 在 ComponentManager 渲染时已应用（单源），这里只负责测量落窗
     const dir = cardDirection(card);
     const pw = Math.ceil((card.offsetWidth || 260) * dpr);
     const ph = Math.ceil((card.offsetHeight || 140) * dpr);
