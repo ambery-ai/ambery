@@ -128,6 +128,8 @@ card/chat 窗口从自动布局位置 A 拖到 B 后，新位置只生效于当�
 
 card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，MutationObserver 检测到无 `.component` 后隐藏窗口——但 Tauri 窗口本身未关闭（`win.close()`），引擎占区未清除（`engine.remove()` 未调用）。导致窗口泄漏、引擎 occupied 残留。
 
+2026-07-29 诊断：根因是 `card-window.ts:27` 的 drag mousedown handler——`e.target.closest(".cmp-header")` 包含了 × 按钮（它在 header 内），`win.startDragging()` 拦截了 mousedown 事件，× 的 `click` 事件根本不触发。`ad39dec` 修复：drag 条件加 `&& !e.target.closest(".cmp-close")` 排除关闭按钮。
+
 ## #15 card 拖到屏幕边缘后引擎记录错乱导致重叠 (2026-07-29) — open
 
 拖动 card 到屏幕边缘时 OS 自动调整窗口位置，但 `startDragging()` 松手时记录的位置是 OS 调整前的坐标。后续 pet 移动时 `engine.restoreAll` 用错误坐标恢复 → 多 card 挤在一起重叠。需要在松手时用 `win.outerPosition()` 获取 OS 调整后的实际位置更新 engine。
