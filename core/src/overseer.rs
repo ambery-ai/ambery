@@ -740,7 +740,9 @@ impl<L: Llm> OverseerBackend<L> {
     /// Timer 兜底扫描发现 tab 不复存在 → closed 终态（docs/storage.md：永久日志的消亡语义）
     /// Timer 判死（读通道返回 None）：该名字全部未 closed 生命周期各 append 一条
     /// closed 快照——读通道按 name 读，同名实例在读取侧不可区分，判死须同判
-    ///（同名不同命：每 hash 独立快照，append-only 语义不变）
+    ///（同名不同命：每 hash 独立快照，append-only 语义不变）。
+    /// 判死 diff 事件化（#16 case 跑红实锤）：EventBuffer 簿记，下次放行附带入
+    /// Context——否则 LLM 的全景认知停在旧快照（判死后仍答错实例数）。
     pub fn mark_instance_closed(&mut self, instance: &str, ts: i64) -> std::io::Result<()> {
         let targets: Vec<AgentEntry> = self
             .harness
@@ -749,6 +751,9 @@ impl<L: Llm> OverseerBackend<L> {
             .filter(|a| a.name == instance && a.status != AgentStatus::Closed)
             .cloned()
             .collect();
+        if targets.is_empty() {
+            return Ok(());
+        }
         for a in targets {
             self.harness.upsert_agent(AgentEntry {
                 status: AgentStatus::Closed,
@@ -757,6 +762,10 @@ impl<L: Llm> OverseerBackend<L> {
                 ..a
             })?;
         }
+        // 静默簿记（与 session_end 的「− {name} 关闭」同族；重复可接受，EventBuffer 是流水）
+        self.harness
+            .event_buffer
+            .push(format!("− {instance} 关闭（兜底）"));
         Ok(())
     }
 

@@ -61,7 +61,7 @@ export class ChatPanel {
         this.loadingEl.className = "chat-msg chat-system";
         this.loadingEl.textContent = "…";
         this.historyEl.append(this.loadingEl);
-        this.historyEl.scrollTop = this.historyEl.scrollHeight;
+        autoScroll(this.historyEl);
         this.bridge.appendUserMessage(text);
         this.inputEl.value = "";
       }
@@ -78,7 +78,7 @@ export class ChatPanel {
         this.thinkText += d.reasoning_content;
         if (!this.thinkEl) this.showThinkingBubble();
         if (this.thinkModal) this.thinkModal.querySelector("pre")!.textContent = this.thinkText;
-        this.historyEl.scrollTop = this.historyEl.scrollHeight;
+        autoScroll(this.historyEl);
       }
       if (d.content) {
         this.clearThinking(); // thinking 阶段结束
@@ -88,7 +88,7 @@ export class ChatPanel {
           this.historyEl.append(this.streamRow);
         }
         this.streamRow.textContent += d.content;
-        this.historyEl.scrollTop = this.historyEl.scrollHeight;
+        autoScroll(this.historyEl);
       }
     });
     bridge.onAssistantDone?.(() => {
@@ -148,7 +148,7 @@ export class ChatPanel {
     // 全量重渲不冲掉在飞的流式气泡（他实例事件触发的 context_changed）
     if (this.streamRow) this.historyEl.append(this.streamRow);
     if (this.thinkEl) this.historyEl.append(this.thinkEl);
-    this.historyEl.scrollTop = this.historyEl.scrollHeight;
+    autoScroll(this.historyEl);
   }
 
   private dropLoading() {
@@ -203,6 +203,12 @@ export class ChatPanel {
       this.thinkModal.remove();
       this.thinkModal = null;
     }
+  }
+}
+
+function autoScroll(el: HTMLElement) {
+  if (el.scrollHeight - el.scrollTop - el.clientHeight < 50) {
+    el.scrollTop = el.scrollHeight;
   }
 }
 
