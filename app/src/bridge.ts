@@ -35,6 +35,10 @@ export interface AppConfig {
   setAutonomyDefaultTtlMs: number;
   /** View 缩放（concepts §3，默认 0.5） */
   viewScale: number;
+  /** 未读角标样式（#5）：number 纯数字（默认）/ bubble 气泡 */
+  badgeStyle?: "number" | "bubble";
+  /** 未读角标方位（#5）：right（默认）/ left */
+  badgeSide?: "right" | "left";
 }
 
 /** docs/components.md：Component 方位 */

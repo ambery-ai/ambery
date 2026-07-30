@@ -94,7 +94,7 @@ async fn get_config(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     let cfg = &ov.config;
-    Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale }))
+    Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale, "badgeStyle": cfg.badge_style, "badgeSide": cfg.badge_side }))
 }
 
 #[tauri::command]

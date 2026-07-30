@@ -16,11 +16,21 @@ export async function main() {
   const mount = document.getElementById("app")!;
   const view = new View(mount);
 
-  // #5 pet 未读角标（spec：默认纯数字、容器内右上，无气泡样式）
+  // #5 pet 未读角标（spec：默认纯数字、容器内右上；样式/方位走 Config）
   const badge = document.createElement("div");
   badge.id = "pet-badge";
-  badge.style.cssText = "display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#f38ba8;font-size:12px;font-weight:700;line-height:1;z-index:10;pointer-events:none";
+  const applyBadgeStyle = (style: string, side: string) => {
+    const pos = side === "left" ? "left:8px;" : "right:8px;";
+    const base = `display:none;position:absolute;${pos}top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;line-height:1;z-index:10;pointer-events:none;`;
+    badge.style.cssText = style === "bubble"
+      ? `${base}background:#f38ba8;color:#fff;border-radius:10px;padding:1px 6px;`
+      : `${base}color:#f38ba8;`;
+  };
+  applyBadgeStyle("number", "right"); // 默认（Config 加载后覆盖）
   view.el.appendChild(badge);
+  bridge.getConfig().then((cfg) => {
+    applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right");
+  });
   let unreadCount = 0;
   bridge.onContextChanged((msgs) => {
     const userMsgs = msgs.filter(m => m.role === "user").length;

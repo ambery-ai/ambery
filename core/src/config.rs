@@ -44,6 +44,12 @@ pub struct Config {
     /// View 缩放（concepts §3，球场圆形默认 0.5）
     #[serde(default = "default_view_scale")]
     pub view_scale: f64,
+    /// 未读角标样式（concepts §3a）：number（纯数字，默认）/ bubble（气泡）
+    #[serde(default = "default_badge_style")]
+    pub badge_style: String,
+    /// 未读角标方位：right（正右边，默认）/ left
+    #[serde(default = "default_badge_side")]
+    pub badge_side: String,
     /// LLM 多 profile 配置（docs/agent-loop.md §LLM 抽象）
     #[serde(default)]
     pub llm: LlmConfig,
@@ -123,6 +129,14 @@ fn default_view_scale() -> f64 {
     1.0
 }
 
+fn default_badge_style() -> String {
+    "number".into()
+}
+
+fn default_badge_side() -> String {
+    "right".into()
+}
+
 fn default_compression_reserve() -> usize {
     10_000
 }
@@ -199,6 +213,8 @@ impl Default for Config {
                 "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
                     .into(),
             view_scale: default_view_scale(),
+            badge_style: default_badge_style(),
+            badge_side: default_badge_side(),
             llm: LlmConfig::default(),
             read_only: false,
             load_report: Vec::new(),

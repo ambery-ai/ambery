@@ -80,7 +80,7 @@ pub fn effect_json(e: &Effect) -> Value {
 }
 
 fn config_json(cfg: &Config) -> Value {
-    json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale })
+    json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale, "badgeStyle": cfg.badge_style, "badgeSide": cfg.badge_side })
 }
 
 async fn state_json_value(s: &AppState) -> Value {
