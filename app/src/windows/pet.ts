@@ -138,7 +138,11 @@ export async function main() {
     bridge.onRenderComponent(async (spec) => {
       const label = `card-${spec.id}`;
       const existing = await WebviewWindow.getByLabel(label);
-      if (existing) { existing.close(); engine.remove(label); return; }
+      // 持续管理协议：同 id = 原地更新（重发 spec），不再 toggle 关闭
+      if (existing) {
+        emitTo(label, "card:spec", spec);
+        return;
+      }
       const webview = new WebviewWindow(label, {
         url: "index.html#card",
         width: 520,
@@ -162,6 +166,14 @@ export async function main() {
       webview.once("tauri://error", (e: any) => {
         console.error("[pet] WebviewWindow error:", e);
       });
+    });
+
+    // 显式关闭（持续管理协议：agent close action）
+    bridge.onCloseComponent?.(async (id) => {
+      const label = `card-${id}`;
+      const existing = await WebviewWindow.getByLabel(label);
+      if (existing) await existing.close();
+      engine.remove(label);
     });
 
     broadcastPosition();

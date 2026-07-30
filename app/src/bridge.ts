@@ -113,6 +113,8 @@ export interface Bridge {
   onAssistantDelta?(cb: (d: { content?: string; reasoning_content?: string }) => void): void;
   /** 可选：一轮回复完毕（loading 收尾，完整回复已写 Context） */
   onAssistantDone?(cb: () => void): void;
+  /** 可选：显式关闭卡片（Component 持续管理协议：action="close"） */
+  onCloseComponent?(cb: (id: string) => void): void;
 }
 
 // ── Chrome DevTools 调试驱动接口（window.__overseer） ──
@@ -265,6 +267,7 @@ class TauriBridge implements Bridge {
   private configListeners: ((cfg: AppConfig) => void)[] = [];
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
   private doneListeners: (() => void)[] = [];
+  private closeListeners: ((id: string) => void)[] = [];
 
   constructor(
     private invokeFn: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
@@ -280,11 +283,15 @@ class TauriBridge implements Bridge {
         state?: TopState;
         content?: string;
         reasoning_content?: string;
+        id?: string;
       };
       if (!msg?.kind) return;
       switch (msg.kind) {
         case "render_component":
           if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec!));
+          break;
+        case "close_component":
+          if (msg.id) this.closeListeners.forEach((cb) => cb(msg.id!));
           break;
         case "set_autonomy":
           this.autonomyListeners.forEach((cb) =>
@@ -354,6 +361,9 @@ class TauriBridge implements Bridge {
   }
   onAssistantDone(cb: () => void): void {
     this.doneListeners.push(cb);
+  }
+  onCloseComponent(cb: (id: string) => void): void {
+    this.closeListeners.push(cb);
   }
 }
 

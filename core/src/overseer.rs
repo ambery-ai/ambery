@@ -16,6 +16,8 @@ use std::sync::Arc;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     RenderComponent(Value),
+    /// 显式关闭卡片（Component 持续管理协议：action="close"）
+    CloseComponent(String),
     SetAutonomy {
         face: Option<String>,
         motion: Option<String>,
@@ -59,6 +61,8 @@ pub struct OverseerBackend<L: Llm> {
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
     /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
     pub sidecar_enabled: bool,
+    /// 存活卡片注册表（Component 持续管理协议：create/update/close 判定依据，docs/components.md）
+    pub cards: std::collections::HashSet<String>,
     /// 流式 delta 旁路（docs/streaming.md）：run_trigger 每收到 delta 即发——
     /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播
     pub effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>,
@@ -78,6 +82,7 @@ impl<L: Llm> OverseerBackend<L> {
             terminal_reader: None,
             vd_switcher: None,
             sidecar_enabled: false,
+            cards: std::collections::HashSet::new(),
             effect_sink: None,
             max_tool_iters: 8, // 防 tool 循环死转
         };
@@ -835,10 +840,21 @@ impl<L: Llm> OverseerBackend<L> {
                         );
                     }
                 }
-                (
-                    json!({ "ok": true, "rendered": id }),
-                    vec![Effect::RenderComponent(spec)],
-                )
+                // 显式关闭（持续管理协议，docs/components.md）：action="close"
+                if spec.get("action").and_then(Value::as_str) == Some("close") {
+                    self.cards.remove(&id);
+                    return (
+                        json!({ "ok": true, "closed": id }),
+                        vec![Effect::CloseComponent(id)],
+                    );
+                }
+                // 创建 / 原地更新（同 id 不再 toggle 关闭）
+                let created = self.cards.insert(id.clone());
+                if created {
+                    (json!({ "ok": true, "rendered": id }), vec![Effect::RenderComponent(spec)])
+                } else {
+                    (json!({ "ok": true, "updated": id }), vec![Effect::RenderComponent(spec)])
+                }
             }
             "fetch_terminal" => {
                 let inst = args.get("instance").and_then(Value::as_str).unwrap_or("");
@@ -1502,6 +1518,38 @@ mod tests {
             Some("你好")
         );
         let _ = std::fs::remove_dir_all(tmp_dir("stream-none"));
+    }
+
+    #[tokio::test]
+    async fn call_component_continuous_management() {
+        // 持续管理协议（docs/components.md）：同 id = 原地更新，close action 显式关闭
+        let mut ov = make_overseer("cmp-mgmt");
+        let mk = |text: &str| crate::context::ToolCall {
+            id: "c1".into(),
+            name: "call_component".into(),
+            arguments: json!({"spec": {"id": "todo-1", "type": "todobox", "title": "t", "items": [{"text": text, "done": false}]}}).to_string(),
+        };
+        // 创建 → rendered
+        let (r1, e1) = ov.execute_tool(&mk("a"));
+        assert_eq!(r1["rendered"], json!("todo-1"));
+        assert!(matches!(e1[0], Effect::RenderComponent(_)));
+        assert!(ov.cards.contains("todo-1"));
+        // 同 id → updated（不再 toggle 关闭）
+        let (r2, e2) = ov.execute_tool(&mk("b"));
+        assert_eq!(r2["updated"], json!("todo-1"));
+        assert!(matches!(e2[0], Effect::RenderComponent(_)));
+        assert!(ov.cards.contains("todo-1"));
+        // close action → closed + CloseComponent effect
+        let close_call = crate::context::ToolCall {
+            id: "c2".into(),
+            name: "call_component".into(),
+            arguments: json!({"spec": {"id": "todo-1", "type": "todobox", "action": "close"}}).to_string(),
+        };
+        let (r3, e3) = ov.execute_tool(&close_call);
+        assert_eq!(r3["closed"], json!("todo-1"));
+        assert!(matches!(e3[0], Effect::CloseComponent(_)));
+        assert!(!ov.cards.contains("todo-1"));
+        let _ = std::fs::remove_dir_all(tmp_dir("cmp-mgmt"));
     }
 
     #[tokio::test]

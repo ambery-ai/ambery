@@ -37,12 +37,13 @@ export class ComponentManager {
   }
 
   render(spec: ComponentSpec) {
-    // 同 id 重复调用 = toggle 关闭（docs/components.md）
+    // 持续管理协议（docs/components.md）：同 id = **原地更新**（重建内容，不销毁窗口/DOM）；
+    // 关闭只走显式 close（closeById / 用户 ×），render 永不关
     const existing = this.cards.get(spec.id);
     if (existing) {
-      existing.remove();
-      this.cards.delete(spec.id);
-      this.engine?.remove(`card-${spec.id}`);
+      const updated = this.buildCard(spec);
+      existing.replaceChildren(...updated.childNodes);
+      if (spec.direction) existing.dataset.direction = spec.direction;
       return;
     }
     const card = this.buildCard(spec);
@@ -57,6 +58,15 @@ export class ComponentManager {
     this.layer.appendChild(card);
     this.cards.set(spec.id, card);
     if (!this.windowed) this.place(card, spec.direction ?? "auto");
+  }
+
+  /** 显式关闭（持续管理协议：agent close action / 用户 ×） */
+  closeById(id: string) {
+    const existing = this.cards.get(id);
+    if (!existing) return;
+    existing.remove();
+    this.cards.delete(id);
+    this.engine?.remove(`card-${id}`);
   }
 
   /** pet 移动后重排（browser）：按 restorePositions 的结果重定位卡片 DOM */
@@ -94,8 +104,7 @@ export class ComponentManager {
     close.textContent = "×";
     close.addEventListener("click", () => {
       this.bridge.pushEvent(`用户关闭了 ${spec.type}「${title.textContent}」`);
-      card.remove();
-      this.cards.delete(spec.id);
+      this.closeById(spec.id);
     });
     header.append(title, close);
     const body = this.buildBody(spec);
