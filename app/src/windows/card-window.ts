@@ -47,10 +47,11 @@ export async function main() {
 
     const card = document.querySelector(".component") as HTMLElement | null;
     if (!card) return;
-    // #20：cap 在 ComponentManager 渲染时已应用（单源），这里只负责测量落窗
+    // #17 阴影留边：body padding 24px 计入窗口尺寸（阴影落在窗口内，不被透明边界 clip）
+    const SHADOW_PAD = 24;
     const dir = cardDirection(card);
-    const pw = Math.ceil((card.offsetWidth || 260) * dpr);
-    const ph = Math.ceil((card.offsetHeight || 140) * dpr);
+    const pw = Math.ceil(((card.offsetWidth || 260) + SHADOW_PAD * 2) * dpr);
+    const ph = Math.ceil(((card.offsetHeight || 140) + SHADOW_PAD * 2) * dpr);
     lastPw = pw;
     lastPh = ph;
     const label = win.label; // e.g., "card-notify-ft"

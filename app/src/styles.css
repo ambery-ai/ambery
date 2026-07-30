@@ -68,6 +68,11 @@ html.browser body {
 /* ── Component（concepts §5 / docs/components.md） ── */
 /* cards 窗口模式：卡片自然流式布局，窗口自身定位（docs/multi-window.md） */
 .cards-mode { height: 100vh; }
+.cards-mode body {
+  /* #17：阴影留边——透明窗口按内容+padding 量尺寸，box-shadow 落在窗口内不被 clip */
+  padding: 24px;
+}
+
 .cards-mode .component { position: static; margin-bottom: 8px; width: fit-content; }
 
 .component {
