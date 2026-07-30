@@ -34,11 +34,13 @@ Card 面板已有"复制"按钮，点击后调用 `navigator.clipboard.writeText
 
 **表现**: 发送消息后聊天区域没有任何回显（既没有用户消息也没有 AI 回复），用户无法判断消息是否被处理；有新消息到达时 pet 上没有任何视觉提示；回复不是流式输出的，而是一次性出现的。
 
-## #5 聊天新消息无 pet 角标提示 (2026-07-27) — open
+## #5 聊天新消息无 pet 角标提示 (2026-07-27) — fixed
 
 当 chat panel 中有新的 AI 回复到达但 chat 窗口被隐藏/关闭时，用户完全不知道有新消息。应当在 pet 上增加一个未读计数角标（数字），样式可选气泡或纯数字，方位可选（默认正右边纯数字），让用户在 chat 不可见时也能感知到有回复到来。建议：在 bridge 中暴露一个新消息计数器，pet 侧订阅后渲染为 DOM 角标（绝对定位在 view.el 右侧），点击角标时 emit chat:toggle 打开聊天面板并清零计数。
 
 2026-07-30 reopen（打回）：实现了两个偏离——(1) CSS 是粉色圆角气泡（`background:#f38ba8; border-radius:10px`），但 issue 要求的默认是"纯数字"；(2) `right:-8px; top:-6px` 把角标放在 view.el 容器外面，被 Tauri 窗口 clip 成红点；(3) 不存在样式/方位可配机制。需修复默认样式为纯数字 + 位置在窗口内 + Config 字段控制样式和方位。
+
+2026-07-30 修复——三点全落地：①默认纯数字（无气泡样式，accent 色文字）+ 容器内定位（right:8px top:50% 居中，不再出容器被 clip）；②Config 可配：`badge_style`（number 默认 / bubble）+ `badge_side`（right 默认 / left），reflect 管线自动上面板/CLI，pet 按配置渲染；③pointer-events:none 不挡 pet 拖拽。
 
 ## #6 聊天发送后无回显和状态指示 (2026-07-27) — fixed
 
@@ -174,17 +176,23 @@ card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，
 
 **表现**: Component/card 窗口有 CSS box-shadow，被 Tauri 透明窗口裁剪（窗口尺寸 = 卡片内容尺寸，阴影超出窗口边界不可见）。pet 多次切换动画后颜文字超出窗口边界被裁。
 
-## #17 窗口阴影被透明窗口边界截断 (2026-07-30) — open
+## #17 窗口阴影被透明窗口边界截断 (2026-07-30) — fixed
 
 card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪看不见，透明窗口无额外缓冲区。**先复现确认**：打开 card 窗口，截图观察阴影是否可见。修复方向：删除阴影，或加 padding/margin 让窗口尺寸包含阴影区域。
 
-## #18 pet 动画多次切换后内容溢出窗口边界 (2026-07-30) — open
+2026-07-30 修复——取「留边」方案：cards-mode body padding 24px + card-window 测量计入 2×24px（阴影 6+20px 模糊区落在透明窗口内不被 clip）；视觉中心与 engine 位置自洽（winX+24+(pw−48)/2 = pos.x），布局不偏移。删除阴影方案不取（阴影是卡片层级的视觉区分手段）。
+
+## #18 pet 动画多次切换后内容溢出窗口边界 (2026-07-30) — fixed
 
 多次 bounce/shake/float 动画切换后 pet 颜文字位置偏移累积，超出 View 窗口边界被 clip。**先复现**：连续触发多次动画切换（set_autonomy 反复改 motion），用 locate.ps1 观察窗口尺寸和位置是否偏离初始值，截图对比。再排查根因——可能是 `adjustWindowForMotion` 未正确复位窗口尺寸/offset，或动画 CSS transform 残留。禁止直接改代码。
 
-## #19 多屏不同 DPI 下窗口位置计算不一致，可能导致重叠 (2026-07-30) — open
+2026-07-30 修复——复现探针先证 offset/motion 逻辑无罪（bounce→18/float→10/shake→6/still→0 精确复位，after-ttl 回默认是正确推导）。根因收敛于 onExpression 每次拿「含动画增量的当前 rect」重测基准（Tauri setSize 撑大窗口后基准跟着涨 → 累积膨胀溢出）。修复：基准 = 现 rect − 当前 motion 预留（motionExtra：bounce=ANIM_H、float=10dpr、shake=ANIM_W、still=0），基准只反映内容大小。
+
+## #19 多屏不同 DPI 下窗口位置计算不一致，可能导致重叠 (2026-07-30) — fixed
 
 多块不同 DPI 的屏幕间移动 card/chat/pet 时，坐标计算不一致，可能导致窗口重叠或错位。疑因物理像素与逻辑像素混用：`outerPosition`/`setPosition` 走物理像素，engine 中心点与 getBoundingClientRect 走 CSS 逻辑像素，card 测量已乘 dpr（lastPw/lastPh）但跨屏时 dpr 取值按当前所在屏还是所在窗口屏未统一；松手回写（reportMoved）与自动布局（place）在不同 DPI 屏上得出不同坐标系的结果。建议：统一选定坐标系（物理或逻辑）并贯穿测量/回写/布局三处，跨屏移动时按目标屏 dpr 换算。
+
+2026-07-30 修复——坐标单位契约（docs/window-follow.md 新节）：engine = 环境帧（Tauri=物理像素，browser=CSS），换算只在两入口（DOM 测量必须 ×dpr 进 engine；adapter 出口物理直达）；禁止 CSS 值进 occupied/offset。落地：pet.ts registerPet 尺寸 ×dpr（原 CSS 值与物理 petCenter 混帧，多 DPI 下 pet 障碍区算小）；接缝审计（outerPosition/card 测量/monitors 表/setPosition 均物理 ✓，drag.ts/chat DOM 仅 browser 环境 CSS 帧内自洽 ✓）。
 
 ***
 
