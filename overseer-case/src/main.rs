@@ -1,4 +1,4 @@
-//! overseer-case CLI（docs/case-runner.md）：storage 快照回放、step 执行与概念观测。
+//! overseer-case CLI（docs/case-runner.md）：两段式 .case 回放、step 执行与概念观测。
 
 use overseer_core::case::CaseFile;
 use overseer_core::llm::LlmBackend;
@@ -8,15 +8,15 @@ use overseer_core::Config;
 use std::sync::Arc;
 
 mod export;
-mod repl;
 mod runner;
+
+type SharedTerminals = Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>;
 
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: overseer-case <case.json> [--step-num N] [--health]");
-        eprintln!("       overseer-case repl <case.json>");
+        eprintln!("usage: overseer-case <case.case> [--step-num N] [--health]");
         eprintln!("       overseer-case export [--storage DIR] [--instances a,b] [--window 30m]");
         eprintln!("              [--before TS] [--after TS] [--keep-last N] [--trim-context] [--dedup] [--case-id ID]");
         std::process::exit(2);
@@ -25,15 +25,7 @@ async fn main() {
         run_export(&args[2..]);
         return;
     }
-    let repl_mode = args[1] == "repl";
-    let case_path = if repl_mode {
-        args.get(2).unwrap_or_else(|| {
-            eprintln!("usage: overseer-case repl <case.json>");
-            std::process::exit(2);
-        })
-    } else {
-        &args[1]
-    };
+    let case_path = &args[1];
     let health_mode = args.iter().any(|a| a == "--health");
     let max_step = args
         .iter()
@@ -41,20 +33,15 @@ async fn main() {
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse::<usize>().ok());
 
-    let case_json = std::fs::read_to_string(case_path).expect("read case file");
-    let case: CaseFile = serde_json::from_str(&case_json).expect("parse case");
+    let text = std::fs::read_to_string(case_path).expect("read case file");
+    let case = overseer_core::case::parse(&text).expect("parse case（两段式 .case）");
 
     if health_mode {
-        health(&case);
+        health(&text, &case);
         return;
     }
 
-    let mut ov = setup(&case);
-
-    if repl_mode {
-        repl::run(&mut ov).await;
-        return;
-    }
+    let (mut ov, terminals) = setup(&case);
 
     // 合成 ts：steps 未带 ts 时按序递增（回放确定性）
     let mut seq_ts: i64 = 1_000;
@@ -101,31 +88,38 @@ async fn main() {
                 let args = tool_call.get(1).map(String::as_str).unwrap_or("{}");
                 runner::exec_tool_call(&mut ov, name, args, &format!("case-{i}"));
             }
+            overseer_core::case::CaseStep::Terminal { terminal } => {
+                let instance = terminal["instance"].as_str().expect("terminal.instance");
+                let content = terminal["content"].as_str().unwrap_or("");
+                runner::exec_terminal(&terminals, instance, content);
+            }
+            overseer_core::case::CaseStep::TerminalGone { terminal_gone } => {
+                let instance = terminal_gone["instance"].as_str().expect("terminal_gone.instance");
+                runner::exec_terminal_gone(&terminals, instance);
+            }
         }
     }
 }
 
-/// case → 可执行 OverseerBackend（tmp storage 快照 + debug LLM + mock 读通道）
-fn setup(case: &CaseFile) -> OverseerBackend<LlmBackend> {
+/// case → 可执行 OverseerBackend（tmp storage 快照 + debug LLM + 可变读通道）
+fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
     let tmp = std::env::temp_dir().join(format!("overseer-case-{}", case.meta.case_id));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).expect("create tmp dir");
 
-    write_jsonl(&tmp, "work-agents.jsonl", &case.data.work_agents);
-    write_jsonl(&tmp, "context.jsonl", &case.data.context);
-    write_jsonl(&tmp, "queue.jsonl", &case.data.queue);
+    write_jsonl(&tmp, "work-agents.jsonl", &case.work_agents);
+    write_jsonl(&tmp, "context.jsonl", &case.context);
+    write_jsonl(&tmp, "queue.jsonl", &case.queue);
 
     let mut config = Config::load_or_default(&tmp);
     // case 确定性：强制 DebugAgent 沉默决策源（不碰网络；LLM 行为用 steps 剧本驱动）
     config.llm.active = "debug".into();
     config.timer_interval_ms = case
-        .data
         .config
         .get("timer_interval_ms")
         .and_then(|v| v.as_i64())
         .unwrap_or(300_000);
     config.timer_tick_ms = case
-        .data
         .config
         .get("timer_tick_ms")
         .and_then(|v| v.as_i64())
@@ -136,26 +130,32 @@ fn setup(case: &CaseFile) -> OverseerBackend<LlmBackend> {
     let backend = LlmBackend::from_config(&config.llm);
     let mut ov = OverseerBackend::new(harness, config, backend);
 
-    // 读通道 mock（MockTerminals）：指定 instance 返回内容，未指定返回 None（= tab 不复存在）
-    let mock = Arc::new(std::sync::Mutex::new(case.data.mock_terminals.clone()));
-    let mock_for_reader = mock.clone();
+    // 读通道：空 map 起步（默认全 None = tab 不复存在），terminal/terminal_gone step 写剧情
+    let terminals: SharedTerminals = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let reader = terminals.clone();
     ov.terminal_reader = Some(Arc::new(move |inst: &str| {
-        mock_for_reader.lock().unwrap().get(inst).cloned()
+        reader.lock().unwrap().get(inst).cloned()
     }));
-    ov
+    (ov, terminals)
 }
 
-fn health(case: &CaseFile) {
+/// 两段式合法性校验（docs/case-runner.md §health 检查项）
+fn health(text: &str, case: &CaseFile) {
     let mut ok = true;
-    // 1. JSONL 可解析
-    for (name, content) in &[
-        ("work_agents", &case.data.work_agents),
-        ("context", &case.data.context),
-        ("queue", &case.data.queue),
-    ] {
-        if content.is_empty() {
-            continue;
+    // 1. 数据区每行（含 marker 行）是合法 JSONL；marker 行形态校验
+    for line in text.lines() {
+        if line.starts_with(overseer_core::case::SECTION_MARKER) {
+            if serde_json::from_str::<serde_json::Value>(line).is_err() {
+                eprintln!("FAIL: marker 行非法 JSON: {line}");
+                ok = false;
+            }
         }
+    }
+    for (name, content) in &[
+        ("work_agents", &case.work_agents),
+        ("context", &case.context),
+        ("queue", &case.queue),
+    ] {
         for (i, line) in content.lines().enumerate() {
             if serde_json::from_str::<serde_json::Value>(line).is_err() {
                 eprintln!("FAIL: {name} line {}: invalid JSON", i + 1);
@@ -172,8 +172,8 @@ fn health(case: &CaseFile) {
         eprintln!("FAIL: meta.created empty");
         ok = false;
     }
-    // 3. 概念结构完整性：work_agents 每行有必填字段
-    for (i, line) in case.data.work_agents.lines().enumerate() {
+    // 3. 概念结构完整：work_agents 每行有必填字段；context 行 type/ts（message 须 role）；queue 行 role/ts
+    for (i, line) in case.work_agents.lines().enumerate() {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
             for f in &["hash", "name", "project", "status"] {
                 if v.get(f).is_none() {
@@ -183,8 +183,7 @@ fn health(case: &CaseFile) {
             }
         }
     }
-    // 4. Context 行：type/ts 必填，message 行须 role；Queue 行：role/ts 必填
-    for (i, line) in case.data.context.lines().enumerate() {
+    for (i, line) in case.context.lines().enumerate() {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
             for f in &["type", "ts"] {
                 if v.get(f).is_none() {
@@ -198,7 +197,7 @@ fn health(case: &CaseFile) {
             }
         }
     }
-    for (i, line) in case.data.queue.lines().enumerate() {
+    for (i, line) in case.queue.lines().enumerate() {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
             for f in &["role", "ts"] {
                 if v.get(f).is_none() {
@@ -208,8 +207,8 @@ fn health(case: &CaseFile) {
             }
         }
     }
-    // 5. replay 烟测：Harness::load 不 panic + observe 可执行
-    let ov = setup(case);
+    // 4. replay 烟测：Harness::load 不 panic + observe 可执行
+    let (ov, _t) = setup(case);
     let _ = overseer_core::case::observe(&ov);
     if ok {
         println!("PASS");
@@ -226,7 +225,7 @@ fn write_jsonl(dir: &std::path::Path, name: &str, content: &str) {
     std::fs::write(dir.join(name), content).expect("write jsonl");
 }
 
-/// 实时 storage → case 导出（docs/case-runner.md §导出工具）：过滤 → 最小化 → JSON 输出
+/// 实时 storage → .case 导出（docs/case-runner.md §导出工具）：过滤 → 最小化 → 两段式输出
 fn run_export(args: &[String]) {
     let opt_val = |flag: &str| -> Option<String> {
         args.iter()
@@ -253,5 +252,5 @@ fn run_export(args: &[String]) {
         trim_context: has("--trim-context"),
         dedup: has("--dedup"),
     };
-    println!("{}", export::export(&storage_dir, &opts));
+    print!("{}", export::export(&storage_dir, &opts));
 }

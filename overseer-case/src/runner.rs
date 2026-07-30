@@ -10,26 +10,49 @@ pub fn exec_load() {
     println!("(storage 已于启动时 replay)");
 }
 
+/// terminal 剧情：设定实例屏幕内容（timer_scan 时 terminal_reader 返回它）
+pub fn exec_terminal(
+    terminals: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    instance: &str,
+    content: &str,
+) {
+    terminals
+        .lock()
+        .unwrap()
+        .insert(instance.to_string(), content.to_string());
+    println!("[OK] terminal {instance} ← {} 字", content.chars().count());
+}
+
+/// terminal_gone 剧情：实例 tab 消亡（terminal_reader 返回 None）
+pub fn exec_terminal_gone(
+    terminals: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
+    instance: &str,
+) {
+    terminals.lock().unwrap().remove(instance);
+    println!("[OK] terminal_gone {instance}");
+}
+
 /// observe：按请求项分节打印（内容级，全文不截断）；context_diff 基准随行数推进
 pub fn exec_observe<L: Llm>(ov: &OverseerBackend<L>, items: &[String], last_len: &mut usize) {
     let obs = overseer_core::case::observe(ov);
     print_observe(&obs, items, last_len);
 }
 
-/// timer 周期：非 Closed 实例逐个读——Some → 变化检测入队；None → closed；最后放行。
-/// 返回 (扫描数, 判 closed 数)
-pub async fn exec_timer_scan<L: Llm>(ov: &mut OverseerBackend<L>, ts: i64) -> (usize, usize) {
-    let instances: Vec<String> = ov
-        .harness
-        .agents
-        .iter()
-        .filter(|a| a.status != overseer_core::AgentStatus::Closed)
-        .map(|a| a.name.clone())
-        .collect();
-    let total = instances.len();
+/// timer 周期：生产路径 TimerWheel 调度（docs/timer.md）——due_timer_scans 取到期实例，
+/// 读 → Some 走 handle_timer_scan（变化检测入队）；None → closed；最后放行。
+/// horizon = 模拟一个 interval+stagger 已流逝（case 不等墙钟）。
+/// 返回 (到期扫描数, 判 closed 数)
+pub async fn exec_timer_scan<L: Llm>(ov: &mut OverseerBackend<L>, _ts: i64) -> (usize, usize) {
+    let horizon = overseer_core::server::now_ms()
+        + ov.config.timer_interval_ms
+        + ov.config.timer_stagger_ms
+        + 1;
+    let due = ov.due_timer_scans(horizon, 100);
+    let total = due.len();
     let mut closed = 0;
-    for inst in instances {
+    for inst in due {
         let content = ov.terminal_reader.as_ref().and_then(|r| r(&inst));
+        let ts = overseer_core::server::now_ms();
         match content {
             Some(c) => ov
                 .handle_timer_scan(&inst, &c, ts)

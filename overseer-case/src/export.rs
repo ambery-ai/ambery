@@ -227,30 +227,38 @@ fn filter_queue(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
         .collect()
 }
 
-/// 实时 storage → case JSON 字符串（mock_terminals 留空待手填，docs/case-runner.md §管线）
+/// 实时 storage → 两段式 .case 文本（docs/case-runner.md §Case 文件格式）：
+/// JSON 头（meta/config/steps）+ __section 分节 JSONL 原文；mock_terminals 不再有节
+///（读通道剧情由 steps 的 terminal/terminal_gone 表达，导出默认全 None）
 pub fn export(storage_dir: &std::path::Path, opts: &ExportOpts) -> String {
     let work_agents = filter_work_agents(lines_of(&storage_dir.join("work-agents.jsonl")), opts);
     let context = filter_context(lines_of(&storage_dir.join("context.jsonl")), opts);
     let queue = filter_queue(lines_of(&storage_dir.join("queue.jsonl")), opts);
-    let case = serde_json::json!({
+    let head = serde_json::json!({
         "meta": {
             "case_id": opts.case_id,
             "created": chrono_now(),
             "notes": opts.notes,
         },
-        "data": {
-            "work_agents": work_agents.join("\n"),
-            "context": context.join("\n"),
-            "queue": queue.join("\n"),
-            "mock_terminals": {},
-            "config": {},
-        },
+        "config": {},
         "steps": [
             { "load": {} },
             { "observe": ["agents", "panorama"] },
         ],
     });
-    serde_json::to_string_pretty(&case).unwrap()
+    let mut out = serde_json::to_string_pretty(&head).unwrap();
+    out.push('\n');
+    let mut section = |name: &str, rows: &[String]| {
+        out.push_str(&format!("{{\"__section\":\"=== {name} ===\"}}\n"));
+        for r in rows {
+            out.push_str(r);
+            out.push('\n');
+        }
+    };
+    section("work_agents", &work_agents);
+    section("context", &context);
+    section("queue", &queue);
+    out
 }
 
 /// ISO 8601 当前时刻（不引 chrono：手算 UTC）
