@@ -78,7 +78,9 @@ export async function main() {
       const size = await win.outerSize();
       const c = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 };
       const vr = view.el.getBoundingClientRect();
-      engine.registerPet(c, { w: Math.round(vr.width) + ANIM_W, h: Math.round(vr.height) + ANIM_H });
+      // #19 坐标契约：petCenter 物理 → pet 尺寸必须同帧（DOM 值 ×dpr 才进 engine）
+      const dpr = window.devicePixelRatio || 1;
+      engine.registerPet(c, { w: Math.round(vr.width * dpr) + ANIM_W, h: Math.round(vr.height * dpr) + ANIM_H });
       emit("pet:moved", c);
       onMove(c);
     }
