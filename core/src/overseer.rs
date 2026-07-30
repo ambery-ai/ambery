@@ -759,19 +759,29 @@ impl<L: Llm> OverseerBackend<L> {
                         vec![],
                     );
                 }
-                // 校验 spec 结构：type=text_card 时 title 和 text 必须是顶层字段
+                // 校验 type 合法性 + 按 type 校验必填字段
+                let VALID_TYPES: &[&str] = &["text_card", "quick_jump", "git_display", "data_chart", "todobox"];
                 if let Some(typ) = spec.get("type").and_then(Value::as_str) {
-                    if typ == "text_card" {
-                        let missing: Vec<&str> = [
-                            ("title", spec.get("title").and_then(Value::as_str)),
-                            ("text", spec.get("text").and_then(Value::as_str)),
-                        ].iter().filter(|(_, v)| v.is_none() || v.unwrap().is_empty()).map(|(k, _)| *k).collect();
-                        if !missing.is_empty() {
-                            return (
-                                json!({ "ok": false, "error": format!("text_card 缺少必填字段：{}。title 和 text 是顶层字段，不要包在 props 里", missing.join("、")) }),
-                                vec![],
-                            );
-                        }
+                    if !VALID_TYPES.contains(&typ) {
+                        return (
+                            json!({ "ok": false, "error": format!("未知 Component type：'{typ}'，合法值：{}", VALID_TYPES.join("/")) }),
+                            vec![],
+                        );
+                    }
+                    let required: &[(&str, &str)] = match typ {
+                        "text_card" => &[("title", "text_card 缺 title"), ("text", "text_card 缺 text")],
+                        "quick_jump" => &[("label", "quick_jump 缺 label"), ("target", "quick_jump 缺 target")],
+                        _ => &[],
+                    };
+                    let missing: Vec<&str> = required.iter()
+                        .filter(|(f, _)| spec.get(f).and_then(Value::as_str).map_or(true, str::is_empty))
+                        .map(|(_, msg)| *msg)
+                        .collect();
+                    if !missing.is_empty() {
+                        return (
+                            json!({ "ok": false, "error": format!("type={typ} 缺少必填字段：{}。title 和 text 是顶层字段，不要包在 props 里", missing.join("、")) }),
+                            vec![],
+                        );
                     }
                 }
                 (
@@ -781,6 +791,9 @@ impl<L: Llm> OverseerBackend<L> {
             }
             "fetch_terminal" => {
                 let inst = args.get("instance").and_then(Value::as_str).unwrap_or("");
+                if inst.is_empty() {
+                    return (json!({ "ok": false, "error": "instance 必填" }), vec![]);
+                }
                 // vd_switch 必填（docs/hook.md §VD 切换能力）：打断性决策每次显式面对
                 let Some(vd_switch) = args.get("vd_switch").and_then(Value::as_bool) else {
                     return (
@@ -837,12 +850,22 @@ impl<L: Llm> OverseerBackend<L> {
             }
             "set_autonomy" => {
                 let mut face = args.get("face").and_then(Value::as_str).map(String::from);
-                let mut motion = args.get("motion").and_then(Value::as_str).map(String::from);
+                let motion = args.get("motion").and_then(Value::as_str).map(String::from);
                 // face 传 key 名：仅解析为映射表本体；motion 不连带——
                 // 「仅传参的字段被覆盖」，缺省即不碰（docs/autonomy.md）
                 if let Some(f) = &face {
                     if let Some(entry) = self.config.kaomoji.get(f.as_str()) {
                         face = Some(entry.face.clone());
+                    }
+                    // 非 key 的颜文字本体原样透传
+                }
+                if let Some(m) = &motion {
+                    let valid = ["still", "float", "bounce", "shake"];
+                    if !valid.contains(&m.as_str()) {
+                        return (
+                            json!({ "ok": false, "error": format!("motion '{m}' 不合法，合法值：{}", valid.join("/")) }),
+                            vec![],
+                        );
                     }
                 }
                 (
