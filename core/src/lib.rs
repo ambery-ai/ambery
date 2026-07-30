@@ -7,6 +7,7 @@ pub mod content;
 pub mod context;
 pub mod event_buffer;
 pub mod filter;
+pub mod lifecycle;
 pub mod llm;
 #[cfg(feature = "mock")]
 pub mod mock;

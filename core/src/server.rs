@@ -16,6 +16,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::llm::LlmBackend;
+use crate::lifecycle::Lifecycle;
 use crate::overseer::{Effect, OverseerBackend};
 use crate::context::Role;
 use crate::Config;
@@ -154,13 +155,28 @@ async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -
 }
 
 #[derive(Deserialize)]
-struct EventBody { desc: String }
+struct EventBody {
+    desc: String,
+    /// 用户 × 关闭卡片时的 card id（生命周期 closed_by_user 双行事件，docs/components.md）
+    card_id: Option<String>,
+}
 
 async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>) -> impl IntoResponse {
     let mut ov = s.overseer.lock().await;
     if body.desc.starts_with("用户关闭了") { *s.pending_notifications.lock().await = s.pending_notifications.lock().await.saturating_sub(1); }
+    // 用户 × 关卡：closed_by_user 双行事件（自然语言 + 生命周期行，docs/components.md）
+    if let Some(cid) = body.card_id.as_deref() {
+        let ts = now_ms();
+        if let Some(meta) = ov.cards.remove(cid) {
+            let lc = crate::lifecycle::DefaultLifecycle;
+            ov.harness.event_buffer.push(lc.user_close_line(&meta));
+            let alive = ov.cards.len();
+            ov.harness.event_buffer.push(lc.closed_line(&meta, alive, ts));
+            return Json(json!({ "ok": true }));
+        }
+    }
     ov.harness.event_buffer.push(body.desc);
-    Json(json!({ "ok": true })).into_response()
+    Json(json!({ "ok": true }))
 }
 
 async fn get_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {

@@ -103,7 +103,8 @@ export class ComponentManager {
     close.className = "cmp-close";
     close.textContent = "×";
     close.addEventListener("click", () => {
-      this.bridge.pushEvent(`用户关闭了 ${spec.type}「${title.textContent}」`);
+      // closed_by_user 双行生命周期事件（docs/components.md）：desc + cardId
+      this.bridge.pushEvent(`用户关闭了 ${spec.type}「${title.textContent}」`, spec.id);
       this.closeById(spec.id);
     });
     header.append(title, close);

@@ -2,6 +2,7 @@
 
 use crate::content::RecordSource;
 use crate::filter::{Change, Filter};
+use crate::lifecycle::Lifecycle;
 use crate::llm::{tool_set, Llm};
 use crate::context::{ContextMessage, Role, ToolCall};
 use crate::timer::TimerWheel;
@@ -61,8 +62,9 @@ pub struct OverseerBackend<L: Llm> {
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
     /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
     pub sidecar_enabled: bool,
-    /// 存活卡片注册表（Component 持续管理协议：create/update/close 判定依据，docs/components.md）
-    pub cards: std::collections::HashSet<String>,
+    /// 存活卡片注册表（Component 持续管理协议：create/update/close 判定依据
+    /// + 生命周期事件元数据，docs/components.md）
+    pub cards: std::collections::HashMap<String, crate::lifecycle::CardMeta>,
     /// 流式 delta 旁路（docs/streaming.md）：run_trigger 每收到 delta 即发——
     /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播
     pub effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>,
@@ -82,7 +84,7 @@ impl<L: Llm> OverseerBackend<L> {
             terminal_reader: None,
             vd_switcher: None,
             sidecar_enabled: false,
-            cards: std::collections::HashSet::new(),
+            cards: std::collections::HashMap::new(),
             effect_sink: None,
             max_tool_iters: 8, // 防 tool 循环死转
         };
@@ -818,7 +820,13 @@ impl<L: Llm> OverseerBackend<L> {
                 // 显式关闭（持续管理协议，docs/components.md）：action="close" 只需合法 id，
                 // 不要求 type 必填字段（关闭卡片不需要内容）
                 if spec.get("action").and_then(Value::as_str) == Some("close") {
-                    self.cards.remove(&id);
+                    let ts = crate::server::now_ms();
+                    if let Some(meta) = self.cards.remove(&id) {
+                        // closed_by_agent 生命周期事件（一行，进 EventBuffer 静默簿记）
+                        let alive = self.cards.len();
+                        let line = crate::lifecycle::DefaultLifecycle.closed_line(&meta, alive, ts);
+                        self.harness.event_buffer.push(line);
+                    }
                     return (
                         json!({ "ok": true, "closed": id }),
                         vec![Effect::CloseComponent(id)],
@@ -870,8 +878,20 @@ impl<L: Llm> OverseerBackend<L> {
                     }
                 }
                 // 创建 / 原地更新（同 id 不再 toggle 关闭）
-                let created = self.cards.insert(id.clone());
-                if created {
+                let typ = spec.get("type").and_then(Value::as_str).unwrap_or("").to_string();
+                let title = spec.get("title").and_then(Value::as_str).unwrap_or("").to_string();
+                if !self.cards.contains_key(&id) {
+                    // created 生命周期事件（进 EventBuffer 静默簿记；agent 更新不产事件）
+                    let ts = crate::server::now_ms();
+                    let meta = crate::lifecycle::CardMeta {
+                        id: id.clone(),
+                        typ,
+                        title,
+                        created: ts,
+                    };
+                    let line = crate::lifecycle::DefaultLifecycle.created_line(&meta, self.cards.len() + 1);
+                    self.harness.event_buffer.push(line);
+                    self.cards.insert(id.clone(), meta);
                     (json!({ "ok": true, "rendered": id }), vec![Effect::RenderComponent(spec)])
                 } else {
                     (json!({ "ok": true, "updated": id }), vec![Effect::RenderComponent(spec)])
@@ -1554,12 +1574,12 @@ mod tests {
         let (r1, e1) = ov.execute_tool(&mk("a"));
         assert_eq!(r1["rendered"], json!("todo-1"));
         assert!(matches!(e1[0], Effect::RenderComponent(_)));
-        assert!(ov.cards.contains("todo-1"));
+        assert!(ov.cards.contains_key("todo-1"));
         // 同 id → updated（不再 toggle 关闭）
         let (r2, e2) = ov.execute_tool(&mk("b"));
         assert_eq!(r2["updated"], json!("todo-1"));
         assert!(matches!(e2[0], Effect::RenderComponent(_)));
-        assert!(ov.cards.contains("todo-1"));
+        assert!(ov.cards.contains_key("todo-1"));
         // close action → closed + CloseComponent effect
         let close_call = crate::context::ToolCall {
             id: "c2".into(),
@@ -1569,7 +1589,11 @@ mod tests {
         let (r3, e3) = ov.execute_tool(&close_call);
         assert_eq!(r3["closed"], json!("todo-1"));
         assert!(matches!(e3[0], Effect::CloseComponent(_)));
-        assert!(!ov.cards.contains("todo-1"));
+        assert!(!ov.cards.contains_key("todo-1"));
+        // 生命周期事件（docs/components.md）：created 一行 + closed 一行，均进 EventBuffer 静默簿记
+        let events: Vec<&str> = ov.harness.event_buffer.events().iter().map(|s| s.as_str()).collect();
+        assert!(events.iter().any(|l| l.starts_with("card created: todobox「t」(todo-1) @ ") && l.ends_with(", → 存活 1")), "created 事件: {events:?}");
+        assert!(events.iter().any(|l| l.starts_with("card closed: todobox「t」(todo-1), ") && l.contains(" / ") && l.ends_with(", → 存活 0")), "closed 事件: {events:?}");
         let _ = std::fs::remove_dir_all(tmp_dir("cmp-mgmt"));
     }
 

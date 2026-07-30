@@ -114,8 +114,8 @@ export class RemoteBridge implements Bridge {
     void fetch(`${BASE}/queue/user`, post({ text }));
   }
 
-  pushEvent(desc: string): void {
-    void fetch(`${BASE}/events`, post({ desc }));
+  pushEvent(desc: string, cardId?: string): void {
+    void fetch(`${BASE}/events`, post({ desc, card_id: cardId }));
   }
 
   onTopStateChanged(cb: (s: TopState) => void): void {
