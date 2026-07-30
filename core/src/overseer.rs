@@ -69,7 +69,7 @@ impl<L: Llm> OverseerBackend<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
         let filter = crate::filter::by_name(&config.filter_strategy);
         let timers = TimerWheel::new(config.timer_interval_ms, config.timer_stagger_ms);
-        Self {
+        let mut backend = Self {
             harness,
             config,
             llm,
@@ -80,7 +80,22 @@ impl<L: Llm> OverseerBackend<L> {
             sidecar_enabled: false,
             effect_sink: None,
             max_tool_iters: 8, // 防 tool 循环死转
+        };
+        // 启动调度（concepts §1a 兜底覆盖）：TimerWheel 不 replay，
+        // 对投影中全部存活实例批量 reset——无 hook 实例（僵尸）也进兜底扫描集，
+        // 否则它们永不入调度、永不判 closed（#10 reopen：调度盲区）
+        let now = crate::server::now_ms();
+        let alive: Vec<String> = backend
+            .harness
+            .agents
+            .iter()
+            .filter(|a| a.status != AgentStatus::Closed)
+            .map(|a| a.name.clone())
+            .collect();
+        for name in alive {
+            backend.timers.reset(&name, now);
         }
+        backend
     }
 
     /// 统一配置修改管道（docs/config.md「修改入口」）：CLI/面板/LLM tool 共用。
@@ -704,18 +719,21 @@ impl<L: Llm> OverseerBackend<L> {
     }
 
     /// Timer 兜底扫描发现 tab 不复存在 → closed 终态（docs/storage.md：永久日志的消亡语义）
+    /// Timer 判死（读通道返回 None）：该名字全部未 closed 生命周期各 append 一条
+    /// closed 快照——读通道按 name 读，同名实例在读取侧不可区分，判死须同判
+    ///（同名不同命：每 hash 独立快照，append-only 语义不变）
     pub fn mark_instance_closed(&mut self, instance: &str, ts: i64) -> std::io::Result<()> {
-        if let Some(a) = self
+        let targets: Vec<AgentEntry> = self
             .harness
             .agents
             .iter()
-            .rev()
-            .find(|a| a.name == instance && a.status != AgentStatus::Closed)
+            .filter(|a| a.name == instance && a.status != AgentStatus::Closed)
             .cloned()
-        {
+            .collect();
+        for a in targets {
             self.harness.upsert_agent(AgentEntry {
                 status: AgentStatus::Closed,
-                    tab: None,
+                tab: None,
                 last_seen: ts,
                 ..a
             })?;
