@@ -96,6 +96,8 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 2026-07-30 修复——①启动批量调度：OverseerBackend::new 对投影中全部存活实例批量 reset 入 TimerWheel（无 hook 实例也进兜底扫描集）；②mark_instance_closed 同名连坐：读通道按 name 读取，同名实例在读取侧不可区分，判死须同判（原只闭最新一条，同名僵尸漏网）。case 验证：修复后僵尸切片 3 实例全闭、panorama 空；82 测试绿。生产重启后三个真实僵尸随首个 timer 周期判死。
 
+2026-07-30 二次修复（metrics case 跑红实锤第二层）——判死只改注册表、零 diff 事件，LLM 的全景认知停在旧快照：case 问「有几个运行中实例」，判死后仍答 3（应答 0），且簿记挂「Component 交互事件」低权威标签下模型不采信。修复：①mark_instance_closed 补 EventBuffer 簿记；②生命周期簿记（+注册/−关闭/−关闭(Timer 判死)）全量带 post-count「→ 存活 N」——backend 投影现算，LLM 直接读数免对账（用户定案：每条事件带数字变化）；③簿记按 hash（同名连坐递减序列自然正确）。case 跑绿：answer 3→0。
+
 ***
 
 **触发场景**: 2026-07-29 grill 发现——Queue 概念与实现严重偏差。
@@ -148,6 +150,8 @@ card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，
 
 **表现**: chars/4 估算对中文内容失真 4-6 倍；token_threshold 全局单值 8000 与 ds-v4-flash 的 1M 窗口严重脱节。
 
-## #16 token 计量失真且阈值全局单值，应改 usage 真值主源 + 分模型配置 (2026-07-30) — open
+## #16 token 计量失真且阈值全局单值，应改 usage 真值主源 + 分模型配置 (2026-07-30) — fixed
 
 当前 compression 触发与 token 显示基于 chars/4 本地估算，对中文主导的 Context 失真 4-6 倍（deepseek 系 BPE 约 1 字 ≈ 1 token），计量无权威来源；同时 `token_threshold` 是全局单值 8000，与各模型窗口（ds-v4-flash 1M、sonnet 200K、gpt 400K 等）完全不匹配，压缩策略无法随模型调整。定案：①usage 真值主源——OpenAiClient 解析 `usage.prompt_tokens/completion_tokens`（实测 flash/gpt/sonnet 三家公约数一致，无需模型分支；cache 分项恒 0 不做），每次调用 append context.jsonl 的 `usage` 行型，读取取最新一条（覆盖语义，opencode 实证同构）；②分模型阈值——`LlmProvider.token_threshold: Option<usize>`（profile 级，preset：flash/pro 800K、sonnet-5 160K、gpt-5.4 320K、kimi-k2 200K 等），全局 8000 降为未知模型 fallback，`effective_token_threshold()` 单一出口；③compression 触发 = 最近 usage 真值 + 其后新增消息 est 增量 vs 有效阈值，est 降级为无真值时兜底；④本地 BPE 分词器不引入（opencode/Claude Code 均以 API 真值为准）。
+
+2026-07-30 修复——四连落地：①C1 LlmOutput.usage 全链路（非流式解析 + 流式 stream_options.include_usage（三家实测支持）+ StreamAcc 收末尾 usage 帧 + summarize 也带真值）；②C2 ContextLine::Usage 行型 + last_usage 内存（重启 None 不背旧 session），run_trigger 每轮 + 摘要调用各写一条；③C3 LlmProvider.token_threshold 分模型 preset + effective_token_threshold() 唯一出口（无迁移，Option 字段 reconcile 兜底）；④C4 触发式（last_usage+est 增量 vs effective，无真值全量 est 兜底，boundary 同尺）。case 侧（C5）：observe +2（usage 真值/answer 原文）+ context 行首真值标注 + real LLM 模式（llm.active 声明即开，合并生产 providers）+ 头部 config 泛化；僵尸 metrics case 全链跑通（跑红实锤判死无 diff → #10 二次修复 → 跑绿 answer=0）。89 测试绿。
