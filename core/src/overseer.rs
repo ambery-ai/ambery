@@ -815,6 +815,15 @@ impl<L: Llm> OverseerBackend<L> {
                         vec![],
                     );
                 }
+                // 显式关闭（持续管理协议，docs/components.md）：action="close" 只需合法 id，
+                // 不要求 type 必填字段（关闭卡片不需要内容）
+                if spec.get("action").and_then(Value::as_str) == Some("close") {
+                    self.cards.remove(&id);
+                    return (
+                        json!({ "ok": true, "closed": id }),
+                        vec![Effect::CloseComponent(id)],
+                    );
+                }
                 // 校验 type 合法性 + 按 type 校验必填字段
                 let VALID_TYPES: &[&str] = &["text_card", "quick_jump", "git_display", "data_chart", "todobox"];
                 if let Some(typ) = spec.get("type").and_then(Value::as_str) {
@@ -827,26 +836,38 @@ impl<L: Llm> OverseerBackend<L> {
                     let required: &[(&str, &str)] = match typ {
                         "text_card" => &[("title", "text_card 缺 title"), ("text", "text_card 缺 text")],
                         "quick_jump" => &[("label", "quick_jump 缺 label"), ("target", "quick_jump 缺 target")],
+                        "git_display" => &[("title", "git_display 缺 title"), ("entries", "git_display 缺 entries")],
+                        "data_chart" => &[("title", "data_chart 缺 title"), ("chart", "data_chart 缺 chart")],
+                        "todobox" => &[("title", "todobox 缺 title"), ("items", "todobox 缺 items")],
                         _ => &[],
                     };
                     let missing: Vec<&str> = required.iter()
-                        .filter(|(f, _)| spec.get(f).and_then(Value::as_str).map_or(true, str::is_empty))
+                        .filter(|(f, _)| spec.get(f).map_or(true, |v| match v {
+                            Value::String(s) => s.is_empty(),
+                            Value::Array(a) => a.is_empty(),
+                            Value::Object(o) => o.is_empty(),
+                            _ => true,
+                        }))
                         .map(|(_, msg)| *msg)
                         .collect();
                     if !missing.is_empty() {
                         return (
-                            json!({ "ok": false, "error": format!("type={typ} 缺少必填字段：{}。title 和 text 是顶层字段，不要包在 props 里", missing.join("、")) }),
+                            json!({ "ok": false, "error": format!("type={typ} 缺少必填字段：{}。字段在 spec 顶层，不要包在 props 里", missing.join("、")) }),
                             vec![],
                         );
                     }
-                }
-                // 显式关闭（持续管理协议，docs/components.md）：action="close"
-                if spec.get("action").and_then(Value::as_str) == Some("close") {
-                    self.cards.remove(&id);
-                    return (
-                        json!({ "ok": true, "closed": id }),
-                        vec![Effect::CloseComponent(id)],
-                    );
+                    // todobox items 结构校验（toolset.md）：[{text, done}]
+                    if typ == "todobox" {
+                        let bad = spec["items"].as_array().map(|arr| arr.iter().any(|it| {
+                            it["text"].as_str().map_or(true, str::is_empty) || it["done"].as_bool().is_none()
+                        })).unwrap_or(true);
+                        if bad {
+                            return (
+                                json!({ "ok": false, "error": "todobox items 结构不合法：需 [{text: string, done: boolean}]" }),
+                                vec![],
+                            );
+                        }
+                    }
                 }
                 // 创建 / 原地更新（同 id 不再 toggle 关闭）
                 let created = self.cards.insert(id.clone());
