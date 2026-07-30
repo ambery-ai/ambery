@@ -176,6 +176,15 @@ impl<L: Llm> OverseerBackend<L> {
             .unwrap_or_else(|_| default_agents_md())
     }
 
+    /// 存活实例数（投影口径：status ≠ Closed）——生命周期簿记的 post-count（#16 ①）
+    fn alive_count(&self) -> usize {
+        self.harness
+            .agents
+            .iter()
+            .filter(|a| a.status != AgentStatus::Closed)
+            .count()
+    }
+
     /// 状态 key 推导（concepts §4：key 切换由后端根据 Hook/Timer 驱动）：
     /// notify（有未决通知）> processing（任一实例在跑）> idle。
     /// 返回 `[face: key, motion: key]`——写默认推导 key；覆盖状态 LLM 从自己的
@@ -524,14 +533,20 @@ impl<L: Llm> OverseerBackend<L> {
             })
         };
         match event {
-            // 静默簿记（EventBuffer，pet 不醒）
+            // 静默簿记（EventBuffer，pet 不醒）；post-count 标注（#16：LLM 免对账）
             "session_start" => {
                 upsert(AgentStatus::Idle)?;
-                self.harness.event_buffer.push(format!("+ {name} 注册"));
+                let alive = self.alive_count();
+                self.harness
+                    .event_buffer
+                    .push(format!("+ {name} 注册 → 存活 {alive}"));
             }
             "session_end" => {
                 upsert(AgentStatus::Closed)?;
-                self.harness.event_buffer.push(format!("− {name} 关闭"));
+                let alive = self.alive_count();
+                self.harness
+                    .event_buffer
+                    .push(format!("− {name} 关闭 → 存活 {alive}"));
             }
             // Queue 注入（放行后触发）
             "user_prompt" => {
@@ -645,9 +660,10 @@ impl<L: Llm> OverseerBackend<L> {
                     source: RecordSource::Hook,
                     ts,
                 })?;
+                let alive = self.alive_count();
                 self.harness
                     .event_buffer
-                    .push(format!("新实例 {instance} 已注册"));
+                    .push(format!("+ {instance} 注册 → 存活 {alive}"));
             }
             "stop" => {
                 // 同名不同命：沿用该名字最近一条未 closed 的生命周期（hash/first_seen）
@@ -755,17 +771,20 @@ impl<L: Llm> OverseerBackend<L> {
             return Ok(());
         }
         for a in targets {
+            let name = a.name.clone();
             self.harness.upsert_agent(AgentEntry {
                 status: AgentStatus::Closed,
                 tab: None,
                 last_seen: ts,
                 ..a
             })?;
+            // 判死 diff 事件化 + post-count（#16 ①：每条 hash 一条，post-count 逐条现算，
+            // 同名连坐自然形成递减序列；LLM 直接读数免对账）
+            let alive = self.alive_count();
+            self.harness
+                .event_buffer
+                .push(format!("− {name} 关闭（Timer 判死）→ 存活 {alive}"));
         }
-        // 静默簿记（与 session_end 的「− {name} 关闭」同族；重复可接受，EventBuffer 是流水）
-        self.harness
-            .event_buffer
-            .push(format!("− {instance} 关闭（兜底）"));
         Ok(())
     }
 
