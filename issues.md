@@ -179,3 +179,13 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 ## #19 多屏不同 DPI 下窗口位置计算不一致，可能导致重叠 (2026-07-30) — open
 
 多块不同 DPI 的屏幕间移动 card/chat/pet 时，坐标计算不一致，可能导致窗口重叠或错位。疑因物理像素与逻辑像素混用：`outerPosition`/`setPosition` 走物理像素，engine 中心点与 getBoundingClientRect 走 CSS 逻辑像素，card 测量已乘 dpr（lastPw/lastPh）但跨屏时 dpr 取值按当前所在屏还是所在窗口屏未统一；松手回写（reportMoved）与自动布局（place）在不同 DPI 屏上得出不同坐标系的结果。建议：统一选定坐标系（物理或逻辑）并贯穿测量/回写/布局三处，跨屏移动时按目标屏 dpr 换算。
+
+***
+
+**触发场景**: ペット通过 call_component 弹出内容较长的 card（如 2000 字 text_card、20 条 git log、大量 todobox 条目）。
+
+**表现**: Card 高度无上限——`card-window.ts` 按 `offsetHeight` 测量值直接设窗口尺寸，CSS `.component` 有 `max-width: 480px` 但无 `max-height`，长内容导致窗口纵向撑出屏幕边界，内容底部不可见、也无法滚动。
+
+## #20 Card 过长时需限制高度不超过屏幕 1/2 + 内容滚动 (2026-07-30) — open
+
+当前 card 窗口高度完全由内容决定，没有上限约束。内容较长时（如 text_card 的 `text` 字段数千字、git_display 几十条 commit）窗口会撑到超出屏幕高度，底部内容被截断且无法滚动查看。修复方向：(1) `card-window.ts` 测量后计算窗口高度时加 cap = `screen.height * 0.5`（逻辑像素），取 `Math.min(offsetHeight, cap)`；(2) `.cmp-body`（或 `.cards-mode .component`）设 `max-height` 对应 cap（减去 header 高度）并 `overflow-y: auto`，内容超限时出现滚动条。
