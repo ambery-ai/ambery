@@ -60,9 +60,11 @@ AI 回复是一次性渲染到聊天区域的，缺少字符逐步蹦出的流�
 
 **表现**: Card 和 chat panel 窗口无标题栏、无法被单独拖动，只能通过 pet 右键 toggle 显示/隐藏。用户不能手动将 panel 拖到更合适的位置。
 
-## #8 Card 和 Chat panel 窗口应当支持独立拖动 (2026-07-27) — fixed
+## #8 Card 和 Chat panel 窗口应当支持独立拖动 (2026-07-27) — open
 
 Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过 pet 右键 toggle 显示/隐藏，用户不能手动将 panel 拖到更合适的位置。两个窗口都需要支持独立拖动：拖动时暂停 pet 跟随（解除与 pet 中心的偏移绑定），松手后记录新位置到布局引擎（engine.place 更新 center 坐标），后续 pet 移动时以新位置为偏移基准重新跟随。
+
+2026-07-30 reopen（打回）：card 拖动可移动窗口但松手后未更新 engine 坐标——pet 移动时 card 仍从旧位置 delta 平移回弹。chat 窗口完全未实现拖动——chat.ts / chat-window.ts / window.rs 均无 drag handler。
 
 ***
 
