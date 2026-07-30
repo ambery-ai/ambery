@@ -188,4 +188,6 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 
 ## #20 Card 过长时需限制高度不超过屏幕 1/2 + 内容滚动 (2026-07-30) — open
 
-当前 card 窗口高度完全由内容决定，没有上限约束。内容较长时（如 text_card 的 `text` 字段数千字、git_display 几十条 commit）窗口会撑到超出屏幕高度，底部内容被截断且无法滚动查看。修复方向：(1) `card-window.ts` 测量后计算窗口高度时加 cap = `screen.height * 0.5`（逻辑像素），取 `Math.min(offsetHeight, cap)`；(2) `.cmp-body`（或 `.cards-mode .component`）设 `max-height` 对应 cap（减去 header 高度）并 `overflow-y: auto`，内容超限时出现滚动条。
+当前 card 窗口高度完全由内容决定，没有上限约束。内容较长时（如 text_card 的 `text` 字段数千字、git_display 几十条 commit）窗口会撑到超出屏幕高度，底部内容被截断且无法滚动查看。
+
+2026-07-30 grill 定案——**屏幕高度走 WindowAdapter 新方法**（不能直接调 `window.screen.height`，card-window 已适配 Tauri/浏览器双模式，新增能力必须走同一抽象层）：(1) `WindowAdapter` trait 新增 `getScreenHeight()`（返回值 = 逻辑像素），Tauri 实现走 `getCurrentWindow().currentMonitor()` → `size.height / scaleFactor`（多屏正确，窗口实际所在屏），浏览器实现走 `window.screen.height`；(2) `card-window.ts` 测量后用 `adapter.getScreenHeight() * 0.5` 作 cap，`Math.min(offsetHeight, cap)`，再 `* dpr` 转物理像素给 `setSize()`；(3) `.cmp-body` 设 `max-height` 对应 cap（减 header 约 40px）并 `overflow-y: auto`。
