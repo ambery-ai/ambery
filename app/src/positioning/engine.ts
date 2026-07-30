@@ -14,6 +14,8 @@ interface Occupied {
   center: Point;
   w: number;
   h: number;
+  /** 用户亲手拖过（#12/#15/#8①）：place 时保持手动位不重算，follow 以此为偏移基准 */
+  manual?: boolean;
 }
 
 export class PositioningEngine {
@@ -54,6 +56,12 @@ export class PositioningEngine {
     const result = best ?? { x: petCenter.x, y: petCenter.y - petSize.h / 2 - DEFAULT_GAP - newWindow.height / 2 };
     const existing = this.occupied.find((o) => o.id === newWindow.id && o.id !== "_pet_");
     if (existing) {
+      // 手动位优先（#12）：用户拖过 → 保持 B 不重算（仅刷新尺寸）
+      if (existing.manual) {
+        existing.w = newWindow.width;
+        existing.h = newWindow.height;
+        return existing.center;
+      }
       existing.center = result;
       existing.w = newWindow.width;
       existing.h = newWindow.height;
@@ -62,6 +70,21 @@ export class PositioningEngine {
     }
     console.info("[engine] place", newWindow.id, "→", Math.round(result.x), Math.round(result.y));
     return result;
+  }
+
+  /** 拖拽结束回写（#12/#15/#8①）：OS 真实位置成为新的跟随基准（manual 标记） */
+  updateCenter(id: string, center: Point): void {
+    const o = this.occupied.find((o) => o.id === id && o.id !== "_pet_");
+    if (!o) return;
+    o.center = center;
+    o.manual = true;
+    console.info("[engine] updateCenter (manual)", id, "→", Math.round(center.x), Math.round(center.y));
+  }
+
+  /** 手动位清除（隐藏移除时随 remove 自然消失；显式重置走这里） */
+  clearManual(id: string): void {
+    const o = this.occupied.find((o) => o.id === id);
+    if (o) o.manual = false;
   }
 
   remove(id: string): void {

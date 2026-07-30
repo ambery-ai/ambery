@@ -3,7 +3,7 @@
 import { createBridge, type ComponentSpec } from "../bridge";
 import { ComponentManager } from "../components/component-manager";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
-import { requestPlace, requestRemove } from "../positioning/tauri-server";
+import { requestPlace, requestRemove, reportMoved } from "../positioning/tauri-server";
 import { Direction } from "../positioning/types";
 
 let adapter: WindowAdapter | null = null;
@@ -28,6 +28,16 @@ export async function main() {
     if ((e.target as HTMLElement).closest(".cmp-header") && !(e.target as HTMLElement).closest(".cmp-close")) {
       win.startDragging();
     }
+  });
+
+  // #12/#15/#8①：拖拽结束（onMoved 防抖）→ 回写 OS 真实位置为新的跟随基准
+  let moveTimer: number | undefined;
+  await win.onMoved(() => {
+    clearTimeout(moveTimer);
+    moveTimer = window.setTimeout(async () => {
+      const pos = await win.outerPosition();
+      await reportMoved(win.label, { x: pos.x + lastPw / 2, y: pos.y + lastPh / 2 });
+    }, 250);
   });
 
   // 接收 pet 发来的组件 spec

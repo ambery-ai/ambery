@@ -21,6 +21,17 @@ export async function setupServer() {
   await listen<{ id: string }>("engine:remove", (ev) => {
     engine.remove(ev.payload.id);
   });
+
+  // #12/#15/#8①：chat/cards 拖拽结束回写真实位置 → 新跟随基准
+  await listen<{ id: string; x: number; y: number }>("engine:moved", (ev) => {
+    engine.updateCenter(ev.payload.id, { x: ev.payload.x, y: ev.payload.y });
+  });
+}
+
+/** chat/cards 窗调用：拖拽结束回写中心点（OS 真实位置换算） */
+export async function reportMoved(id: string, center: Point) {
+  const { emit } = await import("@tauri-apps/api/event");
+  emit("engine:moved", { id, x: center.x, y: center.y });
 }
 
 /** chat/cards 窗调用：请求 engine 计算位置，返回 Promise<Point> */

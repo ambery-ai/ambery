@@ -3,7 +3,7 @@
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
-import { requestPlace, requestRemove } from "../positioning/tauri-server";
+import { requestPlace, requestRemove, reportMoved } from "../positioning/tauri-server";
 import { Direction } from "../positioning/types";
 
 let chatPanel: ChatPanel | null = null;
@@ -15,6 +15,8 @@ export async function main() {
   if ("__TAURI_INTERNALS__" in window) {
     adapter = await createTauriAdapter(document.body, 1);
     const { listen } = await import("@tauri-apps/api/event");
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
     await listen("pet:moved", () => {}); // 占位，确保事件系统初始化
     await listen("chat:toggle", () => {
       if (chatPanel?.isVisible()) hideChat();
@@ -22,9 +24,25 @@ export async function main() {
     });
     await listen("chat:hide", () => hideChat());
     await listen("chat:show", () => showChat());
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    getCurrentWindow().onCloseRequested(async () => {
+    win.onCloseRequested(async () => {
       await adapter?.hide();
+    });
+
+    // #8②：chat 头部可拖拽（排除 × 按钮）
+    document.addEventListener("mousedown", (e) => {
+      const t = e.target as HTMLElement;
+      if (t.closest(".chat-header") && !t.closest(".chat-close")) {
+        void win.startDragging();
+      }
+    });
+    // #12/#8①②：拖拽结束（onMoved 防抖）→ 回写真实位置为跟随基准
+    let moveTimer: number | undefined;
+    await win.onMoved(() => {
+      clearTimeout(moveTimer);
+      moveTimer = window.setTimeout(async () => {
+        const pos = await win.outerPosition();
+        await reportMoved("chat-panel", { x: pos.x + panelW / 2, y: pos.y + panelH / 2 });
+      }, 250);
     });
   }
 
