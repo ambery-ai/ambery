@@ -16,10 +16,10 @@ export async function main() {
   const mount = document.getElementById("app")!;
   const view = new View(mount);
 
-  // #5 pet 未读角标
+  // #5 pet 未读角标（spec：默认纯数字、容器内右上，无气泡样式）
   const badge = document.createElement("div");
   badge.id = "pet-badge";
-  badge.style.cssText = "display:none;position:absolute;right:-8px;top:-6px;background:#f38ba8;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;z-index:10";
+  badge.style.cssText = "display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#f38ba8;font-size:12px;font-weight:700;line-height:1;z-index:10;pointer-events:none";
   view.el.appendChild(badge);
   let unreadCount = 0;
   bridge.onContextChanged((msgs) => {
