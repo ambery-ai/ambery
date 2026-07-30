@@ -221,11 +221,27 @@ export async function main() {
     syncPanel();
   }
 
+  // #18：motion 预留量（用于从现 rect 中扣掉动画增量，得回「内容基准」）
+  const motionExtra = (m: Motion): { w: number; h: number } => {
+    switch (m) {
+      case "bounce": return { w: 0, h: ANIM_H };
+      case "float": return { w: 0, h: Math.ceil(10 * dpr) };
+      case "shake": return { w: ANIM_W, h: 0 };
+      default: return { w: 0, h: 0 };
+    }
+  };
+  let curExtraW = 0, curExtraH = 0;
+
   const autonomy = new Autonomy(bridge, (e) => {
     view.setExpression(e);
     const rr = view.el.getBoundingClientRect();
-    baseW = Math.ceil(rr.width * dpr);
-    baseH = Math.ceil(rr.height * dpr);
+    // #18：基准 = 现 rect − 当前 motion 预留——防止动画增量污染基准导致累积膨胀
+    // （原实现直接拿 rect 当基准，Tauri 窗口被 setSize 撑大后基准跟着涨）
+    baseW = Math.ceil(rr.width * dpr - curExtraW);
+    baseH = Math.ceil(rr.height * dpr - curExtraH);
+    const extra = motionExtra(e.motion);
+    curExtraW = extra.w;
+    curExtraH = extra.h;
     adjustWindowForMotion(e.motion);
   });
   bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args));
