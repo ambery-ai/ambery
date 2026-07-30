@@ -39,13 +39,16 @@ export class PositioningEngine {
   }
 
   /** 放置新窗口：自动布局（或 manual 保持偏移）。返回屏幕绝对坐标（左上角换算由调用方做）。
-   *  出屏兜底（docs/window-follow.md §出屏与重叠）：完全出屏 → 方向环 ±1~±3 重试（7 次），
-   *  全失败取最初结果（不压人，不做位置修正）。算法层零改动，重试是薄包装。 */
+   *  出屏兜底（docs/window-follow.md §出屏与重叠，issues #21）：完全出屏 → 全 16 方位环
+   *  重试（±1~±8，首选命中即止）；全失败取最初结果（不压人，不做位置修正）。
+   *  算法层零改动，重试是薄包装。 */
   place(newWindow: WindowSpec, preferred: Direction): Point {
     const dirs: Direction[] = [preferred];
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 7; i++) {
       dirs.push((((preferred + i) % 16) + 16) % 16, (((preferred - i) % 16) + 16) % 16);
     }
+    dirs.push((((preferred + 8) % 16) + 16) % 16); // 正对面
+    // 首个「非完全出屏」即止（部分可见即可，用户不要求完全可见，#21）
     let first: Point | null = null;
     for (const dir of dirs) {
       const p = this.placeOnce(newWindow, dir);

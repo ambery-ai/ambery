@@ -1,5 +1,7 @@
 // positioning/monitors — 显示器缓存表（docs/window-follow.md §显示器几何）：
-// 一次读取、逻辑像素、出界自愈刷新。出屏判定/高度 cap 的唯一直径。
+// 一次读取、出界自愈刷新。出屏判定/高度 cap 的唯一直径。
+// 单位（#21 定案）：engine 世界 = 物理像素（petCenter/窗口尺寸/setPosition 全是物理）；
+// browser 的「屏」= 浏览器视口（卡片 DOM 活在视口里，不是 OS 屏）。
 
 import type { Point } from "./types";
 
@@ -13,24 +15,25 @@ export interface MonitorRect {
 
 let cache: MonitorRect[] | null = null;
 
-/** 读取/重读全显示器（Tauri=availableMonitors 逻辑换算；浏览器=window.screen 单屏语义） */
+/** 读取/重读全显示器（Tauri=物理原始矩形；browser=视口） */
 export async function refreshMonitors(): Promise<MonitorRect[]> {
   if ("__TAURI_INTERNALS__" in window) {
     const { availableMonitors } = await import("@tauri-apps/api/window");
     const ms = await availableMonitors();
     cache = ms.map((m) => ({
-      x: m.position.x / m.scaleFactor,
-      y: m.position.y / m.scaleFactor,
-      width: m.size.width / m.scaleFactor,
-      height: m.size.height / m.scaleFactor,
+      x: m.position.x,
+      y: m.position.y,
+      width: m.size.width,
+      height: m.size.height,
       scaleFactor: m.scaleFactor,
     }));
   } else {
+    // browser：卡片 DOM 的世界就是视口（#21：用 window.screen 会把视口外的位置误判为可见）
     cache = [{
       x: 0,
       y: 0,
-      width: window.screen.availWidth,
-      height: window.screen.availHeight,
+      width: window.innerWidth,
+      height: window.innerHeight,
       scaleFactor: window.devicePixelRatio || 1,
     }];
   }
@@ -42,8 +45,8 @@ function current(): MonitorRect[] {
   return (
     cache ?? [{
       x: 0, y: 0,
-      width: window.screen.availWidth,
-      height: window.screen.availHeight,
+      width: window.innerWidth,
+      height: window.innerHeight,
       scaleFactor: window.devicePixelRatio || 1,
     }]
   );
