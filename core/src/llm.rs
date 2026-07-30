@@ -3,6 +3,7 @@
 //! （测试脚本闭包 / debug CLI / 沉默兜底），它只负责转发。
 
 use crate::context::{ContextMessage, Role, ToolCall};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::future::Future;
 
@@ -79,11 +80,21 @@ pub fn tool_set() -> Vec<ToolDef> {
     ]
 }
 
+/// LLM 调用真值（#16）：usage.prompt_tokens / completion_tokens。
+/// 三家（flash/gpt/sonnet）公约数一致，无模型分支；cache 分项实测恒 0 不存。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+}
+
 pub struct LlmOutput {
     pub content: Option<String>,
     pub tool_calls: Vec<ToolCall>,
     /// 推理模型的思维链（deepseek thinking 模式），回放历史时必须带回
     pub reasoning_content: Option<String>,
+    /// 本次调用的 token 真值（#16）；DebugAgent / 不支持端点 = None
+    pub usage: Option<Usage>,
 }
 
 /// 流式增量（docs/streaming.md）：content / reasoning_content 两路，互斥非空。
@@ -124,13 +135,14 @@ pub trait Llm: Send + Sync {
     }
 
     /// Compression 专项摘要（concepts §10d / docs/storage.md compact_boundary）。
+    /// 返回（摘要, usage 真值）——摘要调用也留真值（#16 审计完整）。
     /// 默认确定性 stub（DebugAgent / 测试保证确定性）；OpenAiClient 覆写为真实调用。
     fn summarize(
         &self,
         messages: &[ContextMessage],
-    ) -> impl Future<Output = Result<String, String>> + Send {
+    ) -> impl Future<Output = Result<(String, Option<Usage>), String>> + Send {
         let summary = deterministic_summary(messages);
-        async move { Ok(summary) }
+        async move { Ok((summary, None)) }
     }
 }
 
@@ -174,6 +186,7 @@ impl DebugAgent {
             content: None,
             tool_calls: vec![],
             reasoning_content: None,
+        usage: None,
         })
     }
 }
@@ -329,6 +342,7 @@ impl OpenAiClient {
         use futures_util::StreamExt;
         let mut body = self.build_body(messages, tools);
         body["stream"] = serde_json::json!(true);
+        body["stream_options"] = serde_json::json!({ "include_usage": true });
         let resp = self
             .http
             .post(format!("{}/chat/completions", self.base_url))
@@ -368,8 +382,9 @@ impl OpenAiClient {
 }
 
 impl OpenAiClient {
-    /// 专项摘要调用（无 tools）：历史序列化为对话文本，要求直接输出摘要
-    async fn summarize_async(&self, messages: &[ContextMessage]) -> Result<String, String> {
+    /// 专项摘要调用（无 tools）：历史序列化为对话文本，要求直接输出摘要。
+    /// 返回（摘要, usage 真值）——摘要调用同样留真值（#16）。
+    async fn summarize_async(&self, messages: &[ContextMessage]) -> Result<(String, Option<Usage>), String> {
         let mut transcript = String::new();
         for m in messages {
             let role = match m.role {
@@ -390,9 +405,11 @@ impl OpenAiClient {
             ContextMessage::new(Role::User, transcript, 0),
         ];
         let out = self.complete_async(&prompt, &[]).await?;
-        out.content
+        let summary = out
+            .content
             .filter(|c| !c.is_empty())
-            .ok_or_else(|| "摘要返回为空".into())
+            .ok_or_else(|| "摘要返回为空".to_string())?;
+        Ok((summary, out.usage))
     }
 }
 
@@ -417,22 +434,28 @@ impl Llm for OpenAiClient {
     fn summarize(
         &self,
         messages: &[ContextMessage],
-    ) -> impl Future<Output = Result<String, String>> + Send {
+    ) -> impl Future<Output = Result<(String, Option<Usage>), String>> + Send {
         self.summarize_async(messages)
     }
 }
 
-/// SSE 流式聚合器（docs/streaming.md）：content/reasoning 拼接，tool_calls 分片按 index 聚合
+/// SSE 流式聚合器（docs/streaming.md）：content/reasoning 拼接，tool_calls 分片按 index 聚合；
+/// 末尾 usage 帧（stream_options.include_usage，三家实测支持）收真值（#16）
 #[derive(Default)]
 struct StreamAcc {
     content: String,
     reasoning: String,
     tool_acc: std::collections::BTreeMap<u64, (Option<String>, Option<String>, String)>,
+    usage: Option<Usage>,
 }
 
 impl StreamAcc {
     /// 应用一个 SSE chunk；有增量则返回 Delta（两路互斥由发送方保证，容忍同时非空）
     fn apply(&mut self, v: &Value) -> Option<Delta> {
+        // usage 帧（空 delta + usage 对象）：收真值，无增量
+        if let Some(u) = parse_usage(&v["usage"]) {
+            self.usage = Some(u);
+        }
         let delta = &v["choices"][0]["delta"];
         let mut d = Delta::default();
         if let Some(c) = delta["content"].as_str() {
@@ -485,6 +508,7 @@ impl StreamAcc {
             content: if self.content.is_empty() { None } else { Some(self.content) },
             tool_calls,
             reasoning_content: if self.reasoning.is_empty() { None } else { Some(self.reasoning) },
+            usage: self.usage,
         }
     }
 }
@@ -516,6 +540,17 @@ fn parse_chat_response(text: &str) -> Result<LlmOutput, String> {
         content,
         tool_calls,
         reasoning_content,
+        usage: parse_usage(&v["usage"]),
+    })
+}
+
+/// usage JSON → Usage（#16；缺字段/非对象 → None）
+fn parse_usage(v: &Value) -> Option<Usage> {
+    let p = v["prompt_tokens"].as_u64()?;
+    let c = v["completion_tokens"].as_u64()?;
+    Some(Usage {
+        prompt_tokens: p,
+        completion_tokens: c,
     })
 }
 
@@ -600,7 +635,7 @@ impl Llm for LlmBackend {
     fn summarize(
         &self,
         messages: &[ContextMessage],
-    ) -> impl Future<Output = Result<String, String>> + Send {
+    ) -> impl Future<Output = Result<(String, Option<Usage>), String>> + Send {
         async move {
             match self {
                 Self::Debug(agent) => agent.summarize(messages).await,
@@ -663,6 +698,44 @@ mod tests {
         assert!(out.content.is_none());
     }
 
+    #[test]
+    fn stream_acc_usage_frame_captured() {
+        // stream_options.include_usage：末尾空 delta + usage 对象（三家实测形态）
+        let mut acc = StreamAcc::default();
+        for v in [
+            json!({"choices":[{"delta":{"content":"好的"}}]}),
+            json!({"choices":[{"delta":{}}],"usage":{"prompt_tokens":123,"completion_tokens":4,"total_tokens":127}}),
+        ] {
+            let _ = acc.apply(&v);
+        }
+        let out = acc.finish();
+        assert_eq!(out.content.as_deref(), Some("好的"));
+        let u = out.usage.expect("usage 帧已收");
+        assert_eq!(u.prompt_tokens, 123);
+        assert_eq!(u.completion_tokens, 4);
+    }
+
+    #[test]
+    fn parse_chat_response_extracts_usage() {
+        let text = r#"{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}}"#;
+        let out = parse_chat_response(text).unwrap();
+        let u = out.usage.expect("usage 已解析");
+        assert_eq!(u.prompt_tokens, 10);
+        assert_eq!(u.completion_tokens, 2);
+        // 无 usage 字段 → None（老端点兼容）
+        let text2 = r#"{"choices":[{"message":{"role":"assistant","content":"ok"}}]}"#;
+        assert!(parse_chat_response(text2).unwrap().usage.is_none());
+    }
+
+    #[tokio::test]
+    async fn summarize_stub_returns_none_usage() {
+        let agent = DebugAgent::silent();
+        let msgs = [ContextMessage::new(Role::User, "历史", 0)];
+        let (summary, usage) = agent.summarize(&msgs).await.unwrap();
+        assert!(summary.contains("1 条历史"));
+        assert!(usage.is_none());
+    }
+
     #[tokio::test]
     async fn mock_returns_exactly_what_source_gives() {
         use std::sync::Mutex;
@@ -671,6 +744,7 @@ mod tests {
                 content: Some("脚本第一句".into()),
                 tool_calls: vec![],
                 reasoning_content: None,
+            usage: None,
             },
             LlmOutput {
                 content: None,
@@ -680,6 +754,7 @@ mod tests {
                     arguments: "{\"face\":\"(・ω・)\"}".into(),
                 }],
                 reasoning_content: None,
+            usage: None,
             },
         ]));
         let agent = DebugAgent::new(move |_| {
@@ -687,6 +762,7 @@ mod tests {
                 content: None,
                 tool_calls: vec![],
                 reasoning_content: None,
+            usage: None,
             })
         });
         // 脚本怎么写，就怎么返回；耗尽 → 沉默

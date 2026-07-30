@@ -271,7 +271,8 @@ impl<L: Llm> OverseerBackend<L> {
         if self.harness.context.needs_compression() {
             let pre_tokens = self.harness.context.total_tokens();
             let t0 = std::time::Instant::now();
-            let summary = self
+            // summarize 返回（摘要, usage 真值）；usage 留痕在 C2 接入（本提交只通类型）
+            let (summary, _usage) = self
                 .llm
                 .summarize(self.harness.context.messages())
                 .await
@@ -953,6 +954,7 @@ mod tests {
             content: Some(text.into()),
             tool_calls: vec![],
             reasoning_content: None,
+        usage: None,
         }
     }
 
@@ -969,6 +971,7 @@ mod tests {
                 })
                 .collect(),
             reasoning_content: None,
+        usage: None,
         }
     }
 
@@ -977,6 +980,7 @@ mod tests {
             content: None,
             tool_calls: vec![],
             reasoning_content: None,
+        usage: None,
         }
     }
 
