@@ -107,8 +107,11 @@ fn filter_work_agents(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
     kept
 }
 
-/// context.jsonl 行过滤：时间按 ts；--trim-context 删除与保留 instances 无关的 content 行
-///（message/head/autonomy/session/compact_boundary 是对话本体与装配留痕，不按 instance 过滤）
+/// context.jsonl 行过滤：时间按 ts；--trim-context（需配合 --instances）：
+/// - content 行：只留保留实例（孤行清理）
+/// - message 行：content 提及保留实例名才留（spec §过滤器参数原义）
+/// - autonomy/session/head/compact_boundary：装配/审计留痕，case replay 不入内存 → 丢弃
+///   （默认保留；多 run 切片类 case 不要用 --trim-context）
 fn filter_context(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
     let max_ts = lines
         .iter()
@@ -123,15 +126,56 @@ fn filter_context(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
                 return false;
             }
             if opts.trim_context {
-                if let (Some(ins), Some(inst)) = (&opts.instances, v["instance"].as_str()) {
-                    if v["type"].as_str() == Some("content") && !ins.iter().any(|i| i == inst) {
-                        return false;
+                if let Some(ins) = &opts.instances {
+                    match v["type"].as_str() {
+                        Some("content") => {
+                            let inst = v["instance"].as_str().unwrap_or("");
+                            if !ins.iter().any(|i| i == inst) {
+                                return false;
+                            }
+                        }
+                        Some("message") => {
+                            let body = v["content"].as_str().unwrap_or("");
+                            if !ins.iter().any(|i| body.contains(i.as_str())) {
+                                return false;
+                            }
+                        }
+                        // 装配/审计留痕：case replay 不入内存（空 Context 起步+归零重同步），
+                        // 裁剪时一并丢弃（默认保留，多 run 切片类 case 不用 --trim-context）
+                        Some("autonomy" | "session" | "head" | "compact_boundary") => return false,
+                        _ => {}
                     }
                 }
             }
             true
         })
         .collect();
+    // --keep-last：content 行每 instance 只留最后 N 行（保序）
+    if let (Some(n), Some(_)) = (opts.keep_last, &opts.instances) {
+        let total: std::collections::HashMap<String, usize> = kept
+            .iter()
+            .filter_map(|l| json(l))
+            .filter(|v| v["type"].as_str() == Some("content"))
+            .fold(std::collections::HashMap::new(), |mut m, v| {
+                *m.entry(v["instance"].as_str().unwrap_or("").to_string())
+                    .or_insert(0) += 1;
+                m
+            });
+        let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        kept = kept
+            .into_iter()
+            .filter(|l| {
+                let Some(v) = json(l) else { return true };
+                if v["type"].as_str() != Some("content") {
+                    return true;
+                }
+                let inst = v["instance"].as_str().unwrap_or("").to_string();
+                let c = seen.entry(inst.clone()).or_insert(0);
+                *c += 1;
+                *c > total.get(&inst).copied().unwrap_or(0).saturating_sub(n)
+            })
+            .collect();
+    }
     if opts.dedup {
         // 相邻 content 完全相同的行只保留最早一条
         let mut out: Vec<String> = vec![];
@@ -153,11 +197,9 @@ fn filter_context(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
     kept
 }
 
-/// queue.jsonl 行过滤：常全量保留（仅时间窗，docs/case-runner.md §过滤器参数）
+/// queue.jsonl 行过滤：时间窗；--trim-context（配合 --instances）时
+/// 输入条目 content 提及保留实例名才留（hook hint 含实例名，同 message 规则）
 fn filter_queue(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
-    if opts.before.is_none() && opts.after.is_none() && opts.window_ms.is_none() {
-        return lines;
-    }
     let max_ts = lines
         .iter()
         .filter_map(|l| json(l)?["ts"].as_i64())
@@ -166,9 +208,21 @@ fn filter_queue(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
     lines
         .into_iter()
         .filter(|l| {
-            json(l)
-                .map(|v| in_time(v["ts"].as_i64().unwrap_or(0), opts, max_ts))
-                .unwrap_or(false)
+            let Some(v) = json(l) else { return false };
+            if opts.before.is_some() || opts.after.is_some() || opts.window_ms.is_some() {
+                if !in_time(v["ts"].as_i64().unwrap_or(0), opts, max_ts) {
+                    return false;
+                }
+            }
+            if opts.trim_context {
+                if let Some(ins) = &opts.instances {
+                    let body = v["content"].as_str().unwrap_or("");
+                    if !ins.iter().any(|i| body.contains(i.as_str())) {
+                        return false;
+                    }
+                }
+            }
+            true
         })
         .collect()
 }
