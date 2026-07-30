@@ -112,6 +112,14 @@ impl Context {
         self.messages.iter().map(ContextMessage::est_tokens).sum()
     }
 
+    /// 从 start 起的消息 token 估算和（#16 增量估算；est 失真仅作边际用途）
+    pub fn est_tokens_since(&self, start: usize) -> usize {
+        self.messages[start.min(self.messages.len())..]
+            .iter()
+            .map(ContextMessage::est_tokens)
+            .sum()
+    }
+
     pub fn needs_compression(&self) -> bool {
         self.total_tokens() > self.token_threshold
     }

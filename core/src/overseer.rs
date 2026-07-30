@@ -265,10 +265,22 @@ impl<L: Llm> OverseerBackend<L> {
         // 2. Autonomy 状态：每轮一条写 context.jsonl，最新一条挂请求末端（concepts §4）
         let autonomy = self.state_key(pending_notifications);
         self.harness.log_autonomy(autonomy.clone(), ts)?;
-        // 3. Compression（auto-compact，concepts §10d）：专项摘要调用 → 内存 shaking
-        //    → compact_boundary 标记（文件不删历史）→ 归零重 diff 全景
-        if self.harness.context.needs_compression() {
-            let pre_tokens = self.harness.context.total_tokens();
+        // 3. Compression（auto-compact，concepts §10d / #16 真值触发）：
+        //    判定式 = 最近 usage 真值 + 其后新增消息 est 增量 vs effective_token_threshold()；
+        //    无真值（首轮/重启）→ 全量 est 兜底；判定时机 = 每轮 LLM 调用前（不变）
+        let threshold = self.config.effective_token_threshold();
+        let trigger_tokens = match self.harness.last_usage {
+            Some(u) => {
+                u.prompt_tokens as usize
+                    + self
+                        .harness
+                        .context
+                        .est_tokens_since(self.harness.last_usage_msg_len)
+            }
+            None => self.harness.context.total_tokens(),
+        };
+        if trigger_tokens > threshold {
+            let pre_tokens = trigger_tokens; // 同尺：触发瞬间的真值锚点+增量（#16 ④）
             let t0 = std::time::Instant::now();
             // summarize 返回（摘要, usage 真值）；摘要调用也留真值（#16）
             let (summary, summary_usage) = self
@@ -280,7 +292,7 @@ impl<L: Llm> OverseerBackend<L> {
                 self.harness.log_usage(u, ts)?;
             }
             self.harness.context.compress(summary.clone(), ts);
-            let post_tokens = self.harness.context.total_tokens();
+            let post_tokens = self.harness.context.total_tokens(); // 同尺：压缩后 est（真值下轮刷新）
             self.harness.log_compact_boundary(
                 summary,
                 pre_tokens,
@@ -1310,9 +1322,14 @@ mod tests {
     #[tokio::test]
     async fn compression_logs_boundary_and_resyncs_panorama() {
         // 阈值 10 token：几条消息就触发 auto-compact（DebugAgent → summarize 回退确定性 stub）
+        // #16 起阈值来自 config（effective_token_threshold），不再是 Harness 构造参数
         let dir = tmp_dir("compact");
         let harness = Harness::load(&dir, &dir, 10, 0).unwrap();
-        let mut ov = OverseerBackend::new(harness, Config::default(), DebugAgent::silent());
+        let config = Config {
+            token_threshold: 10,
+            ..Config::default()
+        };
+        let mut ov = OverseerBackend::new(harness, config, DebugAgent::silent());
         ov.harness
             .upsert_agent(AgentEntry {
                 hash: "h1".into(),
@@ -1452,6 +1469,51 @@ mod tests {
             Some("你好")
         );
         let _ = std::fs::remove_dir_all(tmp_dir("stream-none"));
+    }
+
+    #[tokio::test]
+    async fn compression_triggers_on_usage_truth() {
+        // #16 真值触发：last_usage.prompt_tokens + est 增量 > 阈值 → 压缩
+        let big = crate::llm::Usage { prompt_tokens: 900_000, completion_tokens: 0 };
+        let agent = DebugAgent::new(move |_| LlmOutput {
+            content: None,
+            tool_calls: vec![],
+            reasoning_content: None,
+            usage: Some(big),
+        });
+        let mut ov = make_overseer_with("compress-truth", agent);
+        ov.config.token_threshold = 100; // active=debug → 全局 fallback 生效
+        // 第一轮：last_usage 还是 None → est 兜底不触发；当轮落真值
+        ov.enqueue(Role::User, "第一轮".into(), 1).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        assert_eq!(ov.harness.last_usage, Some(big));
+        // 第二轮：真值 900K + 增量 ≫ 100 → 触发压缩
+        ov.enqueue(Role::User, "第二轮".into(), 2).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        let first = ov.harness.context.messages()[0]
+            .content
+            .as_deref()
+            .unwrap_or("");
+        assert!(first.contains("[历史摘要]"), "应触发压缩: {first}");
+        let _ = std::fs::remove_dir_all(tmp_dir("compress-truth"));
+    }
+
+    #[tokio::test]
+    async fn compression_triggers_on_est_fallback_without_usage() {
+        // #16 兜底：DebugAgent 默认无 usage → 全量 est 触发（现状路径）
+        let mut ov = make_overseer("compress-est");
+        ov.config.token_threshold = 50;
+        for i in 0..30 {
+            ov.enqueue(Role::User, format!("第 {i} 条消息内容内容内容"), i as i64)
+                .unwrap();
+        }
+        ov.drain_queue(0).await.unwrap();
+        let first = ov.harness.context.messages()[0]
+            .content
+            .as_deref()
+            .unwrap_or("");
+        assert!(first.contains("[历史摘要]"), "est 兜底应触发压缩: {first}");
+        let _ = std::fs::remove_dir_all(tmp_dir("compress-est"));
     }
 
     #[tokio::test]

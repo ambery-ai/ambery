@@ -148,6 +148,8 @@ pub struct Harness {
     pub last_head: Option<String>,
     /// 最近一次 LLM 调用的 token 真值（#16；重启 = None，不背旧 session）
     pub last_usage: Option<crate::llm::Usage>,
+    /// last_usage 落点时的 Context 消息数（#16 增量估算基准：其后新增 = est 增量）
+    pub last_usage_msg_len: usize,
     store: JsonlStore,
     config_dir: std::path::PathBuf,
 }
@@ -221,6 +223,7 @@ impl Harness {
             agents,
             last_head,
             last_usage: None, // 重启 = None（#16：不背旧 session，首轮 est 兜底）
+            last_usage_msg_len: 0,
             store,
             config_dir: config_dir.to_path_buf(),
         };
@@ -278,6 +281,7 @@ impl Harness {
             },
         )?;
         self.last_usage = Some(usage);
+        self.last_usage_msg_len = self.context.messages().len();
         Ok(())
     }
 
