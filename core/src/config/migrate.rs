@@ -223,11 +223,11 @@ mod tests {
         // 旧文件：无 version、带一个未知字段
         std::fs::write(
             dir.join(CONFIG_FILE),
-            r#"{"token_threshold": 1234, "dead_field": true}"#,
+            r#"{"compression_reserve_default": 1234, "dead_field": true}"#,
         )
         .unwrap();
         let cfg = load(&dir);
-        assert_eq!(cfg.token_threshold, 1234); // 用户数据保留
+        assert_eq!(cfg.compression_reserve_default, 1234); // 用户数据保留
         assert!(!cfg.read_only);
         // 备份 v0000 + 写回 version=1
         assert!(dir.join("config.bak/config-v0000.json").exists());
@@ -251,13 +251,13 @@ mod tests {
         let dir = tmp();
         std::fs::write(
             dir.join(CONFIG_FILE),
-            r#"{"version": 1, "token_threshold": "oops", "base_prompt": "自定义"}"#,
+            r#"{"version": 1, "compression_reserve_default": "oops", "base_prompt": "自定义"}"#,
         )
         .unwrap();
         let cfg = load(&dir);
-        assert_eq!(cfg.token_threshold, 8000); // 病灶字段回退
+        assert_eq!(cfg.compression_reserve_default, 10000); // 病灶字段回退
         assert_eq!(cfg.base_prompt, "自定义"); // 其他保留
-        assert!(cfg.load_report.iter().any(|l| l.contains("token_threshold")));
+        assert!(cfg.load_report.iter().any(|l| l.contains("compression_reserve_default")));
     }
 
     #[test]
@@ -265,7 +265,7 @@ mod tests {
         let dir = tmp();
         std::fs::write(dir.join(CONFIG_FILE), "not json{{{").unwrap();
         let cfg = load(&dir);
-        assert_eq!(cfg.token_threshold, Config::default().token_threshold);
+        assert_eq!(cfg.compression_reserve_default, Config::default().compression_reserve_default);
         assert!(cfg.load_report.iter().any(|l| l.contains("无法解析")));
         assert!(dir.join("config.bak/config-corrupt.json").exists());
     }
@@ -274,16 +274,16 @@ mod tests {
     fn downgrade_loads_best_backup_readonly_and_never_touches_new_file() {
         let dir = tmp();
         // 新版文件 v99
-        std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 99, "token_threshold": 1}"#).unwrap();
+        std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 99, "compression_reserve_default": 1}"#).unwrap();
         // 历史备份 v0001
         std::fs::create_dir_all(dir.join("config.bak")).unwrap();
         std::fs::write(
             dir.join("config.bak/config-v0001.json"),
-            r#"{"version": 1, "token_threshold": 4321}"#,
+            r#"{"version": 1, "compression_reserve_default": 4321}"#,
         )
         .unwrap();
         let cfg = load(&dir);
-        assert_eq!(cfg.token_threshold, 4321); // 来自备份
+        assert_eq!(cfg.compression_reserve_default, 4321); // 来自备份
         assert!(cfg.read_only);
         assert!(cfg.save(&dir).is_err()); // 只读降级：写报错
         // config.json（新版）未被碰

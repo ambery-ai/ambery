@@ -14,9 +14,10 @@ pub const CONFIG_FILE: &str = "config.json";
 pub struct Config {
     /// 状态 key → 颜文字映射（Autonomy 默认行为表，concepts §4）
     pub kaomoji: std::collections::HashMap<String, KaomojiEntry>,
-    /// Compression 触发阈值——**未知模型 fallback**（concepts §10d，#16）。
-    /// 分模型标定见 `llm.providers.*.token_threshold`；生效值取 `effective_token_threshold()`
-    pub token_threshold: usize,
+    /// Compression 输出预留默认值（#16）：触发点 = context_window − reserve，
+    /// provider 未设 `compression_reserve` 时用此值
+    #[serde(default = "default_compression_reserve")]
+    pub compression_reserve_default: usize,
     /// set_autonomy 省略 ttlMs 时的默认值（docs/autonomy.md）
     #[serde(default = "default_ttl_ms")]
     pub set_autonomy_default_ttl_ms: u64,
@@ -74,23 +75,26 @@ pub struct LlmProvider {
     pub api_key_env: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,
-    /// Compression 触发阈值（真值 token，按模型窗口 ~80% 标定，#16）。
-    /// None → 全局 `token_threshold`（fallback）
+    /// 模型上下文窗口（真值 token，事实非策略，#16）：ds-v4-flash 1M、sonnet 200K、gpt 400K。
+    /// Compression 触发 = 真值+增量 > context_window − reserve；**None = 不压缩**（显式不猜）
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token_threshold: Option<usize>,
+    pub context_window: Option<usize>,
+    /// 给输出预留的空间（触发点 = window − reserve）。None → 10_000
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compression_reserve: Option<usize>,
 }
 
 impl Default for LlmConfig {
     /// 公开厂商预设（首次启动写盘后可自由增删；内部网关只进本地 config.json，不进代码）
     fn default() -> Self {
         let mut providers = std::collections::HashMap::new();
-        // (name, base_url, model, key_env, token_threshold preset——按模型窗口 ~80%，#16)
-        for (name, base_url, model, key_env, threshold) in [
-            ("deepseek", "https://api.deepseek.com", "deepseek-chat", "DEEPSEEK_API_KEY", 100_000),
-            ("moonshot", "https://api.moonshot.cn/v1", "kimi-k2", "MOONSHOT_API_KEY", 200_000),
-            ("zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash", "ZHIPU_API_KEY", 100_000),
-            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY", 100_000),
-            ("ollama", "http://localhost:11434/v1", "qwen3", "", 24_000),
+        // (name, base_url, model, key_env, context_window——模型窗口事实，#16)
+        for (name, base_url, model, key_env, window) in [
+            ("deepseek", "https://api.deepseek.com", "deepseek-chat", "DEEPSEEK_API_KEY", 128_000),
+            ("moonshot", "https://api.moonshot.cn/v1", "kimi-k2", "MOONSHOT_API_KEY", 256_000),
+            ("zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash", "ZHIPU_API_KEY", 128_000),
+            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY", 128_000),
+            ("ollama", "http://localhost:11434/v1", "qwen3", "", 32_000),
         ] {
             providers.insert(
                 name.to_string(),
@@ -103,7 +107,8 @@ impl Default for LlmConfig {
                         Some(key_env.into())
                     },
                     temperature: Some(0.3),
-                    token_threshold: Some(threshold),
+                    context_window: Some(window),
+                    compression_reserve: None,
                 },
             );
         }
@@ -116,6 +121,10 @@ impl Default for LlmConfig {
 
 fn default_view_scale() -> f64 {
     1.0
+}
+
+fn default_compression_reserve() -> usize {
+    10_000
 }
 
 fn default_ttl_ms() -> u64 {
@@ -178,7 +187,7 @@ impl Default for Config {
         );
         Self {
             kaomoji,
-            token_threshold: 8000,
+            compression_reserve_default: default_compression_reserve(),
             set_autonomy_default_ttl_ms: default_ttl_ms(),
             filter_strategy: default_filter_strategy(),
             timer_interval_ms: default_timer_interval(),
@@ -202,28 +211,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn effective_threshold_resolution_order() {
-        let mut cfg = Config::default(); // fallback = 8000
-        assert_eq!(cfg.effective_token_threshold(), 8000); // active=debug 无 provider → fallback
-        // provider 有值 → 分模型值胜
+    fn effective_limit_window_minus_reserve() {
+        let mut cfg = Config::default();
+        // active=debug 无 provider → None = 不压缩
+        assert_eq!(cfg.effective_compression_limit(), None);
+        // moonshot preset: 256K − 默认 reserve 10K
         cfg.llm.active = "moonshot".into();
-        assert_eq!(cfg.effective_token_threshold(), 200_000);
-        // provider 值为 None → fallback
-        cfg.llm.providers.get_mut("moonshot").unwrap().token_threshold = None;
-        assert_eq!(cfg.effective_token_threshold(), 8000);
-        // active 未知 → fallback
-        cfg.llm.active = "no-such".into();
-        assert_eq!(cfg.effective_token_threshold(), 8000);
+        assert_eq!(cfg.effective_compression_limit(), Some(246_000));
+        // provider 覆盖 reserve
+        cfg.llm.providers.get_mut("moonshot").unwrap().compression_reserve = Some(6_000);
+        assert_eq!(cfg.effective_compression_limit(), Some(250_000));
+        // window 缺省 → None
+        cfg.llm.providers.get_mut("moonshot").unwrap().context_window = None;
+        assert_eq!(cfg.effective_compression_limit(), None);
+        // window < reserve → 饱和 0（永远触发）
+        cfg.llm.providers.get_mut("moonshot").unwrap().context_window = Some(100);
+        assert_eq!(cfg.effective_compression_limit(), Some(0));
     }
 }
 impl Config {
-    /// Compression 生效阈值（#16，唯一出口）：active provider 的分模型值，无则全局 fallback
-    pub fn effective_token_threshold(&self) -> usize {
-        self.llm
-            .providers
-            .get(&self.llm.active)
-            .and_then(|p| p.token_threshold)
-            .unwrap_or(self.token_threshold)
+    /// Compression 触发上限（#16，唯一出口）：active provider 的 context_window − reserve
+    /// （reserve = provider 覆盖值，缺省用 compression_reserve_default）。
+    /// **None = 不压缩**（无窗口事实时显式不猜）
+    pub fn effective_compression_limit(&self) -> Option<usize> {
+        let p = self.llm.providers.get(&self.llm.active)?;
+        let reserve = p
+            .compression_reserve
+            .unwrap_or(self.compression_reserve_default);
+        p.context_window.map(|w| w.saturating_sub(reserve))
     }
 
     /// 读配置：版本与迁移加载管线（docs/config.md，config/migrate.rs）；

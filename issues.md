@@ -158,6 +158,8 @@ card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，
 
 2026-07-30 修复——四连落地：①C1 LlmOutput.usage 全链路（非流式解析 + 流式 stream_options.include_usage（三家实测支持）+ StreamAcc 收末尾 usage 帧 + summarize 也带真值）；②C2 ContextLine::Usage 行型 + last_usage 内存（重启 None 不背旧 session），run_trigger 每轮 + 摘要调用各写一条；③C3 LlmProvider.token_threshold 分模型 preset + effective_token_threshold() 唯一出口（无迁移，Option 字段 reconcile 兜底）；④C4 触发式（last_usage+est 增量 vs effective，无真值全量 est 兜底，boundary 同尺）。case 侧（C5）：observe +2（usage 真值/answer 原文）+ context 行首真值标注 + real LLM 模式（llm.active 声明即开，合并生产 providers）+ 头部 config 泛化；僵尸 metrics case 全链跑通（跑红实锤判死无 diff → #10 二次修复 → 跑绿 answer=0）。89 测试绿。
 
+2026-07-30 设计精化（用户拍板）——分模型字段改义：`provider.token_threshold`（派生阈值）→ **`context_window`（模型窗口事实）** + `compression_reserve`（默认 10K，全局 `compression_reserve_default` 可配、provider 可覆盖）；触发 = 真值+增量 > window − reserve；**无 context_window = 不压缩**（显式不猜，全局兜底阈值字段退役）。理由：分模型后值应直接是窗口配额本身，而非手算的 80%；开发期无迁移，Option 字段 reconcile 兜底。
+
 ***
 
 **触发场景**: 观察 pet 窗口视觉细节——阴影和动画边界。

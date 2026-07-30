@@ -134,7 +134,7 @@ fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
         config.llm.active = "debug".into();
     }
 
-    let harness = overseer_core::Harness::load(&tmp, &tmp, config.effective_token_threshold(), now_ms())
+    let harness = overseer_core::Harness::load(&tmp, &tmp, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms())
         .expect("load harness");
     let backend = LlmBackend::from_config(&config.llm);
     let mut ov = OverseerBackend::new(harness, config, backend);

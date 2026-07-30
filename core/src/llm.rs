@@ -849,7 +849,8 @@ mod tests {
                 model: "m".into(),
                 api_key_env: Some("DEFINITELY_NOT_SET_ENV_VAR".into()),
                 temperature: None,
-                token_threshold: None,
+                context_window: None,
+                compression_reserve: None,
             },
         );
         let cfg2 = LlmConfig {

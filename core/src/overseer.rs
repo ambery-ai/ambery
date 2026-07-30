@@ -121,12 +121,10 @@ impl<L: Llm> OverseerBackend<L> {
             }
         }
         let old = std::mem::replace(&mut self.config, new);
-        // 热应用：filter 重建 / compression 阈值同步（effective 唯一出口，#16：
-        // llm.active 切换、provider 阈值变更、全局 fallback 变更都经此同步）
+        // 热应用：filter 重建（其余字段每轮现读/经 effective_* 出口现取，天然热）
         if self.config.filter_strategy != old.filter_strategy {
             self.filter = crate::filter::by_name(&self.config.filter_strategy);
         }
-        self.harness.context.token_threshold = self.config.effective_token_threshold();
         let llm_changed = self.config.llm != old.llm;
         self.config
             .save(self.harness.config_dir())
@@ -275,9 +273,8 @@ impl<L: Llm> OverseerBackend<L> {
         let autonomy = self.state_key(pending_notifications);
         self.harness.log_autonomy(autonomy.clone(), ts)?;
         // 3. Compression（auto-compact，concepts §10d / #16 真值触发）：
-        //    判定式 = 最近 usage 真值 + 其后新增消息 est 增量 vs effective_token_threshold()；
-        //    无真值（首轮/重启）→ 全量 est 兜底；判定时机 = 每轮 LLM 调用前（不变）
-        let threshold = self.config.effective_token_threshold();
+        //    判定式 = 最近 usage 真值 + 其后新增消息 est 增量 vs window − reserve；
+        //    无真值（首轮/重启）→ 全量 est；无窗口事实（None）→ 不压缩
         let trigger_tokens = match self.harness.last_usage {
             Some(u) => {
                 u.prompt_tokens as usize
@@ -288,7 +285,11 @@ impl<L: Llm> OverseerBackend<L> {
             }
             None => self.harness.context.total_tokens(),
         };
-        if trigger_tokens > threshold {
+        let compress = self
+            .config
+            .effective_compression_limit()
+            .is_some_and(|limit| trigger_tokens > limit);
+        if compress {
             let pre_tokens = trigger_tokens; // 同尺：触发瞬间的真值锚点+增量（#16 ④）
             let t0 = std::time::Instant::now();
             // summarize 返回（摘要, usage 真值）；摘要调用也留真值（#16）
@@ -1353,13 +1354,14 @@ mod tests {
     #[tokio::test]
     async fn compression_logs_boundary_and_resyncs_panorama() {
         // 阈值 10 token：几条消息就触发 auto-compact（DebugAgent → summarize 回退确定性 stub）
-        // #16 起阈值来自 config（effective_token_threshold），不再是 Harness 构造参数
+        // #16 起触发上限来自 config（effective_compression_limit），不再是 Harness 构造参数
         let dir = tmp_dir("compact");
         let harness = Harness::load(&dir, &dir, 10, 0).unwrap();
-        let config = Config {
-            token_threshold: 10,
-            ..Config::default()
-        };
+        let mut config = Config::default();
+        config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
+            base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
+            context_window: Some(10), compression_reserve: Some(0),
+        });
         let mut ov = OverseerBackend::new(harness, config, DebugAgent::silent());
         ov.harness
             .upsert_agent(AgentEntry {
@@ -1532,7 +1534,10 @@ mod tests {
             usage: Some(big),
         });
         let mut ov = make_overseer_with("compress-truth", agent);
-        ov.config.token_threshold = 100; // active=debug → 全局 fallback 生效
+        ov.config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
+            base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
+            context_window: Some(100), compression_reserve: Some(0),
+        });
         // 第一轮：last_usage 还是 None → est 兜底不触发；当轮落真值
         ov.enqueue(Role::User, "第一轮".into(), 1).unwrap();
         ov.drain_queue(0).await.unwrap();
@@ -1552,7 +1557,10 @@ mod tests {
     async fn compression_triggers_on_est_fallback_without_usage() {
         // #16 兜底：DebugAgent 默认无 usage → 全量 est 触发（现状路径）
         let mut ov = make_overseer("compress-est");
-        ov.config.token_threshold = 50;
+        ov.config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
+            base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
+            context_window: Some(50), compression_reserve: Some(0),
+        });
         for i in 0..30 {
             ov.enqueue(Role::User, format!("第 {i} 条消息内容内容内容"), i as i64)
                 .unwrap();
@@ -1862,13 +1870,13 @@ mod tests {
     fn apply_config_by_path_hot_apply_and_persist() {
         let mut ov = make_overseer("apply");
         let out = ov
-            .apply_config_by_path("token_threshold", json!(5000))
+            .apply_config_by_path("compression_reserve_default", json!(5000))
             .unwrap();
         assert!(out.restart_required.is_empty());
         assert!(!out.llm_changed);
-        assert_eq!(ov.harness.context.token_threshold, 5000); // 热同步
+        assert_eq!(ov.config.compression_reserve_default, 5000); // 热应用
         let reloaded = Config::load_or_default(ov.harness.config_dir());
-        assert_eq!(reloaded.token_threshold, 5000); // persist
+        assert_eq!(reloaded.compression_reserve_default, 5000); // persist
         let _ = std::fs::remove_dir_all(tmp_dir("apply"));
     }
 
@@ -1876,7 +1884,7 @@ mod tests {
     fn apply_config_by_path_validates_and_reports_restart() {
         let mut ov = make_overseer("apply2");
         // serde 验证失败
-        assert!(ov.apply_config_by_path("token_threshold", json!("oops")).is_err());
+        assert!(ov.apply_config_by_path("compression_reserve_default", json!("oops")).is_err());
         // 动态 enum 校验
         assert!(ov.apply_config_by_path("llm.active", json!("nonexist")).is_err());
         // 合法 active
@@ -1892,7 +1900,7 @@ mod tests {
     fn apply_config_by_path_readonly_rejected() {
         let mut ov = make_overseer("apply3");
         ov.config.read_only = true;
-        assert!(ov.apply_config_by_path("token_threshold", json!(1)).is_err());
+        assert!(ov.apply_config_by_path("compression_reserve_default", json!(1)).is_err());
         let _ = std::fs::remove_dir_all(tmp_dir("apply3"));
     }
 }

@@ -11,7 +11,7 @@ use super::Config;
 /// 反射节点：一个可渲染/可修改的配置项（map 会展开已有条目为子节点）
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ConfigNode {
-    /// 点分路径："token_threshold" / "llm.providers.deepseek.model"
+    /// 点分路径："compression_reserve_default" / "llm.providers.deepseek.model"
     pub path: String,
     #[serde(rename = "type")]
     pub ty: NodeType,
@@ -254,15 +254,15 @@ mod tests {
     fn nodes_cover_core_paths_and_types() {
         let nodes = config_nodes(&Config::default());
         let get = |p: &str| nodes.iter().find(|n| n.path == p).unwrap_or_else(|| panic!("缺节点 {p}"));
-        assert!(matches!(get("token_threshold").ty, NodeType::Int { .. }));
+        assert!(matches!(get("compression_reserve_default").ty, NodeType::Int { .. }));
         assert!(matches!(get("view_scale").ty, NodeType::Float { .. }));
         assert!(matches!(get("base_prompt").ty, NodeType::Str));
         assert!(matches!(get("kaomoji").ty, NodeType::Map));
         assert!(matches!(get("llm.providers").ty, NodeType::Map));
         // doc comment → desc
-        assert!(get("token_threshold").desc.is_some());
+        assert!(get("compression_reserve_default").desc.is_some());
         // 当前值
-        assert_eq!(get("token_threshold").value, Value::from(8000));
+        assert_eq!(get("compression_reserve_default").value, Value::from(10000));
     }
 
     #[test]
@@ -291,21 +291,21 @@ mod tests {
     fn set_by_path_writes_and_validates_via_deserialize() {
         let mut v = serde_json::to_value(Config::default()).unwrap();
         // 嵌套已有路径
-        set_by_path(&mut v, "token_threshold", Value::from(5000)).unwrap();
+        set_by_path(&mut v, "compression_reserve_default", Value::from(5000)).unwrap();
         // map 新 key 自动建 object
         set_by_path(&mut v, "llm.providers.local.base_url", Value::from("http://x")).unwrap();
         set_by_path(&mut v, "llm.providers.local.model", Value::from("m")).unwrap();
         let cfg: Config = serde_json::from_value(v).unwrap();
-        assert_eq!(cfg.token_threshold, 5000);
+        assert_eq!(cfg.compression_reserve_default, 5000);
         assert_eq!(cfg.llm.providers["local"].base_url, "http://x");
     }
 
     #[test]
     fn set_by_path_rejects_non_object_traversal_and_bad_type_fails_validation() {
         let mut v = serde_json::to_value(Config::default()).unwrap();
-        assert!(set_by_path(&mut v, "token_threshold.x", Value::from(1)).is_err());
+        assert!(set_by_path(&mut v, "compression_reserve_default.x", Value::from(1)).is_err());
         // set_by_path 本身不验证类型，反序列化兜底
-        set_by_path(&mut v, "token_threshold", Value::from("oops")).unwrap();
+        set_by_path(&mut v, "compression_reserve_default", Value::from("oops")).unwrap();
         assert!(serde_json::from_value::<Config>(v).is_err());
     }
 }
