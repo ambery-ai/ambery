@@ -157,3 +157,17 @@ card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，
 当前 compression 触发与 token 显示基于 chars/4 本地估算，对中文主导的 Context 失真 4-6 倍（deepseek 系 BPE 约 1 字 ≈ 1 token），计量无权威来源；同时 `token_threshold` 是全局单值 8000，与各模型窗口（ds-v4-flash 1M、sonnet 200K、gpt 400K 等）完全不匹配，压缩策略无法随模型调整。定案：①usage 真值主源——OpenAiClient 解析 `usage.prompt_tokens/completion_tokens`（实测 flash/gpt/sonnet 三家公约数一致，无需模型分支；cache 分项恒 0 不做），每次调用 append context.jsonl 的 `usage` 行型，读取取最新一条（覆盖语义，opencode 实证同构）；②分模型阈值——`LlmProvider.token_threshold: Option<usize>`（profile 级，preset：flash/pro 800K、sonnet-5 160K、gpt-5.4 320K、kimi-k2 200K 等），全局 8000 降为未知模型 fallback，`effective_token_threshold()` 单一出口；③compression 触发 = 最近 usage 真值 + 其后新增消息 est 增量 vs 有效阈值，est 降级为无真值时兜底；④本地 BPE 分词器不引入（opencode/Claude Code 均以 API 真值为准）。
 
 2026-07-30 修复——四连落地：①C1 LlmOutput.usage 全链路（非流式解析 + 流式 stream_options.include_usage（三家实测支持）+ StreamAcc 收末尾 usage 帧 + summarize 也带真值）；②C2 ContextLine::Usage 行型 + last_usage 内存（重启 None 不背旧 session），run_trigger 每轮 + 摘要调用各写一条；③C3 LlmProvider.token_threshold 分模型 preset + effective_token_threshold() 唯一出口（无迁移，Option 字段 reconcile 兜底）；④C4 触发式（last_usage+est 增量 vs effective，无真值全量 est 兜底，boundary 同尺）。case 侧（C5）：observe +2（usage 真值/answer 原文）+ context 行首真值标注 + real LLM 模式（llm.active 声明即开，合并生产 providers）+ 头部 config 泛化；僵尸 metrics case 全链跑通（跑红实锤判死无 diff → #10 二次修复 → 跑绿 answer=0）。89 测试绿。
+
+***
+
+**触发场景**: 观察 pet 窗口视觉细节——阴影和动画边界。
+
+**表现**: Component/card 窗口有 CSS box-shadow，被 Tauri 透明窗口裁剪（窗口尺寸 = 卡片内容尺寸，阴影超出窗口边界不可见）。pet 多次切换动画后颜文字超出窗口边界被裁。
+
+## #17 窗口阴影被透明窗口边界截断 (2026-07-30) — open
+
+card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪看不见，透明窗口无额外缓冲区。**先复现确认**：打开 card 窗口，截图观察阴影是否可见。修复方向：删除阴影，或加 padding/margin 让窗口尺寸包含阴影区域。
+
+## #18 pet 动画多次切换后内容溢出窗口边界 (2026-07-30) — open
+
+多次 bounce/shake/float 动画切换后 pet 颜文字位置偏移累积，超出 View 窗口边界被 clip。**先复现**：连续触发多次动画切换（set_autonomy 反复改 motion），用 locate.ps1 观察窗口尺寸和位置是否偏离初始值，截图对比。再排查根因——可能是 `adjustWindowForMotion` 未正确复位窗口尺寸/offset，或动画 CSS transform 残留。禁止直接改代码。
