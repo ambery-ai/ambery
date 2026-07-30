@@ -42,11 +42,13 @@ Card 面板已有"复制"按钮，点击后调用 `navigator.clipboard.writeText
 
 发送消息后聊天区域既没有回显用户刚发的消息，也没有任何"处理中"的状态指示（如加载动画、省略号等）。用户不知道消息是否已被提交、是否正在被 AI 处理、还是已经静默失败。用户消息应当立即出现在聊天历史中，同时显示一个处理中指示器（如输入框右侧 loading spinner），收到回复后清除。
 
-## #7 聊天需要流式输出，thinking 只显示透明气泡 (2026-07-27) — open
+## #7 聊天需要流式输出，thinking 只显示透明气泡 (2026-07-27) — fixed
 
 AI 回复是一次性渲染到聊天区域的，缺少字符逐步蹦出的流式效果。LLM thinking 过程不显示具体文字（隐私），但应当展示一个透明/半透明气泡动画来表示"正在思考"，让用户感知到 AI 在活动。
 
 2026-07-29 reopen——首次修复只落地了 loading 动画 + 透明气泡，流式输出本体 deferred 未做，回复仍整段一次性出现。打回原因：用户实测「chat 基本正常，但还没有连续显示」。流式部分现由 docs/streaming.md 定稿（Streaming Delta：LLM SSE chunk → AssistantDelta 逐片推送前端，reasoning 走 ThinkingBubble/ThinkingModal；Delta 纯显示优化不经 Queue/Context，完整回复最后写 Context）。
+
+2026-07-29 修复——按 docs/streaming.md 四连落地：①core 流式骨架（Llm trait Send+Sync 化 + complete_streaming 默认回落；Effect::AssistantDelta/AssistantDone；effect_sink 旁路直推不进 effects Vec）；②OpenAiClient SSE（stream:true + 字节级 \n\n 事件缓冲；content/reasoning 两路；tool_calls 分片按 index 聚合）；③Bridge onAssistantDelta/onAssistantDone（TauriBridge/RemoteBridge 双通道）；④chat 流式渲染（content 逐片追加、ThinkingBubble 虚线气泡 + 点击展开思维链模态、done 收尾、重渲保留在飞气泡）。82 core 测试 + mock IPC 测试绿，用户实测确认 thinking 气泡与逐字蹦出正常。
 
 ***
 
