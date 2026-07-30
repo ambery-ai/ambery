@@ -54,11 +54,11 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_autonomy",
-            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）。face 传颜文字本体或状态 key 名（key 解析为映射本体，仅解析 face）",
+            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）。key 传状态 key 名（kaomoji 表中的 key，如 idle/notify/processing）",
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "face": { "type": "string" },
+                    "key": { "type": "string" },
                     "motion": { "type": "string", "enum": ["still", "float", "bounce", "shake"] },
                     "ttlMs": { "type": "integer" }
                 }

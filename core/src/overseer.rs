@@ -849,15 +849,19 @@ impl<L: Llm> OverseerBackend<L> {
                 (json!({ "instance": inst, "content": content }), vec![])
             }
             "set_autonomy" => {
-                let mut face = args.get("face").and_then(Value::as_str).map(String::from);
+                let mut face = args.get("key").and_then(Value::as_str).map(String::from);
                 let motion = args.get("motion").and_then(Value::as_str).map(String::from);
-                // face 传 key 名：仅解析为映射表本体；motion 不连带——
+                // key 传状态 key 名：解析为映射表本体；motion 不连带——
                 // 「仅传参的字段被覆盖」，缺省即不碰（docs/autonomy.md）
                 if let Some(f) = &face {
                     if let Some(entry) = self.config.kaomoji.get(f.as_str()) {
                         face = Some(entry.face.clone());
+                    } else {
+                        return (
+                            json!({ "ok": false, "error": format!("无效 key：'{f}'") }),
+                            vec![],
+                        );
                     }
-                    // 非 key 的颜文字本体原样透传
                 }
                 if let Some(m) = &motion {
                     let valid = ["still", "float", "bounce", "shake"];
@@ -983,7 +987,7 @@ mod tests {
             calls(vec![
                 (
                     "set_autonomy",
-                    json!({"face": "✧*｡٩(ˊᗜˋ*)و✧*｡", "motion": "bounce", "ttlMs": 5000}),
+                    json!({"key": "notify", "motion": "bounce", "ttlMs": 5000}),
                 ),
                 (
                     "call_component",
@@ -1376,7 +1380,7 @@ mod tests {
             id: "c1".into(),
             name: "set_autonomy".into(),
             // face 传 key 名：仅解析 face 本体；motion 缺省不连带（保持未覆盖）
-            arguments: json!({ "face": "notify", "ttlMs": 3000 }).to_string(),
+            arguments: json!({ "key": "notify", "ttlMs": 3000 }).to_string(),
         };
         let (result, effects) = ov.execute_tool(&call);
         assert_eq!(result["ok"], json!(true));
@@ -1388,17 +1392,15 @@ mod tests {
                 ..
             } if f == "✧*｡٩(ˊᗜˋ*)و✧*｡"
         )));
-        // 颜文字本体原样透传（非 key 不解析）
+        // 非 key 的 face 拒绝（docs/toolset.md：必须用 key 名）
         let call2 = ToolCall {
             id: "c2".into(),
             name: "set_autonomy".into(),
-            arguments: json!({ "face": "(・ω・)ノ" }).to_string(),
+            arguments: json!({ "key": "(・ω・)ノ" }).to_string(),
         };
-        let (_, effects2) = ov.execute_tool(&call2);
-        assert!(effects2.iter().any(|e| matches!(
-            e,
-            Effect::SetAutonomy { face: Some(f), motion: None, .. } if f == "(・ω・)ノ"
-        )));
+        let (result2, _) = ov.execute_tool(&call2);
+        assert_eq!(result2["ok"], json!(false));
+        assert!(result2["error"].as_str().unwrap().contains("无效 key"));
         let _ = std::fs::remove_dir_all(tmp_dir("face-key"));
     }
 
