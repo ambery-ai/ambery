@@ -175,3 +175,7 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 ## #18 pet 动画多次切换后内容溢出窗口边界 (2026-07-30) — open
 
 多次 bounce/shake/float 动画切换后 pet 颜文字位置偏移累积，超出 View 窗口边界被 clip。**先复现**：连续触发多次动画切换（set_autonomy 反复改 motion），用 locate.ps1 观察窗口尺寸和位置是否偏离初始值，截图对比。再排查根因——可能是 `adjustWindowForMotion` 未正确复位窗口尺寸/offset，或动画 CSS transform 残留。禁止直接改代码。
+
+## #19 多屏不同 DPI 下窗口位置计算不一致，可能导致重叠 (2026-07-30) — open
+
+多块不同 DPI 的屏幕间移动 card/chat/pet 时，坐标计算不一致，可能导致窗口重叠或错位。疑因物理像素与逻辑像素混用：`outerPosition`/`setPosition` 走物理像素，engine 中心点与 getBoundingClientRect 走 CSS 逻辑像素，card 测量已乘 dpr（lastPw/lastPh）但跨屏时 dpr 取值按当前所在屏还是所在窗口屏未统一；松手回写（reportMoved）与自动布局（place）在不同 DPI 屏上得出不同坐标系的结果。建议：统一选定坐标系（物理或逻辑）并贯穿测量/回写/布局三处，跨屏移动时按目标屏 dpr 换算。

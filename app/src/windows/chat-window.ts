@@ -3,7 +3,7 @@
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
-import { requestPlace, requestRemove, reportMoved } from "../positioning/tauri-server";
+import { requestPlace, reportMoved } from "../positioning/tauri-server";
 import { Direction } from "../positioning/types";
 
 let chatPanel: ChatPanel | null = null;
@@ -23,7 +23,10 @@ export async function main() {
       else showChat();
     });
     await listen("chat:hide", () => hideChat());
-    await listen("chat:show", () => showChat());
+    // restoreAll 恢复（pet 拖动）：只有用户没主动关掉时才跟随显示（意图门，#8②）
+    await listen("chat:show", () => {
+      if (chatPanel?.isVisible()) void showChat();
+    });
     win.onCloseRequested(async () => {
       await adapter?.hide();
     });
@@ -78,5 +81,5 @@ async function showChat() {
 async function hideChat() {
   await adapter?.hide();
   chatPanel?.hidePanel();
-  requestRemove("chat-panel");
+  // 不 requestRemove：occupied+manual 保留，下次 show 时 place() 手动位优先（#12/#8②）
 }
