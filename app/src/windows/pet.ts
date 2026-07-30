@@ -95,6 +95,20 @@ export async function main() {
       200,
     );
 
+    // #13: pet 隐藏时 card 窗口延迟到恢复显示
+    let petVisible = true;
+    type PendingCard = { label: string; spec: any };
+    const pendingCards: PendingCard[] = [];
+
+    const { listen } = await import("@tauri-apps/api/event");
+    listen("pet:hidden", () => { petVisible = false; });
+    listen("pet:shown", () => {
+      petVisible = true;
+      for (const pc of pendingCards.splice(0)) {
+        emitTo(pc.label, "card:spec", pc.spec);
+      }
+    });
+
     // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
     bridge.onRenderComponent(async (spec) => {
@@ -115,7 +129,11 @@ export async function main() {
       });
       webview.once("tauri://created", async () => {
         await new Promise(r => setTimeout(r, 500));
-        emitTo(label, "card:spec", spec);
+        if (petVisible) {
+          emitTo(label, "card:spec", spec);
+        } else {
+          pendingCards.push({ label, spec });
+        }
       });
       webview.once("tauri://error", (e: any) => {
         console.error("[pet] WebviewWindow error:", e);

@@ -25,8 +25,10 @@ fn toggle_pet(app: tauri::AppHandle) {
             let _ = w.hide();
             if let Some(ch) = app.get_webview_window("chat") { let _ = ch.hide(); }
             let _ = app.emit("cards:hide", ());
+            let _ = app.emit("pet:hidden", ());
         } else {
             let _ = w.show();
+            let _ = app.emit("pet:shown", ());
         }
     }
 }
