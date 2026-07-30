@@ -190,6 +190,7 @@ export async function main() {
         el.remove();
       });
       chatPanel.systemHide();
+      mgr.systemHideAll();
     });
     view.el.addEventListener("view:moved", () => {
       const wr = view.el.parentElement!.getBoundingClientRect();
@@ -204,6 +205,7 @@ export async function main() {
       }
       // card 跟随（browser DOM 卡片纳入 engine 语义，#12）
       mgr.followRestore(restored);
+      mgr.systemShowAll();
       // 恢复 debug marks
       for (const mo of markOffsets) {
         const mark = document.createElement("div");

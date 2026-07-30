@@ -62,6 +62,14 @@ export class ComponentManager {
     }
   }
 
+  /** 系统藏/恢复（pet 拖动，docs/window-follow.md：整层，不逐卡改状态） */
+  systemHideAll() {
+    this.layer.hidden = true;
+  }
+  systemShowAll() {
+    this.layer.hidden = false;
+  }
+
   private buildCard(spec: ComponentSpec): HTMLDivElement {
     const card = document.createElement("div");
     card.className = "component";
