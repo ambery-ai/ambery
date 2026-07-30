@@ -20,6 +20,12 @@ pub struct CaseObserve {
     pub queue: Vec<crate::queue::QueueInput>,
     /// Event Buffer 积压原文
     pub event_buffer: Vec<String>,
+    /// 最近一次 LLM 调用真值（#16；无 = 未调用过/重启后）
+    pub usage: Option<crate::llm::Usage>,
+    /// 自真值落点后的 est 增量（无真值时 = 全量 est）
+    pub context_est_delta: usize,
+    /// 最后一条 assistant 消息原文（回答准确度扫读位）
+    pub answer: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,7 +94,20 @@ pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
         .collect();
     let queue = ov.harness.queue.iter().cloned().collect();
     let event_buffer = ov.harness.event_buffer.events().to_vec();
-    CaseObserve { agents, panorama, context, content, queue, event_buffer }
+    let usage = ov.harness.last_usage;
+    let context_est_delta = ov
+        .harness
+        .context
+        .est_tokens_since(ov.harness.last_usage_msg_len);
+    let answer = ov
+        .harness
+        .context
+        .messages()
+        .iter()
+        .rev()
+        .find(|m| m.role == crate::context::Role::Assistant)
+        .and_then(|m| m.content.clone());
+    CaseObserve { agents, panorama, context, content, queue, event_buffer, usage, context_est_delta, answer }
 }
 
 // ── 两段式 .case 格式（docs/case-runner.md §Case 文件格式）──

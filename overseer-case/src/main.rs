@@ -101,7 +101,7 @@ async fn main() {
     }
 }
 
-/// case → 可执行 OverseerBackend（tmp storage 快照 + debug LLM + 可变读通道）
+/// case → 可执行 OverseerBackend（tmp storage 快照 + debug/real LLM + 可变读通道）
 fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
     let tmp = std::env::temp_dir().join(format!("overseer-case-{}", case.meta.case_id));
     let _ = std::fs::remove_dir_all(&tmp);
@@ -112,18 +112,27 @@ fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
     write_jsonl(&tmp, "queue.jsonl", &case.queue);
 
     let mut config = Config::load_or_default(&tmp);
-    // case 确定性：强制 DebugAgent 沉默决策源（不碰网络；LLM 行为用 steps 剧本驱动）
-    config.llm.active = "debug".into();
-    config.timer_interval_ms = case
-        .config
-        .get("timer_interval_ms")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(300_000);
-    config.timer_tick_ms = case
-        .config
-        .get("timer_tick_ms")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(5_000) as u64;
+    // 头部 config 泛化（统一管道 set_by_path，timer 字段自然兼容）
+    if let Some(obj) = case.config.as_object() {
+        let mut cv = serde_json::to_value(&config).expect("config to value");
+        for (k, v) in obj {
+            overseer_core::config::reflect::set_by_path(&mut cv, k, v.clone())
+                .unwrap_or_else(|e| eprintln!("[case] config {k} 写入失败: {e}"));
+        }
+        config = serde_json::from_value(cv).expect("config from value");
+    }
+    // LLM 模式（docs/case-runner.md §LLM 模式）：debug 强制沉默（确定性）；
+    // llm.active 非 debug = real——合并生产 providers，env key 现成
+    let real_llm = config.llm.active != "debug";
+    if real_llm {
+        let prod = Config::load_or_default(&overseer_core::paths::config_root());
+        for (k, p) in prod.llm.providers {
+            config.llm.providers.entry(k).or_insert(p);
+        }
+        eprintln!("[case] real LLM 模式: active={}（网络调用，非确定性）", config.llm.active);
+    } else {
+        config.llm.active = "debug".into();
+    }
 
     let harness = overseer_core::Harness::load(&tmp, &tmp, config.effective_token_threshold(), now_ms())
         .expect("load harness");

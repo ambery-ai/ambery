@@ -135,7 +135,12 @@ fn print_observe(obs: &CaseObserve, items: &[String], last_len: &mut usize) {
                 None => println!("panorama: (无存活实例)"),
             },
             "context" => {
-                println!("context: {} 行", obs.context.len());
+                // 行首 token 摘要（#16）：真值锚点 + est 增量分开标注；无真值 = est 全量
+                let tok = match &obs.usage {
+                    Some(u) => format!("真值 {} + est 增量 {}", u.prompt_tokens, obs.context_est_delta),
+                    None => format!("est 全量 {}", obs.context_est_delta),
+                };
+                println!("context: {} 行 | {}", obs.context.len(), tok);
                 for m in &obs.context {
                     println!("{}", msg_line(m));
                 }
@@ -165,6 +170,14 @@ fn print_observe(obs: &CaseObserve, items: &[String], last_len: &mut usize) {
                     println!("  - {e}");
                 }
             }
+            "usage" => match &obs.usage {
+                Some(u) => println!(
+                    "usage: prompt_tokens={} completion_tokens={}",
+                    u.prompt_tokens, u.completion_tokens
+                ),
+                None => println!("usage: (无真值)"),
+            },
+            "answer" => println!("answer: {}", obs.answer.as_deref().unwrap_or("(无)")),
             other => println!("(未知 observe 项: {other})"),
         }
     }
