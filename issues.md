@@ -124,7 +124,7 @@ card/chat 窗口从自动布局位置 A 拖到 B 后，新位置只生效于当�
 
 **表现**: × 按钮点击后 card DOM 移除但 Tauri 窗口未关闭、引擎占区未清除。拖动 card 到屏幕边缘后，OS 自动调整窗口位置，engine 记录的仍是拖拽松手前的坐标，后续 pet 移动时恢复位置错乱，多 card 重叠。
 
-## #14 card × 按钮无法关闭窗口 (2026-07-29) — open
+## #14 card × 按钮无法关闭窗口 (2026-07-29) — fixed
 
 card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，MutationObserver 检测到无 `.component` 后隐藏窗口——但 Tauri 窗口本身未关闭（`win.close()`），引擎占区未清除（`engine.remove()` 未调用）。导致窗口泄漏、引擎 occupied 残留。
 
