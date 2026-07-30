@@ -344,8 +344,11 @@ impl<L: Llm> OverseerBackend<L> {
             if out.tool_calls.is_empty() {
                 // 沉默语义：空 content 不追加（docs/agent-loop.md）
                 if let Some(content) = out.content.filter(|c| !c.is_empty()) {
-                    self.harness
-                        .append_context(ContextMessage::new(Role::Assistant, content, ts))?;
+                    let mut msg = ContextMessage::new(Role::Assistant, content, ts);
+                    // thinking 全保真留痕（记录≠回放：build_body 仅 tool_calls
+                    // 消息带 reasoning_content 进请求，纯文本回复不花 token）
+                    msg.reasoning_content = out.reasoning_content.clone();
+                    self.harness.append_context(msg)?;
                 }
                 break;
             }
@@ -1500,7 +1503,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn plain_reply_keeps_reasoning_content_in_context() {
+        // thinking 全保真：纯文本回复的 reasoning_content 也落 Context（记录≠回放）
+        let agent = DebugAgent::new(|_| LlmOutput {
+            content: Some("答案".into()),
+            tool_calls: vec![],
+            reasoning_content: Some("先想三步再答".into()),
+            usage: None,
+        });
+        let mut ov = make_overseer_with("reason-keep", agent);
+        ov.enqueue(Role::User, "问".into(), 1).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        let last = ov.harness.context.messages().last().unwrap();
+        assert_eq!(last.role, Role::Assistant);
+        assert_eq!(last.reasoning_content.as_deref(), Some("先想三步再答"));
+        let _ = std::fs::remove_dir_all(tmp_dir("reason-keep"));
+    }
+
+    #[tokio::test]
     async fn compression_triggers_on_usage_truth() {
+
         // #16 真值触发：last_usage.prompt_tokens + est 增量 > 阈值 → 压缩
         let big = crate::llm::Usage { prompt_tokens: 900_000, completion_tokens: 0 };
         let agent = DebugAgent::new(move |_| LlmOutput {
