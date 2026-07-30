@@ -109,6 +109,7 @@ html.browser body {
 
 .cmp-body {
   padding: 4px 10px 10px;
+  overflow-y: auto; /* #20：max-height 由 card-window 按屏高 cap 内联下发，超长滚动 */
 }
 
 .cmp-body p { margin: 4px 0 8px; white-space: pre-wrap; }

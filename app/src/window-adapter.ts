@@ -7,6 +7,8 @@ export interface WindowAdapter {
   setOffset(top: number, left: number): void;
   show(): Promise<void>;
   hide(): Promise<void>;
+  /** 屏幕逻辑高度（issues #20：card 高度 cap 的唯一取口，docs/window-follow.md §显示器几何） */
+  getScreenHeight(): Promise<number>;
 }
 
 /** Tauri 模式：真实 OS 窗口 */
@@ -14,7 +16,7 @@ export async function createTauriAdapter(
   viewEl: HTMLElement,
   _dpr: number,
 ): Promise<WindowAdapter> {
-  const { getCurrentWindow, PhysicalSize, PhysicalPosition } = await import("@tauri-apps/api/window");
+  const { getCurrentWindow, currentMonitor, PhysicalSize, PhysicalPosition } = await import("@tauri-apps/api/window");
   const win = getCurrentWindow();
 
   return {
@@ -30,6 +32,10 @@ export async function createTauriAdapter(
     },
     async show() { await win.show(); await win.setFocus(); },
     async hide() { await win.hide(); },
+    async getScreenHeight() {
+      const mon = await currentMonitor();
+      return mon ? mon.size.height / mon.scaleFactor : 1080;
+    },
   };
 }
 
@@ -84,5 +90,8 @@ export function createBrowserAdapter(
     },
     async show() { wrapper.style.display = ""; overlay.style.display = ""; overlay.style.borderColor = "red"; },
     async hide() { wrapper.style.display = "none"; overlay.style.display = "none"; overlay.style.borderColor = "lime"; },
+    async getScreenHeight() {
+      return window.screen.availHeight;
+    },
   };
 }
