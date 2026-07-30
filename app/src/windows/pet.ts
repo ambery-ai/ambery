@@ -84,9 +84,10 @@ export async function main() {
     }
 
     const onMove = dragDebounce(
-      () => { engine.hideAll(); emit("chat:hide"); emit("cards:hide"); },
+      // 系统藏（#12 定案：不动 engine，无快照）
+      () => { emit("chat:hide"); emit("cards:hide"); },
       (latest: { x: number; y: number }) => {
-        const r = engine.restoreAll(latest);
+        const r = engine.restorePositions(latest);
         if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
         for (const w of r) {
           if (w.id.startsWith("card-")) emit("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
@@ -107,6 +108,17 @@ export async function main() {
       for (const pc of pendingCards.splice(0)) {
         emitTo(pc.label, "card:spec", pc.spec);
       }
+      // 托盘回来：恢复位置广播（#12 定案 grill⑤——系统藏的系统恢复，各窗口自查 userClosed）
+      void (async () => {
+        const pos = await win.outerPosition();
+        const size = await win.outerSize();
+        const c = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 };
+        const r = engine.restorePositions(c);
+        if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
+        for (const w of r) {
+          if (w.id.startsWith("card-")) emit("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
+        }
+      })();
     });
 
     // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
@@ -163,8 +175,7 @@ export async function main() {
       engine.registerPet(c, { w: Math.round(r.width) + ANIM_W, h: Math.round(r.height) + ANIM_H });
     };
     view.el.addEventListener("view:drag-start", () => {
-      engine.hideAll();
-      // 同时处理 debug marks
+      // 系统藏（无快照，#12 定案）；debug marks 单独处理
       const wr = view.el.parentElement!.getBoundingClientRect();
       const petX = wr.x + wr.width / 2;
       const petY = wr.y + wr.height / 2;
@@ -178,15 +189,14 @@ export async function main() {
         });
         el.remove();
       });
-      // 隐藏 chatpanel/cards
       chatPanel.hide();
     });
     view.el.addEventListener("view:moved", () => {
       const wr = view.el.parentElement!.getBoundingClientRect();
       const petC = { x: wr.x + wr.width/2, y: wr.y + wr.height/2 };
       syncPanel();
-      // 恢复 engine 窗口位置
-      const restored = engine.restoreAll(petC);
+      // 恢复窗口位置（现算偏移，无快照）
+      const restored = engine.restorePositions(petC);
       for (const r of restored) {
         if (r.id === "chat-panel") chatPanel.toggle();
       }

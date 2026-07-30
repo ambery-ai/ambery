@@ -10,6 +10,8 @@ let chatPanel: ChatPanel | null = null;
 let adapter: WindowAdapter | null = null;
 let panelW = 320;
 let panelH = 380;
+/** 用户意图关闭（#12 定案：窗口私有，与系统藏分离）；恢复广播按位放行 */
+let userClosed = false;
 
 export async function main() {
   if ("__TAURI_INTERNALS__" in window) {
@@ -19,15 +21,22 @@ export async function main() {
     const win = getCurrentWindow();
     await listen("pet:moved", () => {}); // 占位，确保事件系统初始化
     await listen("chat:toggle", () => {
-      if (chatPanel?.isVisible()) hideChat();
-      else showChat();
+      if (chatPanel?.isVisible()) {
+        userClosed = true; // 用户意图关
+        hideChat();
+      } else {
+        userClosed = false;
+        void showChat();
+      }
     });
+    // 系统藏（pet 拖动/托盘）：只藏，不动 userClosed
     await listen("chat:hide", () => hideChat());
-    // restoreAll 恢复（pet 拖动）：只有用户没主动关掉时才跟随显示（意图门，#8②）
+    // 系统恢复：用户没主动关才显示（A 语义，grill 定案）
     await listen("chat:show", () => {
-      if (chatPanel?.isVisible()) void showChat();
+      if (!userClosed) void showChat();
     });
     win.onCloseRequested(async () => {
+      userClosed = true; // × = 用户意图关
       await adapter?.hide();
     });
 

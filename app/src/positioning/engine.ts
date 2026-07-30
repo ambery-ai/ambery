@@ -1,4 +1,6 @@
 // positioning/engine — stateful layout engine
+// 坐标系：pet 相对（pet 固定 0,0）。occupied 全存「相对 pet 中心的偏移」，
+// pet 移动只改 petCenter，无快照、无平移、无 stale（#12 设计定案）。
 
 import { computeCDSegments } from "./geometry";
 import { ternarySearch } from "./math";
@@ -11,38 +13,57 @@ const TOL = 1e-4; // 三元搜索 t 空间收敛精度
 
 interface Occupied {
   id: string;
-  center: Point;
+  /** 相对 pet 中心的偏移（pet 移动的不变量） */
+  offset: Point;
   w: number;
   h: number;
-  /** 用户亲手拖过（#12/#15/#8①）：place 时保持手动位不重算，follow 以此为偏移基准 */
+  /** 用户亲手拖过（#12/#15/#8①）：place 时保持偏移不重算 */
   manual?: boolean;
 }
 
 export class PositioningEngine {
   private occupied: Occupied[] = [];
-  private hidden: { id: string; offset: Point }[] | null = null;
+  private petCenter: Point = { x: 0, y: 0 };
+  private petSize = { w: 0, h: 0 };
 
   constructor(
     public alpha: number = DEFAULT_ALPHA,
     public beta: number = DEFAULT_BETA,
   ) {}
 
+  /** pet 当前屏幕中心（pet.ts onMoved 持续回写，保证换算基准新鲜） */
+  registerPet(center: Point, size: { w: number; h: number }): void {
+    this.petCenter = center;
+    this.petSize = size;
+  }
+
+  /** 放置新窗口：自动布局（或 manual 保持偏移）。返回屏幕绝对坐标（左上角换算由调用方做） */
   place(newWindow: WindowSpec, preferred: Direction): Point {
-    const pet = this.occupied.find((o) => o.id === "_pet_");
-    if (!pet) throw new Error("pet not registered");
-    const petCenter = pet.center;
-    const petSize = { w: pet.w, h: pet.h };
+    const existing = this.occupied.find((o) => o.id === newWindow.id && o.id !== "_pet_");
+    if (existing?.manual) {
+      // 手动位优先（#12）：保持偏移，仅刷新尺寸
+      existing.w = newWindow.width;
+      existing.h = newWindow.height;
+      return {
+        x: this.petCenter.x + existing.offset.x,
+        y: this.petCenter.y + existing.offset.y,
+      };
+    }
+
+    const petCenter = this.petCenter;
     const mAngle = directionAngle(preferred);
     const others = this.occupied.filter((o) => o.id !== "_pet_");
     const segs = computeCDSegments(
-      petCenter, petSize, newWindow,
-      others.map((o) => ({ center: o.center, w: o.w, h: o.h })),
+      petCenter, this.petSize, newWindow,
+      others.map((o) => ({
+        center: { x: petCenter.x + o.offset.x, y: petCenter.y + o.offset.y },
+        w: o.w, h: o.h,
+      })),
       DEFAULT_GAP,
     );
 
     let best: Point | null = null;
     let bestVal = Infinity;
-
     for (const [C, D] of segs) {
       const t = ternarySearch(C, D, petCenter, mAngle, this.alpha, this.beta, TOL);
       const B = { x: C.x + (D.x - C.x) * t, y: C.y + (D.y - C.y) * t };
@@ -53,38 +74,39 @@ export class PositioningEngine {
       }
     }
 
-    const result = best ?? { x: petCenter.x, y: petCenter.y - petSize.h / 2 - DEFAULT_GAP - newWindow.height / 2 };
-    const existing = this.occupied.find((o) => o.id === newWindow.id && o.id !== "_pet_");
+    const result = best ?? {
+      x: petCenter.x,
+      y: petCenter.y - this.petSize.h / 2 - DEFAULT_GAP - newWindow.height / 2,
+    };
+    const offset = { x: result.x - petCenter.x, y: result.y - petCenter.y };
     if (existing) {
-      // 手动位优先（#12）：用户拖过 → 保持 B 不重算（仅刷新尺寸）
-      if (existing.manual) {
-        existing.w = newWindow.width;
-        existing.h = newWindow.height;
-        return existing.center;
-      }
-      existing.center = result;
+      existing.offset = offset;
       existing.w = newWindow.width;
       existing.h = newWindow.height;
     } else {
-      this.occupied.push({ id: newWindow.id, center: result, w: newWindow.width, h: newWindow.height });
+      this.occupied.push({ id: newWindow.id, offset, w: newWindow.width, h: newWindow.height });
     }
     console.info("[engine] place", newWindow.id, "→", Math.round(result.x), Math.round(result.y));
     return result;
   }
 
-  /** 拖拽结束回写（#12/#15/#8①）：OS 真实位置成为新的跟随基准（manual 标记） */
+  /** 拖拽结束回写（#12/#15/#8①）：OS 真实屏幕中心 → 换算偏移 → manual 标记 */
   updateCenter(id: string, center: Point): void {
     const o = this.occupied.find((o) => o.id === id && o.id !== "_pet_");
     if (!o) return;
-    o.center = center;
+    o.offset = { x: center.x - this.petCenter.x, y: center.y - this.petCenter.y };
     o.manual = true;
-    console.info("[engine] updateCenter (manual)", id, "→", Math.round(center.x), Math.round(center.y));
+    console.info("[engine] updateCenter (manual)", id, "→ offset", Math.round(o.offset.x), Math.round(o.offset.y));
   }
 
-  /** 手动位清除（隐藏移除时随 remove 自然消失；显式重置走这里） */
-  clearManual(id: string): void {
-    const o = this.occupied.find((o) => o.id === id);
-    if (o) o.manual = false;
+  /** 恢复坐标（pet 移动/托盘回来）：现算 petCenter + offset，无快照（设计定案） */
+  restorePositions(petCenter: Point): { id: string; center: Point }[] {
+    return this.occupied
+      .filter((o) => o.id !== "_pet_")
+      .map((o) => ({
+        id: o.id,
+        center: { x: petCenter.x + o.offset.x, y: petCenter.y + o.offset.y },
+      }));
   }
 
   remove(id: string): void {
@@ -92,45 +114,9 @@ export class PositioningEngine {
     this.occupied = this.occupied.filter((o) => o.id !== id);
   }
 
-  /** 清空所有占区（保留 pet） */
+  /** 清空所有占区 */
   clear(): void {
-    this.occupied = this.occupied.filter((o) => o.id === "_pet_");
-  }
-
-  hideAll(): void {
-    console.info("[engine] hideAll", this.occupied.filter(o => o.id !== "_pet_").length, "windows");
-    if (this.occupied.length === 0) return;
-    const pet = this.occupied.find((o) => o.id === "_pet_");
-    const petCtr = pet?.center ?? { x: 0, y: 0 };
-    this.hidden = this.occupied
-      .filter((o) => o.id !== "_pet_")
-      .map((o) => ({ id: o.id, offset: { x: o.center.x - petCtr.x, y: o.center.y - petCtr.y } }));
-  }
-
-  restoreAll(petCenter: Point): { id: string; center: Point }[] {
-    if (!this.hidden) return [];
-    const result = this.hidden.map((h) => ({
-      id: h.id,
-      center: { x: petCenter.x + h.offset.x, y: petCenter.y + h.offset.y },
-    }));
-    for (const r of result) {
-      const oc = this.occupied.find((o) => o.id === r.id);
-      if (oc) oc.center = r.center;
-    }
-    console.info("[engine] restoreAll", result.length, "windows");
-    this.hidden = null;
-    return result;
-  }
-
-  registerPet(center: Point, size: { w: number; h: number }): void {
-    const pet = this.occupied.find((o) => o.id === "_pet_");
-    if (pet) {
-      pet.center = center;
-      pet.w = size.w;
-      pet.h = size.h;
-    } else {
-      this.occupied.push({ id: "_pet_", center, w: size.w, h: size.h });
-    }
+    this.occupied = [];
   }
 
   private _valueAt(B: Point, A: Point, mAngle: number): number {
