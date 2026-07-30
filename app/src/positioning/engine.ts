@@ -4,6 +4,7 @@
 
 import { computeCDSegments } from "./geometry";
 import { ternarySearch } from "./math";
+import { monitorOf } from "./monitors";
 import { directionAngle, type Direction, type Point, type WindowSpec } from "./types";
 
 const DEFAULT_ALPHA = 20;
@@ -37,8 +38,35 @@ export class PositioningEngine {
     this.petSize = size;
   }
 
-  /** 放置新窗口：自动布局（或 manual 保持偏移）。返回屏幕绝对坐标（左上角换算由调用方做） */
+  /** 放置新窗口：自动布局（或 manual 保持偏移）。返回屏幕绝对坐标（左上角换算由调用方做）。
+   *  出屏兜底（docs/window-follow.md §出屏与重叠）：完全出屏 → 方向环 ±1~±3 重试（7 次），
+   *  全失败取最初结果（不压人，不做位置修正）。算法层零改动，重试是薄包装。 */
   place(newWindow: WindowSpec, preferred: Direction): Point {
+    const dirs: Direction[] = [preferred];
+    for (let i = 1; i <= 3; i++) {
+      dirs.push((((preferred + i) % 16) + 16) % 16, (((preferred - i) % 16) + 16) % 16);
+    }
+    let first: Point | null = null;
+    for (const dir of dirs) {
+      const p = this.placeOnce(newWindow, dir);
+      first ??= p;
+      if (!this._fullyOffscreen(p, newWindow)) return p;
+    }
+    return first!;
+  }
+
+  /** 完全出屏判定（零相交才否决；部分出屏接受；视口 = 缓存 monitor 表，docs/window-follow.md） */
+  private _fullyOffscreen(center: Point, spec: WindowSpec): boolean {
+    const m = monitorOf(this.petCenter);
+    return (
+      center.x + spec.width / 2 < m.x ||
+      center.x - spec.width / 2 > m.x + m.width ||
+      center.y + spec.height / 2 < m.y ||
+      center.y - spec.height / 2 > m.y + m.height
+    );
+  }
+
+  private placeOnce(newWindow: WindowSpec, preferred: Direction): Point {
     const existing = this.occupied.find((o) => o.id === newWindow.id && o.id !== "_pet_");
     if (existing?.manual) {
       // 手动位优先（#12）：保持偏移，仅刷新尺寸

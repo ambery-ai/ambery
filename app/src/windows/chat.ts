@@ -132,10 +132,11 @@ export class ChatPanel {
     return !this.userClosed;
   }
 
-  /** 按中心点定位并显示（系统恢复路径，docs/window-follow.md） */
+  /** 按中心点定位并显示（系统恢复路径，docs/window-follow.md）。
+   *  不做 clamp（§出屏与重叠：不压人 > 完全可见，部分出屏接受） */
   showAt(center: { x: number; y: number }) {
-    this.el.style.left = `${clamp(center.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
-    this.el.style.top = `${clamp(center.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
+    this.el.style.left = `${center.x - PANEL_W / 2}px`;
+    this.el.style.top = `${center.y - PANEL_H / 2}px`;
     this.showPanel();
   }
 
@@ -154,8 +155,9 @@ export class ChatPanel {
         { id: "chat-panel", width: PANEL_W, height: PANEL_H },
         Direction.sse,
       );
-      this.el.style.left = `${clamp(pos.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
-      this.el.style.top = `${clamp(pos.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
+      // 不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见）
+      this.el.style.left = `${pos.x - PANEL_W / 2}px`;
+      this.el.style.top = `${pos.y - PANEL_H / 2}px`;
       void this.bridge.getContext()
         .then((msgs) => this.renderHistory(msgs))
         .catch(() => {
@@ -242,6 +244,3 @@ function autoScroll(el: HTMLElement) {
   }
 }
 
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(v, Math.max(min, max)));
-}

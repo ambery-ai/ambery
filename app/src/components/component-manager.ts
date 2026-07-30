@@ -10,7 +10,6 @@ import type { Bridge, ComponentSpec, Direction } from "../bridge";
 const GAP = 12;
 const VIEW_RADIUS_X = 36;
 const VIEW_RADIUS_Y = 20;
-const EDGE_MARGIN = 8;
 
 type Anchor = () => { x: number; y: number };
 
@@ -262,7 +261,8 @@ export class ComponentManager {
     return wrap;
   }
 
-  /** 方位几何（docs/components.md）：锚点偏移 + clamp 进视口 */
+  /** 方位几何（docs/components.md）：锚点偏移。不做 clamp（docs/window-follow.md
+   *  §出屏与重叠：不压人 > 完全可见，clamp 拉回是重叠元凶） */
   private place(card: HTMLDivElement, dir: Direction) {
     const d =
       dir === "auto"
@@ -279,8 +279,8 @@ export class ComponentManager {
     if (d.includes("bottom")) top = y + VIEW_RADIUS_Y + GAP;
     if (d === "left" || d === "right") top = y - ch / 2;
     if (d === "top" || d === "bottom") left = x - cw / 2;
-    card.style.left = `${clamp(left, EDGE_MARGIN, window.innerWidth - cw - EDGE_MARGIN)}px`;
-    card.style.top = `${clamp(top, EDGE_MARGIN, window.innerHeight - ch - EDGE_MARGIN)}px`;
+    card.style.left = `${left}px`;
+    card.style.top = `${top}px`;
   }
 
   /** auto = 屏幕剩余空间最大的方位（以 View 中心划分四象限比较） */
@@ -297,6 +297,3 @@ export class ComponentManager {
   }
 }
 
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(v, Math.max(min, max)));
-}
