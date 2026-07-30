@@ -122,7 +122,7 @@ card/chat 窗口从自动布局位置 A 拖到 B 后，新位置只生效于当�
 
 托盘切换为隐藏后（pet/chat 隐藏、cards:hide 广播已发出的存量窗口），后续 ペット call_component 触发的新 card 窗口仍然会创建并显示。隐藏状态应对 card 窗口全局生效：隐藏期间新 card 不弹出（延迟到恢复显示时呈现，或直接抑制创建）。
 
-***
+**
 
 **触发场景**: 用户点击 card 窗口右上角 × 按钮；拖动 card 到屏幕边缘。
 
@@ -137,3 +137,13 @@ card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，
 ## #15 card 拖到屏幕边缘后引擎记录错乱导致重叠 (2026-07-29) — open
 
 拖动 card 到屏幕边缘时 OS 自动调整窗口位置，但 `startDragging()` 松手时记录的位置是 OS 调整前的坐标。后续 pet 移动时 `engine.restoreAll` 用错误坐标恢复 → 多 card 挤在一起重叠。需要在松手时用 `win.outerPosition()` 获取 OS 调整后的实际位置更新 engine。
+
+***
+
+**触发场景**: 设计 token 计量体系（observe 指标 + compression 触发）时发现估算失真与配置错层。
+
+**表现**: chars/4 估算对中文内容失真 4-6 倍；token_threshold 全局单值 8000 与 ds-v4-flash 的 1M 窗口严重脱节。
+
+## #16 token 计量失真且阈值全局单值，应改 usage 真值主源 + 分模型配置 (2026-07-30) — open
+
+当前 compression 触发与 token 显示基于 chars/4 本地估算，对中文主导的 Context 失真 4-6 倍（deepseek 系 BPE 约 1 字 ≈ 1 token），计量无权威来源；同时 `token_threshold` 是全局单值 8000，与各模型窗口（ds-v4-flash 1M、sonnet 200K、gpt 400K 等）完全不匹配，压缩策略无法随模型调整。定案：①usage 真值主源——OpenAiClient 解析 `usage.prompt_tokens/completion_tokens`（实测 flash/gpt/sonnet 三家公约数一致，无需模型分支；cache 分项恒 0 不做），每次调用 append context.jsonl 的 `usage` 行型，读取取最新一条（覆盖语义，opencode 实证同构）；②分模型阈值——`LlmProvider.token_threshold: Option<usize>`（profile 级，preset：flash/pro 800K、sonnet-5 160K、gpt-5.4 320K、kimi-k2 200K 等），全局 8000 降为未知模型 fallback，`effective_token_threshold()` 单一出口；③compression 触发 = 最近 usage 真值 + 其后新增消息 est 增量 vs 有效阈值，est 降级为无真值时兜底；④本地 BPE 分词器不引入（opencode/Claude Code 均以 API 真值为准）。
