@@ -10,8 +10,6 @@ let chatPanel: ChatPanel | null = null;
 let adapter: WindowAdapter | null = null;
 let panelW = 320;
 let panelH = 380;
-/** 用户意图关闭（#12 定案：窗口私有，与系统藏分离）；恢复广播按位放行 */
-let userClosed = false;
 
 export async function main() {
   if ("__TAURI_INTERNALS__" in window) {
@@ -22,21 +20,24 @@ export async function main() {
     await listen("pet:moved", () => {}); // 占位，确保事件系统初始化
     await listen("chat:toggle", () => {
       if (chatPanel?.isVisible()) {
-        userClosed = true; // 用户意图关
-        hideChat();
+        chatPanel.intentClose(); // 用户意图关（统一 API）
+        void adapter?.hide();
       } else {
-        userClosed = false;
+        chatPanel?.intentOpen();
         void showChat();
       }
     });
-    // 系统藏（pet 拖动/托盘）：只藏，不动 userClosed
-    await listen("chat:hide", () => hideChat());
-    // 系统恢复：用户没主动关才显示（A 语义，grill 定案）
+    // 系统藏（pet 拖动/托盘）：统一 API，只藏不动 userClosed
+    await listen("chat:hide", () => {
+      chatPanel?.systemHide();
+      void adapter?.hide();
+    });
+    // 系统恢复：统一 API 判定（A 语义）
     await listen("chat:show", () => {
-      if (!userClosed) void showChat();
+      if (chatPanel?.systemRestore()) void showChat();
     });
     win.onCloseRequested(async () => {
-      userClosed = true; // × = 用户意图关
+      chatPanel?.intentClose(); // × = 用户意图关
       await adapter?.hide();
     });
 
@@ -85,10 +86,4 @@ async function showChat() {
   const pos = await requestPlace("chat-panel", { id: "chat-panel", width: panelW, height: panelH }, Direction.sse);
   await adapter?.setPosition(Math.round(pos.x - panelW / 2), Math.round(pos.y - panelH / 2));
   await adapter?.show();
-}
-
-async function hideChat() {
-  await adapter?.hide();
-  chatPanel?.hidePanel();
-  // 不 requestRemove：occupied+manual 保留，下次 show 时 place() 手动位优先（#12/#8②）
 }

@@ -14,6 +14,8 @@ export class ChatPanel {
   private inputEl: HTMLInputElement;
   private visible = false;
   private loadingEl: HTMLDivElement | null = null;
+  /** 用户意图关闭（docs/window-follow.md：窗口私有，与系统藏分离，单源语义） */
+  userClosed = false;
   /** 流式（docs/streaming.md）：在飞的 assistant 气泡 + Thinking 气泡/累积文本 */
   private streamRow: HTMLDivElement | null = null;
   private thinkEl: HTMLDivElement | null = null;
@@ -110,13 +112,41 @@ export class ChatPanel {
     return this.visible;
   }
 
+  // ── 统一可见性 API（docs/window-follow.md §两路径统一：语义单源，分支只做事件翻译）──
+  /** 用户意图关（× / toggle 关）：置 userClosed + 隐藏 */
+  intentClose() {
+    this.userClosed = true;
+    this.hide();
+  }
+  /** 用户意图开（toggle 开 / 唤出）：复位 userClosed；定位与显示由路径负责 */
+  intentOpen() {
+    this.userClosed = false;
+  }
+  /** 系统藏（pet 拖动/托盘）：只隐藏，不动 userClosed */
+  systemHide() {
+    this.el.hidden = true;
+    this.visible = false;
+  }
+  /** 系统恢复判定（A 语义）：用户没主动关才恢复；定位与显示由路径负责 */
+  systemRestore(): boolean {
+    return !this.userClosed;
+  }
+
+  /** 按中心点定位并显示（系统恢复路径，docs/window-follow.md） */
+  showAt(center: { x: number; y: number }) {
+    this.el.style.left = `${clamp(center.x - PANEL_W / 2, 8, window.innerWidth - PANEL_W - 8)}px`;
+    this.el.style.top = `${clamp(center.y - PANEL_H / 2, 8, window.innerHeight - PANEL_H - 8)}px`;
+    this.showPanel();
+  }
+
   hide() { this.visible = false; this.el.hidden = true; this.engine?.remove("chat-panel"); }
 
   /** 右键 toggle：engine.place(Direction.sse) 定位 */
   toggle() {
     if (this.visible) {
-      this.hide();
+      this.intentClose();
     } else {
+      this.intentOpen();
       this.el.hidden = false;
       this.visible = true;
       if (!this.engine) { console.error("[chat] toggle called without engine"); return; }

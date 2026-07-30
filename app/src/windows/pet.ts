@@ -175,7 +175,7 @@ export async function main() {
       engine.registerPet(c, { w: Math.round(r.width) + ANIM_W, h: Math.round(r.height) + ANIM_H });
     };
     view.el.addEventListener("view:drag-start", () => {
-      // 系统藏（无快照，#12 定案）；debug marks 单独处理
+      // 系统藏（统一 API，无快照，#12 定案）；debug marks 单独处理
       const wr = view.el.parentElement!.getBoundingClientRect();
       const petX = wr.x + wr.width / 2;
       const petY = wr.y + wr.height / 2;
@@ -189,16 +189,18 @@ export async function main() {
         });
         el.remove();
       });
-      chatPanel.hide();
+      chatPanel.systemHide();
     });
     view.el.addEventListener("view:moved", () => {
       const wr = view.el.parentElement!.getBoundingClientRect();
       const petC = { x: wr.x + wr.width/2, y: wr.y + wr.height/2 };
       syncPanel();
-      // 恢复窗口位置（现算偏移，无快照）
+      // 系统恢复（统一 API：systemRestore 判定 + showAt 定位，不再 toggle）
       const restored = engine.restorePositions(petC);
       for (const r of restored) {
-        if (r.id === "chat-panel") chatPanel.toggle();
+        if (r.id === "chat-panel" && chatPanel.systemRestore()) {
+          chatPanel.showAt(r.center);
+        }
       }
       // 恢复 debug marks
       for (const mo of markOffsets) {
