@@ -219,3 +219,13 @@ pet 拖到桌面底部后右键唤出 chat，chat 没有出现在可见范围内
 旧 call_component 协议的「同 id = toggle 关闭」使「原地更新」无法表达（todobox 加条目、git_display 刷新等同 id 再调即关），且 pet 无法得知卡片后续命运（无生命周期事件），todobox 多次勾选后终态需自行推算（无结构化快照）。定案（docs/components.md/toolset.md/harness.md，用户会话先行定稿）：①调用协议改持续管理——同 id 首次创建、后续原地更新、action:close 显式关闭，return 区分 rendered/updated/closed；②五类生命周期事件（created/closed_by_user/closed_by_agent/user_action，含 start/end 与存活 N），lifecycle 语义以 Rust trait 单源在 core；③Event Buffer 双载荷——自然语言（必填）+ 结构化状态快照（可选，todobox 交互附带），同 card 单次 flush 去重合并为一份最终状态。
 
 2026-07-30 修复——五连落地：①C1 持续管理（core cards 注册表 + Effect::CloseComponent + 返回区分；ComponentManager.render 同 id replaceChildren 原地更新，browser 实测 V1→V2 同卡换内容不闪关）；②C2 校验表补全（五类必填字段全量 + todobox items 结构校验；close 前移只需合法 id）；③C3 lifecycle trait（core/src/lifecycle.rs，created/closed 行含 YYMMDD-HH:MM 与存活 N；closed_by_user 双行经前端 × 带 card_id 上报组行）；④C4 双载荷（push_with_state + 按 card 去重合并，todobox 交互带完整 items 快照）；⑤D0 components.md 漂移修正（clamp/不跟随两处与 window-follow.md 对齐）。93 core 测试绿 + vite build 绿。
+
+***
+
+**触发场景**: ペット通过 call_component 关闭卡片时，LLM 将 `action: "close"` 放在 `spec` 对象外面（与 `spec` 并列在 args 顶层）。
+
+**表现**: `execute_tool` 第 822 行 `spec.get("action")` 返回 None → 跳过 close 分支 → 落回 create/update 路径 → `spec` 只剩 `{id}` 无 type → 卡片已存在进 else 分支 → 返回 `{"updated":"demo_line"}` + `RenderComponent({"id":"demo_line"})` → 空 spec 渲染出空卡片窗口。
+
+## #23 action=close 在 spec 外面时被当成空 update，应两级兼容 (2026-07-31) — open
+
+LLM 有时将 `action: "close"` 放在 args 顶层（与 `spec` 并列），而 execute_tool 只在 `spec` 内部查找 action 字段，导致 close 被当成空 update 执行——空 spec 重渲染卡片窗口出现空白卡。修复：在 `spec.get("action")` 为 None 时 fallback 到 `args.get("action")`，两级兼容。case `close-action-outside-spec.case` 已复现。
