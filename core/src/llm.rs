@@ -545,9 +545,11 @@ impl StreamAcc {
             .tool_acc
             .into_values()
             .filter_map(|(id, name, arguments)| {
+                let id = id.filter(|s| !s.is_empty())?;
+                let name = name.filter(|s| !s.is_empty())?;
                 Some(ToolCall {
-                    id: id?,
-                    name: name?,
+                    id,
+                    name,
                     arguments,
                 })
             })
@@ -575,9 +577,11 @@ fn parse_chat_response(text: &str) -> Result<LlmOutput, String> {
         .map(|arr| {
             arr.iter()
                 .filter_map(|c| {
+                    let id = c["id"].as_str().filter(|s| !s.is_empty())?;
+                    let name = c["function"]["name"].as_str().filter(|s| !s.is_empty())?;
                     Some(ToolCall {
-                        id: c["id"].as_str()?.to_string(),
-                        name: c["function"]["name"].as_str()?.to_string(),
+                        id: id.to_string(),
+                        name: name.to_string(),
                         arguments: c["function"]["arguments"].as_str()?.to_string(),
                     })
                 })
