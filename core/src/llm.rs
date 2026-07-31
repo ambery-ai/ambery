@@ -19,23 +19,71 @@ pub fn tool_set() -> Vec<ToolDef> {
     vec![
         ToolDef {
             name: "call_component",
-            description: "弹出卡片窗口展示信息。id 仅限 A-Z a-z 0-9 _ - . /，不含空格或中文。type=text_card 时必填 title+text（这些是顶层字段，不要包在 props 里）",
+            description: "创建/更新/关闭卡片窗口。同 id 首次创建、后续原地更新；action=\"close\" 关闭（只需 id，忽略其他字段）。id 仅限 A-Z a-z 0-9 _ - . /",
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "spec": {
                         "type": "object",
-                        "description": "ComponentSpec：id(type 必填顶层字段)",
+                        "description": "ComponentSpec——按 type 选择分支填写对应字段",
                         "properties": {
                             "id": { "type": "string", "description": "唯一标识：仅 A-Z a-z 0-9 _ - . /" },
-                            "type": { "type": "string", "enum": ["text_card", "quick_jump", "git_display", "data_chart", "todobox"] },
-                            "direction": { "type": "string", "description": "可选方位：auto/n/ne/e/se/s/sw/w/nw" },
-                            "title": { "type": "string", "description": "卡片标题（text_card/git_display/data_chart/todobox 必填）" },
-                            "text": { "type": "string", "description": "卡片正文（text_card 必填）" },
-                            "label": { "type": "string", "description": "按钮标签（quick_jump 必填）" },
-                            "target": { "type": "string", "description": "跳转目标（quick_jump 必填）" }
+                            "action": { "type": "string", "enum": ["close"], "description": "设为 close 关闭卡片（此时只需 id，忽略其余字段）" },
+                            "direction": { "type": "string", "description": "可选方位：auto/n/ne/e/se/s/sw/w/nw" }
                         },
-                        "required": ["id", "type"]
+                        "required": ["id"],
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "type": { "enum": ["text_card"] },
+                                    "title": { "type": "string", "description": "卡片标题" },
+                                    "text": { "type": "string", "description": "卡片正文" }
+                                },
+                                "required": ["type", "title", "text"]
+                            },
+                            {
+                                "properties": {
+                                    "type": { "enum": ["quick_jump"] },
+                                    "label": { "type": "string", "description": "按钮标签" },
+                                    "target": { "type": "string", "description": "跳转目标" }
+                                },
+                                "required": ["type", "label", "target"]
+                            },
+                            {
+                                "properties": {
+                                    "type": { "enum": ["git_display"] },
+                                    "title": { "type": "string", "description": "卡片标题" },
+                                    "entries": { "type": "array", "description": "提交列表", "items": { "type": "object", "properties": { "hash": { "type": "string" }, "msg": { "type": "string" }, "time": { "type": "string" } } } },
+                                    "diff": { "type": "string", "description": "可选的 diff 内容" }
+                                },
+                                "required": ["type", "title", "entries"]
+                            },
+                            {
+                                "properties": {
+                                    "type": { "enum": ["data_chart"] },
+                                    "title": { "type": "string", "description": "卡片标题" },
+                                    "chart": {
+                                        "type": "object",
+                                        "description": "图表定义",
+                                        "properties": {
+                                            "kind": { "enum": ["line", "bar", "pie"] },
+                                            "labels": { "type": "array", "items": { "type": "string" } },
+                                            "series": { "type": "array", "items": { "type": "object", "properties": { "name": { "type": "string" }, "data": { "type": "array", "items": { "type": "number" } } } } }
+                                        },
+                                        "required": ["kind", "labels", "series"]
+                                    }
+                                },
+                                "required": ["type", "title", "chart"]
+                            },
+                            {
+                                "properties": {
+                                    "type": { "enum": ["todobox"] },
+                                    "title": { "type": "string", "description": "卡片标题" },
+                                    "items": { "type": "array", "description": "待办条目", "items": { "type": "object", "properties": { "text": { "type": "string" }, "done": { "type": "boolean" } } } }
+                                },
+                                "required": ["type", "title", "items"]
+                            }
+                        ]
                     }
                 },
                 "required": ["spec"]
