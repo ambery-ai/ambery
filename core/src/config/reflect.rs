@@ -257,7 +257,8 @@ mod tests {
         assert!(matches!(get("compression_reserve_default").ty, NodeType::Int { .. }));
         assert!(matches!(get("view_scale").ty, NodeType::Float { .. }));
         assert!(matches!(get("base_prompt").ty, NodeType::Str));
-        assert!(matches!(get("kaomoji").ty, NodeType::Map));
+        assert!(matches!(get("kaomoji.system").ty, NodeType::Map));
+        assert!(matches!(get("kaomoji.user").ty, NodeType::Map));
         assert!(matches!(get("llm.providers").ty, NodeType::Map));
         // doc comment → desc
         assert!(get("compression_reserve_default").desc.is_some());
@@ -269,7 +270,7 @@ mod tests {
     fn map_entries_expanded_with_types() {
         let nodes = config_nodes(&Config::default());
         let get = |p: &str| nodes.iter().find(|n| n.path == p).unwrap_or_else(|| panic!("缺节点 {p}"));
-        assert!(matches!(get("kaomoji.idle.face").ty, NodeType::Str));
+        assert!(matches!(get("kaomoji.system.idle.face").ty, NodeType::Str));
         assert!(matches!(get("llm.providers.deepseek.base_url").ty, NodeType::Str));
         assert!(matches!(get("llm.providers.deepseek.temperature").ty, NodeType::Float { .. }));
     }

@@ -119,6 +119,11 @@ impl<L: Llm> OverseerBackend<L> {
         let mut v = serde_json::to_value(&self.config).map_err(|e| e.to_string())?;
         crate::config::reflect::set_by_path(&mut v, path, value.clone())?;
         let new: Config = serde_json::from_value(v).map_err(|e| format!("验证失败: {e}"))?;
+        // 统一 validation（docs/config.md：任一 validator 失败原子拒绝整次更新）
+        let pool_errors = crate::config::validate_kaomoji_pools(&new.kaomoji);
+        if !pool_errors.is_empty() {
+            return Err(format!("验证失败: {}", pool_errors.join("；")));
+        }
         // 动态 enum 校验（OPTIONS 注册表，验证集中一份）
         if let (Some(opts), Value::String(s)) =
             (crate::config::reflect::valid_options(&new, path), &value)
@@ -166,10 +171,11 @@ impl<L: Llm> OverseerBackend<L> {
         //    AGENTS.md 是用户可编辑文件，说明写在那里可能被无意删改。
         //    AGENTS.md 行为准则里已有禁令散文，此处是贴着表的强化，故意重复。
         s.push_str("\n\n## 颜文字映射（你的面部表情词汇表：仅用于 set_autonomy 工具，严禁写进对话文本）\n");
-        let mut keys: Vec<_> = self.config.kaomoji.keys().collect();
+        // 请求头只带系统池（concepts §10b：用户表情池按需经 edit_config 查询，不自动注入）
+        let mut keys: Vec<_> = self.config.kaomoji.system.keys().collect();
         keys.sort();
         for k in keys {
-            let v = &self.config.kaomoji[k];
+            let v = &self.config.kaomoji.system[k];
             s.push_str(&format!("- {k}: {} ({})\n", v.face, v.motion));
         }
         s
@@ -209,8 +215,7 @@ impl<L: Llm> OverseerBackend<L> {
         };
         let motion = self
             .config
-            .kaomoji
-            .get(key)
+            .kaomoji_resolve(key)
             .map(|k| k.motion.as_str())
             .unwrap_or("still");
         format!("[face: {key}, motion: {motion}]")
@@ -968,7 +973,7 @@ impl<L: Llm> OverseerBackend<L> {
                 // key 传状态 key 名：解析为映射表本体；motion 不连带——
                 // 「仅传参的字段被覆盖」，缺省即不碰（docs/autonomy.md）
                 if let Some(f) = &face {
-                    if let Some(entry) = self.config.kaomoji.get(f.as_str()) {
+                    if let Some(entry) = self.config.kaomoji_resolve(f.as_str()) {
                         face = Some(entry.face.clone());
                     } else {
                         return (
@@ -1973,7 +1978,7 @@ mod tests {
             id: "c1".into(),
             name: "edit_config".into(),
             arguments: json!({
-                "path": "kaomoji.celebrate",
+                "path": "kaomoji.user.celebrate",
                 "value": { "face": "(≧▽≦)", "motion": "bounce" }
             })
             .to_string(),
@@ -1983,11 +1988,37 @@ mod tests {
         assert!(effects
             .iter()
             .any(|e| matches!(e, Effect::ConfigChanged { llm_changed: false })));
-        assert_eq!(ov.config.kaomoji["celebrate"].face, "(≧▽≦)");
+        assert_eq!(ov.config.kaomoji.user["celebrate"].face, "(≧▽≦)");
         // config.json 已持久化
         let reloaded = Config::load_or_default(ov.harness.config_dir());
-        assert_eq!(reloaded.kaomoji["celebrate"].motion, "bounce");
+        assert_eq!(reloaded.kaomoji.user["celebrate"].motion, "bounce");
         let _ = std::fs::remove_dir_all(tmp_dir("cfg"));
+    }
+
+    #[tokio::test]
+    async fn kaomoji_pools_invariants_enforced_on_update() {
+        // 两池校验（docs/config.md §表情池）：写入管道原子拒绝违反不变量的 candidate
+        let mut ov = make_overseer("pools");
+        // ① 交集为空：user 池新增与 system 重复的 key → 拒绝
+        assert!(ov
+            .apply_config_by_path("kaomoji.user.idle", json!({"face": "x", "motion": "still"}))
+            .is_err());
+        // ② 基础 key 在并集：移除 system 池（整体替换为空）→ 拒绝
+        assert!(ov.apply_config_by_path("kaomoji.system", json!({})).is_err());
+        // 合法：基础 key 移到 user 池（单次整节点写入 = 原子移动，并集仍齐）→ 通过
+        let mut pools = serde_json::to_value(&ov.config.kaomoji).unwrap();
+        let idle = pools["system"].as_object().unwrap()["idle"].clone();
+        pools["system"].as_object_mut().unwrap().remove("idle");
+        pools["user"]
+            .as_object_mut()
+            .unwrap()
+            .insert("idle".into(), idle);
+        ov.apply_config_by_path("kaomoji", pools).unwrap();
+        assert!(ov.config.kaomoji.user.contains_key("idle"));
+        assert!(!ov.config.kaomoji.system.contains_key("idle"));
+        // 并集解析不受池归属影响（docs/config.md：移动后仍参与默认状态与按 key 解析）
+        assert_eq!(ov.config.kaomoji_resolve("idle").unwrap().face, "(´ω`)");
+        let _ = std::fs::remove_dir_all(tmp_dir("pools"));
     }
 
     #[test]

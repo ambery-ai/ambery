@@ -12,8 +12,10 @@ pub const CONFIG_FILE: &str = "config.json";
 /// Config（concepts §12）：持久化单文件 config.json，edit_config tool 可写
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Config {
-    /// 状态 key → 颜文字映射（Autonomy 默认行为表，concepts §4）
-    pub kaomoji: std::collections::HashMap<String, KaomojiEntry>,
+    /// 表情领域（docs/config.md §表情池）：两个固定池；池内表情名称是动态 map key。
+    /// 两池 key 全局唯一（validate_kaomoji_pools 保证不相交），无隐式优先级
+    #[serde(default)]
+    pub kaomoji: KaomojiConfig,
     /// Compression 输出预留默认值（#16）：触发点 = context_window − reserve，
     /// provider 未设 `compression_reserve` 时用此值
     #[serde(default = "default_compression_reserve")]
@@ -175,32 +177,102 @@ pub struct KaomojiEntry {
     pub motion: String,
 }
 
+/// 表情两池（docs/config.md §表情池）：系统池 + 用户池。
+/// 区别只在归属与尺寸扫描来源（系统池），不在访问权限。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct KaomojiConfig {
+    /// 系统池：系统状态表情；pet 窗口尺寸扫描只扫描此池（docs/pet-window-size.md）。
+    /// 默认不要修改
+    #[serde(default = "default_system_pool")]
+    pub system: std::collections::HashMap<String, KaomojiEntry>,
+    /// 用户池：用户自定义表情；初始可为空
+    #[serde(default)]
+    pub user: std::collections::HashMap<String, KaomojiEntry>,
+}
+
+impl Default for KaomojiConfig {
+    fn default() -> Self {
+        Self {
+            system: default_system_pool(),
+            user: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// 系统池语义 default（map 字段必须声明自身 default，docs/config.md）
+fn default_system_pool() -> std::collections::HashMap<String, KaomojiEntry> {
+    let mut system = std::collections::HashMap::new();
+    system.insert(
+        "idle".into(),
+        KaomojiEntry {
+            face: "(´ω`)".into(),
+            motion: "still".into(),
+        },
+    );
+    system.insert(
+        "processing".into(),
+        KaomojiEntry {
+            face: "(ˇωˇ」∠)_".into(),
+            motion: "float".into(),
+        },
+    );
+    system.insert(
+        "notify".into(),
+        KaomojiEntry {
+            face: "✧*｡٩(ˊᗜˋ*)و✧*｡".into(),
+            motion: "bounce".into(),
+        },
+    );
+    system
+}
+
+/// 两池校验（docs/config.md §表情池，validate_kaomoji_pools 的两个不变量）：
+/// keys(system) ∩ keys(user) = ∅；{ idle, processing, notify } ⊆ keys(system) ∪ keys(user)。
+/// 返回 message 列表（空 = 通过）；path 前缀由调用方补。
+pub fn validate_kaomoji_pools(pools: &KaomojiConfig) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut dup: Vec<_> = pools
+        .system
+        .keys()
+        .filter(|k| pools.user.contains_key(*k))
+        .cloned()
+        .collect();
+    dup.sort();
+    if !dup.is_empty() {
+        errors.push(format!(
+            "两池 key 必须全局唯一，system 与 user 重复：{}",
+            dup.join(", ")
+        ));
+    }
+    let missing: Vec<_> = ["idle", "processing", "notify"]
+        .iter()
+        .filter(|k| !pools.system.contains_key(**k) && !pools.user.contains_key(**k))
+        .collect();
+    if !missing.is_empty() {
+        errors.push(format!(
+            "基础状态 key 必须存在于两池并集，缺：{}",
+            missing
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    errors
+}
+
+impl Config {
+    /// 两池并集按 key 解析（docs/autonomy.md：默认状态与 set_autonomy(key) 共用）。
+    /// 校验保证不相交，顺序无歧义；约定 system 先查（确定性）。
+    pub fn kaomoji_resolve(&self, key: &str) -> Option<&KaomojiEntry> {
+        self.kaomoji.system.get(key).or_else(|| self.kaomoji.user.get(key))
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
-        let mut kaomoji = std::collections::HashMap::new();
-        kaomoji.insert(
-            "idle".into(),
-            KaomojiEntry {
-                face: "(´ω`)".into(),
-                motion: "still".into(),
-            },
-        );
-        kaomoji.insert(
-            "processing".into(),
-            KaomojiEntry {
-                face: "(ˇωˇ」∠)_".into(),
-                motion: "float".into(),
-            },
-        );
-        kaomoji.insert(
-            "notify".into(),
-            KaomojiEntry {
-                face: "✧*｡٩(ˊᗜˋ*)و✧*｡".into(),
-                motion: "bounce".into(),
-            },
-        );
         Self {
-            kaomoji,
+            kaomoji: KaomojiConfig::default(),
             compression_reserve_default: default_compression_reserve(),
             set_autonomy_default_ttl_ms: default_ttl_ms(),
             filter_strategy: default_filter_strategy(),

@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use super::{Config, CONFIG_FILE};
 
 /// 当前 schema 代际（bump 规则：仅语义断裂 +1）
-pub const CURRENT_VERSION: u32 = 1;
+/// v2：kaomoji 扁平 map → 两池 {system, user}（docs/config.md §表情池）
+pub const CURRENT_VERSION: u32 = 2;
 
 /// 迁移动作：Default = 该区间已审计、无需值变换（reconcile 兜底）；
 /// Transform = 值变换函数（先变换，再 reconcile）
@@ -24,7 +25,35 @@ pub enum Migration {
 
 /// 稀疏区间映射：每个历史版本区间一条显式条目，一步到 current。
 /// v0 = 未带 version 字段的前版本号时代文件。
-static MIGRATIONS: &[(RangeInclusive<u32>, Migration)] = &[(0..=0, Migration::Default)];
+/// 0..=1 → v2：kaomoji 两池化（v0/v1 同为扁平 map，同一变换覆盖）
+static MIGRATIONS: &[(RangeInclusive<u32>, Migration)] =
+    &[(0..=1, Migration::Transform(migrate_kaomoji_pools))];
+
+/// v1→v2：旧扁平 kaomoji map 整体迁入 system 池（行为保持：旧表既是请求头表
+/// 也是尺寸扫描来源，与 system 池职责一致），user 池空；用户随后可在面板移动。
+/// 以系统池 default 为底、旧条目覆盖同名 key——用户自定义的基础表情保留，
+/// 且迁移产物天然满足「基础 key ⊆ 并集」不变量（不被加载校验 default 化误伤）。
+/// 无 kaomoji 字段或已是两池形态时不动（交 reconcile 补 default）。
+fn migrate_kaomoji_pools(mut value: Value) -> Value {
+    let Some(obj) = value.as_object_mut() else { return value };
+    let Some(kaomoji) = obj.get("kaomoji").cloned() else { return value };
+    if kaomoji.get("system").is_some() || kaomoji.get("user").is_some() {
+        return value; // 已是两池形态（防御；正常 v0/v1 不会命中）
+    }
+    if let Value::Object(flat) = kaomoji {
+        let mut system =
+            serde_json::to_value(super::KaomojiConfig::default().system).unwrap();
+        let smap = system.as_object_mut().unwrap();
+        for (k, v) in flat {
+            smap.insert(k, v);
+        }
+        obj.insert(
+            "kaomoji".into(),
+            serde_json::json!({ "system": system, "user": {} }),
+        );
+    }
+    value
+}
 
 /// 加载入口（Config::load_or_default 的实现体）
 pub fn load(dir: &Path) -> Config {
@@ -62,7 +91,7 @@ pub fn load(dir: &Path) -> Config {
     let mut report = Vec::new();
     match version.cmp(&CURRENT_VERSION) {
         std::cmp::Ordering::Equal => {
-            let cfg = reconcile(value, &mut report);
+            let cfg = validate_and_repair(reconcile(value, &mut report));
             flush_report(&cfg.load_report);
             cfg
         }
@@ -78,7 +107,7 @@ pub fn load(dir: &Path) -> Config {
                 }
                 None => report.push(format!("v{version} 无映射条目，直接 reconcile")),
             }
-            let mut cfg = reconcile(value, &mut report);
+            let mut cfg = validate_and_repair(reconcile(value, &mut report));
             let bak = backup_bytes(dir, &format!("v{version:04}"), raw.as_bytes());
             cfg.load_report
                 .push(format!("原文件备份于 {}", bak.display()));
@@ -88,6 +117,22 @@ pub fn load(dir: &Path) -> Config {
         }
         std::cmp::Ordering::Greater => downgrade(dir, version, &raw),
     }
+}
+
+/// 加载期校验（docs/config.md：validator 失败不阻断启动——同一节点的全部
+/// message 写入加载报告，该节点只 default 化一次，然后继续）。
+/// 手写挂点，待 Config 元数据体系落地后迁移为字段 metadata 形态。
+fn validate_and_repair(mut cfg: Config) -> Config {
+    let errors = super::validate_kaomoji_pools(&cfg.kaomoji);
+    if !errors.is_empty() {
+        for e in errors {
+            cfg.load_report.push(format!("validate: kaomoji — {e}"));
+        }
+        cfg.load_report
+            .push("validate: kaomoji 节点 default 化（system 恢复系统池，user 清空）".into());
+        cfg.kaomoji = super::KaomojiConfig::default();
+    }
+    cfg
 }
 
 /// 降级（file version > binary version）：对称备份新版现场后，
@@ -103,7 +148,7 @@ fn downgrade(dir: &Path, file_version: u32, raw: &str) -> Config {
             report.push(format!("降级只读模式：加载备份 {}", bak_path.display()));
             let s = std::fs::read_to_string(&bak_path).unwrap_or_default();
             let value: Value = serde_json::from_str(&s).unwrap_or_default();
-            let mut cfg = reconcile(value, &mut report);
+            let mut cfg = validate_and_repair(reconcile(value, &mut report));
             cfg.read_only = true; // 任何 save 报错（Config::save 检查）
             flush_report(&cfg.load_report);
             cfg
@@ -229,12 +274,56 @@ mod tests {
         let cfg = load(&dir);
         assert_eq!(cfg.compression_reserve_default, 1234); // 用户数据保留
         assert!(!cfg.read_only);
-        // 备份 v0000 + 写回 version=1
+        // 备份 v0000 + 写回 version=CURRENT
         assert!(dir.join("config.bak/config-v0000.json").exists());
         let written: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap()).unwrap();
-        assert_eq!(written["version"], 1);
+        assert_eq!(written["version"], CURRENT_VERSION);
         assert!(written.get("dead_field").is_none());
+    }
+
+    #[test]
+    fn v1_flat_kaomoji_migrates_to_system_pool() {
+        let dir = tmp();
+        // v1 文件：扁平 kaomoji map（含用户自定义 key）
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 1, "kaomoji": {"idle": {"face": "(´ω`)", "motion": "still"},
+                "celebrate": {"face": "(≧▽≦)", "motion": "bounce"}}}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        // 扁平 map 整体迁入 system 池（行为保持），user 池空
+        assert_eq!(cfg.kaomoji.system["celebrate"].face, "(≧▽≦)");
+        assert_eq!(cfg.kaomoji.system["idle"].face, "(´ω`)");
+        assert!(cfg.kaomoji.user.is_empty());
+        // 基础 key 缺失项由 reconcile 补 default（processing/notify 旧文件没有）
+        assert!(cfg.kaomoji.system.contains_key("processing"));
+        assert!(cfg.kaomoji.system.contains_key("notify"));
+        // 写回 v2 两池形态
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap()).unwrap();
+        assert_eq!(written["version"], 2);
+        assert!(written["kaomoji"]["system"]["celebrate"].is_object());
+        assert!(written["kaomoji"]["user"].is_object());
+    }
+
+    #[test]
+    fn load_repairs_pool_invariant_violation_without_blocking() {
+        let dir = tmp();
+        // v2 文件：两池 key 冲突 + 缺基础 key（只剩 idle）
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 2, "kaomoji": {
+                "system": {"idle": {"face": "a", "motion": "still"}},
+                "user": {"idle": {"face": "b", "motion": "float"}}}}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        // 不阻断启动：kaomoji 节点 default 化 + 报告
+        assert_eq!(cfg.kaomoji, crate::config::KaomojiConfig::default());
+        assert!(cfg.load_report.iter().any(|l| l.contains("重复")));
+        assert!(cfg.load_report.iter().any(|l| l.contains("default 化")));
     }
 
     #[test]

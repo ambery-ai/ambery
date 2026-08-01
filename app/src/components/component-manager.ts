@@ -336,26 +336,24 @@ export class ComponentManager {
       return;
     }
     const { x, y } = this.anchor();
-    let left = x - cw / 2;
-    let top = y - ch / 2;
-    if (d.includes("left")) left = x - VIEW_RADIUS_X - GAP - cw;
-    if (d.includes("right")) left = x + VIEW_RADIUS_X + GAP;
-    if (d.includes("top")) top = y - VIEW_RADIUS_Y - GAP - ch;
-    if (d.includes("bottom")) top = y + VIEW_RADIUS_Y + GAP;
-    if (d === "left" || d === "right") top = y - ch / 2;
-    if (d === "top" || d === "bottom") left = x - cw / 2;
-    card.style.left = `${left}px`;
-    card.style.top = `${top}px`;
+    // 方位几何（docs/components.md）：锚点 ± (View 半径 + 12px 间距 + 卡片半尺寸)；
+    // 斜方位 = 两轴分别偏移
+    const ox = VIEW_RADIUS_X + GAP + cw / 2;
+    const oy = VIEW_RADIUS_Y + GAP + ch / 2;
+    const cx = x + (d.includes("e") ? ox : d.includes("w") ? -ox : 0);
+    const cy = y + (d.includes("s") ? oy : d.includes("n") ? -oy : 0);
+    card.style.left = `${cx - cw / 2}px`;
+    card.style.top = `${cy - ch / 2}px`;
   }
 
   /** auto = 屏幕剩余空间最大的方位（以 View 中心划分四象限比较） */
   private autoDirection(): Exclude<Direction, "auto"> {
     const { x, y } = this.anchor();
     const spaces: [Exclude<Direction, "auto">, number][] = [
-      ["left", x],
-      ["right", window.innerWidth - x],
-      ["top", y],
-      ["bottom", window.innerHeight - y],
+      ["w", x],
+      ["e", window.innerWidth - x],
+      ["n", y],
+      ["s", window.innerHeight - y],
     ];
     spaces.sort((a, b) => b[1] - a[1]);
     return spaces[0][0];

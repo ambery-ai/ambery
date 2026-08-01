@@ -103,7 +103,7 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_autonomy",
-            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）。key 传状态 key 名（kaomoji 表中的 key，如 idle/notify/processing）",
+            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）。key 传状态 key 名（kaomoji 两池并集中的 key，如 idle/notify/processing）",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -115,7 +115,7 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_config",
-            description: "修改 Config（统一配置管道，非法值被拒绝并返回错误）。path 为点分路径，value 为新值（JSON）。例：新增表情状态 path=kaomoji.celebrate value={\"face\":\"(≧▽≦)\",\"motion\":\"bounce\"}；调阈值 path=token_threshold value=5000",
+            description: "修改 Config（统一配置管道，非法值被拒绝并返回错误）。path 为点分路径，value 为新值（JSON）。例：新增表情状态 path=kaomoji.user.celebrate value={\"face\":\"(≧▽≦)\",\"motion\":\"bounce\"}；调缩放 path=view_scale value=0.8",
             parameters: json!({
                 "type": "object",
                 "properties": {

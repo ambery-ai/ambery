@@ -71,17 +71,26 @@ async function render() {
   const ordered = [...groups.entries()].sort(([a], [b]) =>
     a === "__top" ? -1 : b === "__top" ? 1 : a.localeCompare(b),
   );
+  // 表情两池当前值（map 节点携带完整 map）：供池间原子移动构造整节点写入
+  const pools = {
+    system: { ...((resp.nodes.find((n) => n.path === "kaomoji.system")?.value ?? {}) as Record<string, unknown>) },
+    user: { ...((resp.nodes.find((n) => n.path === "kaomoji.user")?.value ?? {}) as Record<string, unknown>) },
+  };
   for (const [name, nodes] of ordered) {
     if (name !== "__top") {
       body.insertAdjacentHTML("beforeend", `<div class="group">${name}</div>`);
     }
     for (const n of nodes) {
-      body.appendChild(renderNode(n, resp.readOnly));
+      body.appendChild(renderNode(n, resp.readOnly, pools));
     }
   }
 }
 
-function renderNode(n: ConfigNode, readOnly: boolean): HTMLElement {
+function renderNode(
+  n: ConfigNode,
+  readOnly: boolean,
+  pools: { system: Record<string, unknown>; user: Record<string, unknown> },
+): HTMLElement {
   const row = document.createElement("div");
   row.className = "cfg-row";
   const label = n.path.split(".").slice(1).join(".") || n.path;
@@ -153,6 +162,29 @@ function renderNode(n: ConfigNode, readOnly: boolean): HTMLElement {
   line.className = "cfg-line";
   line.innerHTML = nameHtml;
   line.appendChild(control);
+  // 表情池条目（kaomoji.{system|user}.<key>.face 行）：池间原子移动按钮——
+  // 单次 kaomoji 整节点写入，统一管道保证原子性与两池校验（docs/config.md §表情池）
+  const m = n.path.match(/^kaomoji\.(system|user)\.([^.]+)\.face$/);
+  if (m) {
+    const from = m[1] as "system" | "user";
+    const key = m[2];
+    const btn = document.createElement("button");
+    btn.textContent = from === "system" ? "→user" : "→system";
+    btn.title = `把「${key}」移到 ${from === "system" ? "user" : "system"} 池（原子移动）`;
+    btn.disabled = readOnly;
+    btn.onclick = () => {
+      const to = from === "system" ? "user" : "system";
+      const next = {
+        system: { ...pools.system },
+        user: { ...pools.user },
+      };
+      const entry = next[from][key];
+      delete next[from][key];
+      next[to][key] = entry;
+      void apply("kaomoji", next, btn);
+    };
+    line.appendChild(btn);
+  }
   row.appendChild(line);
   if (hint) row.insertAdjacentHTML("beforeend", hint);
   return row;

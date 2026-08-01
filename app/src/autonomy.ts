@@ -41,7 +41,7 @@ export class Autonomy {
     this.apply();
   }
 
-  /** 默认推导（优先级：notify > processing > idle） */
+  /** 默认推导（优先级：notify > processing > idle）；key 在两池并集解析（docs/autonomy.md） */
   deriveDefault(state: TopState): Expression {
     const key =
       state.pendingNotifications > 0
@@ -49,7 +49,13 @@ export class Autonomy {
         : state.instances.some((i) => i.status === "processing")
           ? "processing"
           : "idle";
-    return this.config?.kaomoji[key] ?? FALLBACK[key];
+    // 校验保证两池不相交，顺序无歧义；约定 system 先查（与 core kaomoji_resolve 一致）。
+    // key 不再存在时回落内置默认（docs/autonomy.md：当前状态 key 消失 → 回落默认状态）
+    return (
+      this.config?.kaomoji.system[key] ??
+      this.config?.kaomoji.user[key] ??
+      FALLBACK[key]
+    );
   }
 
   /** edit_config 推送后热更新映射表（RemoteBridge onConfigChanged） */

@@ -29,8 +29,12 @@ export interface KaomojiEntry {
 
 /** concepts §12 Config（当前仅前端所需子集） */
 export interface AppConfig {
-  /** 状态 key → 表达式 映射，edit_config 可增改 */
-  kaomoji: Record<string, KaomojiEntry>;
+  /** 表情两池（docs/config.md §表情池）：system 系统池（尺寸扫描来源）+ user 用户池。
+   *  key 全局唯一（后端校验不相交），默认状态与 set_autonomy(key) 按并集解析 */
+  kaomoji: {
+    system: Record<string, KaomojiEntry>;
+    user: Record<string, KaomojiEntry>;
+  };
   /** set_autonomy 省略 ttlMs 时的默认值 */
   setAutonomyDefaultTtlMs: number;
   /** View 缩放（concepts §3，默认 0.5） */
@@ -41,16 +45,16 @@ export interface AppConfig {
   badgeSide?: "right" | "left";
 }
 
-/** docs/components.md：Component 方位 */
+/** docs/components.md：Component 方位（八方位词；引擎内部按 16 方位环解析） */
 export type Direction =
-  | "top"
-  | "bottom"
-  | "left"
-  | "right"
-  | "top-left"
-  | "top-right"
-  | "bottom-left"
-  | "bottom-right"
+  | "n"
+  | "ne"
+  | "e"
+  | "se"
+  | "s"
+  | "sw"
+  | "w"
+  | "nw"
   | "auto";
 
 /** docs/components.md：call_component 协议（判别联合） */
@@ -153,9 +157,12 @@ declare global {
 
 const DEFAULT_CONFIG: AppConfig = {
   kaomoji: {
-    idle: { face: "(´ω`)", motion: "still" },
-    processing: { face: "(ˇωˇ」∠)_", motion: "float" },
-    notify: { face: "✧*｡٩(ˊᗜˋ*)و✧*｡", motion: "bounce" },
+    system: {
+      idle: { face: "(´ω`)", motion: "still" },
+      processing: { face: "(ˇωˇ」∠)_", motion: "float" },
+      notify: { face: "✧*｡٩(ˊᗜˋ*)و✧*｡", motion: "bounce" },
+    },
+    user: {},
   },
   setAutonomyDefaultTtlMs: 5000,
   viewScale: 1,
