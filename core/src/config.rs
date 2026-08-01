@@ -34,6 +34,12 @@ pub struct Config {
     /// stop hook 模式（docs/hook.md §stop 三模式）：queue_only（默认，hint 按需读）/ auto_read / message
     #[serde(default = "default_stop_hook_mode")]
     pub stop_hook_mode: String,
+    /// 一次 LLM response 最多执行的 tool call 数（docs/agent-loop.md §工具调用预算；冷字段）
+    #[serde(default = "default_max_tool_calls_in_one_response")]
+    pub max_tool_calls_in_one_response: usize,
+    /// 一条已放行输入处理期间累计最多执行的 tool call 数（docs/agent-loop.md；冷字段）
+    #[serde(default = "default_max_tool_calls_per_turn")]
+    pub max_tool_calls_per_turn: usize,
     /// system prompt 基座（运行时与 kaomoji 表、顶层状态拼装，concepts §12）
     pub base_prompt: String,
     /// View 缩放（concepts §3，球场圆形默认 0.5）
@@ -193,6 +199,14 @@ fn default_stop_hook_mode() -> String {
     "queue_only".into()
 }
 
+fn default_max_tool_calls_in_one_response() -> usize {
+    10
+}
+
+fn default_max_tool_calls_per_turn() -> usize {
+    50
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct KaomojiEntry {
     pub face: String,
@@ -300,6 +314,8 @@ impl Default for Config {
             filter_strategy: default_filter_strategy(),
             timer: TimerConfig::default(),
             stop_hook_mode: default_stop_hook_mode(),
+            max_tool_calls_in_one_response: default_max_tool_calls_in_one_response(),
+            max_tool_calls_per_turn: default_max_tool_calls_per_turn(),
             base_prompt:
                 "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
                     .into(),

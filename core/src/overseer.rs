@@ -79,7 +79,10 @@ pub struct OverseerBackend<L: Llm> {
     query_snapshots: Vec<QuerySnapshot>,
     /// LLM response 序号（tool 循环每轮 +1）：update 要求快照来自更早的 response
     response_seq: u64,
-    max_tool_iters: usize,
+    /// 工具调用预算（docs/agent-loop.md §工具调用预算；冷字段，启动时读取——
+    /// 运行中改 config 不影响本进程行为，经待重启状态如实上报）
+    tool_budget_response: usize,
+    tool_budget_turn: usize,
 }
 
 /// edit_config query 快照条目
@@ -138,6 +141,9 @@ impl<L: Llm> OverseerBackend<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
         let filter = crate::filter::by_name(&config.filter_strategy);
         let timers = TimerWheel::new(config.timer.interval_ms, config.timer.stagger_ms);
+        // 工具调用预算（冷字段，启动时捕获）
+        let tool_budget_response = config.max_tool_calls_in_one_response;
+        let tool_budget_turn = config.max_tool_calls_per_turn;
         let cfg_v = serde_json::to_value(&config).unwrap_or(Value::Null);
         let config_cold_snapshot = crate::config::meta::cold_paths()
             .into_iter()
@@ -162,7 +168,8 @@ impl<L: Llm> OverseerBackend<L> {
             config_cold_snapshot,
             query_snapshots: Vec::new(),
             response_seq: 0,
-            max_tool_iters: 8, // 防 tool 循环死转
+            tool_budget_response,
+            tool_budget_turn,
         };
         // 启动调度（concepts §1a 兜底覆盖）：TimerWheel 不 replay，
         // 对投影中全部存活实例批量 reset——无 hook 实例（僵尸）也进兜底扫描集，
@@ -697,9 +704,13 @@ impl<L: Llm> OverseerBackend<L> {
         }
         // 4. tool 循环（请求 = 请求头 + Context 全部消息 + Autonomy 末端）
         //    流式：complete_streaming 边收边经 effect_sink 发 AssistantDelta（docs/streaming.md）
+        //    预算（docs/agent-loop.md §工具调用预算）：call 按声明顺序串行执行；
+        //    已提出 calls（含未执行者）都计入 turn 预算；超出任一预算的 call 不执行，
+        //    但仍写入对应的失败 tool result
         let tools = tool_set();
         let mut effects = vec![];
-        for _ in 0..self.max_tool_iters {
+        let mut turn_proposed = 0usize; // 本 turn 已提出 calls（执行 + 未执行）
+        loop {
             self.response_seq += 1; // 每个 LLM response 一号（edit_config 快照的新旧判定）
             let mut request = Vec::with_capacity(self.harness.context.messages().len() + 2);
             request.push(ContextMessage::new(Role::System, head.clone(), ts));
@@ -738,11 +749,62 @@ impl<L: Llm> OverseerBackend<L> {
             // thinking 模型：存思维链，回放时必须带回（docs/agent-loop.md）
             assistant_msg.reasoning_content = out.reasoning_content.clone();
             self.harness.append_context(assistant_msg)?;
+            let mut executed_in_response = 0usize;
             for call in &out.tool_calls {
+                turn_proposed += 1; // 提出即计入 turn 预算
+                let over_response = executed_in_response >= self.tool_budget_response;
+                let over_turn = turn_proposed > self.tool_budget_turn;
+                if over_response || over_turn {
+                    // 超预算的 call 不执行，但仍写入对应的失败 tool result
+                    let reason = if over_turn {
+                        format!("超本 turn 工具调用预算（{} 次/turn）", self.tool_budget_turn)
+                    } else {
+                        format!("超单 response 工具调用预算（{} 次/response）", self.tool_budget_response)
+                    };
+                    self.harness.append_context(ContextMessage::tool_result(
+                        &call.id,
+                        json!({ "ok": false, "error": reason }).to_string(),
+                        ts,
+                    ))?;
+                    continue;
+                }
                 let (result, mut eff) = self.execute_tool(call);
+                executed_in_response += 1;
                 effects.append(&mut eff);
                 self.harness
                     .append_context(ContextMessage::tool_result(&call.id, result.to_string(), ts))?;
+            }
+            if turn_proposed >= self.tool_budget_turn {
+                // 预算耗尽收尾（docs/agent-loop.md）：以空 tools 正常请求一次最终文字
+                // 回复（不能再发起 tool call）；不追加特殊 system 记录，不开启新 turn
+                self.response_seq += 1;
+                let mut request = Vec::with_capacity(self.harness.context.messages().len() + 2);
+                request.push(ContextMessage::new(Role::System, head.clone(), ts));
+                request.extend_from_slice(self.harness.context.messages());
+                request.push(ContextMessage::new(Role::System, autonomy.clone(), ts));
+                let sink = self.effect_sink.clone();
+                let on_delta = move |d: &crate::llm::Delta| {
+                    if let Some(sink) = &sink {
+                        sink(&Effect::AssistantDelta {
+                            content: d.content.clone(),
+                            reasoning_content: d.reasoning_content.clone(),
+                        });
+                    }
+                };
+                let out = self
+                    .llm
+                    .complete_streaming(&request, &[], &on_delta)
+                    .await
+                    .map_err(std::io::Error::other)?;
+                if let Some(u) = out.usage {
+                    self.harness.log_usage(u, ts)?;
+                }
+                if let Some(content) = out.content.filter(|c| !c.is_empty()) {
+                    let mut msg = ContextMessage::new(Role::Assistant, content, ts);
+                    msg.reasoning_content = out.reasoning_content.clone();
+                    self.harness.append_context(msg)?;
+                }
+                break;
             }
         }
         // 一轮完毕：loading 收尾（docs/streaming.md，完整回复已写 Context）
@@ -2454,6 +2516,63 @@ mod tests {
         let (r5, _) = ov.execute_tool(&upd("u5"));
         assert_eq!(r5["ok"], json!(false), "快照 message 不在 Context 应拒绝");
         let _ = std::fs::remove_dir_all(tmp_dir("snap"));
+    }
+
+    #[tokio::test]
+    async fn tool_call_budgets_enforced_with_final_wrap_up() {
+        // 工具调用预算（docs/agent-loop.md §工具调用预算）
+        let mk_agent = |scripts: Vec<LlmOutput>, counter: std::sync::Arc<std::sync::atomic::AtomicUsize>| {
+            let rest = std::sync::Mutex::new(std::collections::VecDeque::from(scripts));
+            DebugAgent::new(move |_| {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                rest.lock().unwrap().pop_front().unwrap_or_else(silence)
+            })
+        };
+        let auto_calls = |n: usize| {
+            let specs: Vec<(&str, Value)> = (0..n)
+                .map(|i| ("set_autonomy", json!({ "motion": "still", "ttlMs": 1000 + i })))
+                .collect();
+            calls(specs)
+        };
+
+        // ① 单 response 预算：5 calls 预算 3 → 3 执行 + 2 失败 result（turn 未耗尽 → 继续）
+        let agent = mk_agent(vec![auto_calls(5), say("收尾")], std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+        let dir = tmp_dir("budget-resp");
+        let mut cfg = Config::default();
+        cfg.max_tool_calls_in_one_response = 3;
+        cfg.max_tool_calls_per_turn = 50;
+        let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let mut ov = OverseerBackend::new(harness, cfg, agent);
+        ov.enqueue(Role::User, "x".into(), 1).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        let results: Vec<String> = ov.harness.context.messages().iter()
+            .filter(|m| m.role == Role::Tool)
+            .filter_map(|m| m.content.clone()).collect();
+        assert_eq!(results.iter().filter(|c| c.contains("\"ok\":true")).count(), 3, "{results:?}");
+        assert_eq!(results.iter().filter(|c| c.contains("单 response")).count(), 2, "{results:?}");
+        let _ = std::fs::remove_dir_all(dir);
+
+        // ② turn 预算耗尽：空 tools 收尾请求一次最终文字回复，不开启新 turn
+        let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let agent = mk_agent(vec![auto_calls(3), auto_calls(3), say("最终回复")], counter.clone());
+        let dir = tmp_dir("budget-turn");
+        let mut cfg = Config::default();
+        cfg.max_tool_calls_in_one_response = 10;
+        cfg.max_tool_calls_per_turn = 4;
+        let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let mut ov = OverseerBackend::new(harness, cfg, agent);
+        ov.enqueue(Role::User, "x".into(), 1).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        let msgs = ov.harness.context.messages();
+        let results: Vec<String> = msgs.iter().filter(|m| m.role == Role::Tool)
+            .filter_map(|m| m.content.clone()).collect();
+        assert_eq!(results.iter().filter(|c| c.contains("\"ok\":true")).count(), 4, "{results:?}");
+        assert_eq!(results.iter().filter(|c| c.contains("本 turn")).count(), 2, "{results:?}");
+        // 收尾回复已写 Context；LLM 恰好 3 次调用（2 带 tools + 1 收尾空 tools）
+        let last = msgs.iter().rev().find(|m| m.role == Role::Assistant).unwrap();
+        assert_eq!(last.content.as_deref(), Some("最终回复"));
+        assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 3);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

@@ -72,6 +72,8 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "timer.tick_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
     NodeMeta { path: "timer.batch", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
     NodeMeta { path: "stop_hook_mode", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
+    NodeMeta { path: "max_tool_calls_in_one_response", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: true },
+    NodeMeta { path: "max_tool_calls_per_turn", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: true },
     NodeMeta { path: "base_prompt", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
     NodeMeta { path: "view_scale", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "badge_style", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
