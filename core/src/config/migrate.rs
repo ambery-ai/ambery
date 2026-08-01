@@ -10,6 +10,7 @@ use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use super::{meta, Config, CONFIG_FILE};
+use meta::NodeKind;
 
 /// 当前 schema 代际（bump 规则：仅语义断裂 +1）
 /// v2：kaomoji 扁平 map → 两池 {system, user}（docs/config.md §表情池）
@@ -81,6 +82,9 @@ pub fn load(dir: &Path) -> Config {
             return cfg;
         }
     };
+    // null 归一（docs/config.md §null = 缺失）：进入 migration / reconcile 前，
+    // 递归移除所有 object 中值为 null 的 key（数组中的 null 不适用）
+    normalize_nulls(&mut value);
 
     let version = value
         .get("version")
@@ -187,51 +191,165 @@ fn downgrade(dir: &Path, file_version: u32, raw: &str) -> Config {
     }
 }
 
-/// reconcile（反射结构对齐）：未知 path 剔除；缺失/整字段非法 → 该字段回退 default。
-/// 返回验证通过的 Config。default 是字段级兜底标签，不是整份重生成。
-fn reconcile(mut value: Value, report: &mut Vec<String>) -> Config {
-    let default_v = serde_json::to_value(Config::default()).unwrap();
-    if let (Value::Object(map), Value::Object(dmap)) = (&mut value, &default_v) {
-        // 剔除未知字段（version 是控制字段，豁免）
-        let unknown: Vec<String> = map
-            .keys()
-            .filter(|k| *k != "version" && !dmap.contains_key(*k))
-            .cloned()
-            .collect();
-        for k in unknown {
-            map.remove(&k);
-            report.push(format!("reconcile: 剔除未知字段 {k}"));
-        }
-        // 缺失字段补 default（字段级）
-        for (k, dv) in dmap {
-            if !map.contains_key(k) {
-                map.insert(k.clone(), dv.clone());
-                report.push(format!("reconcile: 缺失字段 {k} 补 default"));
+/// null 归一（docs/config.md §null = 缺失）：递归移除 object 中值为 null 的 key；
+/// 数组中的 null 不适用。加载、工具写入与保存遵守同一归一化
+pub fn normalize_nulls(v: &mut Value) {
+    match v {
+        Value::Object(map) => {
+            let nulls: Vec<String> = map
+                .iter()
+                .filter(|(_, val)| val.is_null())
+                .map(|(k, _)| k.clone())
+                .collect();
+            for k in nulls {
+                map.remove(&k);
+            }
+            for val in map.values_mut() {
+                normalize_nulls(val);
             }
         }
+        Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                normalize_nulls(item);
+            }
+        }
+        _ => {}
     }
-    // 整字段非法（类型/值过不去 serde）→ 仅该字段回退 default：
-    // 用「default 全体 + 单字段替换试算」定位病灶，无需逐字段类型信息
-    if serde_json::from_value::<Config>(value.clone()).is_err() {
-        if let (Value::Object(map), Value::Object(dmap)) = (&mut value, &default_v) {
-            for (k, dv) in dmap {
-                let user_val = map.get(k).cloned().unwrap_or(Value::Null);
-                let mut trial = default_v.clone();
-                trial[k.as_str()] = user_val.clone();
-                if serde_json::from_value::<Config>(trial).is_err() && user_val != *dv {
-                    report.push(format!("reconcile: 字段 {k} 非法，回退 default"));
-                    map.insert(k.clone(), dv.clone());
+}
+
+/// reconcile（docs/config.md §递归 reconcile 逻辑链，registry 驱动）：
+/// 未知 path 递归剔除并逐项上报；静态 object 向下递归组装 child；
+/// 叶子缺失/类型错误回退自身 default；map 缺失/类型错误回退自身 default、
+/// 已存在不 merge default key，entry 经 probe 修复（无法修复 = 该 entry 不存在）。
+fn reconcile(mut value: Value, report: &mut Vec<String>) -> Config {
+    let default_v = serde_json::to_value(Config::default()).unwrap();
+    reconcile_node("", &mut value, &default_v, report);
+    let mut cfg: Config = serde_json::from_value(value).unwrap_or_else(|e| {
+        report.push(format!("reconcile: 仍无法反序列化（{e}），整份回退 default"));
+        Config::default()
+    });
+    cfg.load_report = std::mem::take(report);
+    cfg
+}
+
+/// 节点的静态 children（root "" = Config 顶层字段）
+fn child_paths(path: &str) -> Vec<&'static str> {
+    let prefix = if path.is_empty() {
+        String::new()
+    } else {
+        format!("{path}.")
+    };
+    let mut out: Vec<&'static str> = meta::NODES
+        .iter()
+        .map(|n| n.path)
+        .filter(|p| p.len() > prefix.len() && p.starts_with(&prefix) && !p[prefix.len()..].contains('.'))
+        .map(|p| &p[prefix.len()..])
+        .collect();
+    out.sort_unstable();
+    out
+}
+
+/// 动态 map key 的运行时 grammar 检查（docs/config.md §Config path grammar）
+fn valid_map_key(k: &str) -> bool {
+    let mut chars = k.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+fn reconcile_node(path: &str, v: &mut Value, default: &Value, report: &mut Vec<String>) {
+    // root "" 视为静态 Object；其余查注册表
+    let kind = if path.is_empty() {
+        NodeKind::Object
+    } else {
+        match meta::node_meta(path) {
+            Some(m) => m.kind,
+            None => return, // 未注册节点由父级的未知剔除处理
+        }
+    };
+    match kind {
+        NodeKind::Leaf => {
+            let type_ok = matches!(
+                (&*v, default),
+                (Value::Bool(_), Value::Bool(_))
+                    | (Value::Number(_), Value::Number(_))
+                    | (Value::String(_), Value::String(_))
+            );
+            if !type_ok {
+                *v = default.clone();
+                report.push(format!("reconcile: 字段 {path} 缺失或非法，回退 default"));
+            }
+        }
+        NodeKind::Object => {
+            if !v.is_object() {
+                *v = default.clone();
+                report.push(format!("reconcile: 字段 {path} 缺失或非法，回退 default"));
+                return;
+            }
+            let children = child_paths(path);
+            let map = v.as_object_mut().unwrap();
+            // 未知 child 剔除（version 是文件级控制字段，豁免）
+            let unknown: Vec<String> = map
+                .keys()
+                .filter(|k| *k != "version" && !children.contains(&k.as_str()))
+                .cloned()
+                .collect();
+            for k in unknown {
+                map.remove(&k);
+                let full = if path.is_empty() { k.clone() } else { format!("{path}.{k}") };
+                report.push(format!("reconcile: 剔除未知字段 {full}"));
+            }
+            for child in children {
+                let cpath = if path.is_empty() {
+                    child.to_string()
+                } else {
+                    format!("{path}.{child}")
+                };
+                // child default 从父 default 直取（递归携带各自子树的 default）
+                let cdefault = default.get(child).cloned().unwrap_or(Value::Null);
+                match map.get_mut(child) {
+                    None => {
+                        map.insert(child.to_string(), cdefault);
+                        report.push(format!("reconcile: 缺失字段 {cpath} 补 default"));
+                    }
+                    Some(cv) => reconcile_node(&cpath, cv, &cdefault, report),
+                }
+            }
+        }
+        NodeKind::Map { entry_probe } => {
+            if !v.is_object() {
+                *v = default.clone();
+                report.push(format!("reconcile: 字段 {path} 缺失或非法，回退 default"));
+                return;
+            }
+            let map = v.as_object_mut().unwrap();
+            let keys: Vec<String> = map.keys().cloned().collect();
+            for k in keys {
+                // 动态 key grammar 运行时检查（docs/config.md：无法 default 化的 key，
+                // 修复结果为该 entry 不存在；其余 map entry 保留）
+                if !valid_map_key(&k) {
+                    map.remove(&k);
+                    report.push(format!("reconcile: 剔除非法 key {path}.{k}（path grammar）"));
+                    continue;
+                }
+                let ev = map[&k].clone();
+                match entry_probe(&ev) {
+                    // entry 按固定 value schema 归一（serde default 填充、未知 key 剔除）
+                    Some(fixed) => {
+                        map.insert(k.clone(), fixed);
+                    }
+                    None => {
+                        map.remove(&k);
+                        report.push(format!(
+                            "reconcile: 剔除无法修复的 entry {path}.{k}（其余 entry 保留）"
+                        ));
+                    }
                 }
             }
         }
     }
-    let mut cfg: Config = serde_json::from_value(value)
-        .unwrap_or_else(|e| {
-            report.push(format!("reconcile: 仍无法反序列化（{e}），整份回退 default"));
-            Config::default()
-        });
-    cfg.load_report = std::mem::take(report);
-    cfg
 }
 
 /// 对称备份：写 config.bak/config-v0NN.json；同版本已存在则不覆盖（第一份最接近原始现场）
@@ -413,5 +531,58 @@ mod tests {
         let dir = tmp();
         std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 99}"#).unwrap();
         load(&dir);
+    }
+
+    #[test]
+    fn recursive_reconcile_removes_nested_unknown_and_repairs_entries() {
+        let dir = tmp();
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 2,
+                "llm": {"active": "deepseek", "unknown_nested": 1,
+                        "providers": {
+                            "deepseek": {"base_url": "https://api.deepseek.com", "model": "deepseek-chat", "junk": true},
+                            "BadKey": {"base_url": "x", "model": "y"},
+                            "broken": {"model": 123}
+                        }},
+                "kaomoji": {"system": {
+                    "idle": {"face": "(´ω`)", "motion": "still", "junk": 1},
+                    "processing": {"face": "(ˇωˇ」∠)_", "motion": "float"},
+                    "notify": {"face": "✧*｡٩(ˊᗜˋ*)و✧*｡", "motion": "bounce"}
+                }, "user": {}}
+            }"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        // 嵌套未知字段剔除（llm.unknown_nested / provider.junk / kaomoji entry.junk）
+        assert!(!cfg.load_report.iter().any(|l| l.contains("panic")));
+        let v = serde_json::to_value(&cfg).unwrap();
+        assert!(v["llm"].get("unknown_nested").is_none());
+        assert!(v["llm"]["providers"]["deepseek"].get("junk").is_none());
+        assert!(v["kaomoji"]["system"]["idle"].get("junk").is_none());
+        // 保留的合法字段不丢
+        assert_eq!(cfg.llm.active, "deepseek");
+        assert_eq!(cfg.llm.providers["deepseek"].model, "deepseek-chat");
+        assert_eq!(cfg.kaomoji.system["idle"].face, "(´ω`)");
+        // 非法 key 与无法修复的 entry 剔除，其余 entry 保留
+        assert!(!cfg.llm.providers.contains_key("BadKey"));
+        assert!(!cfg.llm.providers.contains_key("broken"));
+        assert!(cfg.load_report.iter().any(|l| l.contains("path grammar")));
+        assert!(cfg.load_report.iter().any(|l| l.contains("无法修复")));
+    }
+
+    #[test]
+    fn null_normalized_to_missing_on_load() {
+        let dir = tmp();
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 2, "view_scale": null, "timer_interval_ms": 60000, "llm": {"active": null}}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        // null = 缺失：view_scale/llm.active 回 default；显式值保留
+        assert_eq!(cfg.view_scale, 1.0);
+        assert_eq!(cfg.timer_interval_ms, 60000);
+        assert_eq!(cfg.llm.active, "debug");
     }
 }

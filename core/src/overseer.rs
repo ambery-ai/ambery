@@ -132,8 +132,24 @@ impl<L: Llm> OverseerBackend<L> {
         if self.config.read_only {
             return Err("只读降级模式：config 写被禁止（docs/config.md）".into());
         }
+        // null 语义（docs/config.md §update 与 null）：null 只允许写到叶子
+        // （null = 缺失 → 回自身 default）；object/map/动态 entry 拒绝 null 更新
+        if value.is_null() {
+            let is_leaf = crate::config::meta::node_meta(path)
+                .map(|m| matches!(m.kind, crate::config::meta::NodeKind::Leaf))
+                .unwrap_or(false);
+            if !is_leaf {
+                return Err(
+                    "null 只允许写到叶子（回自身 default）；object/map/动态 entry 拒绝 null 更新"
+                        .into(),
+                );
+            }
+        }
         let mut v = serde_json::to_value(&self.config).map_err(|e| e.to_string())?;
         crate::config::reflect::set_by_path(&mut v, path, value.clone())?;
+        // null 归一（docs/config.md：工具写入与保存遵守同一归一化）——null 叶子移除后
+        // 由 serde default 回填（= 回自身 default）
+        crate::config::migrate::normalize_nulls(&mut v);
         let new: Config = serde_json::from_value(v).map_err(|e| format!("验证失败: {e}"))?;
         // 统一 validation（docs/config.md：目标子树→祖先；任一失败原子拒绝整次更新）
         let new_v = serde_json::to_value(&new).map_err(|e| e.to_string())?;
@@ -2125,6 +2141,20 @@ mod tests {
         ov.config.read_only = true;
         assert!(ov.apply_config_by_path("compression_reserve_default", json!(1)).is_err());
         let _ = std::fs::remove_dir_all(tmp_dir("apply3"));
+    }
+
+    #[tokio::test]
+    async fn edit_config_null_write_semantics() {
+        // null 语义（docs/config.md §update 与 null）：叶子写 null = 回自身 default；
+        // object/map/动态 entry 拒绝 null 更新
+        let mut ov = make_overseer("null-write");
+        ov.apply_config_by_path("view_scale", json!(0.7)).unwrap();
+        ov.apply_config_by_path("view_scale", Value::Null).unwrap();
+        assert_eq!(ov.config.view_scale, 1.0); // 回 default
+        assert!(ov.apply_config_by_path("llm", Value::Null).is_err());
+        assert!(ov.apply_config_by_path("kaomoji.user", Value::Null).is_err());
+        assert!(ov.apply_config_by_path("kaomoji.user.celebrate", Value::Null).is_err());
+        let _ = std::fs::remove_dir_all(tmp_dir("null-write"));
     }
 
     #[tokio::test]
