@@ -70,6 +70,9 @@ pub struct OverseerBackend<L: Llm> {
     /// 流式 delta 旁路（docs/streaming.md）：run_trigger 每收到 delta 即发——
     /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播
     pub effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>,
+    /// 冷字段启动快照（docs/config.md §待重启状态）：待重启 = 保存值与启动快照不同，
+    /// 两者重新相同即清除。快照在 backend 启动时取（TimerWheel 等运行行为按启动值构建）
+    pub config_cold_snapshot: Vec<(&'static str, Value)>,
     max_tool_iters: usize,
 }
 
@@ -77,6 +80,16 @@ impl<L: Llm> OverseerBackend<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
         let filter = crate::filter::by_name(&config.filter_strategy);
         let timers = TimerWheel::new(config.timer_interval_ms, config.timer_stagger_ms);
+        let cfg_v = serde_json::to_value(&config).unwrap_or(Value::Null);
+        let config_cold_snapshot = crate::config::meta::cold_paths()
+            .into_iter()
+            .map(|p| {
+                (
+                    p,
+                    crate::config::meta::value_at(&cfg_v, p).cloned().unwrap_or(Value::Null),
+                )
+            })
+            .collect();
         let mut backend = Self {
             harness,
             config,
@@ -88,6 +101,7 @@ impl<L: Llm> OverseerBackend<L> {
             sidecar_enabled: false,
             cards: std::collections::HashMap::new(),
             effect_sink: None,
+            config_cold_snapshot,
             max_tool_iters: 8, // 防 tool 循环死转
         };
         // 启动调度（concepts §1a 兜底覆盖）：TimerWheel 不 replay，
@@ -121,10 +135,18 @@ impl<L: Llm> OverseerBackend<L> {
         let mut v = serde_json::to_value(&self.config).map_err(|e| e.to_string())?;
         crate::config::reflect::set_by_path(&mut v, path, value.clone())?;
         let new: Config = serde_json::from_value(v).map_err(|e| format!("验证失败: {e}"))?;
-        // 统一 validation（docs/config.md：任一 validator 失败原子拒绝整次更新）
-        let pool_errors = crate::config::validate_kaomoji_pools(&new.kaomoji);
-        if !pool_errors.is_empty() {
-            return Err(format!("验证失败: {}", pool_errors.join("；")));
+        // 统一 validation（docs/config.md：目标子树→祖先；任一失败原子拒绝整次更新）
+        let new_v = serde_json::to_value(&new).map_err(|e| e.to_string())?;
+        let verrs = crate::config::meta::validate_for_update(&new_v, path);
+        if !verrs.is_empty() {
+            return Err(format!(
+                "验证失败: {}",
+                verrs
+                    .iter()
+                    .map(|(p, m)| format!("{p}: {m}"))
+                    .collect::<Vec<_>>()
+                    .join("；")
+            ));
         }
         // 动态 enum 校验（OPTIONS 注册表，验证集中一份）
         if let (Some(opts), Value::String(s)) =
@@ -146,12 +168,19 @@ impl<L: Llm> OverseerBackend<L> {
         Ok(ConfigOutcome {
             effects: vec![Effect::ConfigChanged { llm_changed }],
             llm_changed,
-            restart_required: if restart_required_for(path) {
-                vec![path.to_string()]
-            } else {
-                vec![]
-            },
+            restart_required: self.restart_required(),
         })
+    }
+
+    /// 待重启状态（docs/config.md §待重启状态）：冷字段保存值与启动快照不同；
+    /// 两者重新相同即清除。如实上报，不假装生效（行为即真相）
+    pub fn restart_required(&self) -> Vec<String> {
+        let cur = serde_json::to_value(&self.config).unwrap_or(Value::Null);
+        self.config_cold_snapshot
+            .iter()
+            .filter(|(p, snap)| crate::config::meta::value_at(&cur, p) != Some(snap))
+            .map(|(p, _)| p.to_string())
+            .collect()
     }
 
     /// llm_changed 后由 server 重建具体 LlmBackend 注入（overseer 泛型擦除不认识它）
@@ -1041,14 +1070,6 @@ pub struct ConfigOutcome {
     pub effects: Vec<Effect>,
     pub llm_changed: bool,
     pub restart_required: Vec<String>,
-}
-
-/// 冷字段（行为即真相：本进程不重建 TimerWheel，错峰调度状态会丢 → 如实上报需重启）
-fn restart_required_for(path: &str) -> bool {
-    matches!(
-        path.split('.').next().unwrap_or(""),
-        "timer_interval_ms" | "timer_stagger_ms"
-    )
 }
 
 #[cfg(test)]

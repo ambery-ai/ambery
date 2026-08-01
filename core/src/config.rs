@@ -1,6 +1,8 @@
 //! Config 域（concepts §12，docs/config.md）：类型 + load/save。
-//! 子模块：reflect（声明式 UI 反射）、migrate（版本与迁移加载管线）。
+//! 子模块：reflect（声明式 UI 反射）、migrate（版本与迁移加载管线）、
+//! meta（字段行为元数据注册表：validation / no_llm_visible / 冷字段）。
 
+pub mod meta;
 pub mod migrate;
 pub mod reflect;
 

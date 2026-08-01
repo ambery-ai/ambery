@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
-use super::{Config, CONFIG_FILE};
+use super::{meta, Config, CONFIG_FILE};
 
 /// 当前 schema 代际（bump 规则：仅语义断裂 +1）
 /// v2：kaomoji 扁平 map → 两池 {system, user}（docs/config.md §表情池）
@@ -121,18 +121,43 @@ pub fn load(dir: &Path) -> Config {
 
 /// 加载期校验（docs/config.md：validator 失败不阻断启动——同一节点的全部
 /// message 写入加载报告，该节点只 default 化一次，然后继续）。
-/// 手写挂点，待 Config 元数据体系落地后迁移为字段 metadata 形态。
+/// validators 单源于 config/meta.rs 注册表（当前手写挂点，目标形态为字段 metadata）。
 fn validate_and_repair(mut cfg: Config) -> Config {
-    let errors = super::validate_kaomoji_pools(&cfg.kaomoji);
-    if !errors.is_empty() {
-        for e in errors {
-            cfg.load_report.push(format!("validate: kaomoji — {e}"));
-        }
-        cfg.load_report
-            .push("validate: kaomoji 节点 default 化（system 恢复系统池，user 清空）".into());
-        cfg.kaomoji = super::KaomojiConfig::default();
+    let value = serde_json::to_value(&cfg).unwrap_or(Value::Null);
+    let errors = meta::validate_all(&value);
+    if errors.is_empty() {
+        return cfg;
     }
-    cfg
+    for (p, msg) in &errors {
+        cfg.load_report.push(format!("validate: {p} — {msg}"));
+    }
+    // 失败节点去重（已按 path 排序），逐节点 default 化
+    let default_v = serde_json::to_value(Config::default()).unwrap();
+    let mut repaired = value;
+    let mut done: Vec<&str> = Vec::new();
+    for (p, _) in &errors {
+        if done.contains(&p.as_str()) {
+            continue;
+        }
+        done.push(p);
+        if let Some(dv) = meta::value_at(&default_v, p).cloned() {
+            let _ = crate::config::reflect::set_by_path(&mut repaired, p, dv);
+            cfg.load_report.push(format!("validate: {p} 节点 default 化"));
+        }
+    }
+    match serde_json::from_value::<Config>(repaired) {
+        Ok(mut fixed) => {
+            fixed.load_report = std::mem::take(&mut cfg.load_report);
+            fixed
+        }
+        Err(e) => {
+            cfg.load_report
+                .push(format!("validate: 修复后仍无法反序列化（{e}），整份回退 default"));
+            let mut d = Config::default();
+            d.load_report = std::mem::take(&mut cfg.load_report);
+            d
+        }
+    }
 }
 
 /// 降级（file version > binary version）：对称备份新版现场后，
