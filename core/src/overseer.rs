@@ -239,6 +239,10 @@ impl<L: Llm> OverseerBackend<L> {
                 return Err(format!("{path}: '{s}' 不在合法选项 {opts:?} 中"));
             }
         }
+        // 先落盘后换内存（顺序不分叉）：persist 失败时内存/快照/滤镜全部不动，
+        // 调用方看到的 Err 与真实状态一致（docs/config.md：原子拒绝）
+        new.save(self.harness.config_dir())
+            .map_err(|e| format!("persist 失败: {e}"))?;
         let old = std::mem::replace(&mut self.config, new);
         // 一次成功写入使相交路径的 query 快照失效（docs/config.md §快照有效性；
         // 统一管道单点——LLM/CLI/面板/外部载入全部经此，无关路径不受影响）
@@ -248,9 +252,6 @@ impl<L: Llm> OverseerBackend<L> {
             self.filter = crate::filter::by_name(&self.config.filter_strategy);
         }
         let llm_changed = self.config.llm != old.llm;
-        self.config
-            .save(self.harness.config_dir())
-            .map_err(|e| format!("persist 失败: {e}"))?;
         Ok(ConfigOutcome {
             effects: vec![Effect::ConfigChanged { llm_changed }],
             llm_changed,

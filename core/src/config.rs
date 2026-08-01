@@ -370,7 +370,9 @@ impl Config {
         migrate::load(dir)
     }
 
-    /// 持久化（注入 version 控制字段 = current）；只读降级模式 → 报错
+    /// 持久化（注入 version 控制字段 = current）；只读降级模式 → 报错。
+    /// 原子写（tmp + rename）：磁盘只保留旧完整文件或新完整文件（docs/config.md
+    /// §update 与统一管道），外部自动载入不会读到半截文件
     pub fn save(&self, dir: &std::path::Path) -> std::io::Result<()> {
         if self.read_only {
             return Err(std::io::Error::new(
@@ -382,6 +384,9 @@ impl Config {
         let mut v = serde_json::to_value(self).map_err(std::io::Error::other)?;
         v["version"] = serde_json::Value::from(migrate::CURRENT_VERSION);
         let s = serde_json::to_string_pretty(&v).map_err(std::io::Error::other)?;
-        std::fs::write(dir.join(CONFIG_FILE), s)
+        let tmp = dir.join("config.json.tmp");
+        std::fs::write(&tmp, s)?;
+        std::fs::rename(&tmp, dir.join(CONFIG_FILE))?;
+        Ok(())
     }
 }
