@@ -73,7 +73,65 @@ pub struct OverseerBackend<L: Llm> {
     /// 冷字段启动快照（docs/config.md §待重启状态）：待重启 = 保存值与启动快照不同，
     /// 两者重新相同即清除。快照在 backend 启动时取（TimerWheel 等运行行为按启动值构建）
     pub config_cold_snapshot: Vec<(&'static str, Value)>,
+    /// edit_config query 快照（docs/config.md §query 快照有效性）：只有携带更新目标
+    /// 完整当前值的 query（叶子直查 / 容器 view=object）才留快照；快照关联自己的
+    /// tool result message ID（tool_call_id）与 response 序号
+    query_snapshots: Vec<QuerySnapshot>,
+    /// LLM response 序号（tool 循环每轮 +1）：update 要求快照来自更早的 response
+    response_seq: u64,
     max_tool_iters: usize,
+}
+
+/// edit_config query 快照条目
+#[derive(Debug, Clone)]
+struct QuerySnapshot {
+    path: String,
+    tool_call_id: String,
+    seq: u64,
+}
+
+/// path 相交判定（快照覆盖/写入失效共用）：相等或互为前缀
+fn paths_intersect(a: &str, b: &str) -> bool {
+    a == b || a.starts_with(&format!("{b}.")) || b.starts_with(&format!("{a}."))
+}
+
+/// 叶子级 diff：返回两值间变化的叶子 path（object 递归；增删 key 记该层 path）
+fn diff_paths(prefix: &str, a: &Value, b: &Value) -> Vec<String> {
+    match (a, b) {
+        (Value::Object(ma), Value::Object(mb)) => {
+            let mut out = Vec::new();
+            let keys: std::collections::BTreeSet<&String> = ma.keys().chain(mb.keys()).collect();
+            for k in keys {
+                let p = if prefix.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{prefix}.{k}")
+                };
+                match (ma.get(k), mb.get(k)) {
+                    (Some(x), Some(y)) => out.extend(diff_paths(&p, x, y)),
+                    _ => out.push(p),
+                }
+            }
+            out
+        }
+        _ if a == b => vec![],
+        _ => vec![prefix.to_string()],
+    }
+}
+
+/// grep/query 结果的节点类型显示名
+fn node_type_name(ty: &crate::config::reflect::NodeType) -> &'static str {
+    use crate::config::reflect::NodeType as T;
+    match ty {
+        T::Bool => "bool",
+        T::Int { .. } => "int",
+        T::Float { .. } => "float",
+        T::Str => "str",
+        T::Enum { .. } => "enum",
+        T::Map => "map",
+        T::Object => "object",
+        T::Other => "other",
+    }
 }
 
 impl<L: Llm> OverseerBackend<L> {
@@ -102,6 +160,8 @@ impl<L: Llm> OverseerBackend<L> {
             cards: std::collections::HashMap::new(),
             effect_sink: None,
             config_cold_snapshot,
+            query_snapshots: Vec::new(),
+            response_seq: 0,
             max_tool_iters: 8, // 防 tool 循环死转
         };
         // 启动调度（concepts §1a 兜底覆盖）：TimerWheel 不 replay，
@@ -173,6 +233,9 @@ impl<L: Llm> OverseerBackend<L> {
             }
         }
         let old = std::mem::replace(&mut self.config, new);
+        // 一次成功写入使相交路径的 query 快照失效（docs/config.md §快照有效性；
+        // 统一管道单点——LLM/CLI/面板/外部载入全部经此，无关路径不受影响）
+        self.query_snapshots.retain(|r| !paths_intersect(&r.path, path));
         // 热应用：filter 重建（其余字段每轮现读/经 effective_* 出口现取，天然热）
         if self.config.filter_strategy != old.filter_strategy {
             self.filter = crate::filter::by_name(&self.config.filter_strategy);
@@ -199,6 +262,242 @@ impl<L: Llm> OverseerBackend<L> {
             .collect()
     }
 
+    // ── edit_config 三 action（docs/config.md §edit_config：单工具、显式动作、渐进披露）──
+
+    /// 响应体积护栏（docs/config.md §响应体积护栏）：聚合结果 UTF-8 JSON ≤ 1 KiB；
+    /// 不截断、不自动缩小，错误说明实际大小、上限与收窄方向。single_leaf 例外直返。
+    fn guard_1k(&self, out: Value, single_leaf: bool, hint: &str) -> Value {
+        if single_leaf {
+            return out;
+        }
+        let size = out.to_string().len();
+        if size > 1024 {
+            json!({
+                "ok": false,
+                "error": format!("结果 {size} 字节超上限 1 KiB：{hint}")
+            })
+        } else {
+            out
+        }
+    }
+
+    /// grep：Rust regex 搜 LLM 可见节点的 path 与中文 desc；返回 path+type+desc
+    /// （不返回 value），按 path 字典序；合法 regex 无匹配 = 成功空数组
+    fn edit_config_grep(&self, args: &Value) -> (Value, Vec<Effect>) {
+        let Some(pattern) = args.get("pattern").and_then(Value::as_str) else {
+            return (json!({ "ok": false, "error": "grep 需要 pattern（string）" }), vec![]);
+        };
+        let re = match regex::Regex::new(pattern) {
+            Ok(r) => r,
+            Err(e) => return (json!({ "ok": false, "error": format!("regex 非法：{e}") }), vec![]),
+        };
+        let nodes = crate::config::reflect::config_nodes_llm(&self.config);
+        let matches: Vec<Value> = nodes
+            .iter()
+            .filter(|n| re.is_match(&n.path) || n.desc.as_deref().is_some_and(|d| re.is_match(d)))
+            .map(|n| {
+                json!({
+                    "path": n.path,
+                    "type": node_type_name(&n.ty),
+                    "desc": n.desc,
+                })
+            })
+            .collect();
+        let out = self.guard_1k(
+            json!({ "ok": true, "matches": matches }),
+            false,
+            "收窄 pattern（更具体的关键词或内联 flag，如 (?i)timer）",
+        );
+        (out, vec![])
+    }
+
+    /// query：精确 path 查一个节点，统一 node + children；叶子直查与容器
+    /// view=object 携带完整当前值 → 留快照（关联 tool_call_id 与 response 序号）
+    fn edit_config_query(&mut self, args: &Value, call_id: &str) -> (Value, Vec<Effect>) {
+        let Some(path) = args.get("path").and_then(Value::as_str) else {
+            return (json!({ "ok": false, "error": "query 需要 path（精确点分路径）" }), vec![]);
+        };
+        if !crate::config::meta::llm_visible(path) {
+            return (
+                json!({ "ok": false, "error": format!("路径 '{path}' 不可访问（no_llm_visible 子树）") }),
+                vec![],
+            );
+        }
+        let nodes = crate::config::reflect::config_nodes_llm(&self.config);
+        let Some(node) = nodes.iter().find(|n| n.path == path) else {
+            return (
+                json!({ "ok": false, "error": format!("未知 path：'{path}'（先 grep 定位，再精确 query）") }),
+                vec![],
+            );
+        };
+        let is_container = matches!(
+            node.ty,
+            crate::config::reflect::NodeType::Object | crate::config::reflect::NodeType::Map
+        );
+        let view = args.get("view").and_then(Value::as_str);
+        enum QView {
+            Children,
+            Object,
+        }
+        let qview = match view {
+            None | Some("children") => QView::Children,
+            Some("object") => QView::Object,
+            Some(other) => {
+                return (
+                    json!({ "ok": false, "error": format!("非法 view：'{other}'（合法：children/object）") }),
+                    vec![],
+                );
+            }
+        };
+        // 待重启 msg（docs/config.md §热/冷语义：query 到待重启变更的具体值时如实说明）
+        let pending_msg = |p: &str| {
+            if self.restart_required().iter().any(|r| paths_intersect(r, p)) {
+                Some("已保存，重启应用后生效")
+            } else {
+                None
+            }
+        };
+        let msg = pending_msg(path);
+        let mut with_msg = |mut out: Value| {
+            if let Some(m) = msg {
+                out["msg"] = json!(m);
+            }
+            out
+        };
+        match (is_container, qview) {
+            (false, QView::Object) => (
+                json!({ "ok": false, "error": "view=object 仅适用于容器；叶子直接 query 即完整值" }),
+                vec![],
+            ),
+            (false, QView::Children) => {
+                // 叶子：node 带 value，children []；完整值 → 留快照
+                self.query_snapshots.push(QuerySnapshot {
+                    path: path.to_string(),
+                    tool_call_id: call_id.to_string(),
+                    seq: self.response_seq,
+                });
+                let out = json!({
+                    "ok": true,
+                    "node": { "path": path, "type": node_type_name(&node.ty), "desc": node.desc, "value": node.value },
+                    "children": [],
+                });
+                // 单叶子精确查询是体积护栏例外：完整直返不截断
+                (with_msg(out), vec![])
+            }
+            (true, QView::Children) => {
+                // 容器 children 视图：node + 直接 children（叶子 child 带 value，
+                // 容器 child 不递归携带 value）；导航视图，不产生快照
+                let prefix = format!("{path}.");
+                let children: Vec<Value> = nodes
+                    .iter()
+                    .filter(|n| {
+                        n.path.starts_with(&prefix) && !n.path[prefix.len()..].contains('.')
+                    })
+                    .map(|n| {
+                        let mut c = json!({
+                            "path": n.path,
+                            "type": node_type_name(&n.ty),
+                            "desc": n.desc,
+                        });
+                        if !matches!(
+                            n.ty,
+                            crate::config::reflect::NodeType::Object
+                                | crate::config::reflect::NodeType::Map
+                        ) {
+                            c["value"] = n.value.clone();
+                        }
+                        c
+                    })
+                    .collect();
+                let out = self.guard_1k(
+                    json!({
+                        "ok": true,
+                        "node": { "path": path, "type": node_type_name(&node.ty), "desc": node.desc },
+                        "children": children,
+                    }),
+                    false,
+                    "children 过多：对已定位的小 object 改用 view=object，或先 grep 收窄",
+                );
+                (with_msg(out), vec![])
+            }
+            (true, QView::Object) => {
+                // 容器 object 视图：完整当前 JSON，不返回 children；完整值 → 留快照
+                self.query_snapshots.push(QuerySnapshot {
+                    path: path.to_string(),
+                    tool_call_id: call_id.to_string(),
+                    seq: self.response_seq,
+                });
+                let out = self.guard_1k(
+                    json!({
+                        "ok": true,
+                        "node": { "path": path, "type": node_type_name(&node.ty), "desc": node.desc, "value": node.value },
+                    }),
+                    false,
+                    "object 过大：改 view=children 逐层导航，或对具体叶子精确 query",
+                );
+                (with_msg(out), vec![])
+            }
+        }
+    }
+
+    /// update：需更早 response 中仍有效的完整 query 快照；走统一修改管道
+    fn edit_config_update(&mut self, args: &Value) -> (Value, Vec<Effect>) {
+        let Some(path) = args.get("path").and_then(Value::as_str) else {
+            return (json!({ "ok": false, "error": "update 需要 path（精确点分路径）" }), vec![]);
+        };
+        if !crate::config::meta::llm_visible(path) {
+            return (
+                json!({ "ok": false, "error": format!("路径 '{path}' 不可访问（no_llm_visible 子树）") }),
+                vec![],
+            );
+        }
+        let Some(value) = args.get("value").cloned() else {
+            return (json!({ "ok": false, "error": "update 需要 value（JSON）" }), vec![]);
+        };
+        // path 存在性：静态注册节点，或可见 map 的已有 entry（新建 entry = 不存在 →
+        // 走完整 map update 协议，docs/config.md：不提供 add/delete action）
+        let exists = crate::config::meta::node_meta(path).is_some()
+            || crate::config::reflect::config_nodes_llm(&self.config)
+                .iter()
+                .any(|n| n.path == path);
+        if !exists {
+            return (
+                json!({ "ok": false, "error": format!("未知 path：'{path}'（新增 map entry 请 query(view=object) 读整池后 update 完整 map）") }),
+                vec![],
+            );
+        }
+        // 快照有效性（docs/config.md §query 快照有效性）：存在 r 满足
+        // r.path = P ∧ r.toolResultMessageId ∈ C ∧ r 来自更早 response ∧ 其后无相交成功写入
+        let ctx = self.harness.context.messages();
+        let valid = self.query_snapshots.iter().any(|r| {
+            r.path == path
+                && r.seq < self.response_seq
+                && ctx
+                    .iter()
+                    .any(|m| m.tool_call_id.as_deref() == Some(r.tool_call_id.as_str()))
+        });
+        if !valid {
+            return (
+                json!({ "ok": false, "error": "配置已变更或未读取完整当前值；请先 query" }),
+                vec![],
+            );
+        }
+        match self.apply_config_by_path(path, value) {
+            Ok(outcome) => {
+                let restart = outcome.restart_required.clone();
+                let mut r = json!({ "ok": true, "path": path });
+                if !restart.is_empty() {
+                    r["restartRequired"] = json!(restart);
+                    r["msg"] = json!("已保存，重启应用后生效");
+                } else {
+                    r["msg"] = json!("已生效");
+                }
+                (r, outcome.effects)
+            }
+            Err(e) => (json!({ "ok": false, "error": e }), vec![]),
+        }
+    }
+
     /// llm_changed 后由 server 重建具体 LlmBackend 注入（overseer 泛型擦除不认识它）
     pub fn replace_llm(&mut self, llm: L) {
         self.llm = llm;
@@ -206,9 +505,13 @@ impl<L: Llm> OverseerBackend<L> {
 
     /// 外部自动载入的应用（docs/config.md §外部文件自动载入）：与一次全文 update
     /// 相同的热应用——替换 live Config（read_only 运行时降级标记保留，不被文件覆盖）、
-    /// filter 按策略重建；冷字段 pending 由 restart_required() 按启动快照发散判定。
+    /// filter 按策略重建；冷字段 pending 由 restart_required() 按启动快照发散判定；
+    /// 与实际变更路径相交的 agent 已读快照标记 dirty。
     /// 返回 llm_changed（true 时调用方重建 LlmBackend 注入）。
     pub fn apply_external_config(&mut self, new_cfg: Config) -> bool {
+        let old_v = serde_json::to_value(&self.config).unwrap_or(Value::Null);
+        let new_v = serde_json::to_value(&new_cfg).unwrap_or(Value::Null);
+        let changed = diff_paths("", &old_v, &new_v);
         let old_llm = self.config.llm.clone();
         let old_filter = self.config.filter_strategy.clone();
         let read_only = self.config.read_only;
@@ -217,6 +520,8 @@ impl<L: Llm> OverseerBackend<L> {
         if self.config.filter_strategy != old_filter {
             self.filter = crate::filter::by_name(&self.config.filter_strategy);
         }
+        self.query_snapshots
+            .retain(|r| !changed.iter().any(|p| paths_intersect(&r.path, p)));
         self.config.llm != old_llm
     }
 
@@ -395,6 +700,7 @@ impl<L: Llm> OverseerBackend<L> {
         let tools = tool_set();
         let mut effects = vec![];
         for _ in 0..self.max_tool_iters {
+            self.response_seq += 1; // 每个 LLM response 一号（edit_config 快照的新旧判定）
             let mut request = Vec::with_capacity(self.harness.context.messages().len() + 2);
             request.push(ContextMessage::new(Role::System, head.clone(), ts));
             request.extend_from_slice(self.harness.context.messages());
@@ -1074,27 +1380,20 @@ impl<L: Llm> OverseerBackend<L> {
                 )
             }
             "edit_config" => {
-                let path = args.get("path").and_then(Value::as_str).unwrap_or("");
-                let Some(value) = args.get("value").cloned() else {
-                    return (json!({ "ok": false, "error": "path/value 都必传" }), vec![]);
-                };
-                // LLM 受限投影（docs/config.md §反射与消费者投影）：no_llm_visible
-                // 子树对 LLM tool 直接访问统一拒绝；本地 CLI/面板/持久化不受影响
-                if !crate::config::meta::llm_visible(path) {
-                    return (
-                        json!({ "ok": false, "error": format!("路径 '{path}' 不可访问（no_llm_visible 子树，不对 LLM 暴露）") }),
-                        vec![],
-                    );
-                }
-                match self.apply_config_by_path(path, value) {
-                    Ok(outcome) => {
-                        let mut r = json!({ "ok": true, "path": path });
-                        if !outcome.restart_required.is_empty() {
-                            r["restartRequired"] = json!(outcome.restart_required);
-                        }
-                        (r, outcome.effects)
+                // 单一 Config 工具，显式 action（docs/config.md §edit_config：
+                // 不以缺参、空值或失败写入切换模式；渐进披露，按需查）
+                let action = args.get("action").and_then(Value::as_str).unwrap_or("");
+                match action {
+                    "grep" => self.edit_config_grep(&args),
+                    "query" => self.edit_config_query(&args, &call.id),
+                    "update" => {
+                        let (r, e) = self.edit_config_update(&args);
+                        return (r, e);
                     }
-                    Err(e) => (json!({ "ok": false, "error": e }), vec![]),
+                    _ => (
+                        json!({ "ok": false, "error": format!("非法 action：'{action}'（合法：grep/query/update）") }),
+                        vec![],
+                    ),
                 }
             }
             other => (
@@ -2073,18 +2372,33 @@ mod tests {
 
     #[tokio::test]
     async fn edit_config_updates_and_persists() {
+        // 完整协议：query(view=object) 读整池 → 下一 response update 完整 map（docs/config.md）
         let mut ov = make_overseer("cfg");
-        let call = ToolCall {
-            id: "c1".into(),
+        let query = ToolCall {
+            id: "q1".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "query", "path": "kaomoji.user", "view": "object" }).to_string(),
+        };
+        let (qr, _) = ov.execute_tool(&query);
+        assert_eq!(qr["ok"], json!(true), "{qr}");
+        // query 的 tool result 入 Context（模拟 run_trigger 写回）+ 进入下一 response
+        ov.harness
+            .append_context(ContextMessage::tool_result("q1", qr.to_string(), 1))
+            .unwrap();
+        ov.response_seq += 1;
+        let update = ToolCall {
+            id: "u1".into(),
             name: "edit_config".into(),
             arguments: json!({
-                "path": "kaomoji.user.celebrate",
-                "value": { "face": "(≧▽≦)", "motion": "bounce" }
+                "action": "update",
+                "path": "kaomoji.user",
+                "value": { "celebrate": { "face": "(≧▽≦)", "motion": "bounce" } }
             })
             .to_string(),
         };
-        let (result, effects) = ov.execute_tool(&call);
-        assert_eq!(result["ok"], json!(true));
+        let (result, effects) = ov.execute_tool(&update);
+        assert_eq!(result["ok"], json!(true), "{result}");
+        assert_eq!(result["msg"], json!("已生效"));
         assert!(effects
             .iter()
             .any(|e| matches!(e, Effect::ConfigChanged { llm_changed: false })));
@@ -2093,6 +2407,117 @@ mod tests {
         let reloaded = Config::load_or_default(ov.harness.config_dir());
         assert_eq!(reloaded.kaomoji.user["celebrate"].motion, "bounce");
         let _ = std::fs::remove_dir_all(tmp_dir("cfg"));
+    }
+
+    #[tokio::test]
+    async fn edit_config_snapshot_gating() {
+        let mut ov = make_overseer("snap");
+        let upd = |id: &str| ToolCall {
+            id: id.into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "update", "path": "view_scale", "value": 0.7 }).to_string(),
+        };
+        // ① 无快照 → 拒绝
+        let (r, _) = ov.execute_tool(&upd("u1"));
+        assert_eq!(r["ok"], json!(false));
+        assert!(r["error"].as_str().unwrap().contains("请先 query"));
+        // ② query 留快照，但同 response（seq 未推进）→ 仍拒绝
+        let query = ToolCall {
+            id: "q1".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "query", "path": "view_scale" }).to_string(),
+        };
+        let (qr, _) = ov.execute_tool(&query);
+        assert_eq!(qr["ok"], json!(true));
+        assert_eq!(qr["node"]["value"], json!(1.0));
+        let (r2, _) = ov.execute_tool(&upd("u2"));
+        assert_eq!(r2["ok"], json!(false), "同 response 快照不算数");
+        // ③ result 入 Context + 下一 response → 放行
+        ov.harness
+            .append_context(ContextMessage::tool_result("q1", qr.to_string(), 1))
+            .unwrap();
+        ov.response_seq += 1;
+        let (r3, _) = ov.execute_tool(&upd("u3"));
+        assert_eq!(r3["ok"], json!(true), "{r3}");
+        assert_eq!(ov.config.view_scale, 0.7);
+        // ④ 成功写入使相交快照失效 → 再写被拒（需重新 query）
+        let (r4, _) = ov.execute_tool(&upd("u4"));
+        assert_eq!(r4["ok"], json!(false), "写入后快照已失效");
+        // ⑤ 快照的 message id 不在 Context（如 compression 摇掉）→ 拒绝
+        let query2 = ToolCall {
+            id: "q2".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "query", "path": "view_scale" }).to_string(),
+        };
+        let (_qr2, _) = ov.execute_tool(&query2);
+        ov.response_seq += 1; // q2 的 result 不入 Context
+        let (r5, _) = ov.execute_tool(&upd("u5"));
+        assert_eq!(r5["ok"], json!(false), "快照 message 不在 Context 应拒绝");
+        let _ = std::fs::remove_dir_all(tmp_dir("snap"));
+    }
+
+    #[tokio::test]
+    async fn edit_config_full_protocol_via_run_trigger() {
+        // 完整 agent 工具策略（docs/case-runner.md：先读后写必须走 run_trigger 完整链路——
+        // query result 写 Context tool result → 下一 response update 凭快照放行）
+        let agent = scripted(vec![
+            calls(vec![("edit_config", json!({ "action": "query", "path": "view_scale" }))]),
+            calls(vec![("edit_config", json!({ "action": "update", "path": "view_scale", "value": 0.5 }))]),
+            say("已调整缩放"),
+        ]);
+        let mut ov = make_overseer_with("proto", agent);
+        ov.enqueue(Role::User, "把缩放调到 0.5".into(), 1).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        assert_eq!(ov.config.view_scale, 0.5);
+        // Context 留痕：query 与 update 的 tool result 都在
+        let msgs = ov.harness.context.messages();
+        let results: Vec<&str> = msgs.iter()
+            .filter(|m| m.role == Role::Tool)
+            .filter_map(|m| m.content.as_deref()).collect();
+        assert!(results.iter().any(|c| c.contains("\"value\":1")), "{results:?}");
+        assert!(results.iter().any(|c| c.contains("已生效")), "{results:?}");
+        let _ = std::fs::remove_dir_all(tmp_dir("proto"));
+    }
+
+    #[tokio::test]
+    async fn edit_config_grep_and_query_views() {
+        let mut ov = make_overseer("views");
+        // grep：命中 path 与中文 desc；按 path 排序；不返回 value
+        let grep = ToolCall {
+            id: "g1".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "grep", "pattern": "badge|缩放" }).to_string(),
+        };
+        let (g, _) = ov.execute_tool(&grep);
+        assert_eq!(g["ok"], json!(true), "{g}");
+        let paths: Vec<&str> = g["matches"].as_array().unwrap().iter()
+            .map(|m| m["path"].as_str().unwrap()).collect();
+        assert!(paths.contains(&"badge_style") && paths.contains(&"badge_side") && paths.contains(&"view_scale"), "{paths:?}");
+        assert!(g["matches"][0].get("value").is_none(), "grep 不返回 value");
+        // 不可见子树不进 grep 结果
+        assert!(!paths.iter().any(|p| p.starts_with("llm")), "{paths:?}");
+        // grep 无匹配 = 成功空数组；非法 regex = 错误
+        let (g2, _) = ov.execute_tool(&ToolCall { id: "g2".into(), name: "edit_config".into(), arguments: json!({ "action": "grep", "pattern": "zzz-no-hit" }).to_string() });
+        assert_eq!(g2["matches"], json!([]));
+        let (g3, _) = ov.execute_tool(&ToolCall { id: "g3".into(), name: "edit_config".into(), arguments: json!({ "action": "grep", "pattern": "([" }).to_string() });
+        assert_eq!(g3["ok"], json!(false));
+        // query 容器 children 视图：叶子 child 带 value，容器 child 不带；不产生快照
+        let (qc, _) = ov.execute_tool(&ToolCall { id: "q1".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "timer" }).to_string() });
+        assert_eq!(qc["ok"], json!(true), "{qc}");
+        let kids = qc["children"].as_array().unwrap();
+        assert!(kids.iter().any(|k| k["path"] == "timer.interval_ms" && k["value"].is_number()));
+        // query 容器 view=object：完整 JSON 无 children + 留快照
+        let (qo, _) = ov.execute_tool(&ToolCall { id: "q2".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "kaomoji.system", "view": "object" }).to_string() });
+        assert_eq!(qo["ok"], json!(true), "{qo}");
+        assert!(qo["node"]["value"]["idle"]["face"].is_string());
+        assert!(qo.get("children").is_none());
+        // 叶子 view=object → 明确报错
+        let (qe, _) = ov.execute_tool(&ToolCall { id: "q3".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "view_scale", "view": "object" }).to_string() });
+        assert_eq!(qe["ok"], json!(false));
+        // 未知 path → 报错（提示先 grep）
+        let (qu, _) = ov.execute_tool(&ToolCall { id: "q4".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "nope.x" }).to_string() });
+        assert!(qu["error"].as_str().unwrap().contains("未知 path"));
+        let _ = std::fs::remove_dir_all(tmp_dir("views"));
     }
 
     #[tokio::test]
@@ -2182,12 +2607,26 @@ mod tests {
             let call = ToolCall {
                 id: "c".into(),
                 name: "edit_config".into(),
-                arguments: json!({ "path": path, "value": "x" }).to_string(),
+                arguments: json!({ "action": "update", "path": path, "value": "x" }).to_string(),
             };
             let (r, _) = ov.execute_tool(&call);
             assert_eq!(r["ok"], json!(false), "{path} 应被拒绝");
             assert!(r["error"].as_str().unwrap().contains("不可访问"), "{path}");
         }
+        // query / grep 同样拒绝不可见子树
+        let (rq, _) = ov.execute_tool(&ToolCall {
+            id: "q".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "query", "path": "llm.active" }).to_string(),
+        });
+        assert!(rq["error"].as_str().unwrap().contains("不可访问"));
+        let (rg, _) = ov.execute_tool(&ToolCall {
+            id: "g".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "grep", "pattern": "active|provider|base_url" }).to_string(),
+        });
+        assert!(!rg["matches"].as_array().unwrap().iter()
+            .any(|m| m["path"].as_str().unwrap().starts_with("llm")));
         // 本地入口同 path 可达（投影不改真值）
         assert!(ov.apply_config_by_path("llm.active", json!("deepseek")).is_ok());
         let _ = std::fs::remove_dir_all(tmp_dir("proj"));

@@ -44,6 +44,9 @@ pub enum NodeType {
     Enum { options: Vec<String> },
     /// map<String, T>：节点本体 + 已有条目展开为子节点
     Map,
+    /// 静态 object 容器（仅 LLM 投影树产出；descriptor tree 为所有容器保留可定位节点，
+    /// docs/config.md §反射与消费者投影）
+    Object,
     /// 暂不支持渲染的类型（array 等）：只读展示 JSON
     Other,
 }
@@ -53,13 +56,30 @@ pub fn reflect<T: Serialize + schemars::JsonSchema>(value: &T) -> Vec<ConfigNode
     let root = schemars::schema_for!(T);
     let val = serde_json::to_value(value).unwrap_or(Value::Null);
     let mut out = Vec::new();
-    walk(&root.schema, &root.definitions, &val, String::new(), &mut out);
+    walk(&root.schema, &root.definitions, &val, String::new(), &mut out, false);
     out
 }
 
 /// Config 专用入口：reflect() + OPTIONS 注册表动态 enum 注入
 pub fn config_nodes(config: &Config) -> Vec<ConfigNode> {
     let mut nodes = reflect(config);
+    for (path, f) in OPTIONS {
+        if let Some(n) = nodes.iter_mut().find(|n| n.path == *path) {
+            n.ty = NodeType::Enum { options: f(config) };
+        }
+    }
+    nodes
+}
+
+/// LLM 受限投影（docs/config.md §反射与消费者投影）：完整 descriptor tree
+/// （静态 object / map / map entry 容器全部保留可定位节点）按 no_llm_visible
+/// 过滤——edit_config 的 grep / query 唯一数据源。本地 CLI/面板用 config_nodes。
+pub fn config_nodes_llm(config: &Config) -> Vec<ConfigNode> {
+    let root = schemars::schema_for!(Config);
+    let val = serde_json::to_value(config).unwrap_or(Value::Null);
+    let mut nodes = Vec::new();
+    walk(&root.schema, &root.definitions, &val, String::new(), &mut nodes, true);
+    nodes.retain(|n| crate::config::meta::llm_visible(&n.path));
     for (path, f) in OPTIONS {
         if let Some(n) = nodes.iter_mut().find(|n| n.path == *path) {
             n.ty = NodeType::Enum { options: f(config) };
@@ -117,6 +137,7 @@ fn walk(
     value: &Value,
     path: String,
     out: &mut Vec<ConfigNode>,
+    include_objects: bool,
 ) {
     // doc comment 挂在 allOf 包装层上， 目标层没有——两层都要找
     let desc = desc_of(schema).or_else(|| desc_of(resolve(schema, defs)));
@@ -125,11 +146,20 @@ fn walk(
         Some(InstanceType::Object) => {
             if let Some(obj) = &schema.object {
                 if !obj.properties.is_empty() {
-                    // 嵌套 struct：不产节点，按 path 前缀递归（UI 按前缀分组）
+                    // 嵌套 struct：LLM 投影树保留容器节点（descriptor tree 全容器可定位），
+                    // 本地 UI 不产节点（按 path 前缀分组呈现，不改变 descriptor tree）
+                    if include_objects && !path.is_empty() {
+                        out.push(ConfigNode {
+                            path: path.clone(),
+                            ty: NodeType::Object,
+                            desc: desc.clone(),
+                            value: value.clone(),
+                        });
+                    }
                     for (name, sub) in &obj.properties {
                         let child_val = value.get(name).cloned().unwrap_or(Value::Null);
                         if let Schema::Object(sub_obj) = sub {
-                            walk(sub_obj, defs, &child_val, join(&path, name), out);
+                            walk(sub_obj, defs, &child_val, join(&path, name), out, include_objects);
                         }
                     }
                     return;
@@ -150,7 +180,7 @@ fn walk(
                         let mut keys: Vec<&String> = map.keys().collect();
                         keys.sort();
                         for k in keys {
-                            walk(es, defs, &map[k], join(&path, k), out);
+                            walk(es, defs, &map[k], join(&path, k), out, include_objects);
                         }
                     }
                     return;
