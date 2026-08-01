@@ -382,6 +382,40 @@ fn best_backup(dir: &Path, max_version: u32) -> Option<(u32, PathBuf)> {
     best
 }
 
+/// 只读加载预览（docs/config.md §外部文件自动载入）：
+/// 不备份、不写回、缺失不 bootstrap——只读解析 + 完整加载管线
+/// （migration → null 归一 → reconcile → serde 验证 → validate）。
+/// 错误原样返回：调用方保持 live Config 不变并在 UI 显示具体错误。
+pub fn preview(dir: &Path) -> Result<Config, String> {
+    let file = dir.join(CONFIG_FILE);
+    let raw = std::fs::read_to_string(&file)
+        .map_err(|_| "配置文件被移动或者删除".to_string())?;
+    let mut value: Value =
+        serde_json::from_str(&raw).map_err(|e| format!("config.json 无法解析（{e}）"))?;
+    normalize_nulls(&mut value);
+    let version = value
+        .get("version")
+        .and_then(Value::as_u64)
+        .map(|v| v as u32)
+        .unwrap_or(0);
+    match version.cmp(&CURRENT_VERSION) {
+        std::cmp::Ordering::Greater => {
+            return Err(format!(
+                "config v{version} 高于本 binary v{CURRENT_VERSION}，外部载入不降级"
+            ));
+        }
+        std::cmp::Ordering::Less => {
+            match MIGRATIONS.iter().find(|(r, _)| r.contains(&version)) {
+                Some((_, Migration::Transform(f))) => value = f(value),
+                Some((_, Migration::Default)) | None => {}
+            }
+        }
+        std::cmp::Ordering::Equal => {}
+    }
+    let mut report = Vec::new();
+    Ok(validate_and_repair(reconcile(value, &mut report)))
+}
+
 fn flush_report(lines: &[String]) {
     for l in lines {
         eprintln!("[config] {l}");
@@ -584,5 +618,34 @@ mod tests {
         assert_eq!(cfg.view_scale, 1.0);
         assert_eq!(cfg.timer_interval_ms, 60000);
         assert_eq!(cfg.llm.active, "debug");
+    }
+
+    #[test]
+    fn preview_readonly_pipeline() {
+        let dir = tmp();
+        // 缺失 → 具体错误，不 bootstrap
+        assert_eq!(preview(&dir).unwrap_err(), "配置文件被移动或者删除");
+        assert!(!dir.join(CONFIG_FILE).exists());
+        // 合法 v2 → 完整管线（reconcile 补 default），不写回（文件内容不变）
+        std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 2, "view_scale": 0.6}"#).unwrap();
+        let cfg = preview(&dir).unwrap();
+        assert_eq!(cfg.view_scale, 0.6);
+        assert_eq!(cfg.timer_interval_ms, 300_000); // reconcile 补 default
+        let disk = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
+        assert!(!disk.contains("timer_interval_ms")); // 不写回
+        // 旧版 v1 → migration 应用（kaomoji 两池化），同样不写回
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 1, "kaomoji": {"idle": {"face": "(´ω`)", "motion": "still"}}}"#,
+        )
+        .unwrap();
+        let cfg = preview(&dir).unwrap();
+        assert!(cfg.kaomoji.system.contains_key("notify"));
+        // 无法解析 → 具体错误
+        std::fs::write(dir.join(CONFIG_FILE), "not json{{{").unwrap();
+        assert!(preview(&dir).unwrap_err().contains("无法解析"));
+        // 更高版本 → 拒绝（不降级）
+        std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 99}"#).unwrap();
+        assert!(preview(&dir).unwrap_err().contains("不降级"));
     }
 }

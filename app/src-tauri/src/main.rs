@@ -116,10 +116,18 @@ async fn get_config(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
 async fn get_config_schema(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
-    Ok(json!({ "version": overseer_core::config::migrate::CURRENT_VERSION, "readOnly": ov.config.read_only, "nodes": overseer_core::config::reflect::config_nodes(&ov.config) }))
+    let restart = ov.restart_required();
+    let load_error = s.config_error().await;
+    Ok(json!({
+        "version": overseer_core::config::migrate::CURRENT_VERSION,
+        "readOnly": ov.config.read_only,
+        "restartRequired": restart,
+        "loadError": load_error,
+        "nodes": overseer_core::config::reflect::config_nodes(&ov.config),
+    }))
 }
 
-/// 设置面板改值（对齐 server post_config：apply + 广播 + restartRequired）
+/// 设置面板改值（对齐 server post_config：apply + 广播 + restartRequired + llm 重建）
 #[tauri::command]
 async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, value: Value) -> Result<Value, String> {
     let s = wait_state(&state)?;
@@ -127,11 +135,8 @@ async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, val
     match ov.apply_config_by_path(&path, value) {
         Ok(outcome) => {
             let restart = outcome.restart_required.clone();
-            let effects = outcome.effects;
             drop(ov);
-            for e in &effects {
-                s.broadcast_effect_json(overseer_core::server::effect_json(e)).await;
-            }
+            overseer_core::server::finish_config_outcome(&s, outcome).await;
             Ok(json!({ "ok": true, "restartRequired": restart }))
         }
         Err(e) => Ok(json!({ "ok": false, "error": e })),
@@ -217,6 +222,8 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
 
     spawn_timer_task(state.clone(), timer_tick, timer_batch);
     spawn_queue_consumer(state.clone());
+    // 外部文件自动载入（docs/config.md §外部文件自动载入）
+    overseer_core::server::spawn_config_watcher(state.clone(), overseer_core::paths::config_root());
 
     // 注入 Tauri managed state
     *state_mgr.0.lock().unwrap() = Some(state.clone());
@@ -251,7 +258,7 @@ mod ipc_tests {
         let dir = std::env::temp_dir().join(format!("overseer-ipc-test-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         let config = Config::load_or_default(&dir);
-        let harness = Harness::load(&dir, &dir, config.token_threshold, 0).unwrap();
+        let harness = Harness::load(&dir, &dir, config.effective_compression_limit().unwrap_or(usize::MAX), 0).unwrap();
         let backend = LlmBackend::from_config(&config.llm);
         let ov = OverseerBackend::new(harness, config, backend);
         let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));

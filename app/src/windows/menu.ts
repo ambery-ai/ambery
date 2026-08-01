@@ -19,6 +19,8 @@ interface ConfigNode {
 interface SchemaResp {
   version: number;
   readOnly: boolean;
+  restartRequired?: string[];
+  loadError?: string | null;
   nodes: ConfigNode[];
 }
 
@@ -42,6 +44,13 @@ export async function main() {
       await getCurrentWindow().hide();
     }
   };
+  // 外部自动载入 / 其他入口写入 → core 广播 config effect，面板重渲（错误横幅/值/pending 刷新）
+  if ("__TAURI_INTERNALS__" in window) {
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen("effect", (ev) => {
+      if ((ev.payload as { kind?: string })?.kind === "config") void render();
+    });
+  }
   await render();
 }
 
@@ -59,6 +68,20 @@ async function render() {
     body.insertAdjacentHTML(
       "beforeend",
       `<div class="warn">只读降级模式：备份文件加载中，修改被拒绝（docs/config.md）</div>`,
+    );
+  }
+  // 外部自动载入错误（docs/config.md §外部文件自动载入：保持 live Config，UI 显示具体错误）
+  if (resp.loadError) {
+    body.insertAdjacentHTML(
+      "beforeend",
+      `<div class="err">配置文件外部载入失败：${escapeHtml(resp.loadError)}（当前仍使用已加载配置；修复文件后自动重试）</div>`,
+    );
+  }
+  // 待重启状态（docs/config.md §待重启状态：保存值与运行值不同）
+  if (resp.restartRequired?.length) {
+    body.insertAdjacentHTML(
+      "beforeend",
+      `<div class="warn">以下字段已保存，重启应用后生效：${escapeHtml(resp.restartRequired.join(", "))}</div>`,
     );
   }
   // 按 path 前缀分组：顶层标量一组（__top），llm.* / kaomoji.* 各一组

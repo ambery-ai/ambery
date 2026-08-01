@@ -204,6 +204,22 @@ impl<L: Llm> OverseerBackend<L> {
         self.llm = llm;
     }
 
+    /// 外部自动载入的应用（docs/config.md §外部文件自动载入）：与一次全文 update
+    /// 相同的热应用——替换 live Config（read_only 运行时降级标记保留，不被文件覆盖）、
+    /// filter 按策略重建；冷字段 pending 由 restart_required() 按启动快照发散判定。
+    /// 返回 llm_changed（true 时调用方重建 LlmBackend 注入）。
+    pub fn apply_external_config(&mut self, new_cfg: Config) -> bool {
+        let old_llm = self.config.llm.clone();
+        let old_filter = self.config.filter_strategy.clone();
+        let read_only = self.config.read_only;
+        self.config = new_cfg;
+        self.config.read_only = read_only;
+        if self.config.filter_strategy != old_filter {
+            self.filter = crate::filter::by_name(&self.config.filter_strategy);
+        }
+        self.config.llm != old_llm
+    }
+
     /// 现拼 system prompt 请求头（concepts §12：Config 引用的各概念数据运行时拼装）
     /// = base_prompt（Config）+ AGENTS.md（Storage，热生效）+ kaomoji 表。
     /// 内容稳定、天然 cache 友好，不落 Queue（docs/storage.md）。

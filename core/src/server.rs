@@ -28,6 +28,9 @@ pub struct AppState {
     pending_notifications: Mutex<usize>,
     mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     send: Mutex<Option<EffectSender>>,
+    /// 外部自动载入的最近错误（docs/config.md §外部文件自动载入）：
+    /// 文件被移动/删除或加载失败时保持 live Config，错误在此暴露给反射 Config UI
+    config_error: Mutex<Option<String>>,
     /// Queue 放行信号（concepts §10c）：生产者入队后唤醒单消费者
     pub queue_notify: tokio::sync::Notify,
 }
@@ -42,6 +45,7 @@ impl AppState {
             pending_notifications: Mutex::new(0),
             mock_terminals,
             send: Mutex::new(None),
+            config_error: Mutex::new(None),
             queue_notify: tokio::sync::Notify::new(),
         }
     }
@@ -64,6 +68,8 @@ impl AppState {
     }
     pub(crate) fn mock_terminals(&self) -> &Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> { &self.mock_terminals }
     pub fn overseer(&self) -> &Mutex<OverseerBackend<LlmBackend>> { &self.overseer }
+    /// 外部自动载入的最近错误（反射 Config UI 显示用）
+    pub async fn config_error(&self) -> Option<String> { self.config_error.lock().await.clone() }
 }
 
 pub fn now_ms() -> i64 {
@@ -192,7 +198,81 @@ async fn get_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
 
 async fn get_config_schema(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let ov = s.overseer.lock().await;
-    Json(json!({ "version": crate::config::migrate::CURRENT_VERSION, "readOnly": ov.config.read_only, "nodes": crate::config::reflect::config_nodes(&ov.config) }))
+    let restart = ov.restart_required();
+    let load_error = s.config_error.lock().await.clone();
+    Json(json!({
+        "version": crate::config::migrate::CURRENT_VERSION,
+        "readOnly": ov.config.read_only,
+        "restartRequired": restart,
+        "loadError": load_error,
+        "nodes": crate::config::reflect::config_nodes(&ov.config),
+    }))
+}
+
+/// ConfigOutcome 应用收尾（统一管道热应用，docs/config.md §统一修改入口）：
+/// llm_changed → 重建 LlmBackend 注入（热字段立即生效）；effects 广播。
+pub async fn finish_config_outcome(s: &Arc<AppState>, outcome: crate::overseer::ConfigOutcome) {
+    if outcome.llm_changed {
+        let llm_cfg = { s.overseer.lock().await.config.llm.clone() };
+        let backend = LlmBackend::from_config(&llm_cfg);
+        s.overseer.lock().await.replace_llm(backend);
+    }
+    for e in outcome.effects {
+        s.broadcast_effect_json(effect_json(&e)).await;
+    }
+}
+
+/// 外部文件自动载入（docs/config.md §外部文件自动载入）：轮询 config.json。
+/// - 成功：与一次全文 update 完全相同的管线与热应用；冷字段 pending 按启动快照发散重算
+/// - 文件被移动/删除、读取/解析/校验失败：保持 live Config 不变，错误暴露给反射 UI；
+///   不自动重建默认文件或写回，后续检测到文件修复或重新出现时自动重试
+pub fn spawn_config_watcher(s: Arc<AppState>, dir: std::path::PathBuf) {
+    tokio::spawn(async move {
+        let file = dir.join(crate::config::CONFIG_FILE);
+        let stamp = || {
+            std::fs::metadata(&file)
+                .ok()
+                .and_then(|m| m.modified().ok().map(|t| (t, m.len())))
+        };
+        let mut last = stamp(); // 启动基线：不因启动本身触发重载
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(2000));
+        loop {
+            interval.tick().await;
+            let cur = stamp();
+            if cur == last {
+                continue;
+            }
+            last = cur;
+            match crate::config::migrate::preview(&dir) {
+                Ok(new_cfg) => {
+                    let mut ov = s.overseer.lock().await;
+                    if ov.config == new_cfg {
+                        // 内容无实际变化（mtime 抖动）；清错误状态即可
+                        let had_err = s.config_error.lock().await.take().is_some();
+                        drop(ov);
+                        if had_err {
+                            s.broadcast_effect_json(json!({ "kind": "config" })).await;
+                        }
+                        continue;
+                    }
+                    let llm_changed = ov.apply_external_config(new_cfg);
+                    *s.config_error.lock().await = None;
+                    drop(ov);
+                    if llm_changed {
+                        let llm_cfg = { s.overseer.lock().await.config.llm.clone() };
+                        let backend = LlmBackend::from_config(&llm_cfg);
+                        s.overseer.lock().await.replace_llm(backend);
+                    }
+                    s.broadcast_effect_json(json!({ "kind": "config" })).await;
+                }
+                Err(e) => {
+                    eprintln!("[config] 外部载入失败：{e}");
+                    *s.config_error.lock().await = Some(e);
+                    s.broadcast_effect_json(json!({ "kind": "config" })).await;
+                }
+            }
+        }
+    });
 }
 
 #[derive(Deserialize)]
@@ -204,7 +284,7 @@ async fn post_config(State(s): State<Arc<AppState>>, Json(body): Json<SetConfigB
         Ok(outcome) => {
             let restart = outcome.restart_required.clone();
             drop(ov);
-            for e in outcome.effects { s.broadcast_effect_json(effect_json(&e)).await; }
+            finish_config_outcome(&s, outcome).await;
             (StatusCode::OK, Json(json!({ "ok": true, "restartRequired": restart })))
         }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),

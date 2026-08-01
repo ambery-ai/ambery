@@ -127,6 +127,8 @@ async fn main() {
     state.wire_effect_sink().await;
     spawn_timer_task(state.clone(), tick_ms, timer_batch);
     spawn_queue_consumer(state.clone());
+    // 外部文件自动载入（docs/config.md §外部文件自动载入）
+    overseer_core::server::spawn_config_watcher(state.clone(), config_dir.clone());
     let app = router(state, tx_for_ws);
 
     let addr = "127.0.0.1:47600";
