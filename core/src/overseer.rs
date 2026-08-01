@@ -1046,6 +1046,14 @@ impl<L: Llm> OverseerBackend<L> {
                 let Some(value) = args.get("value").cloned() else {
                     return (json!({ "ok": false, "error": "path/value 都必传" }), vec![]);
                 };
+                // LLM 受限投影（docs/config.md §反射与消费者投影）：no_llm_visible
+                // 子树对 LLM tool 直接访问统一拒绝；本地 CLI/面板/持久化不受影响
+                if !crate::config::meta::llm_visible(path) {
+                    return (
+                        json!({ "ok": false, "error": format!("路径 '{path}' 不可访问（no_llm_visible 子树，不对 LLM 暴露）") }),
+                        vec![],
+                    );
+                }
                 match self.apply_config_by_path(path, value) {
                     Ok(outcome) => {
                         let mut r = json!({ "ok": true, "path": path });
@@ -2117,5 +2125,25 @@ mod tests {
         ov.config.read_only = true;
         assert!(ov.apply_config_by_path("compression_reserve_default", json!(1)).is_err());
         let _ = std::fs::remove_dir_all(tmp_dir("apply3"));
+    }
+
+    #[tokio::test]
+    async fn edit_config_rejects_no_llm_visible_subtree() {
+        // LLM 受限投影（docs/config.md）：llm 整棵子树对 edit_config 统一拒绝；
+        // 本地管道（apply_config_by_path = CLI/面板入口）不受投影限制
+        let mut ov = make_overseer("proj");
+        for path in ["llm.active", "llm.providers.deepseek.model", "llm"] {
+            let call = ToolCall {
+                id: "c".into(),
+                name: "edit_config".into(),
+                arguments: json!({ "path": path, "value": "x" }).to_string(),
+            };
+            let (r, _) = ov.execute_tool(&call);
+            assert_eq!(r["ok"], json!(false), "{path} 应被拒绝");
+            assert!(r["error"].as_str().unwrap().contains("不可访问"), "{path}");
+        }
+        // 本地入口同 path 可达（投影不改真值）
+        assert!(ov.apply_config_by_path("llm.active", json!("deepseek")).is_ok());
+        let _ = std::fs::remove_dir_all(tmp_dir("proj"));
     }
 }
