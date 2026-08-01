@@ -68,8 +68,9 @@ export class Autonomy {
   /** set_autonomy tool 语义（docs/autonomy.md）：once=true 按 MotionDef.durationMs 取 TTL
    *  （动画 CSS 仍循环，TTL 到期回落默认，由此收束为一次性动作）；与 ttlMs 互斥（core 校验） */
   setAutonomy(args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }) {
+    // 全空 = 立即清除（once 不是覆盖字段：仅 once 单传视同全空，docs/autonomy.md）
     const isClear =
-      (args.face === undefined && args.motion === undefined && !args.once) || args.ttlMs === 0;
+      (args.face === undefined && args.motion === undefined) || args.ttlMs === 0;
     if (isClear) {
       this.clearOverride();
       this.apply();

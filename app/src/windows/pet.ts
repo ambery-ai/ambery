@@ -45,7 +45,8 @@ export async function main() {
     : createBrowserAdapter(mount, view.el, view);
 
   // ── 尺寸控制器（docs/pet-window-size.md：纯函数，不读当前 OS 窗口大小） ──
-  const dpr = isTauri ? (window.devicePixelRatio || 1) : 1;
+  // dpr 现读（多屏不同 DPI：拖到别的显示器后换算不失真，#19 坐标契约）
+  const dpr = () => (isTauri ? (window.devicePixelRatio || 1) : 1);
   let scale = 1;
   let faceW = 0; // 未缩放 face 渲染宽度（Layer 1 测量层：只测 #face，不测 #view）
   let maxFaceW = MIN_FACE_W; // 系统池扫描 max + 余量（未缩放）
@@ -80,6 +81,21 @@ export async function main() {
     return { x: o.left + c.w / 2, y: o.top + c.h / 2 };
   };
 
+  /** 程序化移动抑制计数：锚定/拉回产生的 onMoved 不触发附属窗口藏显（M2：
+   *  onMoved 不分用户拖拽与程序化移动，表情变化引起的锚定会让 chat/cards 闪） */
+  let suppressMoveEvents = 0;
+  async function setPositionQuiet(x: number, y: number) {
+    suppressMoveEvents++;
+    try {
+      await adapter.setPosition(x, y);
+    } finally {
+      // onMoved 经 IPC 异步到达，窗口期后递减（用户拖拽是连续事件流，误抑一个无感）
+      setTimeout(() => {
+        suppressMoveEvents = Math.max(0, suppressMoveEvents - 1);
+      }, 300);
+    }
+  }
+
   /** 一个公式 → setSize + 中心锚定（入口 1/2/3 共用）。anchor=false 仅重设尺寸（init 时中心待推） */
   async function applySize(anchor: boolean) {
     const o = motionDef(curMotion).overflow;
@@ -89,15 +105,15 @@ export async function main() {
         `[pet] face 宽 ${faceW.toFixed(1)} 超 maxFaceWidth ${maxFaceW.toFixed(1)}（障碍区外，clip 风险）`,
       );
     }
-    await adapter.setSize(Math.ceil(sz.w * dpr), Math.ceil(sz.h * dpr));
+    await adapter.setSize(Math.ceil(sz.w * dpr()), Math.ceil(sz.h * dpr()));
     // view 在窗口内归位（CSS px）：上/左留出当前 motion 的溢出空间
     adapter.setOffset(o.top, o.left);
     if (anchor && petCenter) {
       // 原则① 中心不变：先定新 center = old center，再反推新左上角
       const off = centerOffset();
-      await adapter.setPosition(
-        Math.round(petCenter.x - off.x * dpr),
-        Math.round(petCenter.y - off.y * dpr),
+      await setPositionQuiet(
+        Math.round(petCenter.x - off.x * dpr()),
+        Math.round(petCenter.y - off.y * dpr()),
       );
     }
   }
@@ -106,7 +122,7 @@ export async function main() {
   async function derivePetCenter() {
     const pos = await adapter.getPosition();
     const off = centerOffset();
-    return { x: pos.x + off.x * dpr, y: pos.y + off.y * dpr };
+    return { x: pos.x + off.x * dpr(), y: pos.y + off.y * dpr() };
   }
 
   /** 障碍区注册（入口 5/6：只随 scale/系统池扫描/拖拽更新，不随状态抖动，原则③） */
@@ -114,8 +130,8 @@ export async function main() {
     if (!petCenter) return;
     const ob = obstacleSize(maxFaceW, scale);
     engine.registerPet(petCenter, {
-      w: Math.round(ob.w * dpr),
-      h: Math.round(ob.h * dpr),
+      w: Math.round(ob.w * dpr()),
+      h: Math.round(ob.h * dpr()),
     });
   };
 
@@ -163,9 +179,9 @@ export async function main() {
     if (clamped.x !== petCenter.x || clamped.y !== petCenter.y) {
       petCenter = clamped;
       const off = centerOffset();
-      await adapter.setPosition(
-        Math.round(clamped.x - off.x * dpr),
-        Math.round(clamped.y - off.y * dpr),
+      await setPositionQuiet(
+        Math.round(clamped.x - off.x * dpr()),
+        Math.round(clamped.y - off.y * dpr()),
       );
     }
     syncObstacle();
@@ -196,6 +212,7 @@ export async function main() {
     async function broadcastPosition() {
       petCenter = await derivePetCenter(); // 入口 4：drag 结束测 center
       syncObstacle();
+      if (suppressMoveEvents > 0) return; // 程序化移动：只更新 center/障碍区，不藏显
       emit("pet:moved", petCenter);
       onMove(petCenter);
     }
