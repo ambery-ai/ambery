@@ -14,7 +14,9 @@ pub struct ToolDef {
     pub parameters: Value,
 }
 
-/// Tool Set（concepts §10a）：ペット的权限边界，仅此四个
+/// Tool Set（concepts §10a）：ペット的权限边界，仅此九个
+/// （call_component / fetch_terminal / set_autonomy / edit_config /
+///   read_memory / write_memory / cron_create / cron_delete / sleep）
 pub fn tool_set() -> Vec<ToolDef> {
     vec![
         ToolDef {

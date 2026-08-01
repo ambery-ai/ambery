@@ -288,6 +288,19 @@ impl<L: Llm> OverseerBackend<L> {
         }
     }
 
+    /// query 快照入册（容量上限：超 64 条丢弃最旧——长会话无界增长保护）
+    fn push_snapshot(&mut self, path: &str, call_id: &str) {
+        const MAX_SNAPSHOTS: usize = 64;
+        if self.query_snapshots.len() >= MAX_SNAPSHOTS {
+            self.query_snapshots.drain(..self.query_snapshots.len() - MAX_SNAPSHOTS + 1);
+        }
+        self.query_snapshots.push(QuerySnapshot {
+            path: path.to_string(),
+            tool_call_id: call_id.to_string(),
+            seq: self.response_seq,
+        });
+    }
+
     /// grep：Rust regex 搜 LLM 可见节点的 path 与中文 desc；返回 path+type+desc
     /// （不返回 value），按 path 字典序；合法 regex 无匹配 = 成功空数组
     fn edit_config_grep(&self, args: &Value) -> (Value, Vec<Effect>) {
@@ -378,11 +391,7 @@ impl<L: Llm> OverseerBackend<L> {
             ),
             (false, QView::Children) => {
                 // 叶子：node 带 value，children []；完整值 → 留快照
-                self.query_snapshots.push(QuerySnapshot {
-                    path: path.to_string(),
-                    tool_call_id: call_id.to_string(),
-                    seq: self.response_seq,
-                });
+                self.push_snapshot(path, call_id);
                 let out = json!({
                     "ok": true,
                     "node": { "path": path, "type": node_type_name(&node.ty), "desc": node.desc, "value": node.value },
@@ -428,12 +437,7 @@ impl<L: Llm> OverseerBackend<L> {
                 (with_msg(out), vec![])
             }
             (true, QView::Object) => {
-                // 容器 object 视图：完整当前 JSON，不返回 children；完整值 → 留快照
-                self.query_snapshots.push(QuerySnapshot {
-                    path: path.to_string(),
-                    tool_call_id: call_id.to_string(),
-                    seq: self.response_seq,
-                });
+                // 容器 object 视图：完整当前 JSON，不返回 children
                 let out = self.guard_1k(
                     json!({
                         "ok": true,
@@ -442,6 +446,11 @@ impl<L: Llm> OverseerBackend<L> {
                     false,
                     "object 过大：改 view=children 逐层导航，或对具体叶子精确 query",
                 );
+                // 快照只在完整值真正交付时入册（guard 拒了 = LLM 没拿到当前值，
+                // 不能让 update 门禁凭错误 result 放行）
+                if out["ok"] == json!(true) {
+                    self.push_snapshot(path, call_id);
+                }
                 (with_msg(out), vec![])
             }
         }
@@ -2542,6 +2551,43 @@ mod tests {
         let reloaded = Config::load_or_default(ov.harness.config_dir());
         assert_eq!(reloaded.kaomoji.user["celebrate"].motion, "bounce");
         let _ = std::fs::remove_dir_all(tmp_dir("cfg"));
+    }
+
+    #[tokio::test]
+    async fn edit_config_oversize_object_query_leaves_no_snapshot() {
+        // H1 回归：view=object 超 1KiB 护栏被拒时快照不入册——LLM 没拿到完整当前值，
+        // update 门禁不得凭错误 result 放行
+        let mut ov = make_overseer("oversize");
+        // 本地管道充气 user 池使 view=object 超 1KiB
+        for i in 0..8 {
+            ov.apply_config_by_path(
+                &format!("kaomoji.user.face-{i}"),
+                json!({ "face": format!("(≧▽≦){}", "长".repeat(30)), "motion": "bounce" }),
+            )
+            .unwrap();
+        }
+        let q = ToolCall {
+            id: "q1".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "query", "path": "kaomoji.user", "view": "object" }).to_string(),
+        };
+        let (qr, _) = ov.execute_tool(&q).await;
+        assert_eq!(qr["ok"], json!(false), "{qr}");
+        assert!(qr["error"].as_str().unwrap().contains("1 KiB"), "{qr}");
+        // 错误 result 入 Context + 下一 response：update 仍须被拒（无有效快照）
+        ov.harness
+            .append_context(ContextMessage::tool_result("q1", qr.to_string(), 1))
+            .unwrap();
+        ov.response_seq += 1;
+        let u = ToolCall {
+            id: "u1".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "update", "path": "kaomoji.user", "value": {} }).to_string(),
+        };
+        let (ur, _) = ov.execute_tool(&u).await;
+        assert_eq!(ur["ok"], json!(false), "{ur}");
+        assert!(ur["error"].as_str().unwrap().contains("请先 query"));
+        let _ = std::fs::remove_dir_all(tmp_dir("oversize"));
     }
 
     #[tokio::test]
