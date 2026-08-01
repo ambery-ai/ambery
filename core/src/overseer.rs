@@ -1493,14 +1493,17 @@ impl<L: Llm> OverseerBackend<L> {
                 // docs/cron.md §cron_create：schedule 二选一 + message
                 let schedule = args.get("schedule").cloned().unwrap_or(Value::Null);
                 let message = args.get("message").and_then(Value::as_str).unwrap_or("");
-                let parsed = if let Some(at) = schedule.get("at").and_then(Value::as_i64) {
-                    Some(crate::cron::Schedule::At(at))
-                } else {
-                    schedule
-                        .get("every_ms")
-                        .and_then(Value::as_u64)
-                        .map(crate::cron::Schedule::EveryMs)
-                };
+                let at = schedule.get("at").and_then(Value::as_i64);
+                let every = schedule.get("every_ms").and_then(Value::as_u64);
+                if at.is_some() && every.is_some() {
+                    return (
+                        json!({ "ok": false, "error": "schedule 二选一：at 与 every_ms 不能同时传" }),
+                        vec![],
+                    );
+                }
+                let parsed = at
+                    .map(crate::cron::Schedule::At)
+                    .or(every.map(crate::cron::Schedule::EveryMs));
                 let Some(schedule) = parsed else {
                     return (
                         json!({ "ok": false, "error": "schedule 二选一：{at: epoch_ms} 或 {every_ms: N}" }),

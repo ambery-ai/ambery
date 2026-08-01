@@ -11,6 +11,8 @@ use tokio::sync::oneshot;
 pub const CRON_FILE: &str = "cron.jsonl";
 /// 设计常量（docs/cron.md）：sleep 上限 5 分钟（Queue 串行点占用防呆）
 pub const MAX_SLEEP_MS: u64 = 300_000;
+/// 设计常量（docs/cron.md）：every_ms 上限 30 天（防溢出回绕成永久刷屏计划）
+pub const MAX_EVERY_MS: u64 = 2_592_000_000;
 
 /// 任务调度（docs/cron.md §任务表示）：二选一
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -78,6 +80,8 @@ pub struct CronScheduler {
     entries: Vec<CronEntry>,
     path: PathBuf,
     waiters: WaiterHandle,
+    /// 进程内递增计数（id 生成混入：create→delete→create 同毫秒不撞 id）
+    seq: u64,
 }
 
 impl CronScheduler {
@@ -104,6 +108,7 @@ impl CronScheduler {
             waiters: WaiterHandle {
                 waiters: Arc::new(Mutex::new(Vec::new())),
             },
+            seq: 0,
         })
     }
 
@@ -142,11 +147,17 @@ impl CronScheduler {
                 if ms == 0 {
                     return Err("schedule.every_ms 须 > 0".into());
                 }
-                now + ms as i64
+                if ms > MAX_EVERY_MS {
+                    return Err(format!(
+                        "schedule.every_ms 超上限 {MAX_EVERY_MS}（30 天，设计常量）"
+                    ));
+                }
+                now.saturating_add(ms as i64)
             }
         };
-        // id：时间戳 + 计划数短 hash（同 create 时刻幂等无要求，唯一即可）
-        let id = format!("{:08x}", fnv1a(format!("{now}:{}", self.entries.len()).as_bytes()));
+        // id：时间戳 + 进程内递增计数短 hash（create→delete→create 同毫秒不撞）
+        self.seq += 1;
+        let id = format!("{:08x}", fnv1a(format!("{now}:{}", self.seq).as_bytes()));
         let entry = CronEntry {
             id: id.clone(),
             schedule,
@@ -165,11 +176,9 @@ impl CronScheduler {
         Ok(id)
     }
 
-    /// 删除计划（tombstone）
+    /// 删除计划（tombstone）——先落盘后改内存（append-only 顺序不分叉）
     pub fn delete(&mut self, id: &str, now: i64) -> Result<(), String> {
-        let before = self.entries.len();
-        self.entries.retain(|e| e.id != id);
-        if self.entries.len() == before {
+        if !self.entries.iter().any(|e| e.id == id) {
             return Err(format!(
                 "计划 '{id}' 不存在（cron 无 list tool；id 见 create 返回或 cron.jsonl）"
             ));
@@ -179,30 +188,37 @@ impl CronScheduler {
             ts: now,
         })
         .map_err(|e| format!("cron.jsonl 写入失败：{e}"))?;
+        self.entries.retain(|e| e.id != id);
         Ok(())
     }
 
-    /// 取到期 message 并落 fire 行（every_ms 重排，at 完成态）
+    /// 取到期 message 并落 fire 行（every_ms 重排，at 完成态）——先落盘后改内存
     pub fn due(&mut self, now: i64) -> std::io::Result<Vec<String>> {
-        let mut fired: Vec<(String, String, Option<i64>)> = Vec::new(); // (id, message, new_next_due)
-        for e in &mut self.entries {
-            let Some(due) = e.next_due else { continue };
-            if due > now {
-                continue;
-            }
-            let new_next = match e.schedule {
-                Schedule::At(_) => None,
-                Schedule::EveryMs(ms) => Some(due + ms as i64),
-            };
-            e.next_due = new_next;
-            fired.push((e.id.clone(), e.message.clone(), new_next));
-        }
+        let fired: Vec<(String, String, Option<i64>)> = self
+            .entries
+            .iter()
+            .filter(|e| e.next_due.is_some_and(|d| d <= now))
+            .map(|e| {
+                let due = e.next_due.unwrap();
+                let new_next = match e.schedule {
+                    Schedule::At(_) => None,
+                    Schedule::EveryMs(ms) => Some(due.saturating_add(ms as i64)),
+                };
+                (e.id.clone(), e.message.clone(), new_next)
+            })
+            .collect();
+        // 先落盘（append-only：任一 fire 行失败则内存不动，下次 tick 重试）
         for (id, _, new_next) in &fired {
             self.append(&CronLine::Fire {
                 id: id.clone(),
                 next_due: *new_next,
                 ts: now,
             })?;
+        }
+        for (id, _, new_next) in &fired {
+            if let Some(e) = self.entries.iter_mut().find(|e| &e.id == id) {
+                e.next_due = *new_next;
+            }
         }
         Ok(fired.into_iter().map(|(_, m, _)| m).collect())
     }
@@ -292,8 +308,21 @@ mod tests {
         let mut s = CronScheduler::load(&dir).unwrap();
         assert!(s.create(Schedule::At(500), "x", 1000).is_err()); // at 已过
         assert!(s.create(Schedule::EveryMs(0), "x", 1000).is_err());
+        assert!(s.create(Schedule::EveryMs(MAX_EVERY_MS + 1), "x", 1000).is_err()); // 超 30 天上限
         assert!(s.create(Schedule::EveryMs(1), "  ", 1000).is_err()); // 空 message
         assert!(s.create(Schedule::EveryMs(1), "ok", 1000).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_ids_unique_on_create_delete_create_same_ms() {
+        // id 混入进程内递增计数：同毫秒 create→delete→create 不撞 id
+        let dir = tmp("ids");
+        let mut s = CronScheduler::load(&dir).unwrap();
+        let id1 = s.create(Schedule::EveryMs(60_000), "一", 1000).unwrap();
+        s.delete(&id1, 1000).unwrap();
+        let id2 = s.create(Schedule::EveryMs(60_000), "二", 1000).unwrap();
+        assert_ne!(id1, id2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
