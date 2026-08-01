@@ -819,7 +819,13 @@ impl<L: Llm> OverseerBackend<L> {
                 }
                 // 显式关闭（持续管理协议，docs/components.md）：action="close" 只需合法 id，
                 // 不要求 type 必填字段（关闭卡片不需要内容）
-                if spec.get("action").and_then(Value::as_str) == Some("close") {
+                // #23 两级兼容：LLM 有时把 action 放在 args 顶层（与 spec 并列），
+                // spec 内查不到时回退 args 顶层，否则 close 会被当成空 update 渲染空卡
+                let action = spec
+                    .get("action")
+                    .or_else(|| args.get("action"))
+                    .and_then(Value::as_str);
+                if action == Some("close") {
                     let ts = crate::server::now_ms();
                     if let Some(meta) = self.cards.remove(&id) {
                         // closed_by_agent 生命周期事件（一行，进 EventBuffer 静默簿记）
@@ -1596,6 +1602,30 @@ mod tests {
         assert!(events.iter().any(|l| l.starts_with("card created: todobox「t」(todo-1) @ ") && l.ends_with(", → 存活 1")), "created 事件: {events:?}");
         assert!(events.iter().any(|l| l.starts_with("card closed: todobox「t」(todo-1), ") && l.contains(" / ") && l.ends_with(", → 存活 0")), "closed 事件: {events:?}");
         let _ = std::fs::remove_dir_all(tmp_dir("cmp-mgmt"));
+    }
+
+    #[tokio::test]
+    async fn call_component_close_action_outside_spec() {
+        // #23：LLM 把 action="close" 放在 args 顶层（与 spec 并列）时，
+        // 回退识别为 close，而不是当成空 update 渲染空卡
+        let mut ov = make_overseer("cmp-close-outside");
+        let create = crate::context::ToolCall {
+            id: "c1".into(),
+            name: "call_component".into(),
+            arguments: json!({"spec": {"id": "demo_line", "type": "text_card", "title": "t", "text": "x"}}).to_string(),
+        };
+        let (r1, _) = ov.execute_tool(&create);
+        assert_eq!(r1["rendered"], json!("demo_line"));
+        let close = crate::context::ToolCall {
+            id: "c2".into(),
+            name: "call_component".into(),
+            arguments: json!({"action": "close", "spec": {"id": "demo_line"}}).to_string(),
+        };
+        let (r2, e2) = ov.execute_tool(&close);
+        assert_eq!(r2["closed"], json!("demo_line"));
+        assert!(matches!(e2[0], Effect::CloseComponent(_)));
+        assert!(!ov.cards.contains_key("demo_line"));
+        let _ = std::fs::remove_dir_all(tmp_dir("cmp-close-outside"));
     }
 
     #[tokio::test]

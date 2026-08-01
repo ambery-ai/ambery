@@ -228,6 +228,8 @@ pet 拖到桌面底部后右键唤出 chat，chat 没有出现在可见范围内
 
 **表现**: `execute_tool` 第 822 行 `spec.get("action")` 返回 None → 跳过 close 分支 → 落回 create/update 路径 → `spec` 只剩 `{id}` 无 type → 卡片已存在进 else 分支 → 返回 `{"updated":"demo_line"}` + `RenderComponent({"id":"demo_line"})` → 空 spec 渲染出空卡片窗口。
 
-## #23 action=close 在 spec 外面时被当成空 update，应两级兼容 (2026-07-31) — open
+## #23 action=close 在 spec 外面时被当成空 update，应两级兼容 (2026-07-31) — fixed
 
 LLM 有时将 `action: "close"` 放在 args 顶层（与 `spec` 并列），而 execute_tool 只在 `spec` 内部查找 action 字段，导致 close 被当成空 update 执行——空 spec 重渲染卡片窗口出现空白卡。修复：在 `spec.get("action")` 为 None 时 fallback 到 `args.get("action")`，两级兼容。case `close-action-outside-spec.case` 已复现。
+
+2026-08-02 修复——`execute_tool` 的 action 查找改为 `spec.get("action").or_else(|| args.get("action"))` 两级兼容；新增单测 `call_component_close_action_outside_spec` 固化回归。case 跑绿（args 顶层与 spec 内部两种写法均正确关闭），94 core 测试绿。
