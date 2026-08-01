@@ -17,14 +17,16 @@ html.browser body {
   background: #1e1e2e;
 }
 
-/* ── View（concepts §3）：球场圆形浮动窗口，窗内仅颜文字 ── */
+/* ── View（concepts §3）：球场圆形浮动窗口，窗内仅颜文字 ──
+   ⚠ CSS ↔ JS 一致性契约（docs/pet-window-size.md）：标注 token 被 JS 直接读取，
+   修改必须在 app/src/pet-size.ts 同步，否则窗口尺寸会错 */
 #view {
   --view-scale: 1;
   position: fixed;
-  min-width: calc(72px * var(--view-scale));
-  height: calc(40px * var(--view-scale));
-  padding: 0 calc(22px * var(--view-scale)); /* > 20px（半圆半径），文字落直线段不挤弧线 */
-  border-radius: calc(20px * var(--view-scale)); /* 球场圆形（pill） */
+  min-width: calc(72px * var(--view-scale)); /* ← JS: minFaceW 基底 */
+  height: calc(80px * var(--view-scale)); /* ← JS: baselineH 基底 */
+  padding: 0 calc(22px * var(--view-scale)); /* ← JS: padLR 基底（22×2） */
+  border-radius: calc(40px * var(--view-scale)); /* 球场圆形（pill）= height/2 */
   background: rgba(255, 255, 255, 0.92);
   display: flex;
   align-items: center;
@@ -37,8 +39,9 @@ html.browser body {
 
 #face {
   font-size: calc(25px * var(--view-scale));
-  line-height: 1;
+  line-height: 1; /* ← JS: height 由 line-height=1 保证 */
   white-space: nowrap;
+  flex-shrink: 0; /* 必须：禁止被容器压缩，确保测量为自然宽度 */
   pointer-events: none;
 }
 

@@ -4,6 +4,8 @@
 export interface WindowAdapter {
   setSize(w: number, h: number): Promise<void>;
   setPosition(x: number, y: number): Promise<void>;
+  /** 当前窗口左上角（engine 帧：Tauri 物理 px / browser CSS px）——中心锚定的读取入口 */
+  getPosition(): Promise<{ x: number; y: number }>;
   setOffset(top: number, left: number): void;
   show(): Promise<void>;
   hide(): Promise<void>;
@@ -25,6 +27,10 @@ export async function createTauriAdapter(
     },
     async setPosition(x: number, y: number) {
       await win.setPosition(new PhysicalPosition(x, y));
+    },
+    async getPosition() {
+      const p = await win.outerPosition();
+      return { x: p.x, y: p.y };
     },
     setOffset(top: number, left: number) {
       viewEl.style.top = `${top}px`;
@@ -87,6 +93,10 @@ export function createBrowserAdapter(
     async setPosition(x: number, y: number) {
       wrapper.style.left = `${x}px`;
       wrapper.style.top = `${y}px`;
+    },
+    async getPosition() {
+      const r = wrapper.getBoundingClientRect();
+      return { x: r.left, y: r.top };
     },
     async show() { wrapper.style.display = ""; overlay.style.display = ""; overlay.style.borderColor = "red"; },
     async hide() { wrapper.style.display = "none"; overlay.style.display = "none"; overlay.style.borderColor = "lime"; },

@@ -1,7 +1,9 @@
 // Pet 窗口入口（docs/multi-window.md）：ペット + Autonomy + 位置广播 + 动画窗口自适应
+// 窗口尺寸走 docs/pet-window-size.md：纯函数公式 + 六入口 + 中心锚定（钉基准中心，非窗口几何中心）
 import { Autonomy } from "../autonomy";
-import { BrowserMockBridge, createBridge, type Motion } from "../bridge";
-import { ANIM_BOTTOM, ANIM_LEFT, ANIM_RIGHT, ANIM_TOP, motionDef } from "../motions";
+import { BrowserMockBridge, createBridge, type AppConfig, type Motion } from "../bridge";
+import { motionDef } from "../motions";
+import { contextSize, MAX_FACE_MARGIN, MIN_FACE_W, obstacleSize, windowSize } from "../pet-size";
 import { engine, setupServer } from "../positioning/tauri-server";
 import { View } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
@@ -10,12 +12,10 @@ export async function main() {
   if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("browser");
 
   const bridge = await createBridge();
-  bridge.getConfig().then((cfg) => {
-    document.getElementById("view")!.style.setProperty("--view-scale", String(cfg.viewScale ?? 1));
-  });
 
   const mount = document.getElementById("app")!;
   const view = new View(mount);
+  const faceEl = document.getElementById("face")!;
 
   // #5 pet 未读角标（spec：默认纯数字、容器内右上；样式/方位走 Config）
   const badge = document.createElement("div");
@@ -27,11 +27,7 @@ export async function main() {
       ? `${base}background:#f38ba8;color:#fff;border-radius:10px;padding:1px 6px;`
       : `${base}color:#f38ba8;`;
   };
-  applyBadgeStyle("number", "right"); // 默认（Config 加载后覆盖）
   view.el.appendChild(badge);
-  bridge.getConfig().then((cfg) => {
-    applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right");
-  });
   let unreadCount = 0;
   bridge.onContextChanged((msgs) => {
     const userMsgs = msgs.filter(m => m.role === "user").length;
@@ -48,32 +44,143 @@ export async function main() {
     ? await createTauriAdapter(view.el, window.devicePixelRatio || 1)
     : createBrowserAdapter(mount, view.el, view);
 
-  // ── 初始测量 & 动画 ──
+  // ── 尺寸控制器（docs/pet-window-size.md：纯函数，不读当前 OS 窗口大小） ──
   const dpr = isTauri ? (window.devicePixelRatio || 1) : 1;
-  const r = view.el.getBoundingClientRect();
-  let baseW = Math.ceil(r.width * dpr);
-  let baseH = Math.ceil(r.height * dpr);
-  await adapter.setSize(baseW, baseH);
-  adapter.setOffset(0, 0);
+  let scale = 1;
+  let faceW = 0; // 未缩放 face 渲染宽度（Layer 1 测量层：只测 #face，不测 #view）
+  let maxFaceW = MIN_FACE_W; // 系统池扫描 max + 余量（未缩放）
+  let curMotion: Motion = "still";
+  /** 基准中心（engine 帧：Tauri 物理 px / browser CSS px）。动画不改中心（原则⑦）：
+   *  拖拽、附属窗口跟随、障碍区定位与边界校验始终使用同一个中心 */
+  let petCenter: { x: number; y: number } | null = null;
 
-  // Motion 预留全部从注册表扫描（docs/pet-window-size.md：不硬编码）
-  const ANIM_H = Math.ceil((ANIM_TOP + ANIM_BOTTOM) * dpr); // 纵向最大预留
-  const ANIM_W = Math.ceil((ANIM_LEFT + ANIM_RIGHT) * dpr); // 横向最大预留
+  /** 入口 1 测量：#face 当前渲染宽度 ÷ scale 还原为未缩放值（公式输入是未缩放宽度） */
+  const measureFaceW = () => faceEl.getBoundingClientRect().width / scale;
 
-  function checkOverflow(label: string, h: number, w: number) {
-    if (h > ANIM_H) console.warn(`[pet] ${label} h overflow: ${h} > ${ANIM_H}`);
-    if (w > ANIM_W) console.warn(`[pet] ${label} w overflow: ${w} > ${ANIM_W}`);
+  /** 系统池扫描取 max + 余量（maxFaceWidth 唯一来源；只扫系统池，docs/config.md §表情池） */
+  function scanMaxFaceW(cfg: AppConfig): number {
+    const probe = document.createElement("span");
+    probe.style.cssText =
+      "position:absolute;visibility:hidden;white-space:nowrap;line-height:1;";
+    probe.style.fontSize = getComputedStyle(faceEl).fontSize; // 与 #face 同字体同缩放
+    document.body.appendChild(probe);
+    let max = 0;
+    for (const entry of Object.values(cfg.kaomoji.system)) {
+      probe.textContent = entry.face;
+      max = Math.max(max, probe.getBoundingClientRect().width);
+    }
+    probe.remove();
+    return max / scale + MAX_FACE_MARGIN;
   }
 
-  let adjustWindowForMotion = async (motion: Motion) => {
-    const o = motionDef(motion).overflow;
-    const addW = Math.ceil((o.left + o.right) * dpr);
-    const addH = Math.ceil((o.top + o.bottom) * dpr);
-    checkOverflow(motion, addH, addW);
-    await adapter.setSize(baseW + addW, baseH + addH);
-    // setOffset 是 CSS px（窗口内 view 归位）：上/左溢出量即偏移量
-    adapter.setOffset(o.top, o.left);
+  /** 基准中心在窗口内的偏移（CSS px）：view 归位于 motion 上/左溢出之后 */
+  const centerOffset = () => {
+    const o = motionDef(curMotion).overflow;
+    const c = contextSize(faceW, scale);
+    return { x: o.left + c.w / 2, y: o.top + c.h / 2 };
   };
+
+  /** 一个公式 → setSize + 中心锚定（入口 1/2/3 共用）。anchor=false 仅重设尺寸（init 时中心待推） */
+  async function applySize(anchor: boolean) {
+    const o = motionDef(curMotion).overflow;
+    const sz = windowSize(faceW, scale, o);
+    if (faceW > maxFaceW) {
+      console.warn(
+        `[pet] face 宽 ${faceW.toFixed(1)} 超 maxFaceWidth ${maxFaceW.toFixed(1)}（障碍区外，clip 风险）`,
+      );
+    }
+    await adapter.setSize(Math.ceil(sz.w * dpr), Math.ceil(sz.h * dpr));
+    // view 在窗口内归位（CSS px）：上/左留出当前 motion 的溢出空间
+    adapter.setOffset(o.top, o.left);
+    if (anchor && petCenter) {
+      // 原则① 中心不变：先定新 center = old center，再反推新左上角
+      const off = centerOffset();
+      await adapter.setPosition(
+        Math.round(petCenter.x - off.x * dpr),
+        Math.round(petCenter.y - off.y * dpr),
+      );
+    }
+  }
+
+  /** 从窗口实际位置推基准中心（init 与入口 4 drag 结束） */
+  async function derivePetCenter() {
+    const pos = await adapter.getPosition();
+    const off = centerOffset();
+    return { x: pos.x + off.x * dpr, y: pos.y + off.y * dpr };
+  }
+
+  /** 障碍区注册（入口 5/6：只随 scale/系统池扫描/拖拽更新，不随状态抖动，原则③） */
+  const syncObstacle = () => {
+    if (!petCenter) return;
+    const ob = obstacleSize(maxFaceW, scale);
+    engine.registerPet(petCenter, {
+      w: Math.round(ob.w * dpr),
+      h: Math.round(ob.h * dpr),
+    });
+  };
+
+  /** 原则⑥ 中心不离屏：基准中心必须落在某个显示器可用工作区内；
+   *  越界拉回最近工作区的最近点（尺寸变化不参与此修正，仅拖拽结束校验） */
+  async function clampCenterToWorkArea(c: { x: number; y: number }) {
+    let areas: { x: number; y: number; width: number; height: number }[];
+    if (isTauri) {
+      const { availableMonitors } = await import("@tauri-apps/api/window");
+      const ms = await availableMonitors();
+      areas = ms.map((m) => ({
+        x: m.workArea.position.x,
+        y: m.workArea.position.y,
+        width: m.workArea.size.width,
+        height: m.workArea.size.height,
+      }));
+    } else {
+      // browser：DOM 世界 = 视口
+      areas = [{ x: 0, y: 0, width: window.innerWidth, height: window.innerHeight }];
+    }
+    const inside = areas.some(
+      (a) => c.x >= a.x && c.x < a.x + a.width && c.y >= a.y && c.y < a.y + a.height,
+    );
+    if (inside) return c;
+    let best = c;
+    let bestD = Infinity;
+    for (const a of areas) {
+      const p = {
+        x: Math.min(Math.max(c.x, a.x), a.x + a.width - 1),
+        y: Math.min(Math.max(c.y, a.y), a.y + a.height - 1),
+      };
+      const d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  /** 拖拽结束收束（入口 4 + 原则⑥）：测 center → 越界拉回 → 更新引擎障碍区 */
+  async function settleDragEnd() {
+    if (!petCenter) return;
+    const clamped = await clampCenterToWorkArea(petCenter);
+    if (clamped.x !== petCenter.x || clamped.y !== petCenter.y) {
+      petCenter = clamped;
+      const off = centerOffset();
+      await adapter.setPosition(
+        Math.round(clamped.x - off.x * dpr),
+        Math.round(clamped.y - off.y * dpr),
+      );
+    }
+    syncObstacle();
+  }
+
+  // ── 初始尺寸（config 加载即重测+setSize，#18 消时序空窗） ──
+  const cfg = await bridge.getConfig();
+  applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right");
+  scale = cfg.viewScale ?? 1;
+  view.el.style.setProperty("--view-scale", String(scale));
+  maxFaceW = scanMaxFaceW(cfg);
+  faceW = measureFaceW(); // face 未渲染（空）→ 0 → minFaceW 兜底
+  await applySize(false);
+  petCenter = await derivePetCenter();
+  syncObstacle();
 
   // ── Tauri 特有 ──
   if (isTauri) {
@@ -87,26 +194,24 @@ export async function main() {
     const { dragDebounce } = await import("../utils/debounce");
 
     async function broadcastPosition() {
-      const pos = await win.outerPosition();
-      const size = await win.outerSize();
-      const c = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 };
-      const vr = view.el.getBoundingClientRect();
-      // #19 坐标契约：petCenter 物理 → pet 尺寸必须同帧（DOM 值 ×dpr 才进 engine）
-      const dpr = window.devicePixelRatio || 1;
-      engine.registerPet(c, { w: Math.round(vr.width * dpr) + ANIM_W, h: Math.round(vr.height * dpr) + ANIM_H });
-      emit("pet:moved", c);
-      onMove(c);
+      petCenter = await derivePetCenter(); // 入口 4：drag 结束测 center
+      syncObstacle();
+      emit("pet:moved", petCenter);
+      onMove(petCenter);
     }
 
     const onMove = dragDebounce(
       // 系统藏（#12 定案：不动 engine，无快照）
       () => { emit("chat:hide"); emit("cards:hide"); },
       (latest: { x: number; y: number }) => {
-        const r = engine.restorePositions(latest);
-        if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
-        for (const w of r) {
-          if (w.id.startsWith("card-")) emit("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
-        }
+        // 拖拽结束收束：原则⑥ 越界拉回后再恢复附属窗口
+        void settleDragEnd().then(() => {
+          const r = engine.restorePositions(petCenter ?? latest);
+          if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
+          for (const w of r) {
+            if (w.id.startsWith("card-")) emit("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
+          }
+        });
       },
       200,
     );
@@ -125,10 +230,8 @@ export async function main() {
       }
       // 托盘回来：恢复位置广播（#12 定案 grill⑤——系统藏的系统恢复，各窗口自查 userClosed）
       void (async () => {
-        const pos = await win.outerPosition();
-        const size = await win.outerSize();
-        const c = { x: pos.x + size.width / 2, y: pos.y + size.height / 2 };
-        const r = engine.restorePositions(c);
+        petCenter = await derivePetCenter();
+        const r = engine.restorePositions(petCenter);
         if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
         for (const w of r) {
           if (w.id.startsWith("card-")) emit("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
@@ -197,9 +300,8 @@ export async function main() {
     const syncPanel = () => {
       const wr = view.el.parentElement!.getBoundingClientRect();
       const c = { x: wr.x + wr.width / 2, y: wr.y + wr.height / 2 };
-      const r = view.el.getBoundingClientRect();
-      panel.setPet(c, { w: Math.round(r.width), h: Math.round(r.height) });
-      engine.registerPet(c, { w: Math.round(r.width) + ANIM_W, h: Math.round(r.height) + ANIM_H });
+      panel.setPet(c, { w: Math.round(wr.width), h: Math.round(wr.height) });
+      syncObstacle();
     };
     view.el.addEventListener("view:drag-start", () => {
       // 系统藏（统一 API，无快照，#12 定案）；debug marks 单独处理
@@ -220,53 +322,56 @@ export async function main() {
       mgr.systemHideAll();
     });
     view.el.addEventListener("view:moved", () => {
-      const wr = view.el.parentElement!.getBoundingClientRect();
-      const petC = { x: wr.x + wr.width/2, y: wr.y + wr.height/2 };
-      syncPanel();
-      // 系统恢复（统一 API：systemRestore 判定 + showAt 定位，不再 toggle）
-      const restored = engine.restorePositions(petC);
-      for (const r of restored) {
-        if (r.id === "chat-panel" && chatPanel.systemRestore()) {
-          chatPanel.showAt(r.center);
+      void (async () => {
+        petCenter = await derivePetCenter();
+        await settleDragEnd(); // 原则⑥：拖拽结束越界拉回
+        const petC = petCenter;
+        syncPanel();
+        // 系统恢复（统一 API：systemRestore 判定 + showAt 定位，不再 toggle）
+        const restored = engine.restorePositions(petC);
+        for (const r of restored) {
+          if (r.id === "chat-panel" && chatPanel.systemRestore()) {
+            chatPanel.showAt(r.center);
+          }
         }
-      }
-      // card 跟随（browser DOM 卡片纳入 engine 语义，#12）
-      mgr.followRestore(restored);
-      mgr.systemShowAll();
-      // 恢复 debug marks
-      for (const mo of markOffsets) {
-        const mark = document.createElement("div");
-        mark.className = "dbg-place-mark";
-        mark.style.cssText = mo.css;
-        mark.style.left = `${petC.x + mo.dx - 75}px`;
-        mark.style.top = `${petC.y + mo.dy - 50}px`;
-        document.body.appendChild(mark);
-      }
+        // card 跟随（browser DOM 卡片纳入 engine 语义，#12）
+        mgr.followRestore(restored);
+        mgr.systemShowAll();
+        // 恢复 debug marks
+        for (const mo of markOffsets) {
+          const mark = document.createElement("div");
+          mark.className = "dbg-place-mark";
+          mark.style.cssText = mo.css;
+          mark.style.left = `${petC.x + mo.dx - 75}px`;
+          mark.style.top = `${petC.y + mo.dy - 50}px`;
+          document.body.appendChild(mark);
+        }
+      })();
     });
     syncPanel();
   }
 
-  // #18：motion 预留量（用于从现 rect 中扣掉动画增量，得回「内容基准」）——注册表驱动
-  const motionExtra = (m: Motion): { w: number; h: number } => {
-    const o = motionDef(m).overflow;
-    return { w: Math.ceil((o.left + o.right) * dpr), h: Math.ceil((o.top + o.bottom) * dpr) };
-  };
-  let curExtraW = 0, curExtraH = 0;
-
+  // ── Autonomy：expression 变化驱动尺寸重算（入口 1/3） ──
   const autonomy = new Autonomy(bridge, (e) => {
     view.setExpression(e);
-    const rr = view.el.getBoundingClientRect();
-    // #18：基准 = 现 rect − 当前 motion 预留——防止动画增量污染基准导致累积膨胀
-    // （原实现直接拿 rect 当基准，Tauri 窗口被 setSize 撑大后基准跟着涨）
-    baseW = Math.ceil(rr.width * dpr - curExtraW);
-    baseH = Math.ceil(rr.height * dpr - curExtraH);
-    const extra = motionExtra(e.motion);
-    curExtraW = extra.w;
-    curExtraH = extra.h;
-    adjustWindowForMotion(e.motion);
+    faceW = measureFaceW(); // 入口 1：face 变 → 重测自然宽度
+    curMotion = e.motion; // 入口 3：motion 变 → 换当前四向溢出
+    void applySize(true); // 中心锚定（petCenter 已就位）
   });
   bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args));
-  bridge.onConfigChanged?.((cfg) => autonomy.updateConfig(cfg));
+  bridge.onConfigChanged?.((cfg) => {
+    autonomy.updateConfig(cfg); // 表情解析热更新（key 消失回落在 deriveDefault）
+    applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right"); // view.md：badge 热更新
+    // docs/autonomy.md 字段表：系统池变更 → 立即重扫、重算 pet 尺寸与固定障碍区
+    maxFaceW = scanMaxFaceW(cfg);
+    const ns = cfg.viewScale ?? 1;
+    if (ns !== scale) {
+      scale = ns; // 入口 2/6：scale 变 → 重算 + 障碍区同步
+      view.el.style.setProperty("--view-scale", String(scale));
+    }
+    faceW = measureFaceW();
+    void applySize(true).then(() => syncObstacle());
+  });
 
   // 右键 → 通知 chat 窗口弹出（Tauri）
   if (isTauri) {

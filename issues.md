@@ -182,13 +182,15 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 
 2026-07-30 修复——取「留边」方案：cards-mode body padding 24px + card-window 测量计入 2×24px（阴影 6+20px 模糊区落在透明窗口内不被 clip）；视觉中心与 engine 位置自洽（winX+24+(pw−48)/2 = pos.x），布局不偏移。删除阴影方案不取（阴影是卡片层级的视觉区分手段）。
 
-## #18 pet 尺寸异常偏小、内容溢出窗口边界 (2026-07-30) — open
+## #18 pet 尺寸异常偏小、内容溢出窗口边界 (2026-07-30) — fixed
 
 多次 bounce/shake/float 动画切换后 pet 颜文字位置偏移累积，超出 View 窗口边界被 clip。**先复现**：连续触发多次动画切换（set_autonomy 反复改 motion），用 locate.ps1 观察窗口尺寸和位置是否偏离初始值，截图对比。再排查根因——可能是 `adjustWindowForMotion` 未正确复位窗口尺寸/offset，或动画 CSS transform 残留。禁止直接改代码。
 
 2026-07-30 修复——复现探针先证 offset/motion 逻辑无罪（bounce→18/float→10/shake→6/still→0 精确复位，after-ttl 回默认是正确推导）。根因收敛于 onExpression 每次拿「含动画增量的当前 rect」重测基准（Tauri setSize 撑大窗口后基准跟着涨 → 累积膨胀溢出）。修复：基准 = 现 rect − 当前 motion 预留（motionExtra：bounce=ANIM_H、float=10dpr、shake=ANIM_W、still=0），基准只反映内容大小。
 
 2026-07-31 reopen（打回）——动画溢出是表象，真因有两条：(1) CSS baseline 尺寸太小——`73b399f` 将 `#view` 从 144×80 缩为 72×40（golden ratio），viewScale=1.0 时 height=40px 放不下 font-size=25px 的 kaomoji（字高 25px + padding 几乎撑满 40px，动画稍一偏移就 clip）；(2) 三条尺寸路径未对齐——tauri.conf.json 种子 80×40、CSS `#view` 高 40px×viewScale、autonomy 回调 `getBoundingClientRect()` 重测→setSize，但 config 加载后只更新 `--view-scale` 不触发 re-measure+setSize，要等下次 motion 事件才矫正（locate.ps1 实锤 40→58 延迟跳变）。动画累积修复只是压住了症状，没治本。修复方向：恢复 CSS baseline 到合理尺寸（保证 height > font-size + 安全边距）+ config 加载后主动触发 re-measure+setSize 消除时序空窗。
+
+2026-08-02 修复——按 docs/pet-window-size.md 全量落地，累积基准 hack 整体废弃：(1) CSS baseline 40→80px + `#face` 补 `flex-shrink:0`（真因①）；(2) 三条尺寸路径对齐——tauri.conf 种子 116×80 / CSS baselineH 80 / JS 纯函数公式 `windowSize(faceW, scale, overflow)`（不读当前 OS 窗口大小），config 加载即重测+setSize 消时序空窗（真因②）；(3) 中心锚定钉**基准中心**（face 静止中心，动画不改中心）——setSize 后按 motion 偏移反推左上角；(4) 障碍区 = 系统池扫描 maxFaceWidth + MotionDef 四向扫描，一次注册只随 scale/池/拖拽更新；(5) 原则⑥中心不离屏——拖拽结束校验工作区，越界拉回最近点。devtools 实测：motion 四态尺寸/offset 与公式精确一致，动画中 face 中心偏离恰为 transform 极值（基准钉住），拖出视口拉回 (0,0)。
 
 ## #19 多屏不同 DPI 下窗口位置计算不一致，可能导致重叠 (2026-07-30) — fixed
 
