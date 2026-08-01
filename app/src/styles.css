@@ -42,19 +42,25 @@ html.browser body {
   pointer-events: none;
 }
 
-/* ── Autonomy motion（docs/autonomy.md） ── */
+/* ── Autonomy motion（docs/autonomy.md） ──
+   ⚠ CSS ↔ JS 一致性契约（docs/pet-window-size.md）：translateX/Y 极值与
+   animation-duration 必须与 app/src/motions.ts 的 MotionDef 同步——
+   极值 → overflow 四向预留；duration → durationMs（once:true 的 TTL）。 */
 @keyframes float {
+  /* MotionDef float: overflow.top=10, durationMs=4000 */
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
 }
 
 @keyframes bounce {
+  /* MotionDef bounce: overflow.top=18, durationMs=900 */
   0%, 100% { transform: translateY(0); }
   30% { transform: translateY(-18px); }
   60% { transform: translateY(0); }
 }
 
 @keyframes shake {
+  /* MotionDef shake: overflow.left=6, overflow.right=6, durationMs=400 */
   0%, 100% { transform: translateX(0); }
   25% { transform: translateX(-6px); }
   75% { transform: translateX(6px); }

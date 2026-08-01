@@ -1,6 +1,7 @@
 // Pet 窗口入口（docs/multi-window.md）：ペット + Autonomy + 位置广播 + 动画窗口自适应
 import { Autonomy } from "../autonomy";
 import { BrowserMockBridge, createBridge, type Motion } from "../bridge";
+import { ANIM_BOTTOM, ANIM_LEFT, ANIM_RIGHT, ANIM_TOP, motionDef } from "../motions";
 import { engine, setupServer } from "../positioning/tauri-server";
 import { View } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
@@ -55,8 +56,9 @@ export async function main() {
   await adapter.setSize(baseW, baseH);
   adapter.setOffset(0, 0);
 
-  const ANIM_H = Math.ceil(18 * dpr); // 纵向最大预留（bounce）
-  const ANIM_W = Math.ceil(12 * dpr); // 横向最大预留（shake）
+  // Motion 预留全部从注册表扫描（docs/pet-window-size.md：不硬编码）
+  const ANIM_H = Math.ceil((ANIM_TOP + ANIM_BOTTOM) * dpr); // 纵向最大预留
+  const ANIM_W = Math.ceil((ANIM_LEFT + ANIM_RIGHT) * dpr); // 横向最大预留
 
   function checkOverflow(label: string, h: number, w: number) {
     if (h > ANIM_H) console.warn(`[pet] ${label} h overflow: ${h} > ${ANIM_H}`);
@@ -64,12 +66,13 @@ export async function main() {
   }
 
   let adjustWindowForMotion = async (motion: Motion) => {
-    switch (motion) {
-      case "bounce": await adapter.setSize(baseW, baseH + ANIM_H); adapter.setOffset(18, 0); break;
-      case "float": { const h = Math.ceil(10 * dpr); checkOverflow("float", h, 0); await adapter.setSize(baseW, baseH + h); adapter.setOffset(10, 0); break; }
-      case "shake": { const w = ANIM_W; checkOverflow("shake", 0, w); await adapter.setSize(baseW + w, baseH); adapter.setOffset(0, 6); break; }
-      default: await adapter.setSize(baseW, baseH); adapter.setOffset(0, 0);
-    }
+    const o = motionDef(motion).overflow;
+    const addW = Math.ceil((o.left + o.right) * dpr);
+    const addH = Math.ceil((o.top + o.bottom) * dpr);
+    checkOverflow(motion, addH, addW);
+    await adapter.setSize(baseW + addW, baseH + addH);
+    // setOffset 是 CSS px（窗口内 view 归位）：上/左溢出量即偏移量
+    adapter.setOffset(o.top, o.left);
   };
 
   // ── Tauri 特有 ──
@@ -243,14 +246,10 @@ export async function main() {
     syncPanel();
   }
 
-  // #18：motion 预留量（用于从现 rect 中扣掉动画增量，得回「内容基准」）
+  // #18：motion 预留量（用于从现 rect 中扣掉动画增量，得回「内容基准」）——注册表驱动
   const motionExtra = (m: Motion): { w: number; h: number } => {
-    switch (m) {
-      case "bounce": return { w: 0, h: ANIM_H };
-      case "float": return { w: 0, h: Math.ceil(10 * dpr) };
-      case "shake": return { w: ANIM_W, h: 0 };
-      default: return { w: 0, h: 0 };
-    }
+    const o = motionDef(m).overflow;
+    return { w: Math.ceil((o.left + o.right) * dpr), h: Math.ceil((o.top + o.bottom) * dpr) };
   };
   let curExtraW = 0, curExtraH = 0;
 
