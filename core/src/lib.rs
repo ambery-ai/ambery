@@ -9,6 +9,7 @@ pub mod event_buffer;
 pub mod filter;
 pub mod lifecycle;
 pub mod llm;
+pub mod memory;
 #[cfg(feature = "mock")]
 pub mod mock;
 #[cfg(feature = "case-runner")]
@@ -151,6 +152,8 @@ pub struct Harness {
     pub last_usage: Option<crate::llm::Usage>,
     /// last_usage 落点时的 Context 消息数（#16 增量估算基准：其后新增 = est 增量）
     pub last_usage_msg_len: usize,
+    /// Memory（concepts §10f，docs/memory.md）：持久化理解 buffer 根管理器
+    pub memory: memory::Memory,
     store: JsonlStore,
     config_dir: std::path::PathBuf,
 }
@@ -214,6 +217,8 @@ impl Harness {
             std::fs::create_dir_all(config_dir)?;
             std::fs::write(agents_md_path, default_agents_md())?;
         }
+        // Memory 根 bootstrap（concepts §10f，docs/memory.md：storage/memory/ + 只读 AGENTS.md/index.md）
+        let memory = memory::Memory::bootstrap(dir)?;
         let mut h = Self {
             // Queue 不 replay：崩溃丢失未放行输入可接受（docs/storage.md 设计决定）
             queue: Queue::default(),
@@ -225,6 +230,7 @@ impl Harness {
             last_head,
             last_usage: None, // 重启 = None（#16：不背旧 session，首轮 est 兜底）
             last_usage_msg_len: 0,
+            memory,
             store,
             config_dir: config_dir.to_path_buf(),
         };

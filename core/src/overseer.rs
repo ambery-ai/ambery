@@ -1458,6 +1458,28 @@ impl<L: Llm> OverseerBackend<L> {
                     ),
                 }
             }
+            "read_memory" => {
+                // docs/memory.md：name 省略 = 读 index.md 导航首页
+                let name = args.get("name").and_then(Value::as_str);
+                match self.harness.memory.read(name) {
+                    Ok((name, content)) => (json!({ "ok": true, "name": name, "content": content }), vec![]),
+                    Err(e) => (json!({ "ok": false, "error": e }), vec![]),
+                }
+            }
+            "write_memory" => {
+                // docs/memory.md：新建或完整替换；必须附 description；index.md 自动重生成
+                let name = args.get("name").and_then(Value::as_str).unwrap_or("");
+                let Some(content) = args.get("content").and_then(Value::as_str) else {
+                    return (json!({ "ok": false, "error": "content 必填（完整替换，无局部 patch）" }), vec![]);
+                };
+                let Some(desc) = args.get("description").and_then(Value::as_str) else {
+                    return (json!({ "ok": false, "error": "description 必填（进 index.md）" }), vec![]);
+                };
+                match self.harness.memory.write(name, content, desc) {
+                    Ok(()) => (json!({ "ok": true, "name": name }), vec![]),
+                    Err(e) => (json!({ "ok": false, "error": e }), vec![]),
+                }
+            }
             other => (
                 json!({ "ok": false, "error": format!("unknown tool: {other}") }),
                 vec![],
@@ -2573,6 +2595,38 @@ mod tests {
         assert_eq!(last.content.as_deref(), Some("最终回复"));
         assert_eq!(counter.load(std::sync::atomic::Ordering::SeqCst), 3);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn memory_tools_round_trip_via_execute_tool() {
+        // read_memory/write_memory（docs/memory.md）：write 必附 description；
+        // 省略 name 读 index.md 导航；Memory 根在 storage 下持久化
+        let mut ov = make_overseer("memtool");
+        let w = ToolCall {
+            id: "w1".into(),
+            name: "write_memory".into(),
+            arguments: json!({ "name": "work-preferences", "content": "# 偏好\n简洁", "description": "用户的工作偏好" }).to_string(),
+        };
+        let (rw, _) = ov.execute_tool(&w);
+        assert_eq!(rw["ok"], json!(true), "{rw}");
+        // 缺 description → 拒绝
+        let w2 = ToolCall {
+            id: "w2".into(),
+            name: "write_memory".into(),
+            arguments: json!({ "name": "x-note", "content": "x" }).to_string(),
+        };
+        let (rw2, _) = ov.execute_tool(&w2);
+        assert_eq!(rw2["ok"], json!(false));
+        // 省略 name 读 index（含刚写入条目）
+        let r = ToolCall { id: "r1".into(), name: "read_memory".into(), arguments: json!({}).to_string() };
+        let (rr, _) = ov.execute_tool(&r);
+        assert_eq!(rr["ok"], json!(true));
+        assert!(rr["content"].as_str().unwrap().contains("work-preferences"));
+        // 读具体记忆
+        let r2 = ToolCall { id: "r2".into(), name: "read_memory".into(), arguments: json!({ "name": "work-preferences" }).to_string() };
+        let (rr2, _) = ov.execute_tool(&r2);
+        assert!(rr2["content"].as_str().unwrap().contains("简洁"));
+        let _ = std::fs::remove_dir_all(tmp_dir("memtool"));
     }
 
     #[tokio::test]

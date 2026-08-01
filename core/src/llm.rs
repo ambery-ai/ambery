@@ -129,6 +129,29 @@ pub fn tool_set() -> Vec<ToolDef> {
                 "required": ["action"]
             }),
         },
+        ToolDef {
+            name: "read_memory",
+            description: "读取持久化理解（Memory，跨 turn/压缩/重启保留）。name 省略 = 读 index.md 导航首页（全部记忆名称+描述）；index.md 与 AGENTS.md 可读不可写",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "记忆名（小写 kebab）；省略读 index.md" }
+                }
+            }),
+        },
+        ToolDef {
+            name: "write_memory",
+            description: "新建或完整替换一条持久化理解（Memory）。碎片化短小内容（≤4KiB）；必须附 description（进 index.md 汇总表）；无局部 patch，无删除（同名覆盖演进）",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "记忆名：小写字母开头，仅小写字母/数字/_/-" },
+                    "content": { "type": "string", "description": "完整内容（Markdown，≤4096 字节）" },
+                    "description": { "type": "string", "description": "一句描述（单行、不含 |，≤80 字符；进 index.md）" }
+                },
+                "required": ["name", "content", "description"]
+            }),
+        },
     ]
 }
 
