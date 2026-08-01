@@ -193,7 +193,18 @@ fn downgrade(dir: &Path, file_version: u32, raw: &str) -> Config {
         Some((_, bak_path)) => {
             report.push(format!("降级只读模式：加载备份 {}", bak_path.display()));
             let s = std::fs::read_to_string(&bak_path).unwrap_or_default();
-            let value: Value = serde_json::from_str(&s).unwrap_or_default();
+            let mut value: Value = serde_json::from_str(&s).unwrap_or_default();
+            normalize_nulls(&mut value);
+            // 备份是历史版本：先累计步进再 reconcile（否则扁平旧字段被当未知剔除，L1）
+            let bak_version = value
+                .get("version")
+                .and_then(Value::as_u64)
+                .map(|v| v as u32)
+                .unwrap_or(0);
+            if bak_version < CURRENT_VERSION {
+                value = migrate_steps(value, bak_version);
+                report.push(format!("备份 v{bak_version} → v{CURRENT_VERSION} 迁移（累计步进）"));
+            }
             let mut cfg = validate_and_repair(reconcile(value, &mut report));
             cfg.read_only = true; // 任何 save 报错（Config::save 检查）
             flush_report(&cfg.load_report);
@@ -283,12 +294,20 @@ fn reconcile_node(path: &str, v: &mut Value, default: &Value, report: &mut Vec<S
     };
     match kind {
         NodeKind::Leaf => {
-            let type_ok = matches!(
-                (&*v, default),
-                (Value::Bool(_), Value::Bool(_))
-                    | (Value::Number(_), Value::Number(_))
-                    | (Value::String(_), Value::String(_))
-            );
+            let type_ok = match (&*v, default) {
+                (Value::Bool(_), Value::Bool(_)) => true,
+                (Value::String(_), Value::String(_)) => true,
+                (Value::Number(a), Value::Number(b)) => {
+                    // default 是整数 → 值也须整数可表示（float 2.5 进 usize 字段
+                    // 会过不去 serde 爆整份回退；字段级 default 兜底才是设计语义，L2）
+                    if b.is_i64() || b.is_u64() {
+                        a.is_i64() || a.is_u64()
+                    } else {
+                        true
+                    }
+                }
+                _ => false,
+            };
             if !type_ok {
                 *v = default.clone();
                 report.push(format!("reconcile: 字段 {path} 缺失或非法，回退 default"));
@@ -612,6 +631,41 @@ mod tests {
         let dir = tmp();
         std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 99}"#).unwrap();
         load(&dir);
+    }
+
+    #[test]
+    fn downgrade_migrates_legacy_backup_before_reconcile() {
+        // L1：降级加载旧版备份时先累计步进——v1 备份的扁平 kaomoji 不被当未知剔除
+        let dir = tmp();
+        std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 99}"#).unwrap();
+        std::fs::create_dir_all(dir.join("config.bak")).unwrap();
+        std::fs::write(
+            dir.join("config.bak/config-v0001.json"),
+            r#"{"version": 1, "kaomoji": {"celebrate": {"face": "(≧▽≦)", "motion": "bounce"}},
+                "timer_interval_ms": 7000}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        assert!(cfg.read_only);
+        // 扁平 kaomoji 迁入 system 池 + 扁平 timer 迁入子树（两步都跑）
+        assert_eq!(cfg.kaomoji.system["celebrate"].face, "(≧▽≦)");
+        assert_eq!(cfg.timer.interval_ms, 7000);
+    }
+
+    #[test]
+    fn float_into_int_leaf_falls_back_to_field_default_not_whole_config() {
+        // L2：timer.batch = 2.5（float 进 usize 字段）→ 仅该字段回退 default，其他保留
+        let dir = tmp();
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 3, "timer": {"batch": 2.5, "interval_ms": 9000}, "view_scale": 0.7}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        assert_eq!(cfg.timer.batch, 2); // 病灶字段回退 default
+        assert_eq!(cfg.timer.interval_ms, 9000); // 其他保留
+        assert_eq!(cfg.view_scale, 0.7); // 整份不回退
+        assert!(cfg.load_report.iter().any(|l| l.contains("timer.batch")));
     }
 
     #[test]
