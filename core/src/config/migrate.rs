@@ -266,14 +266,9 @@ fn child_paths(path: &str) -> Vec<&'static str> {
     out
 }
 
-/// 动态 map key 的运行时 grammar 检查（docs/config.md §Config path grammar）
+/// 动态 map key 的运行时 grammar 检查（docs/config.md §Config path grammar，单源在 config.rs）
 fn valid_map_key(k: &str) -> bool {
-    let mut chars = k.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_lowercase() => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+    super::valid_dynamic_key(k)
 }
 
 fn reconcile_node(path: &str, v: &mut Value, default: &Value, report: &mut Vec<String>) {

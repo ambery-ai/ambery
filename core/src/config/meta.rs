@@ -69,13 +69,13 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "timer", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "timer.interval_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
     NodeMeta { path: "timer.stagger_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
-    NodeMeta { path: "timer.tick_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
-    NodeMeta { path: "timer.batch", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
+    NodeMeta { path: "timer.tick_ms", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(100.0), max: None }], no_llm_visible: false, cold: true },
+    NodeMeta { path: "timer.batch", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true },
     NodeMeta { path: "stop_hook_mode", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
-    NodeMeta { path: "max_tool_calls_in_one_response", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: true },
-    NodeMeta { path: "max_tool_calls_per_turn", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: true },
+    NodeMeta { path: "max_tool_calls_in_one_response", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: true, cold: true },
+    NodeMeta { path: "max_tool_calls_per_turn", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: true, cold: true },
     NodeMeta { path: "base_prompt", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
-    NodeMeta { path: "view_scale", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
+    NodeMeta { path: "view_scale", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(0.2), max: Some(4.0) }], no_llm_visible: false, cold: false },
     NodeMeta { path: "badge_style", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "badge_side", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false },
@@ -217,5 +217,32 @@ mod tests {
         c["kaomoji"]["user"] = serde_json::json!({"celebrate": {"face": "x", "motion": "bounce"}});
         let errs = validate_all(&c);
         assert!(errs.iter().any(|(p, _)| p == "kaomoji"));
+    }
+
+    #[test]
+    fn range_validators_enforced_on_update_and_load() {
+        // view_scale 越界 → update 校验拒绝（M3：热字段非法值直达前端链路被拦）
+        let mut c = cfg_json();
+        c["view_scale"] = serde_json::json!(0.0);
+        assert!(validate_for_update(&c, "view_scale").iter().any(|(p, _)| p == "view_scale"));
+        c["view_scale"] = serde_json::json!(0.5);
+        assert!(validate_for_update(&c, "view_scale").is_empty());
+        // timer.tick_ms=0 → load 全量校验捕获（防 tokio interval(0) panic）
+        let mut c2 = cfg_json();
+        c2["timer"]["tick_ms"] = serde_json::json!(0);
+        assert!(validate_all(&c2).iter().any(|(p, _)| p == "timer.tick_ms"));
+        // 预算字段下界
+        let mut c3 = cfg_json();
+        c3["max_tool_calls_per_turn"] = serde_json::json!(0);
+        assert!(validate_all(&c3).iter().any(|(p, _)| p == "max_tool_calls_per_turn"));
+    }
+
+    #[test]
+    fn pool_key_grammar_enforced() {
+        // L7：两池非法 key（含空格/大写/点）被 Func 校验捕获（写入路径同拦）
+        let mut c = cfg_json();
+        c["kaomoji"]["user"]["Bad Key!"] = serde_json::json!({"face": "x", "motion": "still"});
+        let errs = validate_for_update(&c, "kaomoji.user");
+        assert!(errs.iter().any(|(p, m)| p == "kaomoji" && m.contains("grammar")), "{errs:?}");
     }
 }

@@ -262,8 +262,20 @@ fn default_system_pool() -> std::collections::HashMap<String, KaomojiEntry> {
     system
 }
 
-/// 两池校验（docs/config.md §表情池，validate_kaomoji_pools 的两个不变量）：
-/// keys(system) ∩ keys(user) = ∅；{ idle, processing, notify } ⊆ keys(system) ∪ keys(user)。
+/// 动态 map key 的运行时 grammar 检查（docs/config.md §Config path grammar）：
+/// `^[a-z][a-z0-9_-]*$`——加载 reconcile、两池校验与写入管道共用同一份
+pub fn valid_dynamic_key(k: &str) -> bool {
+    let mut chars = k.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+/// 两池校验（docs/config.md §表情池，validate_kaomoji_pools 的两个不变量 +
+/// 动态 key grammar）：keys(system) ∩ keys(user) = ∅；{ idle, processing, notify }
+/// ⊆ keys(system) ∪ keys(user)；池内 key 全部符合 path grammar。
 /// 返回 message 列表（空 = 通过）；path 前缀由调用方补。
 pub fn validate_kaomoji_pools(pools: &KaomojiConfig) -> Vec<String> {
     let mut errors = Vec::new();
@@ -292,6 +304,20 @@ pub fn validate_kaomoji_pools(pools: &KaomojiConfig) -> Vec<String> {
                 .map(|s| s.to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
+        ));
+    }
+    let mut bad: Vec<_> = pools
+        .system
+        .keys()
+        .chain(pools.user.keys())
+        .filter(|k| !valid_dynamic_key(k))
+        .cloned()
+        .collect();
+    bad.sort();
+    if !bad.is_empty() {
+        errors.push(format!(
+            "表情 key 不符合 path grammar（小写字母开头，仅小写字母/数字/_/-）：{}",
+            bad.join(", ")
         ));
     }
     errors
