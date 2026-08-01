@@ -23,6 +23,8 @@ pub enum Effect {
         face: Option<String>,
         motion: Option<String>,
         ttl_ms: Option<u64>,
+        /// 一次播放收束（docs/autonomy.md）：前端按 MotionDef.durationMs 取 TTL；与 ttl_ms 互斥
+        once: bool,
     },
     /// llm_changed=true 时 server 广播前重建 LlmBackend
     ConfigChanged { llm_changed: bool },
@@ -991,12 +993,22 @@ impl<L: Llm> OverseerBackend<L> {
                         );
                     }
                 }
+                // once 契约（docs/autonomy.md）：两套持续时间语义互斥，同传直接拒绝
+                let once = args.get("once").and_then(Value::as_bool).unwrap_or(false);
+                let ttl_ms = args.get("ttlMs").and_then(Value::as_u64);
+                if once && ttl_ms.is_some() {
+                    return (
+                        json!({ "ok": false, "error": "once 与 ttlMs 不能同时传（once 按 MotionDef.durationMs 自动取持续时间）" }),
+                        vec![],
+                    );
+                }
                 (
                     json!({ "ok": true }),
                     vec![Effect::SetAutonomy {
                         face,
                         motion,
-                        ttl_ms: args.get("ttlMs").and_then(Value::as_u64),
+                        ttl_ms,
+                        once,
                     }],
                 )
             }
@@ -1530,6 +1542,33 @@ mod tests {
         assert_eq!(result2["ok"], json!(false));
         assert!(result2["error"].as_str().unwrap().contains("无效 key"));
         let _ = std::fs::remove_dir_all(tmp_dir("face-key"));
+    }
+
+    #[tokio::test]
+    async fn set_autonomy_once_contract() {
+        // once 契约（docs/autonomy.md）：once 与 ttlMs 同传直接拒绝；单传 once 透传 effect
+        let mut ov = make_overseer("once");
+        let conflict = ToolCall {
+            id: "c1".into(),
+            name: "set_autonomy".into(),
+            arguments: json!({ "motion": "bounce", "once": true, "ttlMs": 3000 }).to_string(),
+        };
+        let (r1, e1) = ov.execute_tool(&conflict);
+        assert_eq!(r1["ok"], json!(false));
+        assert!(r1["error"].as_str().unwrap().contains("不能同时传"));
+        assert!(e1.is_empty());
+        let ok = ToolCall {
+            id: "c2".into(),
+            name: "set_autonomy".into(),
+            arguments: json!({ "motion": "shake", "once": true }).to_string(),
+        };
+        let (r2, e2) = ov.execute_tool(&ok);
+        assert_eq!(r2["ok"], json!(true));
+        assert!(e2.iter().any(|e| matches!(
+            e,
+            Effect::SetAutonomy { once: true, ttl_ms: None, motion: Some(m), .. } if m == "shake"
+        )));
+        let _ = std::fs::remove_dir_all(tmp_dir("once"));
     }
 
     #[tokio::test]

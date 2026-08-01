@@ -21,6 +21,7 @@ export class RemoteBridge implements Bridge {
     face?: string;
     motion?: Motion;
     ttlMs?: number;
+    once?: boolean;
   }) => void)[] = [];
   private configListeners: ((cfg: AppConfig) => void)[] = [];
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
@@ -55,6 +56,7 @@ export class RemoteBridge implements Bridge {
         face?: string;
         motion?: Motion;
         ttlMs?: number;
+        once?: boolean;
         config?: AppConfig;
         content?: string;
         reasoning_content?: string;
@@ -73,7 +75,7 @@ export class RemoteBridge implements Bridge {
           break;
         case "set_autonomy":
           this.autonomyListeners.forEach((cb) =>
-            cb({ face: msg.face, motion: msg.motion, ttlMs: msg.ttlMs }),
+            cb({ face: msg.face, motion: msg.motion, ttlMs: msg.ttlMs, once: msg.once }),
           );
           break;
         case "config":
@@ -131,7 +133,7 @@ export class RemoteBridge implements Bridge {
   }
 
   onSetAutonomy(
-    cb: (args: { face?: string; motion?: Motion; ttlMs?: number }) => void,
+    cb: (args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }) => void,
   ): void {
     this.autonomyListeners.push(cb);
   }

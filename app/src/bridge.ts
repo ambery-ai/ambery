@@ -111,7 +111,7 @@ export interface Bridge {
   onContextChanged(cb: (msgs: ContextMessage[]) => void): void;
   /** 可选（RemoteBridge）：Overseer 推送 set_autonomy（ペット的 tool call 结果） */
   onSetAutonomy?(
-    cb: (args: { face?: string; motion?: Motion; ttlMs?: number }) => void,
+    cb: (args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }) => void,
   ): void;
   /** 可选（RemoteBridge）：Overseer 推送 Config 变更（edit_config 的结果） */
   onConfigChanged?(cb: (cfg: AppConfig) => void): void;
@@ -130,7 +130,7 @@ export interface DebugApi {
   addInstance(name: string, status: CodeCliStatus): void;
   notify(n?: number): void;
   clearNotifications(): void;
-  setAutonomy(args: { face?: string; motion?: Motion; ttlMs?: number }): void;
+  setAutonomy(args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }): void;
   viewState(): {
     docked: boolean;
     center: { x: number; y: number };
@@ -272,7 +272,7 @@ class TauriBridge implements Bridge {
   private renderListeners: ((spec: ComponentSpec) => void)[] = [];
   private contextListeners: ((m: ContextMessage[]) => void)[] = [];
   private topStateListeners: ((s: TopState) => void)[] = [];
-  private autonomyListeners: ((args: { face?: string; motion?: Motion; ttlMs?: number }) => void)[] = [];
+  private autonomyListeners: ((args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }) => void)[] = [];
   private configListeners: ((cfg: AppConfig) => void)[] = [];
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
   private doneListeners: (() => void)[] = [];
@@ -289,6 +289,7 @@ class TauriBridge implements Bridge {
         face?: string;
         motion?: Motion;
         ttlMs?: number;
+        once?: boolean;
         state?: TopState;
         content?: string;
         reasoning_content?: string;
@@ -304,7 +305,7 @@ class TauriBridge implements Bridge {
           break;
         case "set_autonomy":
           this.autonomyListeners.forEach((cb) =>
-            cb({ face: msg.face, motion: msg.motion, ttlMs: msg.ttlMs }),
+            cb({ face: msg.face, motion: msg.motion, ttlMs: msg.ttlMs, once: msg.once }),
           );
           break;
         case "config":
@@ -359,7 +360,7 @@ class TauriBridge implements Bridge {
   onTopStateChanged(cb: (s: TopState) => void): void {
     this.topStateListeners.push(cb);
   }
-  onSetAutonomy(cb: (args: { face?: string; motion?: Motion; ttlMs?: number }) => void): void {
+  onSetAutonomy(cb: (args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }) => void): void {
     this.autonomyListeners.push(cb);
   }
   onConfigChanged(cb: (cfg: AppConfig) => void): void {

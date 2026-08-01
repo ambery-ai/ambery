@@ -103,13 +103,14 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_autonomy",
-            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）。key 传状态 key 名（kaomoji 两池并集中的 key，如 idle/notify/processing）",
+            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）。key 传状态 key 名（kaomoji 两池并集中的 key，如 idle/notify/processing）。once=true 按动画注册表 MotionDef.durationMs 自动取持续时间（一次播放收束），与 ttlMs 互斥",
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "key": { "type": "string" },
                     "motion": { "type": "string", "enum": ["still", "float", "bounce", "shake"] },
-                    "ttlMs": { "type": "integer" }
+                    "ttlMs": { "type": "integer" },
+                    "once": { "type": "boolean", "description": "true=按 motion 的 MotionDef.durationMs 取 TTL；与 ttlMs 不能同时传" }
                 }
             }),
         },

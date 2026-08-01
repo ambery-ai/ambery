@@ -2,6 +2,7 @@
 // 默认行为由顶层状态规则推导（不经 LLM）；ペット可经 set_autonomy 覆盖，TTL 到期回落。
 
 import type { AppConfig, Bridge, Motion, TopState } from "./bridge";
+import { motionDef } from "./motions";
 
 export interface Expression {
   face: string;
@@ -64,17 +65,24 @@ export class Autonomy {
     this.apply();
   }
 
-  /** set_autonomy tool 语义（docs/autonomy.md） */
-  setAutonomy(args: { face?: string; motion?: Motion; ttlMs?: number }) {
+  /** set_autonomy tool 语义（docs/autonomy.md）：once=true 按 MotionDef.durationMs 取 TTL
+   *  （动画 CSS 仍循环，TTL 到期回落默认，由此收束为一次性动作）；与 ttlMs 互斥（core 校验） */
+  setAutonomy(args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }) {
     const isClear =
-      (args.face === undefined && args.motion === undefined) || args.ttlMs === 0;
+      (args.face === undefined && args.motion === undefined && !args.once) || args.ttlMs === 0;
     if (isClear) {
       this.clearOverride();
       this.apply();
       return;
     }
     this.override = { face: args.face, motion: args.motion };
-    const ttl = args.ttlMs ?? this.config?.setAutonomyDefaultTtlMs ?? 5000;
+    let ttl = args.ttlMs ?? this.config?.setAutonomyDefaultTtlMs ?? 5000;
+    if (args.once) {
+      // 一次播放：持续时间为「生效 motion」的注册表时长（未传 motion = 默认推导 motion）；
+      // still 无 durationMs → 0（立即回落）
+      const effectiveMotion = args.motion ?? this.deriveDefault(this.topState).motion;
+      ttl = motionDef(effectiveMotion).durationMs ?? 0;
+    }
     if (this.overrideTimer !== null) clearTimeout(this.overrideTimer);
     this.overrideTimer = window.setTimeout(() => {
       this.override = null;

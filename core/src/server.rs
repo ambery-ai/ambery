@@ -74,7 +74,7 @@ pub fn effect_json(e: &Effect) -> Value {
     match e {
         Effect::RenderComponent(spec) => json!({ "kind": "render_component", "spec": spec }),
         Effect::CloseComponent(id) => json!({ "kind": "close_component", "id": id }),
-        Effect::SetAutonomy { face, motion, ttl_ms } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms }),
+        Effect::SetAutonomy { face, motion, ttl_ms, once } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms, "once": once }),
         Effect::ConfigChanged { .. } => json!({ "kind": "config" }),
         Effect::AssistantDelta { content, reasoning_content } => json!({ "kind": "assistant_delta", "content": content, "reasoning_content": reasoning_content }),
         Effect::AssistantDone => json!({ "kind": "assistant_done" }),
