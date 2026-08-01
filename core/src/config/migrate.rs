@@ -6,7 +6,6 @@
 //! 未带 version 的文件 = v0（前版本号时代，absence 即标记）。
 
 use serde_json::Value;
-use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use super::{meta, Config, CONFIG_FILE};
@@ -14,21 +13,48 @@ use meta::NodeKind;
 
 /// 当前 schema 代际（bump 规则：仅语义断裂 +1）
 /// v2：kaomoji 扁平 map → 两池 {system, user}（docs/config.md §表情池）
-pub const CURRENT_VERSION: u32 = 2;
+/// v3：timer_* 扁平字段 → timer 子树（docs/timer.md 字段表）
+pub const CURRENT_VERSION: u32 = 3;
 
-/// 迁移动作：Default = 该区间已审计、无需值变换（reconcile 兜底）；
-/// Transform = 值变换函数（先变换，再 reconcile）
-pub enum Migration {
-    Default,
-    #[allow(dead_code)] // 暂无值变换条目，首个语义断裂版本启用
-    Transform(fn(Value) -> Value),
+/// 迁移步进表（累计应用）：target version → 变换；source version < target 的步
+/// 全部按序应用。每步是纯、确定性、可重放的 JSON→JSON 映射（docs/config.md
+/// §版本与 migration）；不读环境、网络、文件或其他运行时状态。
+static STEPS: &[(u32, fn(Value) -> Value)] = &[
+    (2, migrate_kaomoji_pools),
+    (3, migrate_timer_subtree),
+];
+
+/// 从 from 版本累计步进到 current
+fn migrate_steps(mut value: Value, from: u32) -> Value {
+    for (target, f) in STEPS {
+        if from < *target {
+            value = f(value);
+        }
+    }
+    value
 }
 
-/// 稀疏区间映射：每个历史版本区间一条显式条目，一步到 current。
-/// v0 = 未带 version 字段的前版本号时代文件。
-/// 0..=1 → v2：kaomoji 两池化（v0/v1 同为扁平 map，同一变换覆盖）
-static MIGRATIONS: &[(RangeInclusive<u32>, Migration)] =
-    &[(0..=1, Migration::Transform(migrate_kaomoji_pools))];
+/// v2→v3：timer_* 四个扁平字段收编为 timer 子树（docs/timer.md 字段表）。
+/// 缺失字段交 reconcile 补 default；已是子树形态时不动（防御）。
+fn migrate_timer_subtree(mut value: Value) -> Value {
+    let Some(obj) = value.as_object_mut() else { return value };
+    if obj.contains_key("timer") {
+        return value;
+    }
+    let mut timer = serde_json::Map::new();
+    for (old, new) in [
+        ("timer_interval_ms", "interval_ms"),
+        ("timer_stagger_ms", "stagger_ms"),
+        ("timer_tick_ms", "tick_ms"),
+        ("timer_batch", "batch"),
+    ] {
+        if let Some(v) = obj.remove(old) {
+            timer.insert(new.into(), v);
+        }
+    }
+    obj.insert("timer".into(), Value::Object(timer));
+    value
+}
 
 /// v1→v2：旧扁平 kaomoji map 整体迁入 system 池（行为保持：旧表既是请求头表
 /// 也是尺寸扫描来源，与 system 池职责一致），user 池空；用户随后可在面板移动。
@@ -100,17 +126,8 @@ pub fn load(dir: &Path) -> Config {
             cfg
         }
         std::cmp::Ordering::Less => {
-            report.push(format!("config v{version} → v{CURRENT_VERSION} 迁移"));
-            match MIGRATIONS.iter().find(|(r, _)| r.contains(&version)) {
-                Some((_, Migration::Default)) => {
-                    report.push("Migration::Default（已审计，无需值变换）".into())
-                }
-                Some((_, Migration::Transform(f))) => {
-                    value = f(value);
-                    report.push("Migration::Transform 已应用".into());
-                }
-                None => report.push(format!("v{version} 无映射条目，直接 reconcile")),
-            }
+            report.push(format!("config v{version} → v{CURRENT_VERSION} 迁移（累计步进）"));
+            value = migrate_steps(value, version);
             let mut cfg = validate_and_repair(reconcile(value, &mut report));
             let bak = backup_bytes(dir, &format!("v{version:04}"), raw.as_bytes());
             cfg.load_report
@@ -405,10 +422,7 @@ pub fn preview(dir: &Path) -> Result<Config, String> {
             ));
         }
         std::cmp::Ordering::Less => {
-            match MIGRATIONS.iter().find(|(r, _)| r.contains(&version)) {
-                Some((_, Migration::Transform(f))) => value = f(value),
-                Some((_, Migration::Default)) | None => {}
-            }
+            value = migrate_steps(value, version);
         }
         std::cmp::Ordering::Equal => {}
     }
@@ -477,12 +491,50 @@ mod tests {
         // 基础 key 缺失项由 reconcile 补 default（processing/notify 旧文件没有）
         assert!(cfg.kaomoji.system.contains_key("processing"));
         assert!(cfg.kaomoji.system.contains_key("notify"));
-        // 写回 v2 两池形态
+        // 写回 current 两池形态
         let written: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap()).unwrap();
-        assert_eq!(written["version"], 2);
+        assert_eq!(written["version"], CURRENT_VERSION);
         assert!(written["kaomoji"]["system"]["celebrate"].is_object());
         assert!(written["kaomoji"]["user"].is_object());
+    }
+
+    #[test]
+    fn v2_flat_timer_migrates_to_subtree() {
+        let dir = tmp();
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 2, "timer_interval_ms": 5000, "timer_tick_ms": 3000}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        // 扁平字段收编 timer 子树；缺失成员 reconcile 补 default
+        assert_eq!(cfg.timer.interval_ms, 5000);
+        assert_eq!(cfg.timer.tick_ms, 3000);
+        assert_eq!(cfg.timer.stagger_ms, 30_000);
+        assert_eq!(cfg.timer.batch, 2);
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap()).unwrap();
+        assert_eq!(written["version"], 3);
+        assert!(written.get("timer_interval_ms").is_none());
+        assert_eq!(written["timer"]["interval_ms"], 5000);
+    }
+
+    #[test]
+    fn v0_migrates_through_all_steps() {
+        let dir = tmp();
+        // v0（无 version）：同时携带扁平 kaomoji 与扁平 timer —— 累计步进两步都跑
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"kaomoji": {"idle": {"face": "(´ω`)", "motion": "still"}}, "timer_interval_ms": 7000}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        assert_eq!(cfg.kaomoji.system["idle"].face, "(´ω`)");
+        assert_eq!(cfg.timer.interval_ms, 7000);
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap()).unwrap();
+        assert_eq!(written["version"], CURRENT_VERSION);
     }
 
     #[test]
@@ -491,7 +543,7 @@ mod tests {
         // v2 文件：两池 key 冲突 + 缺基础 key（只剩 idle）
         std::fs::write(
             dir.join(CONFIG_FILE),
-            r#"{"version": 2, "kaomoji": {
+            r#"{"version": 3, "kaomoji": {
                 "system": {"idle": {"face": "a", "motion": "still"}},
                 "user": {"idle": {"face": "b", "motion": "float"}}}}"#,
         )
@@ -572,7 +624,7 @@ mod tests {
         let dir = tmp();
         std::fs::write(
             dir.join(CONFIG_FILE),
-            r#"{"version": 2,
+            r#"{"version": 3,
                 "llm": {"active": "deepseek", "unknown_nested": 1,
                         "providers": {
                             "deepseek": {"base_url": "https://api.deepseek.com", "model": "deepseek-chat", "junk": true},
@@ -610,13 +662,13 @@ mod tests {
         let dir = tmp();
         std::fs::write(
             dir.join(CONFIG_FILE),
-            r#"{"version": 2, "view_scale": null, "timer_interval_ms": 60000, "llm": {"active": null}}"#,
+            r#"{"version": 3, "view_scale": null, "timer": {"interval_ms": 60000}, "llm": {"active": null}}"#,
         )
         .unwrap();
         let cfg = load(&dir);
         // null = 缺失：view_scale/llm.active 回 default；显式值保留
         assert_eq!(cfg.view_scale, 1.0);
-        assert_eq!(cfg.timer_interval_ms, 60000);
+        assert_eq!(cfg.timer.interval_ms, 60000);
         assert_eq!(cfg.llm.active, "debug");
     }
 
@@ -626,13 +678,13 @@ mod tests {
         // 缺失 → 具体错误，不 bootstrap
         assert_eq!(preview(&dir).unwrap_err(), "配置文件被移动或者删除");
         assert!(!dir.join(CONFIG_FILE).exists());
-        // 合法 v2 → 完整管线（reconcile 补 default），不写回（文件内容不变）
-        std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 2, "view_scale": 0.6}"#).unwrap();
+        // 合法 current → 完整管线（reconcile 补 default），不写回（文件内容不变）
+        std::fs::write(dir.join(CONFIG_FILE), r#"{"version": 3, "view_scale": 0.6}"#).unwrap();
         let cfg = preview(&dir).unwrap();
         assert_eq!(cfg.view_scale, 0.6);
-        assert_eq!(cfg.timer_interval_ms, 300_000); // reconcile 补 default
+        assert_eq!(cfg.timer.interval_ms, 300_000); // reconcile 补 default
         let disk = std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap();
-        assert!(!disk.contains("timer_interval_ms")); // 不写回
+        assert!(!disk.contains("timer")); // 不写回
         // 旧版 v1 → migration 应用（kaomoji 两池化），同样不写回
         std::fs::write(
             dir.join(CONFIG_FILE),

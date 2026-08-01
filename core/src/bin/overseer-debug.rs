@@ -76,16 +76,16 @@ async fn main() {
     let mut config = Config::load_or_default(&config_dir);
     // debug 模式可用环境变量缩短 Timer 参数便于观察（真实值由 Config 定义：5min/30s）
     if let Some(n) = std::env::var("OVERSEER_TIMER_INTERVAL_MS").ok().and_then(|v| v.parse().ok()) {
-        config.timer_interval_ms = n;
+        config.timer.interval_ms = n;
     }
     if let Some(n) = std::env::var("OVERSEER_TIMER_STAGGER_MS").ok().and_then(|v| v.parse().ok()) {
-        config.timer_stagger_ms = n;
+        config.timer.stagger_ms = n;
     }
     let tick_ms: u64 = std::env::var("OVERSEER_TIMER_TICK_MS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(config.timer_tick_ms as u64);
-    let timer_batch = config.timer_batch;
+        .unwrap_or(config.timer.tick_ms as u64);
+    let timer_batch = config.timer.batch;
     let harness = Harness::load(&storage_dir, &config_dir, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms())
         .expect("load harness");
     let backend = match LlmBackend::from_config(&config.llm) {

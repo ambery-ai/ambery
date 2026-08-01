@@ -180,7 +180,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
         now_ms(),
     ).expect("load harness");
     let backend = LlmBackend::from_config(&config.llm);
-    let (timer_tick, timer_batch) = (config.timer_tick_ms, config.timer_batch);
+    let (timer_tick, timer_batch) = (config.timer.tick_ms, config.timer.batch);
     let mut overseer = OverseerBackend::new(harness, config, backend);
 
     let sidecar = overseer_core::paths::sidecar_exe()

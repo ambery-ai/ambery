@@ -28,18 +28,9 @@ pub struct Config {
     /// Filter 策略名（concepts §11/§12，docs/filter.md）
     #[serde(default = "default_filter_strategy")]
     pub filter_strategy: String,
-    /// Timer 兜底扫描间隔（concepts §1a，docs/timer.md）；≤ 0 = 整体禁用
-    #[serde(default = "default_timer_interval")]
-    pub timer_interval_ms: i64,
-    /// Timer 错峰窗口（concepts §1a「错峰分布偏移量」）
-    #[serde(default = "default_timer_stagger")]
-    pub timer_stagger_ms: i64,
-    /// Timer 主循环粒度（docs/timer.md；interval 小于它也最多每 tick 一扫）
-    #[serde(default = "default_timer_tick")]
-    pub timer_tick_ms: u64,
-    /// Timer 每 tick 最多扫描实例数（限流，docs/timer.md）
-    #[serde(default = "default_timer_batch")]
-    pub timer_batch: usize,
+    /// Timer 兜底扫描调度（concepts §1a，docs/timer.md；全部冷字段，重启生效）
+    #[serde(default)]
+    pub timer: TimerConfig,
     /// stop hook 模式（docs/hook.md §stop 三模式）：queue_only（默认，hint 按需读）/ auto_read / message
     #[serde(default = "default_stop_hook_mode")]
     pub stop_hook_mode: String,
@@ -65,6 +56,35 @@ pub struct Config {
     /// 运行时数据，不落盘（serde skip）
     #[serde(skip)]
     pub load_report: Vec<String>,
+}
+
+/// Timer 调度子树（docs/timer.md）：兜底扫描参数；全部冷字段（TimerWheel/主循环
+/// 启动时构建，不在运行中重建）
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TimerConfig {
+    /// 每实例兜底扫描间隔；≤ 0 = 整体禁用（真实 hook 接入初期只留 hook 驱动）
+    #[serde(default = "default_timer_interval")]
+    pub interval_ms: i64,
+    /// 错峰窗口：多实例到期时间在窗口内打散（concepts §1a「错峰分布偏移量」）
+    #[serde(default = "default_timer_stagger")]
+    pub stagger_ms: i64,
+    /// 主循环粒度：每 tick 醒一次取到期实例（interval 小于它也最多每 tick 一扫）
+    #[serde(default = "default_timer_tick")]
+    pub tick_ms: u64,
+    /// 每 tick 最多扫描实例数（限流）
+    #[serde(default = "default_timer_batch")]
+    pub batch: usize,
+}
+
+impl Default for TimerConfig {
+    fn default() -> Self {
+        Self {
+            interval_ms: default_timer_interval(),
+            stagger_ms: default_timer_stagger(),
+            tick_ms: default_timer_tick(),
+            batch: default_timer_batch(),
+        }
+    }
 }
 
 /// LLM 配置 v2：多 provider profile + active 选择器（切换不丢配置）
@@ -278,10 +298,7 @@ impl Default for Config {
             compression_reserve_default: default_compression_reserve(),
             set_autonomy_default_ttl_ms: default_ttl_ms(),
             filter_strategy: default_filter_strategy(),
-            timer_interval_ms: default_timer_interval(),
-            timer_stagger_ms: default_timer_stagger(),
-            timer_tick_ms: default_timer_tick(),
-            timer_batch: default_timer_batch(),
+            timer: TimerConfig::default(),
             stop_hook_mode: default_stop_hook_mode(),
             base_prompt:
                 "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"

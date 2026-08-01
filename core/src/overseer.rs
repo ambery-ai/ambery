@@ -79,7 +79,7 @@ pub struct OverseerBackend<L: Llm> {
 impl<L: Llm> OverseerBackend<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
         let filter = crate::filter::by_name(&config.filter_strategy);
-        let timers = TimerWheel::new(config.timer_interval_ms, config.timer_stagger_ms);
+        let timers = TimerWheel::new(config.timer.interval_ms, config.timer.stagger_ms);
         let cfg_v = serde_json::to_value(&config).unwrap_or(Value::Null);
         let config_cold_snapshot = crate::config::meta::cold_paths()
             .into_iter()
@@ -784,9 +784,9 @@ impl<L: Llm> OverseerBackend<L> {
 
     /// 提取到期的兜底扫描实例（docs/timer.md）
     /// 提取到期的兜底扫描实例（docs/timer.md）；
-    /// timer_interval_ms ≤ 0 = 禁用（真实 hook 接入初期只留 hook 驱动，设计决定）
+    /// timer.interval_ms ≤ 0 = 禁用（真实 hook 接入初期只留 hook 驱动，设计决定）
     pub fn due_timer_scans(&mut self, now: i64, batch: usize) -> Vec<String> {
-        if self.config.timer_interval_ms <= 0 {
+        if self.config.timer.interval_ms <= 0 {
             return vec![];
         }
         self.timers.due(now, batch)
@@ -2146,8 +2146,8 @@ mod tests {
         let out = ov.apply_config_by_path("llm.active", json!("deepseek")).unwrap();
         assert!(out.llm_changed);
         // 冷字段如实上报
-        let out2 = ov.apply_config_by_path("timer_interval_ms", json!(60000)).unwrap();
-        assert_eq!(out2.restart_required, vec!["timer_interval_ms".to_string()]);
+        let out2 = ov.apply_config_by_path("timer.interval_ms", json!(60000)).unwrap();
+        assert_eq!(out2.restart_required, vec!["timer.interval_ms".to_string()]);
         let _ = std::fs::remove_dir_all(tmp_dir("apply2"));
     }
 

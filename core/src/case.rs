@@ -223,7 +223,7 @@ mod tests {
     fn parse_two_stage_format() {
         let text = r#"{
   "meta": { "case_id": "t", "created": "2026-07-30T00:00:00Z" },
-  "config": { "timer_interval_ms": 5000 },
+  "config": { "timer.interval_ms": 5000 },
   "steps": [ { "load": {} }, { "terminal_gone": { "instance": "ft" } } ]
 }
 {"__section":"=== work_agents ==="}

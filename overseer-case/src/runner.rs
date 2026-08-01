@@ -44,8 +44,8 @@ pub fn exec_observe<L: Llm>(ov: &OverseerBackend<L>, items: &[String], last_len:
 /// 返回 (到期扫描数, 判 closed 数)
 pub async fn exec_timer_scan<L: Llm>(ov: &mut OverseerBackend<L>, _ts: i64) -> (usize, usize) {
     let horizon = overseer_core::server::now_ms()
-        + ov.config.timer_interval_ms
-        + ov.config.timer_stagger_ms
+        + ov.config.timer.interval_ms
+        + ov.config.timer.stagger_ms
         + 1;
     let due = ov.due_timer_scans(horizon, 100);
     let total = due.len();
