@@ -224,6 +224,8 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     spawn_queue_consumer(state.clone());
     // 外部文件自动载入（docs/config.md §外部文件自动载入）
     overseer_core::server::spawn_config_watcher(state.clone(), overseer_core::paths::config_root());
+    // Cron 调度任务（concepts §10g，docs/cron.md）
+    overseer_core::server::spawn_cron_task(state.clone());
 
     // 注入 Tauri managed state
     *state_mgr.0.lock().unwrap() = Some(state.clone());

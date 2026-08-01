@@ -342,6 +342,43 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
     });
 }
 
+/// Cron 调度任务（concepts §10g，docs/cron.md §调度实现）：
+/// 每 500ms 轮询——① waiters 到点唤醒（共享句柄，不经 overseer 锁：sleep 持
+/// Queue 串行点等待时无死锁）；② entries due → message 作 system 输入入 Queue
+/// （与 hook 同构，唤醒单消费者）。
+pub fn spawn_cron_task(s: Arc<AppState>) {
+    tokio::spawn(async move {
+        let waiters = { s.overseer.lock().await.harness.cron.waiter_handle() };
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(500));
+        loop {
+            interval.tick().await;
+            let now = now_ms();
+            // ① sleep waiters（锁外句柄）
+            waiters.fire_due(now);
+            // ② 持久化计划到期 → 入 Queue
+            let messages = {
+                let mut ov = s.overseer.lock().await;
+                match ov.harness.cron.due(now) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("[cron] due 失败：{e}");
+                        vec![]
+                    }
+                }
+            };
+            for message in messages {
+                let mut ov = s.overseer.lock().await;
+                if let Err(e) = ov.enqueue(crate::context::Role::System, message, now) {
+                    eprintln!("[cron] 到期入队失败：{e}");
+                    continue;
+                }
+                drop(ov);
+                s.queue_notify.notify_one();
+            }
+        }
+    });
+}
+
 /// Queue 单消费者（concepts §10c 串行放行）：唤醒后逐条放行——
 /// 放行一条 → Context 写输入 → run_trigger（LLM 一轮）→ 广播副作用 → 放行下一条。
 /// 一轮一条地持锁：生产者在轮次之间可继续入队，不等整个积压清空。

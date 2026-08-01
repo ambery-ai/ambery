@@ -768,7 +768,7 @@ impl<L: Llm> OverseerBackend<L> {
                     ))?;
                     continue;
                 }
-                let (result, mut eff) = self.execute_tool(call);
+                let (result, mut eff) = self.execute_tool(call).await;
                 executed_in_response += 1;
                 effects.append(&mut eff);
                 self.harness
@@ -1236,7 +1236,7 @@ impl<L: Llm> OverseerBackend<L> {
     }
 
     /// 执行 tool call（run_trigger tool 循环与 case-runner tool_call step 共用）
-    pub fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
+    pub async fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(Value::Null);
         match call.name.as_str() {
             "call_component" => {
@@ -1479,6 +1479,57 @@ impl<L: Llm> OverseerBackend<L> {
                     Ok(()) => (json!({ "ok": true, "name": name }), vec![]),
                     Err(e) => (json!({ "ok": false, "error": e }), vec![]),
                 }
+            }
+            "cron_create" => {
+                // docs/cron.md §cron_create：schedule 二选一 + message
+                let schedule = args.get("schedule").cloned().unwrap_or(Value::Null);
+                let message = args.get("message").and_then(Value::as_str).unwrap_or("");
+                let parsed = if let Some(at) = schedule.get("at").and_then(Value::as_i64) {
+                    Some(crate::cron::Schedule::At(at))
+                } else {
+                    schedule
+                        .get("every_ms")
+                        .and_then(Value::as_u64)
+                        .map(crate::cron::Schedule::EveryMs)
+                };
+                let Some(schedule) = parsed else {
+                    return (
+                        json!({ "ok": false, "error": "schedule 二选一：{at: epoch_ms} 或 {every_ms: N}" }),
+                        vec![],
+                    );
+                };
+                match self
+                    .harness
+                    .cron
+                    .create(schedule, message, crate::server::now_ms())
+                {
+                    Ok(id) => (json!({ "ok": true, "id": id }), vec![]),
+                    Err(e) => (json!({ "ok": false, "error": e }), vec![]),
+                }
+            }
+            "cron_delete" => {
+                let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+                match self.harness.cron.delete(id, crate::server::now_ms()) {
+                    Ok(()) => (json!({ "ok": true, "deleted": id }), vec![]),
+                    Err(e) => (json!({ "ok": false, "error": e }), vec![]),
+                }
+            }
+            "sleep" => {
+                // docs/cron.md §sleep：tool result 延迟返回，等待后继续既定工具序列；
+                // waiters 经共享句柄注册（调度任务在锁外到点唤醒，无死锁）
+                let Some(ms) = args.get("ms").and_then(Value::as_u64) else {
+                    return (json!({ "ok": false, "error": "ms 必填（0 ≤ ms ≤ 300000）" }), vec![]);
+                };
+                if ms > crate::cron::MAX_SLEEP_MS {
+                    return (
+                        json!({ "ok": false, "error": format!("ms {ms} 超上限 {}（5 分钟，设计常量）", crate::cron::MAX_SLEEP_MS) }),
+                        vec![],
+                    );
+                }
+                let fire_ts = crate::server::now_ms() + ms as i64;
+                let rx = self.harness.cron.waiter_handle().register(fire_ts);
+                let _ = rx.await; // 占用 Queue 串行点等待（既定成本，docs/cron.md）
+                (json!({ "ok": true, "slept_ms": ms }), vec![])
             }
             other => (
                 json!({ "ok": false, "error": format!("unknown tool: {other}") }),
@@ -1966,7 +2017,7 @@ mod tests {
             // face 传 key 名：仅解析 face 本体；motion 缺省不连带（保持未覆盖）
             arguments: json!({ "key": "notify", "ttlMs": 3000 }).to_string(),
         };
-        let (result, effects) = ov.execute_tool(&call);
+        let (result, effects) = ov.execute_tool(&call).await;
         assert_eq!(result["ok"], json!(true));
         assert!(effects.iter().any(|e| matches!(
             e,
@@ -1982,7 +2033,7 @@ mod tests {
             name: "set_autonomy".into(),
             arguments: json!({ "key": "(・ω・)ノ" }).to_string(),
         };
-        let (result2, _) = ov.execute_tool(&call2);
+        let (result2, _) = ov.execute_tool(&call2).await;
         assert_eq!(result2["ok"], json!(false));
         assert!(result2["error"].as_str().unwrap().contains("无效 key"));
         let _ = std::fs::remove_dir_all(tmp_dir("face-key"));
@@ -1997,7 +2048,7 @@ mod tests {
             name: "set_autonomy".into(),
             arguments: json!({ "motion": "bounce", "once": true, "ttlMs": 3000 }).to_string(),
         };
-        let (r1, e1) = ov.execute_tool(&conflict);
+        let (r1, e1) = ov.execute_tool(&conflict).await;
         assert_eq!(r1["ok"], json!(false));
         assert!(r1["error"].as_str().unwrap().contains("不能同时传"));
         assert!(e1.is_empty());
@@ -2006,7 +2057,7 @@ mod tests {
             name: "set_autonomy".into(),
             arguments: json!({ "motion": "shake", "once": true }).to_string(),
         };
-        let (r2, e2) = ov.execute_tool(&ok);
+        let (r2, e2) = ov.execute_tool(&ok).await;
         assert_eq!(r2["ok"], json!(true));
         assert!(e2.iter().any(|e| matches!(
             e,
@@ -2065,12 +2116,12 @@ mod tests {
             arguments: json!({"spec": {"id": "todo-1", "type": "todobox", "title": "t", "items": [{"text": text, "done": false}]}}).to_string(),
         };
         // 创建 → rendered
-        let (r1, e1) = ov.execute_tool(&mk("a"));
+        let (r1, e1) = ov.execute_tool(&mk("a")).await;
         assert_eq!(r1["rendered"], json!("todo-1"));
         assert!(matches!(e1[0], Effect::RenderComponent(_)));
         assert!(ov.cards.contains_key("todo-1"));
         // 同 id → updated（不再 toggle 关闭）
-        let (r2, e2) = ov.execute_tool(&mk("b"));
+        let (r2, e2) = ov.execute_tool(&mk("b")).await;
         assert_eq!(r2["updated"], json!("todo-1"));
         assert!(matches!(e2[0], Effect::RenderComponent(_)));
         assert!(ov.cards.contains_key("todo-1"));
@@ -2080,7 +2131,7 @@ mod tests {
             name: "call_component".into(),
             arguments: json!({"spec": {"id": "todo-1", "type": "todobox", "action": "close"}}).to_string(),
         };
-        let (r3, e3) = ov.execute_tool(&close_call);
+        let (r3, e3) = ov.execute_tool(&close_call).await;
         assert_eq!(r3["closed"], json!("todo-1"));
         assert!(matches!(e3[0], Effect::CloseComponent(_)));
         assert!(!ov.cards.contains_key("todo-1"));
@@ -2102,14 +2153,14 @@ mod tests {
             name: "call_component".into(),
             arguments: json!({"spec": {"id": "demo_line", "type": "text_card", "title": "t", "text": "x"}}).to_string(),
         };
-        let (r1, _) = ov.execute_tool(&create);
+        let (r1, _) = ov.execute_tool(&create).await;
         assert_eq!(r1["rendered"], json!("demo_line"));
         let close = crate::context::ToolCall {
             id: "c2".into(),
             name: "call_component".into(),
             arguments: json!({"action": "close", "spec": {"id": "demo_line"}}).to_string(),
         };
-        let (r2, e2) = ov.execute_tool(&close);
+        let (r2, e2) = ov.execute_tool(&close).await;
         assert_eq!(r2["closed"], json!("demo_line"));
         assert!(matches!(e2[0], Effect::CloseComponent(_)));
         assert!(!ov.cards.contains_key("demo_line"));
@@ -2310,11 +2361,11 @@ mod tests {
         // 必填:忘传报错教学
         let mut ov = make_overseer("vd1");
         let call = ToolCall { id: "c1".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"x"}).to_string() };
-        let (r, _) = ov.execute_tool(&call);
+        let (r, _) = ov.execute_tool(&call).await;
         assert!(r["error"].as_str().unwrap_or("").contains("vd_switch 必填"), "{r}");
         // false 且读不到:报错含重试提示
         let call2 = ToolCall { id: "c2".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"x","vd_switch":false}).to_string() };
-        let (r2, _) = ov.execute_tool(&call2);
+        let (r2, _) = ov.execute_tool(&call2).await;
         assert!(r2["error"].as_str().unwrap_or("").contains("vd_switch=true 重试"), "{r2}");
         let _ = std::fs::remove_dir_all(tmp_dir("vd1"));
 
@@ -2328,7 +2379,7 @@ mod tests {
             true
         }));
         let call3 = ToolCall { id: "c3".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"x","vd_switch":true}).to_string() };
-        let (r3, _) = ov.execute_tool(&call3);
+        let (r3, _) = ov.execute_tool(&call3).await;
         std::env::remove_var("VD_TEST_READY");
         assert_eq!(r3["content"].as_str().unwrap_or(""), "内容:x");
         let _ = std::fs::remove_dir_all(tmp_dir("vd2"));
@@ -2463,7 +2514,7 @@ mod tests {
             name: "edit_config".into(),
             arguments: json!({ "action": "query", "path": "kaomoji.user", "view": "object" }).to_string(),
         };
-        let (qr, _) = ov.execute_tool(&query);
+        let (qr, _) = ov.execute_tool(&query).await;
         assert_eq!(qr["ok"], json!(true), "{qr}");
         // query 的 tool result 入 Context（模拟 run_trigger 写回）+ 进入下一 response
         ov.harness
@@ -2480,7 +2531,7 @@ mod tests {
             })
             .to_string(),
         };
-        let (result, effects) = ov.execute_tool(&update);
+        let (result, effects) = ov.execute_tool(&update).await;
         assert_eq!(result["ok"], json!(true), "{result}");
         assert_eq!(result["msg"], json!("已生效"));
         assert!(effects
@@ -2502,7 +2553,7 @@ mod tests {
             arguments: json!({ "action": "update", "path": "view_scale", "value": 0.7 }).to_string(),
         };
         // ① 无快照 → 拒绝
-        let (r, _) = ov.execute_tool(&upd("u1"));
+        let (r, _) = ov.execute_tool(&upd("u1")).await;
         assert_eq!(r["ok"], json!(false));
         assert!(r["error"].as_str().unwrap().contains("请先 query"));
         // ② query 留快照，但同 response（seq 未推进）→ 仍拒绝
@@ -2511,21 +2562,21 @@ mod tests {
             name: "edit_config".into(),
             arguments: json!({ "action": "query", "path": "view_scale" }).to_string(),
         };
-        let (qr, _) = ov.execute_tool(&query);
+        let (qr, _) = ov.execute_tool(&query).await;
         assert_eq!(qr["ok"], json!(true));
         assert_eq!(qr["node"]["value"], json!(1.0));
-        let (r2, _) = ov.execute_tool(&upd("u2"));
+        let (r2, _) = ov.execute_tool(&upd("u2")).await;
         assert_eq!(r2["ok"], json!(false), "同 response 快照不算数");
         // ③ result 入 Context + 下一 response → 放行
         ov.harness
             .append_context(ContextMessage::tool_result("q1", qr.to_string(), 1))
             .unwrap();
         ov.response_seq += 1;
-        let (r3, _) = ov.execute_tool(&upd("u3"));
+        let (r3, _) = ov.execute_tool(&upd("u3")).await;
         assert_eq!(r3["ok"], json!(true), "{r3}");
         assert_eq!(ov.config.view_scale, 0.7);
         // ④ 成功写入使相交快照失效 → 再写被拒（需重新 query）
-        let (r4, _) = ov.execute_tool(&upd("u4"));
+        let (r4, _) = ov.execute_tool(&upd("u4")).await;
         assert_eq!(r4["ok"], json!(false), "写入后快照已失效");
         // ⑤ 快照的 message id 不在 Context（如 compression 摇掉）→ 拒绝
         let query2 = ToolCall {
@@ -2533,9 +2584,9 @@ mod tests {
             name: "edit_config".into(),
             arguments: json!({ "action": "query", "path": "view_scale" }).to_string(),
         };
-        let (_qr2, _) = ov.execute_tool(&query2);
+        let (_qr2, _) = ov.execute_tool(&query2).await;
         ov.response_seq += 1; // q2 的 result 不入 Context
-        let (r5, _) = ov.execute_tool(&upd("u5"));
+        let (r5, _) = ov.execute_tool(&upd("u5")).await;
         assert_eq!(r5["ok"], json!(false), "快照 message 不在 Context 应拒绝");
         let _ = std::fs::remove_dir_all(tmp_dir("snap"));
     }
@@ -2598,6 +2649,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cron_tools_and_sleep_via_execute_tool() {
+        // cron_create/cron_delete/sleep（docs/cron.md）
+        let mut ov = make_overseer("crontool");
+        let c = ToolCall {
+            id: "c1".into(),
+            name: "cron_create".into(),
+            arguments: json!({"schedule": {"every_ms": 60000}, "message": "日报"}).to_string(),
+        };
+        let (r, _) = ov.execute_tool(&c).await;
+        assert_eq!(r["ok"], json!(true), "{r}");
+        let id = r["id"].as_str().unwrap().to_string();
+        assert_eq!(ov.harness.cron.entries().len(), 1);
+        // schedule 缺 → 拒绝；空 message → 拒绝
+        let (r2, _) = ov.execute_tool(&ToolCall { id: "c2".into(), name: "cron_create".into(), arguments: json!({"message": "x"}).to_string() }).await;
+        assert_eq!(r2["ok"], json!(false));
+        // cron_delete：存在 → deleted；不存在 → error（无 list tool 提示）
+        let (r3, _) = ov.execute_tool(&ToolCall { id: "c3".into(), name: "cron_delete".into(), arguments: json!({"id": id}).to_string() }).await;
+        assert_eq!(r3["deleted"], json!(id));
+        assert!(ov.harness.cron.entries().is_empty());
+        let (r4, _) = ov.execute_tool(&ToolCall { id: "c4".into(), name: "cron_delete".into(), arguments: json!({"id": "nope"}).to_string() }).await;
+        assert!(r4["error"].as_str().unwrap().contains("不存在"));
+        // sleep：注册后经共享句柄到点唤醒（模拟 cron task 的 fire_due）
+        let handle = ov.harness.cron.waiter_handle();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            handle.fire_due(crate::server::now_ms());
+        });
+        let t0 = std::time::Instant::now();
+        let (r5, _) = ov.execute_tool(&ToolCall { id: "s1".into(), name: "sleep".into(), arguments: json!({"ms": 20}).to_string() }).await;
+        assert_eq!(r5["slept_ms"], json!(20));
+        assert!(t0.elapsed().as_millis() >= 20, "sleep 应延迟返回");
+        // sleep 上限（300s 设计常量）
+        let (r6, _) = ov.execute_tool(&ToolCall { id: "s2".into(), name: "sleep".into(), arguments: json!({"ms": 300001}).to_string() }).await;
+        assert_eq!(r6["ok"], json!(false));
+        let _ = std::fs::remove_dir_all(tmp_dir("crontool"));
+    }
+
+    #[tokio::test]
     async fn memory_tools_round_trip_via_execute_tool() {
         // read_memory/write_memory（docs/memory.md）：write 必附 description；
         // 省略 name 读 index.md 导航；Memory 根在 storage 下持久化
@@ -2607,7 +2696,7 @@ mod tests {
             name: "write_memory".into(),
             arguments: json!({ "name": "work-preferences", "content": "# 偏好\n简洁", "description": "用户的工作偏好" }).to_string(),
         };
-        let (rw, _) = ov.execute_tool(&w);
+        let (rw, _) = ov.execute_tool(&w).await;
         assert_eq!(rw["ok"], json!(true), "{rw}");
         // 缺 description → 拒绝
         let w2 = ToolCall {
@@ -2615,16 +2704,16 @@ mod tests {
             name: "write_memory".into(),
             arguments: json!({ "name": "x-note", "content": "x" }).to_string(),
         };
-        let (rw2, _) = ov.execute_tool(&w2);
+        let (rw2, _) = ov.execute_tool(&w2).await;
         assert_eq!(rw2["ok"], json!(false));
         // 省略 name 读 index（含刚写入条目）
         let r = ToolCall { id: "r1".into(), name: "read_memory".into(), arguments: json!({}).to_string() };
-        let (rr, _) = ov.execute_tool(&r);
+        let (rr, _) = ov.execute_tool(&r).await;
         assert_eq!(rr["ok"], json!(true));
         assert!(rr["content"].as_str().unwrap().contains("work-preferences"));
         // 读具体记忆
         let r2 = ToolCall { id: "r2".into(), name: "read_memory".into(), arguments: json!({ "name": "work-preferences" }).to_string() };
-        let (rr2, _) = ov.execute_tool(&r2);
+        let (rr2, _) = ov.execute_tool(&r2).await;
         assert!(rr2["content"].as_str().unwrap().contains("简洁"));
         let _ = std::fs::remove_dir_all(tmp_dir("memtool"));
     }
@@ -2661,7 +2750,7 @@ mod tests {
             name: "edit_config".into(),
             arguments: json!({ "action": "grep", "pattern": "badge|缩放" }).to_string(),
         };
-        let (g, _) = ov.execute_tool(&grep);
+        let (g, _) = ov.execute_tool(&grep).await;
         assert_eq!(g["ok"], json!(true), "{g}");
         let paths: Vec<&str> = g["matches"].as_array().unwrap().iter()
             .map(|m| m["path"].as_str().unwrap()).collect();
@@ -2670,25 +2759,25 @@ mod tests {
         // 不可见子树不进 grep 结果
         assert!(!paths.iter().any(|p| p.starts_with("llm")), "{paths:?}");
         // grep 无匹配 = 成功空数组；非法 regex = 错误
-        let (g2, _) = ov.execute_tool(&ToolCall { id: "g2".into(), name: "edit_config".into(), arguments: json!({ "action": "grep", "pattern": "zzz-no-hit" }).to_string() });
+        let (g2, _) = ov.execute_tool(&ToolCall { id: "g2".into(), name: "edit_config".into(), arguments: json!({ "action": "grep", "pattern": "zzz-no-hit" }).to_string() }).await;
         assert_eq!(g2["matches"], json!([]));
-        let (g3, _) = ov.execute_tool(&ToolCall { id: "g3".into(), name: "edit_config".into(), arguments: json!({ "action": "grep", "pattern": "([" }).to_string() });
+        let (g3, _) = ov.execute_tool(&ToolCall { id: "g3".into(), name: "edit_config".into(), arguments: json!({ "action": "grep", "pattern": "([" }).to_string() }).await;
         assert_eq!(g3["ok"], json!(false));
         // query 容器 children 视图：叶子 child 带 value，容器 child 不带；不产生快照
-        let (qc, _) = ov.execute_tool(&ToolCall { id: "q1".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "timer" }).to_string() });
+        let (qc, _) = ov.execute_tool(&ToolCall { id: "q1".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "timer" }).to_string() }).await;
         assert_eq!(qc["ok"], json!(true), "{qc}");
         let kids = qc["children"].as_array().unwrap();
         assert!(kids.iter().any(|k| k["path"] == "timer.interval_ms" && k["value"].is_number()));
         // query 容器 view=object：完整 JSON 无 children + 留快照
-        let (qo, _) = ov.execute_tool(&ToolCall { id: "q2".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "kaomoji.system", "view": "object" }).to_string() });
+        let (qo, _) = ov.execute_tool(&ToolCall { id: "q2".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "kaomoji.system", "view": "object" }).to_string() }).await;
         assert_eq!(qo["ok"], json!(true), "{qo}");
         assert!(qo["node"]["value"]["idle"]["face"].is_string());
         assert!(qo.get("children").is_none());
         // 叶子 view=object → 明确报错
-        let (qe, _) = ov.execute_tool(&ToolCall { id: "q3".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "view_scale", "view": "object" }).to_string() });
+        let (qe, _) = ov.execute_tool(&ToolCall { id: "q3".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "view_scale", "view": "object" }).to_string() }).await;
         assert_eq!(qe["ok"], json!(false));
         // 未知 path → 报错（提示先 grep）
-        let (qu, _) = ov.execute_tool(&ToolCall { id: "q4".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "nope.x" }).to_string() });
+        let (qu, _) = ov.execute_tool(&ToolCall { id: "q4".into(), name: "edit_config".into(), arguments: json!({ "action": "query", "path": "nope.x" }).to_string() }).await;
         assert!(qu["error"].as_str().unwrap().contains("未知 path"));
         let _ = std::fs::remove_dir_all(tmp_dir("views"));
     }
@@ -2782,7 +2871,7 @@ mod tests {
                 name: "edit_config".into(),
                 arguments: json!({ "action": "update", "path": path, "value": "x" }).to_string(),
             };
-            let (r, _) = ov.execute_tool(&call);
+            let (r, _) = ov.execute_tool(&call).await;
             assert_eq!(r["ok"], json!(false), "{path} 应被拒绝");
             assert!(r["error"].as_str().unwrap().contains("不可访问"), "{path}");
         }
@@ -2791,13 +2880,13 @@ mod tests {
             id: "q".into(),
             name: "edit_config".into(),
             arguments: json!({ "action": "query", "path": "llm.active" }).to_string(),
-        });
+        }).await;
         assert!(rq["error"].as_str().unwrap().contains("不可访问"));
         let (rg, _) = ov.execute_tool(&ToolCall {
             id: "g".into(),
             name: "edit_config".into(),
             arguments: json!({ "action": "grep", "pattern": "active|provider|base_url" }).to_string(),
-        });
+        }).await;
         assert!(!rg["matches"].as_array().unwrap().iter()
             .any(|m| m["path"].as_str().unwrap().starts_with("llm")));
         // 本地入口同 path 可达（投影不改真值）

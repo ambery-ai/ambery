@@ -152,6 +152,46 @@ pub fn tool_set() -> Vec<ToolDef> {
                 "required": ["name", "content", "description"]
             }),
         },
+        ToolDef {
+            name: "cron_create",
+            description: "创建 Harness 持久化计划（跨重启保留；到点 message 作 system 输入唤醒你）。schedule 二选一：at=epoch ms 一次性 / every_ms 间隔周期。返回 id（可经 write_memory 记录供日后 cron_delete）",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "schedule": {
+                        "type": "object",
+                        "properties": {
+                            "at": { "type": "integer", "description": "epoch ms 一次性（须大于当前时刻）" },
+                            "every_ms": { "type": "integer", "description": "间隔周期 ms（>0，锚定创建时刻）" }
+                        }
+                    },
+                    "message": { "type": "string", "description": "到点注入 Queue 的内容（非空）" }
+                },
+                "required": ["schedule", "message"]
+            }),
+        },
+        ToolDef {
+            name: "cron_delete",
+            description: "删除一个 Harness 持久化计划（id 见 cron_create 返回；无 list tool）",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string" }
+                },
+                "required": ["id"]
+            }),
+        },
+        ToolDef {
+            name: "sleep",
+            description: "等待后继续既定工具序列（与 Cron 共用 Harness 调度器）：tool result 延迟 ms 返回，期间 Queue 串行点被占用；0 ≤ ms ≤ 300000（5 分钟）；不持久化",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "ms": { "type": "integer", "description": "等待毫秒数（0-300000）" }
+                },
+                "required": ["ms"]
+            }),
+        },
     ]
 }
 

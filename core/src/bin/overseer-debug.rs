@@ -129,6 +129,8 @@ async fn main() {
     spawn_queue_consumer(state.clone());
     // 外部文件自动载入（docs/config.md §外部文件自动载入）
     overseer_core::server::spawn_config_watcher(state.clone(), config_dir.clone());
+    // Cron 调度任务（concepts §10g，docs/cron.md）
+    overseer_core::server::spawn_cron_task(state.clone());
     let app = router(state, tx_for_ws);
 
     let addr = "127.0.0.1:47600";

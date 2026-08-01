@@ -86,7 +86,7 @@ async fn main() {
             overseer_core::case::CaseStep::Cmd6 { tool_call } => {
                 let name = tool_call.first().expect("tool_call[0] = name");
                 let args = tool_call.get(1).map(String::as_str).unwrap_or("{}");
-                runner::exec_tool_call(&mut ov, name, args, &format!("case-{i}"));
+                runner::exec_tool_call(&mut ov, name, args, &format!("case-{i}")).await;
             }
             overseer_core::case::CaseStep::Terminal { terminal } => {
                 let instance = terminal["instance"].as_str().expect("terminal.instance");

@@ -95,13 +95,13 @@ pub async fn exec_user<L: Llm>(ov: &mut OverseerBackend<L>, text: &str, ts: i64)
 }
 
 /// tool_call：绕过 LLM 直接执行
-pub fn exec_tool_call<L: Llm>(ov: &mut OverseerBackend<L>, name: &str, args: &str, id: &str) {
+pub async fn exec_tool_call<L: Llm>(ov: &mut OverseerBackend<L>, name: &str, args: &str, id: &str) {
     let call = ToolCall {
         id: id.to_string(),
         name: name.to_string(),
         arguments: args.to_string(),
     };
-    let (result, effects) = ov.execute_tool(&call);
+    let (result, effects) = ov.execute_tool(&call).await;
     println!("result: {result}");
     print_effects(effects);
 }

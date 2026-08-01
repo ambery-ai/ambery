@@ -5,6 +5,7 @@
 pub mod config;
 pub mod content;
 pub mod context;
+pub mod cron;
 pub mod event_buffer;
 pub mod filter;
 pub mod lifecycle;
@@ -154,6 +155,9 @@ pub struct Harness {
     pub last_usage_msg_len: usize,
     /// Memory（concepts §10f，docs/memory.md）：持久化理解 buffer 根管理器
     pub memory: memory::Memory,
+    /// Cron（concepts §10g，docs/cron.md）：持久化计划与延时调度（entries 持久化
+    /// + sleep waiters 共享句柄）
+    pub cron: cron::CronScheduler,
     store: JsonlStore,
     config_dir: std::path::PathBuf,
 }
@@ -219,6 +223,8 @@ impl Harness {
         }
         // Memory 根 bootstrap（concepts §10f，docs/memory.md：storage/memory/ + 只读 AGENTS.md/index.md）
         let memory = memory::Memory::bootstrap(dir)?;
+        // Cron 调度器：replay cron.jsonl 折叠计划集（concepts §10g，docs/cron.md）
+        let cron = cron::CronScheduler::load(dir)?;
         let mut h = Self {
             // Queue 不 replay：崩溃丢失未放行输入可接受（docs/storage.md 设计决定）
             queue: Queue::default(),
@@ -231,6 +237,7 @@ impl Harness {
             last_usage: None, // 重启 = None（#16：不背旧 session，首轮 est 兜底）
             last_usage_msg_len: 0,
             memory,
+            cron,
             store,
             config_dir: config_dir.to_path_buf(),
         };
