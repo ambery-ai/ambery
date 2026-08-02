@@ -268,6 +268,9 @@ export async function main() {
       }
       const webview = new WebviewWindow(label, {
         url: "index.html#card",
+        // title 不依赖 agent（spec 无此概念）；直接用窗口 label 作标题，避免落到
+        // Tauri 默认 "Tauri App"（skipTaskbar + decorations:false，title 仅 UIA/OS 可见）
+        title: label,
         width: 520,
         height: 440,
         decorations: false,

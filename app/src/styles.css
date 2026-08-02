@@ -24,9 +24,9 @@ html.browser body {
   --view-scale: 1;
   position: fixed;
   min-width: calc(72px * var(--view-scale)); /* ← JS: minFaceW 基底 */
-  height: calc(80px * var(--view-scale)); /* ← JS: baselineH 基底 */
+  height: calc(40px * var(--view-scale)); /* ← JS: baselineH 基底 */
   padding: 0 calc(22px * var(--view-scale)); /* ← JS: padLR 基底（22×2） */
-  border-radius: calc(40px * var(--view-scale)); /* 球场圆形（pill）= height/2 */
+  border-radius: calc(20px * var(--view-scale)); /* 球场圆形（pill）= height/2 */
   background: rgba(255, 255, 255, 0.92);
   display: flex;
   align-items: center;

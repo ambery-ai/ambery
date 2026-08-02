@@ -15,7 +15,7 @@
         "title": "Terminal Overseer",
         "url": "index.html",
         "width": 116,
-        "height": 80,
+        "height": 40,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
