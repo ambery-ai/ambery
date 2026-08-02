@@ -245,3 +245,5 @@ LLM 有时将 `action: "close"` 放在 args 顶层（与 `spec` 并列），而 
 pet 创建 card 窗口时 `new WebviewWindow(label, {...})` 未传 `title`，窗口标题落到 Tauri 默认 "Tauri App"（UIA / OS 可见异常）。title 不应由 agent 提供——`spec` 无此概念，窗口标题是实现细节。
 
 2026-08-02 修复——创建 card 窗口时传 `title: label`（内部派生 `card-${spec.id}`，与窗口 label 一致），不依赖 agent 参数。下次新建 card 时标题即为 `card-xxx`。
+
+2026-08-02 验证——注入 notification hook 引导 agent 调 `call_component`，locate.ps1 实测新建 card 窗口 title = `card-watch-focus-6`（= label），不再是默认 "Tauri App"。改代码前已创建的旧 "Tauri App" 窗口不会自动更新，属预期。
