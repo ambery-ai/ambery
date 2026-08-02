@@ -192,6 +192,10 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 
 2026-08-02 修复——按 docs/pet-window-size.md 全量落地，累积基准 hack 整体废弃：(1) CSS baseline 40→80px + `#face` 补 `flex-shrink:0`（真因①）；(2) 三条尺寸路径对齐——tauri.conf 种子 116×80 / CSS baselineH 80 / JS 纯函数公式 `windowSize(faceW, scale, overflow)`（不读当前 OS 窗口大小），config 加载即重测+setSize 消时序空窗（真因②）；(3) 中心锚定钉**基准中心**（face 静止中心，动画不改中心）——setSize 后按 motion 偏移反推左上角；(4) 障碍区 = 系统池扫描 maxFaceWidth + MotionDef 四向扫描，一次注册只随 scale/池/拖拽更新；(5) 原则⑥中心不离屏——拖拽结束校验工作区，越界拉回最近点。devtools 实测：motion 四态尺寸/offset 与公式精确一致，动画中 face 中心偏离恰为 transform 极值（基准钉住），拖出视口拉回 (0,0)。
 
+2026-08-02 reopen——`6489e00` 修复把 CSS baseline 40→80px 属过度修正：80px 容器对 25px face 上下留白 27.5px，窗口高度从 golden ratio 时代的 40(still)/50(float)/58(bounce) 暴涨到 80/90/98，视觉显著变胖，与 72×40 时代形态不符。动画溢出已由窗口层 MotionDef 承担（容器整体 transform，face 随容器同动），容器无需为动画预留空间，40px 足够；#18 打回时「40px 放不下 25px face」的判断在「动画溢出窗口层」的新机制下不再成立。用户实测确认：baseline 恢复 40 后窗口回到原 40~58 区间（locate.ps1 实测 bounce 状态 58 与 #18 记载的修复前「40→58 跳变」同值）。
+
+2026-08-02 修复——baseline 回 40px：CSS `#view height` 40px / `border-radius` 20px（=height/2）、`pet-size.ts BASELINE_H=40`、tauri.conf 种子 116×40、docs/pet-window-size.md 常量表与 CSS 契约同步。窗口高度 = 40 + motion 溢出（still 40 / float 50 / bounce 58）。顺带修复：card 窗口 `new WebviewWindow` 未传 title 落到 Tauri 默认 "Tauri App"（见 #24）。
+
 ## #19 多屏不同 DPI 下窗口位置计算不一致，可能导致重叠 (2026-07-30) — fixed
 
 多块不同 DPI 的屏幕间移动 card/chat/pet 时，坐标计算不一致，可能导致窗口重叠或错位。疑因物理像素与逻辑像素混用：`outerPosition`/`setPosition` 走物理像素，engine 中心点与 getBoundingClientRect 走 CSS 逻辑像素，card 测量已乘 dpr（lastPw/lastPh）但跨屏时 dpr 取值按当前所在屏还是所在窗口屏未统一；松手回写（reportMoved）与自动布局（place）在不同 DPI 屏上得出不同坐标系的结果。建议：统一选定坐标系（物理或逻辑）并贯穿测量/回写/布局三处，跨屏移动时按目标屏 dpr 换算。
@@ -235,3 +239,9 @@ pet 拖到桌面底部后右键唤出 chat，chat 没有出现在可见范围内
 LLM 有时将 `action: "close"` 放在 args 顶层（与 `spec` 并列），而 execute_tool 只在 `spec` 内部查找 action 字段，导致 close 被当成空 update 执行——空 spec 重渲染卡片窗口出现空白卡。修复：在 `spec.get("action")` 为 None 时 fallback 到 `args.get("action")`，两级兼容。case `close-action-outside-spec.case` 已复现。
 
 2026-08-02 修复——`execute_tool` 的 action 查找改为 `spec.get("action").or_else(|| args.get("action"))` 两级兼容；新增单测 `call_component_close_action_outside_spec` 固化回归。case 跑绿（args 顶层与 spec 内部两种写法均正确关闭），94 core 测试绿。
+
+## #24 card 窗口 title 未设，落到 Tauri 默认 "Tauri App" (2026-08-02) — fixed
+
+pet 创建 card 窗口时 `new WebviewWindow(label, {...})` 未传 `title`，窗口标题落到 Tauri 默认 "Tauri App"（UIA / OS 可见异常）。title 不应由 agent 提供——`spec` 无此概念，窗口标题是实现细节。
+
+2026-08-02 修复——创建 card 窗口时传 `title: label`（内部派生 `card-${spec.id}`，与窗口 label 一致），不依赖 agent 参数。下次新建 card 时标题即为 `card-xxx`。
