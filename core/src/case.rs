@@ -2,8 +2,8 @@
 //! feature "case-runner" gate。
 
 use crate::llm::Llm;
+use crate::observe::{AgentSnapshot, ContentSnapshot, MessageSnapshot, Observable};
 use crate::overseer::OverseerBackend;
-use crate::AgentStatus;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -28,86 +28,30 @@ pub struct CaseObserve {
     pub answer: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentSnapshot {
-    pub hash: String,
-    pub name: String,
-    pub project: String,
-    pub status: AgentStatus,
-    pub last_seen: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageSnapshot {
-    pub role: String,
-    pub content: Option<String>,
-    pub tool_calls: usize,
-    pub ts: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContentSnapshot {
-    pub instance: String,
-    pub content: String,
-    pub source: String,
-    pub ts: i64,
-}
-
-/// 观测当前概念结构
+/// 观测当前概念结构：模块快照走 Observable 投影（docs/observability.md），
+/// 派生项（panorama / context_est_delta / answer）手写组装。
 pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
-    let agents: Vec<AgentSnapshot> = ov
-        .harness
-        .agents
-        .iter()
-        .map(|a| AgentSnapshot {
-            hash: a.hash.clone(),
-            name: a.name.clone(),
-            project: a.project.clone(),
-            status: a.status.clone(),
-            last_seen: a.last_seen,
-        })
-        .collect();
-    let panorama = crate::panorama(&ov.harness.agents);
-    let context = ov
-        .harness
-        .context
-        .messages()
-        .iter()
-        .map(|m| MessageSnapshot {
-            role: format!("{:?}", m.role).to_lowercase(),
-            content: m.content.clone(),
-            tool_calls: m.tool_calls.as_ref().map_or(0, |c| c.len()),
-            ts: m.ts,
-        })
-        .collect();
-    let content = ov
-        .harness
-        .content
-        .records()
-        .iter()
-        .map(|r| ContentSnapshot {
-            instance: r.instance.clone(),
-            content: r.content.clone(),
-            source: format!("{:?}", r.source).to_lowercase(),
-            ts: r.ts,
-        })
-        .collect();
-    let queue = ov.harness.queue.iter().cloned().collect();
-    let event_buffer = ov.harness.event_buffer.events().to_vec();
-    let usage = ov.harness.last_usage;
-    let context_est_delta = ov
-        .harness
-        .context
-        .est_tokens_since(ov.harness.last_usage_msg_len);
-    let answer = ov
-        .harness
+    let h = &ov.harness;
+    let panorama = crate::panorama(&h.agents);
+    let context_est_delta = h.context.est_tokens_since(h.last_usage_msg_len);
+    let answer = h
         .context
         .messages()
         .iter()
         .rev()
         .find(|m| m.role == crate::context::Role::Assistant)
         .and_then(|m| m.content.clone());
-    CaseObserve { agents, panorama, context, content, queue, event_buffer, usage, context_est_delta, answer }
+    CaseObserve {
+        agents: h.agents.observe(),
+        panorama,
+        context: h.context.observe(),
+        content: h.content.observe(),
+        queue: h.queue.observe(),
+        event_buffer: h.event_buffer.observe(),
+        usage: h.last_usage.observe(),
+        context_est_delta,
+        answer,
+    }
 }
 
 // ── 两段式 .case 格式（docs/case-runner.md §Case 文件格式）──

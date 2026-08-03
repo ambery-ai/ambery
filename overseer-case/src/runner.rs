@@ -114,7 +114,7 @@ fn print_effects(effects: Vec<Effect>) {
 
 /// 内容级 observe 输出（docs/case-runner.md §observe 输出）
 fn print_observe(obs: &CaseObserve, items: &[String], last_len: &mut usize) {
-    let msg_line = |m: &overseer_core::case::MessageSnapshot| {
+    let msg_line = |m: &overseer_core::observe::MessageSnapshot| {
         format!(
             "  [{}] {}{}",
             m.role,

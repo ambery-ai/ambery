@@ -30,7 +30,7 @@ import tempfile
 
 NOTIFY_THRESHOLD = 80  # 旧 fixture：hook 内容 ≥ 80 字才通知（真实判断由 LLM 做）
 
-EXE = os.path.join(os.path.dirname(__file__), "..", "core", "target", "debug", "overseer-debug.exe")
+EXE = os.path.join(os.path.dirname(__file__), "..", "target", "debug", "overseer-debug.exe")
 
 
 # ── 旧 Rust DebugAgent 规则的 Python 复刻 ──

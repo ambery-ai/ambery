@@ -2,6 +2,10 @@
 //! Queue（输入排队）/ Context（消息数组）/ Content 存档 / Event Buffer / agents 注册表
 //! + JSONL Storage replay。
 
+// derive 宏展开内引用 ::overseer_core 路径（docs/observability.md），
+// 别名让 crate 内外（含 doctest/下游）都能解析（serde 同款手法）
+extern crate self as overseer_core;
+
 pub mod config;
 pub mod content;
 pub mod context;
@@ -15,6 +19,8 @@ pub mod memory;
 pub mod mock;
 #[cfg(feature = "case-runner")]
 pub mod case;
+#[cfg(feature = "case-runner")]
+pub mod observe;
 pub mod overseer;
 pub mod paths;
 pub mod queue;
@@ -138,6 +144,9 @@ pub fn agent_hash(name: &str, project: &str, first_seen: i64) -> String {
     format!("{:08x}", h.finish() as u32)
 }
 
+/// derive Observe（docs/observability.md）：每个字段必须实现 Observable 或显式
+/// skip 写理由——新增概念模块不声明可观测性即 E0277（编译期强制覆盖）。
+#[cfg_attr(feature = "case-runner", derive(overseer_observe_derive::Observe))]
 pub struct Harness {
     /// Queue（concepts §10c）：输入串行化关口，只装待放行输入
     pub queue: Queue,
@@ -148,17 +157,23 @@ pub struct Harness {
     pub event_buffer: EventBuffer,
     pub agents: Vec<AgentEntry>,
     /// 最近一次写入的请求头（head diff：变化才写，docs/storage.md）
+    #[cfg_attr(feature = "case-runner", observe(skip = "装配留痕（head diff 审计），非概念模块"))]
     pub last_head: Option<String>,
     /// 最近一次 LLM 调用的 token 真值（#16；重启 = None，不背旧 session）
     pub last_usage: Option<crate::llm::Usage>,
     /// last_usage 落点时的 Context 消息数（#16 增量估算基准：其后新增 = est 增量）
+    #[cfg_attr(feature = "case-runner", observe(skip = "est 增量推导基准（派生数据，经 context_est_delta 现算观测）"))]
     pub last_usage_msg_len: usize,
     /// Memory（concepts §10f，docs/memory.md）：持久化理解 buffer 根管理器
+    #[cfg_attr(feature = "case-runner", observe(skip = "§10f 概念模块，observe 项未定——待 capability evaluation 需要时补"))]
     pub memory: memory::Memory,
     /// Cron（concepts §10g，docs/cron.md）：持久化计划与延时调度（entries 持久化
     /// + sleep waiters 共享句柄）
+    #[cfg_attr(feature = "case-runner", observe(skip = "§10g 概念模块，observe 项未定——待 capability evaluation 需要时补"))]
     pub cron: cron::CronScheduler,
+    #[cfg_attr(feature = "case-runner", observe(skip = "JSONL 持久化句柄（机制非概念）"))]
     store: JsonlStore,
+    #[cfg_attr(feature = "case-runner", observe(skip = "Config 域路径（机制非概念）"))]
     config_dir: std::path::PathBuf,
 }
 

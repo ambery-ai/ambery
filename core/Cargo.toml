@@ -22,9 +22,13 @@ path = "src/lib.rs"
 name = "overseer-debug"
 path = "src/bin/overseer-debug.rs"
 
+[dependencies.overseer-observe-derive]
+path = "../observe-derive"
+optional = true
+
 [features]
 default = ["mock"]
 # mock 面（core/src/mock.rs）：真实 hook 接入后删此 feature 及模块
 mock = []
 # case-runner（docs/case-runner.md）：storage 快照回放与概念观测
-case-runner = []
+case-runner = ["dep:overseer-observe-derive"]

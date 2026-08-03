@@ -1,0 +1,5 @@
+[workspace]
+resolver = "2"
+members = ["core", "observe-derive", "overseer-case"]
+# Tauri 壳（app/src-tauri）独立构建：壳重依赖（tauri/windows）不进 workspace 日常编译
+exclude = ["app/src-tauri"]
