@@ -32,8 +32,7 @@ pub mod storage;
 pub mod timer;
 
 pub use config::{Config, KaomojiEntry, LlmConfig, LlmProvider, CONFIG_FILE};
-use content::ContentArchive;
-pub use content::{ContentRecord, RecordSource, TerminalContentRecord};
+pub use content::{FilteredContent, RecordSource, TerminalContentRecord};
 use context::{Context, ContextMessage};
 use event_buffer::EventBuffer;
 use queue::{Queue, QueueInput};
@@ -108,7 +107,9 @@ pub enum ContextLine {
         duration_ms: u64,
         ts: i64,
     },
-    /// Filter 后归一全文（fetch 回退/追问/变化检测基准）
+    /// Filter 后归一全文——**已退役**（现算定案：不持久化，从 terminal-content.jsonl 原文
+    /// digest 现算，docs/storage.md §filtered_content 退役）。保留 variant 只为旧文件
+    /// replay 兼容（读取后忽略），新代码不再写。
     Content {
         instance: String,
         content: String,
@@ -182,8 +183,6 @@ pub struct Harness {
     pub queue: Queue,
     /// Context（concepts §10b）：完整消息数组，LLM 请求的上下文源
     pub context: Context,
-    /// Content 存档（concepts §8/§11）：Filter 后归一全文参考数据
-    pub content: ContentArchive,
     pub event_buffer: EventBuffer,
     pub agents: Vec<AgentEntry>,
     /// 最近一次写入的请求头（head diff：变化才写，docs/storage.md）
@@ -237,27 +236,15 @@ impl Harness {
         ts: i64,
     ) -> std::io::Result<Self> {
         let store = JsonlStore::new(dir)?;
-        // context.jsonl 统一信封 replay：content → 内存 ContentArchive；head → last_head；其余为历史留痕
-        let mut content_records = vec![];
+        // context.jsonl 统一信封 replay：head → last_head；其余为历史留痕。
+        // content 行（归一全文持久存档）已退役：replay 忽略（现算定案，docs/storage.md）
         let mut last_head = None;
         for line in store.read_all::<ContextLine>(CONTEXT_FILE)? {
             match line {
-                ContextLine::Content {
-                    instance,
-                    content,
-                    source,
-                    ts,
-                } => content_records.push(ContentRecord {
-                    instance,
-                    content,
-                    source,
-                    ts,
-                }),
                 ContextLine::Head { content, .. } => last_head = Some(content),
                 _ => {}
             }
         }
-        let content = ContentArchive::from_records(content_records);
         // agents 是 upsert 日志：replay 须逐条折叠（同 id 取最后一条）
         let mut agents: Vec<AgentEntry> = vec![];
         for entry in store.read_all::<AgentEntry>(WORK_AGENTS_FILE)? {
@@ -277,7 +264,6 @@ impl Harness {
             // Queue 不 replay：崩溃丢失未放行输入可接受（docs/storage.md 设计决定）
             queue: Queue::default(),
             context: Context::new(token_threshold),
-            content,
             // Event Buffer 不持久化：暂存区语义，崩溃丢失可接受（docs/harness.md 设计决定）
             event_buffer: EventBuffer::default(),
             agents,
@@ -313,24 +299,14 @@ impl Harness {
         Ok(())
     }
 
-    /// Filter 后归一全文：context.jsonl content 行 + 内存 ContentArchive
-    pub fn append_content(&mut self, rec: ContentRecord) -> std::io::Result<()> {
-        self.store.append(
-            CONTEXT_FILE,
-            &ContextLine::Content {
-                instance: rec.instance.clone(),
-                content: rec.content.clone(),
-                source: rec.source,
-                ts: rec.ts,
-            },
-        )?;
-        self.content.push(rec);
-        Ok(())
-    }
-
     /// Terminal Content 原文存档（Filter 前；平时不读、启动不 replay）
     pub fn append_terminal_content(&self, rec: TerminalContentRecord) -> std::io::Result<()> {
         self.store.append(TERMINAL_CONTENT_FILE, &rec)
+    }
+
+    /// 读 terminal-content.jsonl 全部原文记录（filtered_content 现算源，docs/storage.md）
+    pub fn terminal_content_records(&self) -> std::io::Result<Vec<TerminalContentRecord>> {
+        self.store.read_all(TERMINAL_CONTENT_FILE)
     }
 
     /// 动作流记录（docs/storage.md §effect.jsonl）：append-only，不 replay（观测读文件）
@@ -483,9 +459,10 @@ mod tests {
         {
             let mut h = Harness::load(&dir, &dir, 1000, 0).unwrap();
             h.append_context(ContextMessage::new(Role::User, "你好", 1)).unwrap();
-            h.append_content(ContentRecord {
+            // Terminal Content 原文存档（filtered_content 现算源；归一全文不再持久化）
+            h.append_terminal_content(TerminalContentRecord {
                 instance: "ft".into(),
-                content: "终端全文".into(),
+                raw: "终端原文".into(),
                 source: RecordSource::Hook,
                 ts: 2,
             })
@@ -508,14 +485,16 @@ mod tests {
         let resync = h.context.messages()[0].content.as_deref().unwrap();
         assert!(resync.contains("实例全景同步"));
         assert!(resync.contains("ft"));
-        assert_eq!(h.content.latest("ft").unwrap().content, "终端全文");
+        // 原文存档在盘可读（现算源）；不归 replay 进内存
+        let raws = h.terminal_content_records().unwrap();
+        assert_eq!(raws.len(), 1);
+        assert_eq!(raws[0].raw, "终端原文");
         assert_eq!(h.agents.len(), 1);
         assert_eq!(h.agents[0].status, AgentStatus::Processing);
         // context.jsonl 统一信封：session 标记每次启动一条
         let raw = std::fs::read_to_string(dir.join(CONTEXT_FILE)).unwrap();
         assert_eq!(raw.matches("\"type\":\"session\"").count(), 2);
         assert!(raw.contains("\"type\":\"message\""));
-        assert!(raw.contains("\"type\":\"content\""));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

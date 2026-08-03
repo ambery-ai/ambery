@@ -2,7 +2,7 @@
 //! feature "case-runner" gate。
 
 use crate::llm::Llm;
-use crate::observe::{AgentSnapshot, ContentSnapshot, MessageSnapshot, Observable};
+use crate::observe::{AgentSnapshot, FilteredContentSnapshot, MessageSnapshot, Observable};
 use crate::overseer::OverseerBackend;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -14,8 +14,8 @@ pub struct CaseObserve {
     pub panorama: Option<String>,
     /// Context 消息数组（role / content / tool_calls）
     pub context: Vec<MessageSnapshot>,
-    /// Content 存档（Filter 后归一全文参考数据）
-    pub content: Vec<ContentSnapshot>,
+    /// Filtered 内容（归一全文现算：terminal-content.jsonl 原文 digest，不持久化）
+    pub filtered_content: Vec<FilteredContentSnapshot>,
     /// Queue 待放行输入
     pub queue: Vec<crate::queue::QueueInput>,
     /// Event Buffer 积压原文
@@ -49,7 +49,16 @@ pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
         agents: h.agents.observe(),
         panorama,
         context: h.context.observe(),
-        content: h.content.observe(),
+        filtered_content: ov
+            .filtered_content()
+            .into_iter()
+            .map(|r| FilteredContentSnapshot {
+                instance: r.instance,
+                filtered_content: r.filtered_content,
+                source: format!("{:?}", r.source).to_lowercase(),
+                ts: r.ts,
+            })
+            .collect(),
         queue: h.queue.observe(),
         event_buffer: h.event_buffer.observe(),
         usage: h.last_usage.observe(),

@@ -9,7 +9,6 @@
 //! struct H { queue: String }
 //! ```
 
-use crate::content::ContentArchive;
 use crate::context::Context;
 use crate::event_buffer::EventBuffer;
 use crate::queue::{Queue, QueueInput};
@@ -41,11 +40,11 @@ pub struct MessageSnapshot {
     pub ts: i64,
 }
 
-/// Filtered 内容存档快照条目（Filter 后归一全文参考数据）
+/// Filtered 内容快照条目（归一全文现算，docs/storage.md §filtered_content 退役）
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ContentSnapshot {
+pub struct FilteredContentSnapshot {
     pub instance: String,
-    pub content: String,
+    pub filtered_content: String,
     pub source: String,
     pub ts: i64,
 }
@@ -67,21 +66,6 @@ impl Observable for Context {
                 content: m.content.clone(),
                 tool_calls: m.tool_calls.as_ref().map_or(0, |c| c.len()),
                 ts: m.ts,
-            })
-            .collect()
-    }
-}
-
-impl Observable for ContentArchive {
-    type Snapshot = Vec<ContentSnapshot>;
-    fn observe(&self) -> Self::Snapshot {
-        self.records()
-            .iter()
-            .map(|r| ContentSnapshot {
-                instance: r.instance.clone(),
-                content: r.content.clone(),
-                source: format!("{:?}", r.source).to_lowercase(),
-                ts: r.ts,
             })
             .collect()
     }
@@ -120,7 +104,6 @@ impl Observable for Option<crate::llm::Usage> {
 mod tests {
     use super::*;
     use crate::context::{ContextMessage, Role};
-    use crate::content::{ContentRecord, RecordSource};
 
     #[test]
     fn context_projection() {
@@ -150,21 +133,6 @@ mod tests {
         assert_eq!(snap.len(), 1);
         assert_eq!(snap[0].hash, "h1");
         assert_eq!(snap[0].status, AgentStatus::Processing);
-    }
-
-    #[test]
-    fn content_projection() {
-        let mut archive = ContentArchive::default();
-        archive.push(ContentRecord {
-            instance: "ft".into(),
-            content: "归一全文".into(),
-            source: RecordSource::Timer,
-            ts: 3,
-        });
-        let snap = archive.observe();
-        assert_eq!(snap.len(), 1);
-        assert_eq!(snap[0].source, "timer");
-        assert_eq!(snap[0].content, "归一全文");
     }
 
     #[test]

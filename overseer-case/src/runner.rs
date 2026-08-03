@@ -172,9 +172,9 @@ fn print_observe(
                 None => println!("panorama: (无存活实例)"),
             },
             "filtered_content" => {
-                println!("filtered_content: {} 行", obs.content.len());
-                for c in &obs.content {
-                    println!("  ({}) {}: {}", c.source, c.instance, c.content);
+                println!("filtered_content: {} 行（现算）", obs.filtered_content.len());
+                for c in &obs.filtered_content {
+                    println!("  ({}) {}: {}", c.source, c.instance, c.filtered_content);
                 }
             }
             "queue" => {

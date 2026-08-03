@@ -7,7 +7,7 @@ use crate::llm::{tool_set, Llm};
 use crate::context::{ContextMessage, Role, ToolCall};
 use crate::timer::TimerWheel;
 use crate::{
-    default_agents_md, AgentEntry, AgentStatus, Config, ContentRecord, Harness,
+    default_agents_md, AgentEntry, AgentStatus, Config, Harness,
     TerminalContentRecord, AGENTS_MD_FILE,
 };
 use serde_json::{json, Value};
@@ -107,6 +107,9 @@ pub struct OverseerBackend<L: Llm> {
     /// 运行中改 config 不影响本进程行为，经待重启状态如实上报）
     tool_budget_response: usize,
     tool_budget_turn: usize,
+    /// 变化检测 prev（每实例上次归一全文）：**内存态，重启丢**（filtered_content 不持久化
+    /// 定案，docs/storage.md §filtered_content 退役）——scan/hook/fetch 读后更新
+    filtered_prev: std::collections::HashMap<String, String>,
 }
 
 /// edit_config query 快照条目
@@ -194,6 +197,7 @@ impl<L: Llm> OverseerBackend<L> {
             response_seq: 0,
             tool_budget_response,
             tool_budget_turn,
+            filtered_prev: std::collections::HashMap::new(),
         };
         // 启动调度（concepts §1a 兜底覆盖）：TimerWheel 不 replay，
         // 对投影中全部存活实例批量 reset——无 hook 实例（僵尸）也进兜底扫描集，
@@ -1108,12 +1112,7 @@ impl<L: Llm> OverseerBackend<L> {
                                     },
                                 );
                                 let filtered = self.filter.digest(&raw).render();
-                                let _ = self.harness.append_content(ContentRecord {
-                                    instance: name.clone(),
-                                    content: filtered.clone(),
-                                    source: RecordSource::Hook,
-                                    ts,
-                                });
+                                self.note_filtered(&name, filtered.clone());
                                 filtered
                             });
                         match content {
@@ -1183,12 +1182,7 @@ impl<L: Llm> OverseerBackend<L> {
                     first_seen: ts,
                     last_seen: ts,
                 })?;
-                self.harness.append_content(ContentRecord {
-                    instance: instance.into(),
-                    content: filtered,
-                    source: RecordSource::Hook,
-                    ts,
-                })?;
+                self.note_filtered(instance, filtered);
                 let alive = self.alive_count();
                 self.harness
                     .event_buffer
@@ -1214,12 +1208,7 @@ impl<L: Llm> OverseerBackend<L> {
                     first_seen,
                     last_seen: ts,
                 })?;
-                self.harness.append_content(ContentRecord {
-                    instance: instance.into(),
-                    content: filtered.clone(),
-                    source: RecordSource::Hook,
-                    ts,
-                })?;
+                self.note_filtered(instance, filtered.clone());
                 let len = filtered.chars().count();
                 self.enqueue(
                     Role::System,
@@ -1242,6 +1231,43 @@ impl<L: Llm> OverseerBackend<L> {
         self.timers.due(now, batch)
     }
 
+    /// filtered_content 现算（不持久化，docs/storage.md §filtered_content 退役）：
+    /// terminal-content.jsonl 原文逐条 digest 出归一全文（agent 实际读到的终端内容）
+    pub fn filtered_content(&self) -> Vec<crate::FilteredContent> {
+        self.harness
+            .terminal_content_records()
+            .unwrap_or_default()
+            .iter()
+            .map(|r| crate::FilteredContent {
+                instance: r.instance.clone(),
+                filtered_content: self.filter.digest(&r.raw).render(),
+                source: r.source,
+                ts: r.ts,
+            })
+            .collect()
+    }
+
+    /// 某实例最新一条归一全文（fetch_terminal 回退/追问，从原文现算）
+    pub fn filtered_content_latest(&self, instance: &str) -> Option<crate::FilteredContent> {
+        self.harness
+            .terminal_content_records()
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .find(|r| r.instance == instance)
+            .map(|r| crate::FilteredContent {
+                instance: r.instance.clone(),
+                filtered_content: self.filter.digest(&r.raw).render(),
+                source: r.source,
+                ts: r.ts,
+            })
+    }
+
+    /// 变化检测 prev 登记（每实例最新已知归一全文；内存态，重启丢）
+    fn note_filtered(&mut self, instance: &str, filtered: String) {
+        self.filtered_prev.insert(instance.to_string(), filtered);
+    }
+
     /// Timer 兜底扫描处理（docs/timer.md §扫描处理流程）：
     /// Filter → 变化检测 → Substantive 才注入 Queue 评估；Minor/Unchanged 只存档不打扰
     pub async fn handle_timer_scan(
@@ -1258,20 +1284,11 @@ impl<L: Llm> OverseerBackend<L> {
             ts,
         })?;
         let filtered = self.filter.digest(content).render();
-        let prev = self
-            .harness
-            .content
-            .latest(instance)
-            .map(|r| r.content.clone())
-            .unwrap_or_default();
+        // 变化检测 prev 存内存（重启丢，docs/storage.md §filtered_content 退役）
+        let prev = self.filtered_prev.get(instance).cloned().unwrap_or_default();
         let change = self.filter.detect_change(&prev, &filtered);
         let len = filtered.chars().count();
-        self.harness.append_content(ContentRecord {
-            instance: instance.into(),
-            content: filtered,
-            source: RecordSource::Timer,
-            ts,
-        })?;
+        self.note_filtered(instance, filtered);
         if matches!(change, Change::Substantive(_)) {
             self.enqueue(
                 Role::System,
@@ -1464,21 +1481,16 @@ impl<L: Llm> OverseerBackend<L> {
                                 ts: crate::server::now_ms(),
                             });
                             let filtered = ov.filter.digest(&raw).render();
-                            let _ = ov.harness.append_content(ContentRecord {
-                                instance: inst.into(),
-                                content: filtered.clone(),
-                                source: RecordSource::FetchTerminal,
-                                ts: crate::server::now_ms(),
-                            });
+                            ov.note_filtered(inst, filtered.clone());
                             filtered
                         })
                 };
                 if let Some(content) = read_fresh(self) {
                     return (json!({ "instance": inst, "content": content }), vec![]);
                 }
-                // 新鲜读失败 → Context 最新记录回退（有历史给历史）
-                if let Some(rec) = self.harness.content.latest(inst) {
-                    return (json!({ "instance": inst, "content": rec.content.clone() }), vec![]);
+                // 新鲜读失败 → 最新归一全文回退（有历史给历史；从原文现算，docs/storage.md）
+                if let Some(rec) = self.filtered_content_latest(inst) {
+                    return (json!({ "instance": inst, "content": rec.filtered_content }), vec![]);
                 }
                 // 什么都没有：vd_switch=false → 失败教学；true → 切桌面重试
                 if !vd_switch {
@@ -1769,9 +1781,9 @@ mod tests {
         assert_eq!(ov.harness.agents[0].status, AgentStatus::Idle);
         assert!(ov.harness.context.messages().is_empty()); // 无 Queue 注入
         assert_eq!(ov.harness.event_buffer.len(), 1); // 簿记待附带
-        // mock 读链存档仍发生（原文 → terminal-content → Filter → content 存档）
+        // mock 读链存档仍发生（原文 → terminal-content；归一全文现算）
         assert_eq!(
-            ov.harness.content.latest("new-feature").unwrap().content,
+            ov.filtered_content_latest("new-feature").unwrap().filtered_content,
             "启动画面"
         );
         let _ = std::fs::remove_dir_all(tmp_dir("register"));
@@ -1876,7 +1888,7 @@ mod tests {
         ov.handle_hook("stop", "ft", "proj", &raw, 1).await.unwrap();
         let effects = ov.drain_queue(0).await.unwrap();
         assert!(effects.is_empty());
-        assert_eq!(ov.harness.content.latest("ft").unwrap().content, "● 完成");
+        assert_eq!(ov.filtered_content_latest("ft").unwrap().filtered_content, "● 完成");
         let _ = std::fs::remove_dir_all(tmp_dir("filter"));
     }
 
@@ -1901,9 +1913,9 @@ mod tests {
             .await
             .unwrap();
         let effects = ov.drain_queue(0).await.unwrap();
-        let rec = ov.harness.content.latest("cship").unwrap();
+        let rec = ov.filtered_content_latest("cship").unwrap();
         assert_eq!(rec.source, RecordSource::Timer);
-        assert_eq!(rec.content, new_content);
+        assert_eq!(rec.filtered_content, new_content);
         assert!(ov
             .harness
             .context
@@ -1928,7 +1940,7 @@ mod tests {
         let effects = ov.drain_queue(0).await.unwrap();
         assert!(effects.is_empty());
         assert_eq!(ov.harness.context.messages().len(), msgs_before);
-        assert_eq!(ov.harness.content.latest("cship").unwrap().source, RecordSource::Timer);
+        assert_eq!(ov.filtered_content_latest("cship").unwrap().source, RecordSource::Timer);
         let _ = std::fs::remove_dir_all(tmp_dir("timer-min"));
     }
 
@@ -1945,6 +1957,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn restart_loses_prev_first_scan_reports_change() {
+        // filtered_content 不持久化定案（docs/storage.md）：变化检测 prev 存内存，
+        // 重启丢——同目录重开后首轮 scan 对相同内容也报 Substantive（接受的代价）
+        let dir = tmp_dir("prev-loss");
+        {
+            let mut ov = make_overseer("prev-loss");
+            ov.handle_timer_scan("ft", "相同内容", 1).await.unwrap();
+        }
+        // 同目录重开（Harness replay + 新 OverseerBackend：prev 为空）
+        let harness = Harness::load(&dir, &dir, 100_000, 9).unwrap();
+        let mut ov = OverseerBackend::new(harness, Config::default(), DebugAgent::silent());
+        ov.handle_timer_scan("ft", "相同内容", 2).await.unwrap();
+        // 相同内容仍判 Substantive → 入队一条扫描注入（prev 丢失的直接证据）
+        let injected = ov
+            .harness
+            .queue
+            .iter()
+            .any(|q| q.content.contains("兜底扫描发现变化"));
+        assert!(injected, "重启后首轮 scan 应报变化（prev 内存态重启丢）");
+        // 原文存档仍在盘（现算源不丢）
+        assert!(ov.filtered_content_latest("ft").is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn hook_archives_raw_before_filter() {
         let mut ov = make_overseer("raw-archive");
         // 原文含噪音 → terminal-content.jsonl 存 filter 前全文，context.jsonl 存归一后
@@ -1956,7 +1993,8 @@ mod tests {
         .unwrap();
         assert!(archive.contains("✻ Crunched for 12s")); // 原文噪音还在
         assert!(archive.contains("\"source\":\"hook\""));
-        assert_eq!(ov.harness.content.latest("ft").unwrap().content, "● 完成");
+        // 归一全文不持久化：从原文 digest 现算（docs/storage.md §filtered_content 退役）
+        assert_eq!(ov.filtered_content_latest("ft").unwrap().filtered_content, "● 完成");
         let _ = std::fs::remove_dir_all(tmp_dir("raw-archive"));
     }
 
@@ -2511,8 +2549,8 @@ mod tests {
         ov.drain_queue(0).await.unwrap();
         let m = ov.harness.context.messages().last().unwrap().content.clone().unwrap();
         assert!(m.contains("Context 已更新"), "A: {m}");
-        let ctx = ov.harness.content.latest("p·dddd3333").expect("context 已写");
-        assert!(ctx.content.contains("hooks 已配置"));
+        let ctx = ov.filtered_content_latest("p·dddd3333").expect("归一全文现算");
+        assert!(ctx.filtered_content.contains("hooks 已配置"));
         let _ = std::fs::remove_dir_all(tmp_dir("rh7"));
     }
 
