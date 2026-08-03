@@ -20,6 +20,8 @@ pub mod mock;
 #[cfg(feature = "case-runner")]
 pub mod case;
 #[cfg(feature = "case-runner")]
+pub mod eval;
+#[cfg(feature = "case-runner")]
 pub mod observe;
 pub mod overseer;
 pub mod paths;
