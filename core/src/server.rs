@@ -136,6 +136,45 @@ pub fn hook_router(state: Arc<AppState>) -> Router {
     Router::new().route("/hook", post(post_hook)).with_state(state)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::DebugAgent;
+
+    /// #25 观测链路端到端（HTTP 层）：POST /effect → effect.jsonl 落盘，
+    /// 同 id 两条 window_opened 中间无 window_closed = 重复窗口的证据形态被捕获
+    #[tokio::test]
+    async fn post_effect_records_frontend_action() {
+        let dir = std::env::temp_dir().join(format!("overseer-test-server-eff-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let ov = OverseerBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
+        let state = Arc::new(AppState::new(ov, Default::default()));
+        let (ws_tx, _) = tokio::sync::broadcast::channel(4);
+        let app = router(state, ws_tx);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let client = reqwest::Client::new();
+        let url = format!("http://127.0.0.1:{port}/effect");
+        for _ in 0..2 {
+            let r = client
+                .post(&url)
+                .json(&json!({"kind":"window_opened","payload":{"window":"card-demo"}}))
+                .send()
+                .await
+                .unwrap();
+            assert!(r.status().is_success());
+        }
+        let raw = std::fs::read_to_string(dir.join(crate::EFFECT_FILE)).unwrap();
+        let opened = raw.matches("\"kind\":\"window_opened\"").count();
+        assert_eq!(opened, 2, "两条 window_opened 落盘: {raw}");
+        assert!(raw.contains("\"origin\":\"frontend\""));
+        assert!(!raw.contains("window_closed"), "无 closed——#25 证据形态成立");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 // ── handlers ──
 
 async fn get_state(State(s): State<Arc<AppState>>) -> impl IntoResponse { Json(state_json_value(&s).await) }
