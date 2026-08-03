@@ -34,7 +34,14 @@ async fn main() {
         .and_then(|n| n.parse::<usize>().ok());
 
     let text = std::fs::read_to_string(case_path).expect("read case file");
-    let case = overseer_core::case::parse(&text).expect("parse case（两段式 .case）");
+    let case = match overseer_core::case::parse(&text) {
+        Ok(c) => c,
+        Err(e) => {
+            // 缺 llm_mode / 非法值 / no_case_visible 等不合法：health 模式 FAIL 退出 1，否则报错退出
+            eprintln!("FAIL: 解析 case（两段式 .case）: {e}");
+            std::process::exit(if health_mode { 1 } else { 2 });
+        }
+    };
 
     if health_mode {
         health(&text, &case);
@@ -121,17 +128,29 @@ fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
         }
         config = serde_json::from_value(cv).expect("config from value");
     }
-    // LLM 模式（docs/case-runner.md §LLM 模式）：debug 强制沉默（确定性）；
-    // llm.active 非 debug = real——合并生产 providers，env key 现成
-    let real_llm = config.llm.active != "debug";
-    if real_llm {
-        let prod = Config::load_or_default(&overseer_core::paths::config_root());
-        for (k, p) in prod.llm.providers {
-            config.llm.providers.entry(k).or_insert(p);
+    // LLM 模式（docs/case-runner.md §LLM 模式）：meta.llm_mode 两种平级——
+    // debug 强制沉默（确定性）；real 合并生产 providers（子集校验）+ env key 现成
+    match case.meta.llm_mode {
+        overseer_core::case::LlmMode::Debug => {
+            config.llm.active = "debug".into();
         }
-        eprintln!("[case] real LLM 模式: active={}（网络调用，非确定性）", config.llm.active);
-    } else {
-        config.llm.active = "debug".into();
+        overseer_core::case::LlmMode::Real => {
+            let prod = Config::load_or_default(&overseer_core::paths::config_root());
+            let declared = config.llm.active.clone();
+            // case 不携带 providers（no_case_visible 已在 parse 拒绝）→ 全量取生产
+            config.llm.providers = prod.llm.providers;
+            config.llm.active = if declared.is_empty() || declared == "debug" {
+                prod.llm.active // 未声明 → 生产 active
+            } else if config.llm.providers.contains_key(&declared) {
+                declared
+            } else {
+                eprintln!(
+                    "[case] FAIL: 声明的 provider '{declared}' 不在生产 providers 里（只能选生产已配置的，不能引入新 provider）"
+                );
+                std::process::exit(1);
+            };
+            eprintln!("[case] real LLM 模式: active={}（网络调用，非确定性）", config.llm.active);
+        }
     }
 
     let harness = overseer_core::Harness::load(&tmp, &tmp, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms())

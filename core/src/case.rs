@@ -75,20 +75,57 @@ pub struct CaseFile {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CaseMeta {
-    pub case_id: String,
-    pub created: String,
-    #[serde(default)]
-    pub notes: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct CaseHead {
     meta: CaseMeta,
     #[serde(default)]
     config: Value,
     #[serde(default)]
     steps: Vec<CaseStep>,
+}
+
+/// LLM 模式（docs/case-runner.md §LLM 模式）：两种平级无默认，case 头部 meta 必填声明
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LlmMode {
+    /// DebugAgent，零网络，决策由外部决策源注入（沉默/脚本/CLI），确定性
+    Debug,
+    /// OpenAI 兼容真实端点：provider 从生产 providers 合并，key 只取环境变量
+    Real,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CaseMeta {
+    pub case_id: String,
+    pub created: String,
+    #[serde(default)]
+    pub notes: String,
+    /// 必填：缺声明 = case 不合法（serde 缺字段报错），不隐含退回任一模式
+    pub llm_mode: LlmMode,
+}
+
+/// no_case_visible（docs/case-runner.md §case 隐私）：case 禁止携带 llm.providers.*
+/// （base_url / api_key_env 等敏感字段），覆盖校验拒绝——case 绝不携带 apikey。
+/// 扁平静 key（"llm.providers.x"）与嵌套形（{"llm":{"providers":...}}）都拦。
+fn check_no_case_visible(config: &Value) -> Result<(), String> {
+    fn walk(v: &Value, path: String, out: &mut Vec<String>) {
+        if let Value::Object(map) = v {
+            for (k, val) in map {
+                let p = if path.is_empty() { k.clone() } else { format!("{path}.{k}") };
+                out.push(p.clone());
+                walk(val, p, out);
+            }
+        }
+    }
+    let mut paths = vec![];
+    walk(config, String::new(), &mut paths);
+    for p in paths {
+        if p == "llm.providers" || p.starts_with("llm.providers.") {
+            return Err(format!(
+                "no_case_visible：config 禁止携带 {p}（provider 配置/key 不进 case）"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// marker 行 → 节名（`{"__section":"=== work_agents ==="}` → `work_agents`）
@@ -114,6 +151,7 @@ pub fn parse(text: &str) -> Result<CaseFile, String> {
     }
     let head: CaseHead = serde_json::from_str(&head_lines.join("\n"))
         .map_err(|e| format!("JSON 头解析失败: {e}"))?;
+    check_no_case_visible(&head.config)?;
     let take = |name: &str| -> String {
         sections
             .iter()
@@ -169,7 +207,7 @@ mod tests {
     #[test]
     fn parse_two_stage_format() {
         let text = r#"{
-  "meta": { "case_id": "t", "created": "2026-07-30T00:00:00Z" },
+  "meta": { "case_id": "t", "created": "2026-07-30T00:00:00Z", "llm_mode": "debug" },
   "config": { "timer.interval_ms": 5000 },
   "steps": [ { "load": {} }, { "terminal_gone": { "instance": "ft" } } ]
 }
@@ -181,6 +219,7 @@ mod tests {
 "#;
         let case = parse(text).unwrap();
         assert_eq!(case.meta.case_id, "t");
+        assert_eq!(case.meta.llm_mode, LlmMode::Debug);
         assert_eq!(case.steps.len(), 2);
         assert_eq!(case.steps[1].name(), "terminal_gone");
         assert_eq!(case.work_agents.lines().count(), 1);
@@ -191,9 +230,38 @@ mod tests {
 
     #[test]
     fn parse_empty_sections_kept_distinct() {
-        let text = "{\n \"meta\": {\"case_id\":\"t\",\"created\":\"x\"}\n}\n{\"__section\":\"=== work_agents ===\"}\n{\"__section\":\"=== context ===\"}\n{\"type\":\"message\",\"role\":\"system\",\"content\":\"hi\",\"ts\":1}\n";
+        let text = "{\n \"meta\": {\"case_id\":\"t\",\"created\":\"x\",\"llm_mode\":\"real\"}\n}\n{\"__section\":\"=== work_agents ===\"}\n{\"__section\":\"=== context ===\"}\n{\"type\":\"message\",\"role\":\"system\",\"content\":\"hi\",\"ts\":1}\n";
         let case = parse(text).unwrap();
+        assert_eq!(case.meta.llm_mode, LlmMode::Real);
         assert!(case.work_agents.is_empty()); // 空节 ≠ 缺节
         assert_eq!(case.context.lines().count(), 1);
+    }
+
+    #[test]
+    fn llm_mode_required_and_validated() {
+        // 缺声明 = case 不合法（两种平级无默认，不隐含退回）
+        let missing = r#"{ "meta": { "case_id": "t", "created": "x" } }"#;
+        let err = parse(missing).unwrap_err();
+        assert!(err.contains("llm_mode"), "{err}");
+        // 非法值同样不合法
+        let bogus = r#"{ "meta": { "case_id": "t", "created": "x", "llm_mode": "bogus" } }"#;
+        assert!(parse(bogus).is_err());
+    }
+
+    #[test]
+    fn no_case_visible_rejects_providers() {
+        // 扁平点路径形态
+        let flat = r#"{ "meta": { "case_id": "t", "created": "x", "llm_mode": "real" },
+  "config": { "llm.providers.foo.base_url": "https://x" } }"#;
+        let err = parse(flat).unwrap_err();
+        assert!(err.contains("no_case_visible"), "{err}");
+        // 嵌套形态
+        let nested = r#"{ "meta": { "case_id": "t", "created": "x", "llm_mode": "real" },
+  "config": { "llm": { "providers": { "foo": { "base_url": "https://x" } } } } }"#;
+        assert!(parse(nested).unwrap_err().contains("no_case_visible"));
+        // llm.active 是 provider 名引用（不是 provider 配置）——允许
+        let ok = r#"{ "meta": { "case_id": "t", "created": "x", "llm_mode": "real" },
+  "config": { "llm.active": "foo" } }"#;
+        assert!(parse(ok).is_ok());
     }
 }
