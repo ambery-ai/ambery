@@ -47,6 +47,34 @@ pub const QUEUE_FILE: &str = "queue.jsonl";
 pub const TERMINAL_CONTENT_FILE: &str = "terminal-content.jsonl";
 /// work-agents 注册表（被盯的干活 Code CLI 实例清单，append-only upsert 日志）
 pub const WORK_AGENTS_FILE: &str = "work-agents.jsonl";
+/// 前后端统一动作流（Effect：后端副作用 + 前端非只读调用，docs/storage.md §effect.jsonl）
+pub const EFFECT_FILE: &str = "effect.jsonl";
+
+/// 动作流记录（effect.jsonl 行）：{"type":"effect","origin","kind","payload","ts"}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectRecord {
+    pub origin: EffectOrigin,
+    pub kind: String,
+    pub payload: serde_json::Value,
+    pub ts: i64,
+}
+
+/// 动作发起者（serde 小写："frontend" / "backend"）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EffectOrigin {
+    Frontend,
+    Backend,
+}
+
+impl EffectOrigin {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Frontend => "frontend",
+            Self::Backend => "backend",
+        }
+    }
+}
 /// AGENTS.md（通用约定名）：ペット的身份提示词，与 base_prompt 拼接进 system prompt。
 /// Config 域：存 config 根目录而非 storage（docs/storage.md）
 pub const AGENTS_MD_FILE: &str = "AGENTS.md";
@@ -301,6 +329,29 @@ impl Harness {
         self.store.append(TERMINAL_CONTENT_FILE, &rec)
     }
 
+    /// 动作流记录（docs/storage.md §effect.jsonl）：append-only，不 replay（观测读文件）
+    pub fn log_effect(
+        &self,
+        origin: EffectOrigin,
+        kind: &str,
+        payload: serde_json::Value,
+        ts: i64,
+    ) -> std::io::Result<()> {
+        let line = serde_json::json!({
+            "type": "effect",
+            "origin": origin,
+            "kind": kind,
+            "payload": payload,
+            "ts": ts,
+        });
+        self.store.append(EFFECT_FILE, &line)
+    }
+
+    /// 读动作流全部记录（observe effects 项；文件不存在 = 空）
+    pub fn read_effects(&self) -> std::io::Result<Vec<EffectRecord>> {
+        self.store.read_all(EFFECT_FILE)
+    }
+
     /// LLM 调用 token 真值（#16）：usage 行落盘 + last_usage 覆盖刷新
     pub fn log_usage(&mut self, usage: crate::llm::Usage, ts: i64) -> std::io::Result<()> {
         self.store.append(
@@ -502,6 +553,27 @@ mod tests {
         let h = Harness::load(&dir, &dir, 1000, 0).unwrap();
         assert_eq!(h.agents.len(), 1); // 同 id 合并
         assert_eq!(h.agents[0].status, AgentStatus::Idle); // 最后一条 wins
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn effect_log_roundtrip() {
+        let dir = tmp_dir("effect-log");
+        let h = Harness::load(&dir, &dir, 1000, 0).unwrap();
+        // 缺失文件 = 空（不报错）
+        assert!(h.read_effects().unwrap().is_empty());
+        h.log_effect(EffectOrigin::Backend, "render_component", serde_json::json!({"spec":{"id":"c1"}}), 1).unwrap();
+        h.log_effect(EffectOrigin::Frontend, "window_moved", serde_json::json!({"x":100,"y":200}), 2).unwrap();
+        let recs = h.read_effects().unwrap();
+        assert_eq!(recs.len(), 2);
+        assert_eq!(recs[0].origin, EffectOrigin::Backend);
+        assert_eq!(recs[0].kind, "render_component");
+        assert_eq!(recs[1].origin, EffectOrigin::Frontend);
+        assert_eq!(recs[1].payload["x"], serde_json::json!(100));
+        assert_eq!(recs[1].ts, 2);
+        // 行形态：{"type":"effect",...} 信封
+        let raw = std::fs::read_to_string(dir.join(EFFECT_FILE)).unwrap();
+        assert!(raw.lines().all(|l| l.contains("\"type\":\"effect\"")));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -38,6 +38,30 @@ pub enum Effect {
     AssistantDone,
 }
 
+impl Effect {
+    /// 动作流记录的 kind/payload（docs/storage.md §effect.jsonl）：
+    /// **穷尽 match**——新增变体此处编译错（编译期强制进动作流）。
+    /// 记录字段 snake_case（storage 约定），与 WS 下发的 camelCase 形态无关。
+    pub fn effect_kind_payload(&self) -> (&'static str, Value) {
+        match self {
+            Effect::RenderComponent(spec) => ("render_component", json!({ "spec": spec })),
+            Effect::CloseComponent(id) => ("close_component", json!({ "id": id })),
+            Effect::SetAutonomy { face, motion, ttl_ms, once } => (
+                "set_autonomy",
+                json!({ "face": face, "motion": motion, "ttl_ms": ttl_ms, "once": once }),
+            ),
+            Effect::ConfigChanged { llm_changed } => {
+                ("config_changed", json!({ "llm_changed": llm_changed }))
+            }
+            Effect::AssistantDelta { content, reasoning_content } => (
+                "assistant_delta",
+                json!({ "content": content, "reasoning_content": reasoning_content }),
+            ),
+            Effect::AssistantDone => ("assistant_done", json!({})),
+        }
+    }
+}
+
 /// claude 检测（实测 54/54 命中、0 误伤）：✳ 前缀（活动 glyph）或标题 == claude
 fn is_claude_title(t: &str) -> bool {
     let t = t.trim_start();
@@ -252,6 +276,14 @@ impl<L: Llm> OverseerBackend<L> {
             self.filter = crate::filter::by_name(&self.config.filter_strategy);
         }
         let llm_changed = self.config.llm != old.llm;
+        // 动作流记录（单变体单记录点，docs/storage.md §effect.jsonl 记录点）：
+        // config_changed 在此记录（edit_config/server/CLI 全路径覆盖），execute_tool 跳过本变体
+        let _ = self.harness.log_effect(
+            crate::EffectOrigin::Backend,
+            "config_changed",
+            json!({ "llm_changed": llm_changed }),
+            crate::server::now_ms(),
+        );
         Ok(ConfigOutcome {
             effects: vec![Effect::ConfigChanged { llm_changed }],
             llm_changed,
@@ -727,12 +759,22 @@ impl<L: Llm> OverseerBackend<L> {
             request.extend_from_slice(self.harness.context.messages());
             request.push(ContextMessage::new(Role::System, autonomy.clone(), ts));
             let sink = self.effect_sink.clone();
+            let harness = &self.harness;
             let on_delta = move |d: &crate::llm::Delta| {
+                let e = Effect::AssistantDelta {
+                    content: d.content.clone(),
+                    reasoning_content: d.reasoning_content.clone(),
+                };
+                // 动作流记录（delta 全量记录，docs/storage.md §effect.jsonl）
+                let (kind, payload) = e.effect_kind_payload();
+                let _ = harness.log_effect(
+                    crate::EffectOrigin::Backend,
+                    kind,
+                    payload,
+                    crate::server::now_ms(),
+                );
                 if let Some(sink) = &sink {
-                    sink(&Effect::AssistantDelta {
-                        content: d.content.clone(),
-                        reasoning_content: d.reasoning_content.clone(),
-                    });
+                    sink(&e);
                 }
             };
             let out = self
@@ -818,6 +860,13 @@ impl<L: Llm> OverseerBackend<L> {
             }
         }
         // 一轮完毕：loading 收尾（docs/streaming.md，完整回复已写 Context）
+        // 动作流记录（done 也入流，docs/storage.md §effect.jsonl）
+        let _ = self.harness.log_effect(
+            crate::EffectOrigin::Backend,
+            "assistant_done",
+            json!({}),
+            crate::server::now_ms(),
+        );
         if let Some(sink) = &self.effect_sink {
             sink(&Effect::AssistantDone);
         }
@@ -1247,6 +1296,24 @@ impl<L: Llm> OverseerBackend<L> {
 
     /// 执行 tool call（run_trigger tool 循环与 case-runner tool_call step 共用）
     pub async fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
+        let out = self.execute_tool_inner(call).await;
+        // 动作流记录（docs/storage.md §effect.jsonl 记录点）：tool 副作用在此单点记录；
+        // ConfigChanged 已在 apply_config_by_path 内记录（单变体单记录点），跳过防双写
+        for e in &out.1 {
+            if !matches!(e, Effect::ConfigChanged { .. }) {
+                let (kind, payload) = e.effect_kind_payload();
+                let _ = self.harness.log_effect(
+                    crate::EffectOrigin::Backend,
+                    kind,
+                    payload,
+                    crate::server::now_ms(),
+                );
+            }
+        }
+        out
+    }
+
+    async fn execute_tool_inner(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(Value::Null);
         match call.name.as_str() {
             "call_component" => {
@@ -2103,6 +2170,109 @@ mod tests {
             Some("流式回复全文")
         );
         let _ = std::fs::remove_dir_all(tmp_dir("stream"));
+    }
+
+    // ── 动作流记录（docs/storage.md §effect.jsonl 记录点）──
+
+    #[test]
+    fn effect_kind_payload_exhaustive() {
+        // 穷尽 match 投影：6 变体全部有 kind/payload（新增变体 = effect_kind_payload 编译错）
+        let cases: Vec<(Effect, &str)> = vec![
+            (Effect::RenderComponent(json!({"id":"c"})), "render_component"),
+            (Effect::CloseComponent("c".into()), "close_component"),
+            (
+                Effect::SetAutonomy { face: None, motion: Some("bounce".into()), ttl_ms: None, once: false },
+                "set_autonomy",
+            ),
+            (Effect::ConfigChanged { llm_changed: false }, "config_changed"),
+            (
+                Effect::AssistantDelta { content: Some("x".into()), reasoning_content: None },
+                "assistant_delta",
+            ),
+            (Effect::AssistantDone, "assistant_done"),
+        ];
+        for (e, kind) in cases {
+            let (k, payload) = e.effect_kind_payload();
+            assert_eq!(k, kind);
+            assert!(payload.is_object());
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_tool_records_component_effects() {
+        // execute_tool 记录点：render/close 进 effect.jsonl（backend origin）
+        let mut ov = make_overseer("eff-rec");
+        let create = ToolCall {
+            id: "c1".into(),
+            name: "call_component".into(),
+            arguments: json!({ "spec": { "id": "card1", "type": "text_card", "title": "T", "text": "x" } }).to_string(),
+        };
+        ov.execute_tool(&create).await;
+        let close = ToolCall {
+            id: "c2".into(),
+            name: "call_component".into(),
+            arguments: json!({ "spec": { "id": "card1", "action": "close" } }).to_string(),
+        };
+        ov.execute_tool(&close).await;
+        let recs = ov.harness.read_effects().unwrap();
+        assert_eq!(recs.len(), 2, "{recs:?}");
+        assert_eq!(recs[0].origin, crate::EffectOrigin::Backend);
+        assert_eq!(recs[0].kind, "render_component");
+        assert_eq!(recs[0].payload["spec"]["id"], json!("card1"));
+        assert_eq!(recs[1].kind, "close_component");
+        assert_eq!(recs[1].payload["id"], json!("card1"));
+        // 行形态：{"type":"effect","origin":"backend",...}
+        // （tmp_dir 辅助会清空目录，这里只拼路径不再调它）
+        let dir = std::env::temp_dir().join(format!("overseer-test-eff-rec-{}", std::process::id()));
+        let raw = std::fs::read_to_string(dir.join(crate::EFFECT_FILE)).unwrap();
+        assert!(raw.contains("\"type\":\"effect\""));
+        assert!(raw.contains("\"origin\":\"backend\""));
+        let _ = std::fs::remove_dir_all(tmp_dir("eff-rec"));
+    }
+
+    #[tokio::test]
+    async fn config_changed_recorded_once_via_tool() {
+        // 单变体单记录点：经 execute_tool 的 edit_config 不双写（快照门禁走完整 query→update 协议）
+        let mut ov = make_overseer("eff-cfg");
+        let query = ToolCall {
+            id: "q1".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "query", "path": "kaomoji.user", "view": "object" }).to_string(),
+        };
+        let (qr, _) = ov.execute_tool(&query).await;
+        assert_eq!(qr["ok"], json!(true), "{qr}");
+        ov.harness
+            .append_context(ContextMessage::tool_result("q1", qr.to_string(), 1))
+            .unwrap();
+        ov.response_seq += 1;
+        let update = ToolCall {
+            id: "u1".into(),
+            name: "edit_config".into(),
+            arguments: json!({ "action": "update", "path": "kaomoji.user", "value": { "celebrate": { "face": "(≧▽≦)", "motion": "bounce" } } }).to_string(),
+        };
+        let (r, _) = ov.execute_tool(&update).await;
+        assert_eq!(r["ok"], json!(true), "{r}");
+        let recs = ov.harness.read_effects().unwrap();
+        let n = recs.iter().filter(|r| r.kind == "config_changed").count();
+        assert_eq!(n, 1, "{recs:?}");
+        let rec = recs.iter().find(|r| r.kind == "config_changed").unwrap();
+        assert_eq!(rec.payload["llm_changed"], json!(false));
+        assert_eq!(rec.origin, crate::EffectOrigin::Backend);
+        let _ = std::fs::remove_dir_all(tmp_dir("eff-cfg"));
+    }
+
+    #[tokio::test]
+    async fn streaming_records_delta_and_done() {
+        // run_trigger sink 记录点：delta 全量 + done 收尾都进 effect.jsonl
+        let agent = scripted(vec![say("回复全文")]);
+        let mut ov = make_overseer_with("eff-stream", agent);
+        ov.enqueue(Role::User, "问".into(), 1).unwrap();
+        ov.drain_queue(0).await.unwrap();
+        let recs = ov.harness.read_effects().unwrap();
+        assert!(recs.iter().any(|r| r.kind == "assistant_delta"
+            && r.payload["content"] == json!("回复全文")), "{recs:?}");
+        assert!(recs.iter().any(|r| r.kind == "assistant_done"), "{recs:?}");
+        let _ = std::fs::remove_dir_all(tmp_dir("eff-stream"));
     }
 
     #[tokio::test]

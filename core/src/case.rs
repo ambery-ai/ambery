@@ -26,6 +26,8 @@ pub struct CaseObserve {
     pub context_est_delta: usize,
     /// 最后一条 assistant 消息原文（回答准确度扫读位）
     pub answer: Option<String>,
+    /// 动作流（从 effect.jsonl 读）：后端副作用 + 前端非只读调用（docs/storage.md §effect.jsonl）
+    pub effects: Vec<crate::EffectRecord>,
 }
 
 /// 观测当前概念结构：模块快照走 Observable 投影（docs/observability.md），
@@ -51,6 +53,7 @@ pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
         usage: h.last_usage.observe(),
         context_est_delta,
         answer,
+        effects: h.read_effects().unwrap_or_default(),
     }
 }
 

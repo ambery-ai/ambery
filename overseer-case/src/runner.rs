@@ -170,6 +170,12 @@ fn print_observe(obs: &CaseObserve, items: &[String], last_len: &mut usize) {
                     println!("  - {e}");
                 }
             }
+            "effects" => {
+                println!("effects: {} 条", obs.effects.len());
+                for e in &obs.effects {
+                    println!("  [{}] {} {} ts={}", e.origin.as_str(), e.kind, e.payload, e.ts);
+                }
+            }
             "usage" => match &obs.usage {
                 Some(u) => println!(
                     "usage: prompt_tokens={} completion_tokens={}",
