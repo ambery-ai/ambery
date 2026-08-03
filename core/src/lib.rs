@@ -197,11 +197,11 @@ pub struct Harness {
     #[cfg_attr(feature = "case-runner", observe(skip = "usage 行 ts 锚点（派生数据，随 last_usage 经 usage 项同步观测）"))]
     pub last_usage_ts: Option<i64>,
     /// Memory（concepts §10f，docs/memory.md）：持久化理解 buffer 根管理器
-    #[cfg_attr(feature = "case-runner", observe(skip = "§10f 概念模块，observe 项未定——待 capability evaluation 需要时补"))]
+    #[cfg_attr(feature = "case-runner", observe(skip = "§10f 概念模块，observe 项未定义"))]
     pub memory: memory::Memory,
     /// Cron（concepts §10g，docs/cron.md）：持久化计划与延时调度（entries 持久化
     /// + sleep waiters 共享句柄）
-    #[cfg_attr(feature = "case-runner", observe(skip = "§10g 概念模块，observe 项未定——待 capability evaluation 需要时补"))]
+    #[cfg_attr(feature = "case-runner", observe(skip = "§10g 概念模块，observe 项未定义"))]
     pub cron: cron::CronScheduler,
     #[cfg_attr(feature = "case-runner", observe(skip = "JSONL 持久化句柄（机制非概念）"))]
     store: JsonlStore,
