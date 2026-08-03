@@ -13,6 +13,10 @@ pub struct ExportOpts {
     pub keep_last: Option<usize>,
     pub trim_context: bool,
     pub dedup: bool,
+    /// 默认不导出 work_agents 节（含项目名，隐私）；显式才保留完整节（docs/case-runner.md §过滤器参数）
+    pub keep_agents: bool,
+    /// 预览过滤后各文件行数，不生成 case 文件（docs/case-runner.md §最小化参数）
+    pub dry_run: bool,
 }
 
 /// 解析时长字符串（30s / 30m / 1h / 1d）→ ms
@@ -231,9 +235,23 @@ fn filter_queue(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
 /// JSON 头（meta/config/steps）+ __section 分节 JSONL 原文；mock_terminals 不再有节
 ///（读通道剧情由 steps 的 terminal/terminal_gone 表达，导出默认全 None）
 pub fn export(storage_dir: &std::path::Path, opts: &ExportOpts) -> String {
-    let work_agents = filter_work_agents(lines_of(&storage_dir.join("work-agents.jsonl")), opts);
+    // work_agents 默认过滤（隐私：含项目结构）；--keep-agents 显式保留（空节保留 marker，
+    // 「刻意为空」与「忘了填」可区分，§Case 文件格式）
+    let work_agents = if opts.keep_agents {
+        filter_work_agents(lines_of(&storage_dir.join("work-agents.jsonl")), opts)
+    } else {
+        vec![]
+    };
     let context = filter_context(lines_of(&storage_dir.join("context.jsonl")), opts);
     let queue = filter_queue(lines_of(&storage_dir.join("queue.jsonl")), opts);
+    if opts.dry_run {
+        return format!(
+            "work_agents: {} 行, context: {} 行, queue: {} 行（dry-run 预览，未生成 case）\n",
+            work_agents.len(),
+            context.len(),
+            queue.len()
+        );
+    }
     let head = serde_json::json!({
         "meta": {
             "case_id": opts.case_id,
@@ -321,6 +339,8 @@ mod tests {
             keep_last: None,
             trim_context: false,
             dedup: true,
+            keep_agents: true,
+            dry_run: false,
         };
         let lines = vec![
             r#"{"type":"content","instance":"a","content":"同","ts":1}"#.to_string(),
@@ -331,5 +351,41 @@ mod tests {
         assert_eq!(out.len(), 2); // 相邻重复只留最早
         assert!(out[0].contains("\"ts\":1"));
         assert!(out[1].contains("\"ts\":3"));
+    }
+
+    #[test]
+    fn keep_agents_gated() {
+        // 默认不导出 work_agents（隐私）；--keep-agents 显式保留完整节
+        let dir = std::env::temp_dir().join(format!("overseer-export-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("work-agents.jsonl"),
+            "{\"hash\":\"h1\",\"name\":\"ft\",\"project\":\"secret-proj\",\"status\":\"processing\",\"last_seen\":1}\n",
+        )
+        .unwrap();
+        let mk = || ExportOpts {
+            case_id: "t".into(),
+            notes: String::new(),
+            instances: None,
+            before: None,
+            after: None,
+            window_ms: None,
+            keep_last: None,
+            trim_context: false,
+            dedup: false,
+            keep_agents: false,
+            dry_run: false,
+        };
+        let out = export(&dir, &mk());
+        assert!(!out.contains("secret-proj"), "默认不含 work_agents 行");
+        assert!(out.contains("=== work_agents ==="), "空节保留 marker（刻意为空可区分）");
+        let kept = export(&dir, &ExportOpts { keep_agents: true, ..mk() });
+        assert!(kept.contains("secret-proj"), "--keep-agents 显式保留");
+        // --dry-run：预览行数，不生成 case
+        let preview = export(&dir, &ExportOpts { dry_run: true, keep_agents: true, ..mk() });
+        assert!(preview.contains("work_agents: 1 行"), "{preview}");
+        assert!(!preview.contains("__section"), "dry-run 不生成 case 文件");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

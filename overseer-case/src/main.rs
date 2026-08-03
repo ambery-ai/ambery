@@ -18,7 +18,7 @@ async fn main() {
     if args.len() < 2 {
         eprintln!("usage: overseer-case <case.case> [--step-num N] [--health]");
         eprintln!("       overseer-case export [--storage DIR] [--instances a,b] [--window 30m]");
-        eprintln!("              [--before TS] [--after TS] [--keep-last N] [--trim-context] [--dedup] [--case-id ID]");
+        eprintln!("              [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] [--dedup] [--dry-run] [--case-id ID]");
         std::process::exit(2);
     }
     if args[1] == "export" {
@@ -241,6 +241,12 @@ fn health(text: &str, case: &CaseFile) {
     // 4. replay 烟测：Harness::load 不 panic + observe 可执行
     let (ov, _t) = setup(case);
     let _ = overseer_core::case::observe(&ov);
+    // 5. pre-parse 预检（docs/case-eval-system.md §checkhealth，静态不执行）：
+    //    表达式 try_parse / 变量引用有效 / store 类型合法 / 类型可落 / observe target 合法
+    for f in overseer_core::case::pre_parse_check(case) {
+        eprintln!("FAIL: pre-parse: {f}");
+        ok = false;
+    }
     if ok {
         println!("PASS");
         std::process::exit(0);
@@ -282,6 +288,8 @@ fn run_export(args: &[String]) {
         keep_last: opt_val("--keep-last").and_then(|v| v.parse().ok()),
         trim_context: has("--trim-context"),
         dedup: has("--dedup"),
+        keep_agents: has("--keep-agents"),
+        dry_run: has("--dry-run"),
     };
     print!("{}", export::export(&storage_dir, &opts));
 }

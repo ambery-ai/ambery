@@ -238,6 +238,90 @@ impl CaseStep {
     }
 }
 
+/// pre-parse 预检（docs/case-eval-system.md §checkhealth）：静态校验，不执行 case。
+/// 检查项：① 表达式 try_parse 语法合法；② 变量引用有效（$tail 预定义、用户变量使用前
+/// 已 store）；③ store 类型合法（expr/var/int/str）；④ 类型可落（eval_store 的
+/// DirectToString 泛型约束编译期保证）；⑤ observe target 合法（可观测模块；lines 仅路径类）。
+/// 返回失败清单（空 = 通过）。
+pub fn pre_parse_check(case: &CaseFile) -> Vec<String> {
+    use crate::eval::{ExprParser, IntParser, Parser, RangeParser, VarEnv, VarIntParser};
+    const TARGETS: &[&str] = &[
+        "agents", "panorama", "context", "filtered_content", "queue", "event_buffer",
+        "usage", "effects", "answer",
+    ];
+    let mut failures = vec![];
+    // 已 store 的用户变量名（预检环境用占位值：引用有效性与语法在同一遍检查）
+    let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mk_env = |known: &std::collections::HashSet<String>| VarEnv {
+        tail: 0,
+        vars: known.iter().map(|k| (k.clone(), "0".into())).collect(),
+    };
+    for (i, step) in case.steps.iter().enumerate() {
+        match step {
+            CaseStep::Store { store } => {
+                let env = mk_env(&known);
+                for (name, sv) in store {
+                    if !matches!(sv.ty.as_str(), "expr" | "var" | "int" | "str") {
+                        failures.push(format!(
+                            "step {} store ${name}: 类型 {:?} 不合法（expr/var/int/str）",
+                            i + 1,
+                            sv.ty
+                        ));
+                        continue;
+                    }
+                    let r = match sv.ty.as_str() {
+                        "expr" => ExprParser { env: &env }.try_parse(sv.value.as_str()),
+                        "var" => VarIntParser { env: &env }.try_parse(sv.value.as_str()),
+                        "int" => IntParser.try_parse(sv.value.as_str()),
+                        _ => Ok(()), // str 直存不解析
+                    };
+                    if let Err(e) = r {
+                        failures.push(format!("step {} store ${name}（{:?}）: {e}", i + 1, sv.value));
+                    }
+                }
+                // 同 step 内变量不互相可见：先全量校验，再统一入册
+                for name in store.keys() {
+                    known.insert(name.clone());
+                }
+            }
+            CaseStep::Observe { observe } => {
+                let env = mk_env(&known);
+                for item in observe {
+                    if !TARGETS.contains(&item.target.as_str()) {
+                        failures.push(format!(
+                            "step {} observe: 未知 target {:?}（可观测模块：{}）",
+                            i + 1,
+                            item.target,
+                            TARGETS.join("/")
+                        ));
+                        continue;
+                    }
+                    if let Some(lines) = &item.lines {
+                        if !item.is_path_class() {
+                            failures.push(format!(
+                                "step {} observe {:?}: 值类 target 不支持 lines（路径类：context/effects）",
+                                i + 1,
+                                item.target
+                            ));
+                        } else if let Err(e) =
+                            (RangeParser { env: &env }).try_parse(lines.as_str())
+                        {
+                            failures.push(format!(
+                                "step {} observe {:?} lines {:?}: {e}",
+                                i + 1,
+                                item.target,
+                                lines
+                            ));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    failures
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,5 +385,56 @@ mod tests {
         let ok = r#"{ "meta": { "case_id": "t", "created": "x", "llm_mode": "real" },
   "config": { "llm.active": "foo" } }"#;
         assert!(parse(ok).is_ok());
+    }
+
+    // ── pre-parse 预检（docs/case-eval-system.md §checkhealth）──
+
+    fn head(steps: &str) -> String {
+        format!(
+            r#"{{ "meta": {{ "case_id": "t", "created": "x", "llm_mode": "debug" }}, "steps": {steps} }}"#
+        )
+    }
+
+    #[test]
+    fn pre_parse_valid_case_passes() {
+        let text = head(
+            r#"[
+            { "load": {} },
+            { "observe": [{"target":"context","lines":"($tail-50,$tail]"}] },
+            { "store": { "cursor": { "type": "expr", "value": "$tail" } } },
+            { "observe": [{"target":"context","lines":"($cursor,$tail]"},{"target":"effects"}] },
+            { "store": { "n": { "type": "int", "value": "42" }, "s": { "type": "str", "value": "$任意" } } }
+        ]"#,
+        );
+        let case = parse(&text).unwrap();
+        assert_eq!(pre_parse_check(&case), Vec::<String>::new());
+    }
+
+    #[test]
+    fn pre_parse_catches_all_five_rules() {
+        // ① 语法错误
+        let c = parse(&head(r#"[{ "observe": [{"target":"context","lines":"[$tail"}] }]"#)).unwrap();
+        assert!(pre_parse_check(&c)[0].contains("lines"), "①");
+        // ② 引用未 store 的变量（在 observe lines）
+        let c = parse(&head(r#"[{ "observe": [{"target":"context","lines":"($cursor,$tail]"}] }]"#)).unwrap();
+        assert!(pre_parse_check(&c)[0].contains("未知变量"), "②");
+        // ② store value 引用未 store 的变量
+        let c = parse(&head(r#"[{ "store": { "x": { "type": "expr", "value": "$later" } } }]"#)).unwrap();
+        assert!(pre_parse_check(&c)[0].contains("未知变量"), "②store");
+        // ② 同 step 内变量不互相可见（统一后入册）
+        let c = parse(&head(
+            r#"[{ "store": { "a": { "type": "expr", "value": "$b" }, "b": { "type": "int", "value": "1" } } }]"#,
+        ))
+        .unwrap();
+        assert!(pre_parse_check(&c)[0].contains("未知变量"), "②same-step");
+        // ③ store 类型不合法
+        let c = parse(&head(r#"[{ "store": { "x": { "type": "float", "value": "1.5" } } }]"#)).unwrap();
+        assert!(pre_parse_check(&c)[0].contains("不合法"), "③");
+        // ⑤ 未知 target
+        let c = parse(&head(r#"[{ "observe": [{"target":"bogus"}] }]"#)).unwrap();
+        assert!(pre_parse_check(&c)[0].contains("未知 target"), "⑤");
+        // ⑤ 值类 target 带 lines
+        let c = parse(&head(r#"[{ "observe": [{"target":"agents","lines":"[1,2]"}] }]"#)).unwrap();
+        assert!(pre_parse_check(&c)[0].contains("值类"), "⑤lines");
     }
 }
