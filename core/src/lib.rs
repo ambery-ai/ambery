@@ -194,6 +194,9 @@ pub struct Harness {
     /// last_usage 落点时的 Context 消息数（#16 增量估算基准：其后新增 = est 增量）
     #[cfg_attr(feature = "case-runner", observe(skip = "est 增量推导基准（派生数据，经 context_est_delta 现算观测）"))]
     pub last_usage_msg_len: usize,
+    /// last_usage 写入时的 ts（usage observe 项的时间锚点，docs/case-runner.md §observe 输出）
+    #[cfg_attr(feature = "case-runner", observe(skip = "usage 行 ts 锚点（派生数据，随 last_usage 经 usage 项同步观测）"))]
+    pub last_usage_ts: Option<i64>,
     /// Memory（concepts §10f，docs/memory.md）：持久化理解 buffer 根管理器
     #[cfg_attr(feature = "case-runner", observe(skip = "§10f 概念模块，observe 项未定——待 capability evaluation 需要时补"))]
     pub memory: memory::Memory,
@@ -281,6 +284,7 @@ impl Harness {
             last_head,
             last_usage: None, // 重启 = None（#16：不背旧 session，首轮 est 兜底）
             last_usage_msg_len: 0,
+            last_usage_ts: None,
             memory,
             cron,
             store,
@@ -364,6 +368,7 @@ impl Harness {
         )?;
         self.last_usage = Some(usage);
         self.last_usage_msg_len = self.context.messages().len();
+        self.last_usage_ts = Some(ts);
         Ok(())
     }
 

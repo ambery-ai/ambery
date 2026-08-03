@@ -56,8 +56,8 @@ async fn main() {
         seq_ts += 1;
         v.and_then(|v| v.as_i64()).unwrap_or(seq_ts)
     };
-    // context_diff 基准：上次 observe 时的 Context 行数
-    let mut last_context_len = 0usize;
+    // 用户变量（store step 设置，跨 step 复用；docs/case-eval-system.md）
+    let mut vars: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     for (i, step) in case.steps.iter().enumerate() {
         if let Some(n) = max_step {
@@ -68,7 +68,10 @@ async fn main() {
         println!("── step {}: {} ──", i + 1, step.name());
         match step {
             overseer_core::case::CaseStep::Observe { observe: items } => {
-                runner::exec_observe(&ov, items, &mut last_context_len);
+                runner::exec_observe(&ov, items, &vars);
+            }
+            overseer_core::case::CaseStep::Store { store } => {
+                runner::exec_store(&ov, store, &mut vars);
             }
             overseer_core::case::CaseStep::Cmd { .. } => runner::exec_load(),
             overseer_core::case::CaseStep::Cmd2 { .. } => {

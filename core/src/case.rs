@@ -22,6 +22,8 @@ pub struct CaseObserve {
     pub event_buffer: Vec<String>,
     /// 最近一次 LLM 调用真值（#16；无 = 未调用过/重启后）
     pub usage: Option<crate::llm::Usage>,
+    /// usage 写入时的 ts（时间锚点；usage 为 None 时同为 None）
+    pub usage_ts: Option<i64>,
     /// 自真值落点后的 est 增量（无真值时 = 全量 est）
     pub context_est_delta: usize,
     /// 最后一条 assistant 消息原文（回答准确度扫读位）
@@ -51,6 +53,7 @@ pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
         queue: h.queue.observe(),
         event_buffer: h.event_buffer.observe(),
         usage: h.last_usage.observe(),
+        usage_ts: h.last_usage_ts,
         context_est_delta,
         answer,
         effects: h.read_effects().unwrap_or_default(),
@@ -178,9 +181,34 @@ pub enum CaseStep {
     Cmd4 { trigger: Value },
     Cmd5 { user: Value },
     Cmd6 { tool_call: Vec<String> },
+    Store { store: std::collections::HashMap<String, StoreValue> },
     Terminal { terminal: Value },
     TerminalGone { terminal_gone: Value },
-    Observe { observe: Vec<String> },
+    Observe { observe: Vec<ObserveItem> },
+}
+
+/// store step 的变量设置（docs/case-eval-system.md §变量）：
+/// `{ "<name>": { "type": "expr|var|int|str", "value": "<字符串>" } }`
+#[derive(Debug, Deserialize)]
+pub struct StoreValue {
+    #[serde(rename = "type")]
+    pub ty: String,
+    pub value: String,
+}
+
+/// observe 项（统一对象列表）：路径类 target（context/effects）可带 lines 读取文件切片
+#[derive(Debug, Deserialize)]
+pub struct ObserveItem {
+    pub target: String,
+    #[serde(default)]
+    pub lines: Option<String>,
+}
+
+impl ObserveItem {
+    /// 路径类 target（完整数据在沙盒文件，observe 给文件指针+摘要 / lines 切片）
+    pub fn is_path_class(&self) -> bool {
+        matches!(self.target.as_str(), "context" | "effects")
+    }
 }
 
 impl CaseStep {
@@ -193,6 +221,7 @@ impl CaseStep {
             CaseStep::Cmd4 { .. } => "trigger",
             CaseStep::Cmd5 { .. } => "user",
             CaseStep::Cmd6 { .. } => "tool_call",
+            CaseStep::Store { .. } => "store",
             CaseStep::Terminal { .. } => "terminal",
             CaseStep::TerminalGone { .. } => "terminal_gone",
             CaseStep::Observe { .. } => "observe",

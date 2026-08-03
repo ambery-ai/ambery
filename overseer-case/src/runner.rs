@@ -32,10 +32,45 @@ pub fn exec_terminal_gone(
     println!("[OK] terminal_gone {instance}");
 }
 
-/// observe：按请求项分节打印（内容级，全文不截断）；context_diff 基准随行数推进
-pub fn exec_observe<L: Llm>(ov: &OverseerBackend<L>, items: &[String], last_len: &mut usize) {
+/// observe：按请求项分节打印（docs/case-runner.md §observe 输出）——
+/// 值类直接给当前值；路径类（context/effects）无 lines 给文件指针+摘要，
+/// 带 lines 打印文件切片原文（含行号；表达式求值见 docs/case-eval-system.md）
+pub fn exec_observe<L: Llm>(
+    ov: &OverseerBackend<L>,
+    items: &[overseer_core::case::ObserveItem],
+    vars: &std::collections::HashMap<String, String>,
+) {
     let obs = overseer_core::case::observe(ov);
-    print_observe(&obs, items, last_len);
+    print_observe(&obs, items, vars, ov.harness.storage_dir());
+}
+
+/// store：设用户变量（value 经对应 parser 求值 → to_string → 存 string）。
+/// $tail 绑定规则（case-eval-system.md §变量）：store 求值 = context.jsonl 末行号。
+pub fn exec_store<L: Llm>(
+    ov: &OverseerBackend<L>,
+    map: &std::collections::HashMap<String, overseer_core::case::StoreValue>,
+    vars: &mut std::collections::HashMap<String, String>,
+) {
+    let tail = read_file_lines(&ov.harness.storage_dir().join(overseer_core::CONTEXT_FILE)).len() as i64;
+    let env = overseer_core::eval::VarEnv { tail, vars: vars.clone() };
+    for (name, sv) in map {
+        match overseer_core::eval::eval_store(&env, &sv.ty, &sv.value) {
+            Ok(v) => {
+                println!("[OK] store ${name} = {v}（{}: {:?}）", sv.ty, sv.value);
+                vars.insert(name.clone(), v);
+            }
+            Err(e) => println!("[FAIL] store ${name}（{}: {:?}）: {e}", sv.ty, sv.value),
+        }
+    }
+}
+
+/// 读文件全部行（缺失 = 空）
+fn read_file_lines(path: &std::path::Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(String::from)
+        .collect()
 }
 
 /// timer 周期：生产路径 TimerWheel 调度（docs/timer.md）——due_timer_scans 取到期实例，
@@ -113,17 +148,19 @@ fn print_effects(effects: Vec<Effect>) {
 }
 
 /// 内容级 observe 输出（docs/case-runner.md §observe 输出）
-fn print_observe(obs: &CaseObserve, items: &[String], last_len: &mut usize) {
-    let msg_line = |m: &overseer_core::observe::MessageSnapshot| {
-        format!(
-            "  [{}] {}{}",
-            m.role,
-            m.content.as_deref().unwrap_or(""),
-            if m.tool_calls > 0 { format!(" (+{} tool_calls)", m.tool_calls) } else { String::new() }
-        )
-    };
+fn print_observe(
+    obs: &CaseObserve,
+    items: &[overseer_core::case::ObserveItem],
+    vars: &std::collections::HashMap<String, String>,
+    storage_dir: &std::path::Path,
+) {
     for item in items {
-        match item.as_str() {
+        // 路径类之外的 target 带 lines = 非法（health pre-parse 静态拦截；运行期防御打印）
+        if item.lines.is_some() && !item.is_path_class() {
+            println!("({} 是值类，不支持 lines；路径类：context/effects)", item.target);
+            continue;
+        }
+        match item.target.as_str() {
             "agents" => {
                 println!("agents:");
                 for a in &obs.agents {
@@ -134,26 +171,8 @@ fn print_observe(obs: &CaseObserve, items: &[String], last_len: &mut usize) {
                 Some(p) => println!("panorama:\n  {}", p.replace('\n', "\n  ")),
                 None => println!("panorama: (无存活实例)"),
             },
-            "context" => {
-                // 行首 token 摘要（#16）：真值锚点 + est 增量分开标注；无真值 = est 全量
-                let tok = match &obs.usage {
-                    Some(u) => format!("真值 {} + est 增量 {}", u.prompt_tokens, obs.context_est_delta),
-                    None => format!("est 全量 {}", obs.context_est_delta),
-                };
-                println!("context: {} 行 | {}", obs.context.len(), tok);
-                for m in &obs.context {
-                    println!("{}", msg_line(m));
-                }
-            }
-            "context_diff" => {
-                let start = (*last_len).min(obs.context.len());
-                println!("context_diff: +{} 行", obs.context.len() - start);
-                for m in &obs.context[start..] {
-                    println!("{}", msg_line(m));
-                }
-            }
-            "content" => {
-                println!("content: {} 行", obs.content.len());
+            "filtered_content" => {
+                println!("filtered_content: {} 行", obs.content.len());
                 for c in &obs.content {
                     println!("  ({}) {}: {}", c.source, c.instance, c.content);
                 }
@@ -170,22 +189,64 @@ fn print_observe(obs: &CaseObserve, items: &[String], last_len: &mut usize) {
                     println!("  - {e}");
                 }
             }
-            "effects" => {
-                println!("effects: {} 条", obs.effects.len());
-                for e in &obs.effects {
-                    println!("  [{}] {} {} ts={}", e.origin.as_str(), e.kind, e.payload, e.ts);
-                }
-            }
-            "usage" => match &obs.usage {
-                Some(u) => println!(
-                    "usage: prompt_tokens={} completion_tokens={}",
-                    u.prompt_tokens, u.completion_tokens
+            "usage" => match (&obs.usage, obs.usage_ts) {
+                (Some(u), ts) => println!(
+                    "usage: prompt_tokens={} completion_tokens={} ts={}",
+                    u.prompt_tokens,
+                    u.completion_tokens,
+                    ts.map(|t| t.to_string()).unwrap_or_else(|| "(无)".into())
                 ),
-                None => println!("usage: (无真值)"),
+                (None, _) => println!("usage: (无真值)"),
             },
             "answer" => println!("answer: {}", obs.answer.as_deref().unwrap_or("(无)")),
+            "context" => {
+                // 路径类：无 lines → 文件指针+摘要（行首 token 标注，#16）；带 lines → 切片原文
+                let path = storage_dir.join(overseer_core::CONTEXT_FILE);
+                let tok = match &obs.usage {
+                    Some(u) => format!("真值 {} + est 增量 {}", u.prompt_tokens, obs.context_est_delta),
+                    None => format!("est 全量 {}", obs.context_est_delta),
+                };
+                print_path_slice("context", &path, &item.lines, vars, &format!("行 | {tok}"));
+            }
+            "effects" => {
+                // 路径类：无 lines → 文件指针+摘要（条数）；带 lines → 切片原文
+                let path = storage_dir.join(overseer_core::EFFECT_FILE);
+                print_path_slice("effects", &path, &item.lines, vars, "条");
+            }
             other => println!("(未知 observe 项: {other})"),
         }
     }
-    *last_len = obs.context.len();
+}
+
+/// 路径类输出：无 lines 打印 `路径 | N <单位/摘要>`；带 lines 经 RangeParser 求值切片打印原文
+fn print_path_slice(
+    name: &str,
+    path: &std::path::Path,
+    lines: &Option<String>,
+    vars: &std::collections::HashMap<String, String>,
+    summary: &str,
+) {
+    let file_lines = read_file_lines(path);
+    let tail = file_lines.len() as i64;
+    match lines {
+        None => println!("{name}: {} | {tail} {summary}", path.display()),
+        Some(expr) => {
+            let env = overseer_core::eval::VarEnv { tail, vars: vars.clone() };
+            use overseer_core::eval::Parser;
+            let parsed = (overseer_core::eval::RangeParser { env: &env }).parse(expr.as_str());
+            match parsed {
+                Ok((range, rest)) if rest.is_empty() => match range.resolve(tail) {
+                    Some((start, end)) => {
+                        println!("{name}: {} | 切片 [{start},{end}]（共 {tail} 行）", path.display());
+                        for (i, l) in file_lines[(start - 1) as usize..end as usize].iter().enumerate() {
+                            println!("  {}: {}", start + i as i64, l);
+                        }
+                    }
+                    None => println!("{name}: 空切片（{expr:?} @ tail={tail}）"),
+                },
+                Ok((_, rest)) => println!("{name}: lines 语法错误（多余内容 {rest:?}）: {expr:?}"),
+                Err(e) => println!("{name}: lines 解析失败: {e}"),
+            }
+        }
+    }
 }

@@ -84,6 +84,22 @@ pub struct LinesRange {
     pub to_inclusive: bool,
 }
 
+impl LinesRange {
+    /// 应用到末行号 → 1-based 闭区间 [start, end]（含端点）；空区间 None。
+    /// 钳制：start < 1 → 1；end > tail → tail（无负索引，越界收敛）。
+    pub fn resolve(&self, tail: i64) -> Option<(i64, i64)> {
+        let start = if self.from_inclusive { self.from } else { self.from + 1 };
+        let end = if self.to_inclusive { self.to } else { self.to - 1 };
+        let start = start.max(1);
+        let end = end.min(tail);
+        if start > end {
+            None
+        } else {
+            Some((start, end))
+        }
+    }
+}
+
 /// DirectToString（独立模块，与 parser 无关）：界定哪些类型能直接转 string
 pub trait DirectToString {
     fn direct_to_string(&self) -> String;
@@ -436,8 +452,28 @@ mod tests {
         assert!(eval_store(&e, "bogus", "1").is_err()); // 未知类型
     }
 
-    // ── try_parse 预检：语法与引用在同一遍被检查 ──
+    // ── LinesRange::resolve 应用（开闭/钳制/空区间）──
 
+    #[test]
+    fn range_resolve() {
+        // ($tail-49, $tail] @ tail=122 → [74, 122]（开 from 不含 → +1）
+        let r = LinesRange { from: 73, to: 122, from_inclusive: false, to_inclusive: true };
+        assert_eq!(r.resolve(122), Some((74, 122)));
+        // [1, 3) → [1, 2]
+        let r = LinesRange { from: 1, to: 3, from_inclusive: true, to_inclusive: false };
+        assert_eq!(r.resolve(100), Some((1, 2)));
+        // 钳制：from < 1 → 1；to > tail → tail
+        let r = LinesRange { from: -5, to: 999, from_inclusive: true, to_inclusive: true };
+        assert_eq!(r.resolve(50), Some((1, 50)));
+        // 空区间：[$tail, $tail) @ tail=10 → start=10 end=9 → None
+        let r = LinesRange { from: 10, to: 10, from_inclusive: true, to_inclusive: false };
+        assert_eq!(r.resolve(10), None);
+        // 空文件：tail=0 → 钳制后 start>end → None
+        let r = LinesRange { from: 1, to: 5, from_inclusive: true, to_inclusive: true };
+        assert_eq!(r.resolve(0), None);
+    }
+
+    // ── try_parse 预检：语法与引用在同一遍被检查 ──
     #[test]
     fn try_parse_catches_syntax_and_ref() {
         let e = env();

@@ -238,12 +238,13 @@ pub fn export(storage_dir: &std::path::Path, opts: &ExportOpts) -> String {
         "meta": {
             "case_id": opts.case_id,
             "created": chrono_now(),
+            "llm_mode": "debug",
             "notes": opts.notes,
         },
         "config": {},
         "steps": [
             { "load": {} },
-            { "observe": ["agents", "panorama"] },
+            { "observe": [{ "target": "agents" }, { "target": "panorama" }] },
         ],
     });
     let mut out = serde_json::to_string_pretty(&head).unwrap();
