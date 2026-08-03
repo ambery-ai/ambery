@@ -111,6 +111,7 @@ pub fn router(state: Arc<AppState>, ws_tx: tokio::sync::broadcast::Sender<String
         .route("/config", get(get_config))
         .route("/config/schema", get(get_config_schema))
         .route("/config", post(post_config))
+        .route("/effect", post(post_effect))
         .route("/hook", post(post_hook))
         .route("/ws", get(move |ws: WebSocketUpgrade, State(s): State<Arc<AppState>>| {
             let tx = ws_tx_clone.clone();
@@ -171,6 +172,11 @@ struct EventBody {
 
 async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>) -> impl IntoResponse {
     let mut ov = s.overseer.lock().await;
+    // 动作流记录（docs/effect-reporting.md §kind）：前端 push_event = interaction/frontend
+    ov.record_frontend_effect(
+        "interaction",
+        json!({ "desc": body.desc.as_str(), "card_id": body.card_id.as_deref() }),
+    );
     if body.desc.starts_with("用户关闭了") { *s.pending_notifications.lock().await = s.pending_notifications.lock().await.saturating_sub(1); }
     // 用户 × 关卡：closed_by_user 双行事件（自然语言 + 生命周期行，docs/components.md）
     if let Some(cid) = body.card_id.as_deref() {
@@ -282,6 +288,8 @@ async fn post_config(State(s): State<Arc<AppState>>, Json(body): Json<SetConfigB
     let mut ov = s.overseer.lock().await;
     match ov.apply_config_by_path(&body.path, body.value) {
         Ok(outcome) => {
+            // 动作流记录（docs/effect-reporting.md §kind）：前端设置面板 = config_update/frontend
+            ov.record_frontend_effect("config_update", json!({ "path": body.path }));
             let restart = outcome.restart_required.clone();
             drop(ov);
             finish_config_outcome(&s, outcome).await;
@@ -289,6 +297,20 @@ async fn post_config(State(s): State<Arc<AppState>>, Json(body): Json<SetConfigB
         }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),
     }
+}
+
+/// 前端非 readonly @tauri-apps/api 调用上报（docs/effect-reporting.md §通道）
+#[derive(Deserialize)]
+struct EffectBody {
+    kind: String,
+    #[serde(default)]
+    payload: Value,
+}
+
+async fn post_effect(State(s): State<Arc<AppState>>, Json(body): Json<EffectBody>) -> impl IntoResponse {
+    let ov = s.overseer.lock().await;
+    ov.record_frontend_effect(&body.kind, body.payload);
+    Json(json!({ "ok": true }))
 }
 
 #[derive(Deserialize)]

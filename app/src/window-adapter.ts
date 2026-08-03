@@ -13,20 +13,24 @@ export interface WindowAdapter {
   getScreenHeight(): Promise<number>;
 }
 
-/** Tauri 模式：真实 OS 窗口 */
+/** Tauri 模式：真实 OS 窗口（非只读操作埋点上报 effect 流，docs/effect-reporting.md） */
 export async function createTauriAdapter(
   viewEl: HTMLElement,
   _dpr: number,
 ): Promise<WindowAdapter> {
   const { getCurrentWindow, currentMonitor, PhysicalSize, PhysicalPosition } = await import("@tauri-apps/api/window");
+  const { reportEffect } = await import("./effects");
   const win = getCurrentWindow();
+  const label = win.label;
 
   return {
     async setSize(w: number, h: number) {
       await win.setSize(new PhysicalSize(w, h));
+      reportEffect("window_resized", { window: label, w, h });
     },
     async setPosition(x: number, y: number) {
       await win.setPosition(new PhysicalPosition(x, y));
+      reportEffect("window_moved", { window: label, x, y });
     },
     async getPosition() {
       const p = await win.outerPosition();
@@ -35,9 +39,10 @@ export async function createTauriAdapter(
     setOffset(top: number, left: number) {
       viewEl.style.top = `${top}px`;
       viewEl.style.left = `${left}px`;
+      reportEffect("window_resized", { window: label, top, left });
     },
-    async show() { await win.show(); await win.setFocus(); },
-    async hide() { await win.hide(); },
+    async show() { await win.show(); await win.setFocus(); reportEffect("window_visible", { window: label }); },
+    async hide() { await win.hide(); reportEffect("window_hidden", { window: label }); },
     async getScreenHeight() {
       const mon = await currentMonitor();
       return mon ? mon.size.height / mon.scaleFactor : 1080;

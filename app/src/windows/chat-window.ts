@@ -45,6 +45,7 @@ export async function main() {
     document.addEventListener("mousedown", (e) => {
       const t = e.target as HTMLElement;
       if (t.closest(".chat-header") && !t.closest(".chat-close")) {
+        void import("../effects").then((m) => m.reportEffect("window_drag", { window: win.label }));
         void win.startDragging();
       }
     });

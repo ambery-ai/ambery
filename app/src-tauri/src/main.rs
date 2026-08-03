@@ -84,6 +84,8 @@ async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) ->
 async fn push_event(state: tauri::State<'_, SharedTauriState>, desc: String, card_id: Option<String>, state_snapshot: Option<Value>) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let mut ov = s.overseer().lock().await;
+    // 动作流记录（docs/effect-reporting.md §kind）：前端 push_event = interaction/frontend
+    ov.record_frontend_effect("interaction", json!({ "desc": desc.as_str(), "card_id": card_id.as_deref() }));
     // 用户 × 关卡：closed_by_user 双行事件（docs/components.md）
     if let Some(cid) = card_id.as_deref() {
         let ts = now_ms();
@@ -134,6 +136,8 @@ async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, val
     let mut ov = s.overseer().lock().await;
     match ov.apply_config_by_path(&path, value) {
         Ok(outcome) => {
+            // 动作流记录（docs/effect-reporting.md §kind）：前端设置面板 = config_update/frontend
+            ov.record_frontend_effect("config_update", json!({ "path": path.as_str() }));
             let restart = outcome.restart_required.clone();
             drop(ov);
             overseer_core::server::finish_config_outcome(&s, outcome).await;
@@ -143,11 +147,21 @@ async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, val
     }
 }
 
+/// 前端非 readonly @tauri-apps/api 调用上报（docs/effect-reporting.md §通道）
+#[tauri::command]
+async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, payload: Option<Value>) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let ov = s.overseer().lock().await;
+    ov.record_frontend_effect(&kind, payload.unwrap_or(Value::Null));
+    Ok(json!({ "ok": true }))
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             toggle_pet, quit_app,
-            get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config
+            get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config,
+            record_effect
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {

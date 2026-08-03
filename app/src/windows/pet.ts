@@ -203,9 +203,13 @@ export async function main() {
     view.el.dataset.tauriDragRegion = "";
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const { emit, emitTo } = await import("@tauri-apps/api/event");
+    const { reportEffect } = await import("../effects");
     const win = getCurrentWindow();
+    // 动作流埋点（docs/effect-reporting.md）：emit/emitTo 经包装上报 event_emit（高频自动打包）
+    const emitR = (event: string, payload?: unknown) => { reportEffect("event_emit", { event }); void emit(event, payload); };
+    const emitToR = (target: string, event: string, payload?: unknown) => { reportEffect("event_emit", { event, target }); void emitTo(target, event, payload); };
     setupServer();
-    view.tauriStartDrag = () => win.startDragging();
+    view.tauriStartDrag = () => { reportEffect("window_drag", { window: win.label }); void win.startDragging(); };
 
     const { dragDebounce } = await import("../utils/debounce");
 
@@ -213,20 +217,20 @@ export async function main() {
       petCenter = await derivePetCenter(); // 入口 4：drag 结束测 center
       syncObstacle();
       if (suppressMoveEvents > 0) return; // 程序化移动：只更新 center/障碍区，不藏显
-      emit("pet:moved", petCenter);
+      emitR("pet:moved", petCenter);
       onMove(petCenter);
     }
 
     const onMove = dragDebounce(
       // 系统藏（#12 定案：不动 engine，无快照）
-      () => { emit("chat:hide"); emit("cards:hide"); },
+      () => { emitR("chat:hide"); emitR("cards:hide"); },
       (latest: { x: number; y: number }) => {
         // 拖拽结束收束：原则⑥ 越界拉回后再恢复附属窗口
         void settleDragEnd().then(() => {
           const r = engine.restorePositions(petCenter ?? latest);
-          if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
+          if (r.some((w) => w.id === "chat-panel")) emitR("chat:show");
           for (const w of r) {
-            if (w.id.startsWith("card-")) emit("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
+            if (w.id.startsWith("card-")) emitR("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
           }
         });
       },
@@ -243,15 +247,15 @@ export async function main() {
     listen("pet:shown", () => {
       petVisible = true;
       for (const pc of pendingCards.splice(0)) {
-        emitTo(pc.label, "card:spec", pc.spec);
+        emitToR(pc.label, "card:spec", pc.spec);
       }
       // 托盘回来：恢复位置广播（#12 定案 grill⑤——系统藏的系统恢复，各窗口自查 userClosed）
       void (async () => {
         petCenter = await derivePetCenter();
         const r = engine.restorePositions(petCenter);
-        if (r.some((w) => w.id === "chat-panel")) emit("chat:show");
+        if (r.some((w) => w.id === "chat-panel")) emitR("chat:show");
         for (const w of r) {
-          if (w.id.startsWith("card-")) emit("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
+          if (w.id.startsWith("card-")) emitR("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
         }
       })();
     });
@@ -263,7 +267,7 @@ export async function main() {
       const existing = await WebviewWindow.getByLabel(label);
       // 持续管理协议：同 id = 原地更新（重发 spec），不再 toggle 关闭
       if (existing) {
-        emitTo(label, "card:spec", spec);
+        emitToR(label, "card:spec", spec);
         return;
       }
       const webview = new WebviewWindow(label, {
@@ -282,9 +286,11 @@ export async function main() {
         visible: false,
       });
       webview.once("tauri://created", async () => {
+        // 动作流埋点（#25 观测：同 id 两条 window_opened 中间无 window_closed = 重复窗口实证）
+        reportEffect("window_opened", { window: label });
         await new Promise(r => setTimeout(r, 500));
         if (petVisible) {
-          emitTo(label, "card:spec", spec);
+          emitToR(label, "card:spec", spec);
         } else {
           pendingCards.push({ label, spec });
         }
@@ -298,7 +304,10 @@ export async function main() {
     bridge.onCloseComponent?.(async (id) => {
       const label = `card-${id}`;
       const existing = await WebviewWindow.getByLabel(label);
-      if (existing) await existing.close();
+      if (existing) {
+        await existing.close();
+        reportEffect("window_closed", { window: label });
+      }
       engine.remove(label);
     });
 
@@ -396,7 +405,8 @@ export async function main() {
   // 右键 → 通知 chat 窗口弹出（Tauri）
   if (isTauri) {
     const { emit } = await import("@tauri-apps/api/event");
-    view.el.addEventListener("chat:toggle", () => { emit("chat:toggle"); });
+    const { reportEffect } = await import("../effects");
+    view.el.addEventListener("chat:toggle", () => { reportEffect("event_emit", { event: "chat:toggle" }); void emit("chat:toggle"); });
   }
 
   await autonomy.init();

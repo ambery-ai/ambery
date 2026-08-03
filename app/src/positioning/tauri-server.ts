@@ -4,6 +4,13 @@
 import { PositioningEngine } from "./engine";
 import type { Point, WindowSpec } from "./types";
 import { Direction } from "./types";
+import { reportEffect } from "../effects";
+
+/** engine 协调事件上报（event_emit，高频自动打包，docs/effect-reporting.md） */
+function emitR(emit: <T>(event: string, payload?: T) => void, event: string, payload?: unknown) {
+  reportEffect("event_emit", { event });
+  emit(event, payload);
+}
 
 export const engine = new PositioningEngine();
 
@@ -15,7 +22,7 @@ export async function setupServer() {
   await listen<{ id: string; spec: WindowSpec; preferred: string }>("engine:place", (ev) => {
     const dir = Direction[ev.payload.preferred as keyof typeof Direction] ?? Direction.sse;
     const pos = engine.place(ev.payload.spec, dir);
-    emit("engine:placed", { id: ev.payload.id, x: pos.x, y: pos.y });
+    emitR(emit, "engine:placed", { id: ev.payload.id, x: pos.x, y: pos.y });
   });
 
   await listen<{ id: string }>("engine:remove", (ev) => {
@@ -31,7 +38,7 @@ export async function setupServer() {
 /** chat/cards 窗调用：拖拽结束回写中心点（OS 真实位置换算） */
 export async function reportMoved(id: string, center: Point) {
   const { emit } = await import("@tauri-apps/api/event");
-  emit("engine:moved", { id, x: center.x, y: center.y });
+  emitR(emit, "engine:moved", { id, x: center.x, y: center.y });
 }
 
 /** chat/cards 窗调用：请求 engine 计算位置，返回 Promise<Point> */
@@ -61,12 +68,12 @@ export function requestPlace(
         resolve({ x: ev.payload.x, y: ev.payload.y });
       }
     });
-    emit("engine:place", { id, spec, preferred: Direction[preferred] });
+    emitR(emit, "engine:place", { id, spec, preferred: Direction[preferred] });
   });
 }
 
 /** chat/cards 窗调用：请求移除占区 */
 export async function requestRemove(id: string) {
   const { emit } = await import("@tauri-apps/api/event");
-  emit("engine:remove", { id });
+  emitR(emit, "engine:remove", { id });
 }

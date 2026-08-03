@@ -276,14 +276,6 @@ impl<L: Llm> OverseerBackend<L> {
             self.filter = crate::filter::by_name(&self.config.filter_strategy);
         }
         let llm_changed = self.config.llm != old.llm;
-        // 动作流记录（单变体单记录点，docs/storage.md §effect.jsonl 记录点）：
-        // config_changed 在此记录（edit_config/server/CLI 全路径覆盖），execute_tool 跳过本变体
-        let _ = self.harness.log_effect(
-            crate::EffectOrigin::Backend,
-            "config_changed",
-            json!({ "llm_changed": llm_changed }),
-            crate::server::now_ms(),
-        );
         Ok(ConfigOutcome {
             effects: vec![Effect::ConfigChanged { llm_changed }],
             llm_changed,
@@ -533,6 +525,15 @@ impl<L: Llm> OverseerBackend<L> {
         }
         match self.apply_config_by_path(path, value) {
             Ok(outcome) => {
+                // 动作流记录（docs/effect-reporting.md §kind）：LLM edit_config 路径 =
+                // config_changed/backend；前端 set_config 路径在端点记 config_update/frontend
+                let llm_changed = outcome.llm_changed;
+                let _ = self.harness.log_effect(
+                    crate::EffectOrigin::Backend,
+                    "config_changed",
+                    json!({ "llm_changed": llm_changed }),
+                    crate::server::now_ms(),
+                );
                 let restart = outcome.restart_required.clone();
                 let mut r = json!({ "ok": true, "path": path });
                 if !restart.is_empty() {
@@ -641,8 +642,30 @@ impl<L: Llm> OverseerBackend<L> {
     /// 入队一条输入（concepts §10c：hook 内容 = system，user 消息 = user）。
     /// 生产者只入队不触发——放行由 drain_queue / server 消费者任务驱动。
     pub fn enqueue(&mut self, role: Role, content: String, ts: i64) -> std::io::Result<()> {
+        // 动作流记录（docs/effect-reporting.md §kind）：user 消息入队 = user_message/frontend
+        // （单点覆盖 post_user / append_user / case user step；hook 的 system 输入不进）
+        if role == Role::User {
+            let _ = self.harness.log_effect(
+                crate::EffectOrigin::Frontend,
+                "user_message",
+                json!({ "text": content }),
+                crate::server::now_ms(),
+            );
+        }
         self.harness
             .enqueue_input(crate::queue::QueueInput { role, content, ts })
+    }
+
+    /// 前端非 readonly 调用上报单点（docs/effect-reporting.md §通道）：
+    /// record_effect command 与 POST /effect 共用——写 effect.jsonl（origin=frontend）。
+    /// fire-and-forget：记录失败不影响调用方。
+    pub fn record_frontend_effect(&self, kind: &str, payload: Value) {
+        let _ = self.harness.log_effect(
+            crate::EffectOrigin::Frontend,
+            kind,
+            payload,
+            crate::server::now_ms(),
+        );
     }
 
     /// 放行一条输入：Context 写输入 → run_trigger（一轮完整处理，concepts §10c）
@@ -1298,7 +1321,7 @@ impl<L: Llm> OverseerBackend<L> {
     pub async fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
         let out = self.execute_tool_inner(call).await;
         // 动作流记录（docs/storage.md §effect.jsonl 记录点）：tool 副作用在此单点记录；
-        // ConfigChanged 已在 apply_config_by_path 内记录（单变体单记录点），跳过防双写
+        // ConfigChanged 已在 edit_config_update 内记录（LLM 路径=config_changed/backend），跳过防双写
         for e in &out.1 {
             if !matches!(e, Effect::ConfigChanged { .. }) {
                 let (kind, payload) = e.effect_kind_payload();
@@ -2259,6 +2282,34 @@ mod tests {
         assert_eq!(rec.payload["llm_changed"], json!(false));
         assert_eq!(rec.origin, crate::EffectOrigin::Backend);
         let _ = std::fs::remove_dir_all(tmp_dir("eff-cfg"));
+    }
+
+    #[test]
+    fn frontend_effect_reporting_channel() {
+        // record_frontend_effect（record_effect command / POST /effect 共用单点）
+        let ov = make_overseer("eff-fe");
+        ov.record_frontend_effect("window_opened", json!({ "window": "card-x" }));
+        ov.record_frontend_effect("window_moved", json!({ "window": "card-x", "x": 1, "y": 2, "count": 7 }));
+        let recs = ov.harness.read_effects().unwrap();
+        assert_eq!(recs.len(), 2);
+        assert!(recs.iter().all(|r| r.origin == crate::EffectOrigin::Frontend));
+        assert_eq!(recs[0].kind, "window_opened");
+        assert_eq!(recs[1].payload["count"], json!(7));
+        let _ = std::fs::remove_dir_all(tmp_dir("eff-fe"));
+    }
+
+    #[tokio::test]
+    async fn enqueue_user_records_user_message_once() {
+        // user 入队 = user_message/frontend（单点覆盖端点与 case user step）；system 输入不进
+        let mut ov = make_overseer("eff-user");
+        ov.enqueue(Role::User, "你好".into(), 1).unwrap();
+        ov.enqueue(Role::System, "hook 输入".into(), 2).unwrap();
+        let recs = ov.harness.read_effects().unwrap();
+        let user_recs: Vec<_> = recs.iter().filter(|r| r.kind == "user_message").collect();
+        assert_eq!(user_recs.len(), 1, "{recs:?}");
+        assert_eq!(user_recs[0].origin, crate::EffectOrigin::Frontend);
+        assert_eq!(user_recs[0].payload["text"], json!("你好"));
+        let _ = std::fs::remove_dir_all(tmp_dir("eff-user"));
     }
 
     #[tokio::test]

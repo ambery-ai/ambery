@@ -41,7 +41,9 @@ export async function main() {
   document.getElementById("btn-close")!.onclick = async () => {
     if ("__TAURI_INTERNALS__" in window) {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const { reportEffect } = await import("../effects");
       await getCurrentWindow().hide();
+      reportEffect("window_hidden", { window: "menu" });
     }
   };
   // 外部自动载入 / 其他入口写入 → core 广播 config effect，面板重渲（错误横幅/值/pending 刷新）
