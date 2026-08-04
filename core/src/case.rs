@@ -2,7 +2,10 @@
 //! feature "case-runner" gate。
 
 use crate::llm::Llm;
-use crate::observe::{AgentSnapshot, FilteredContentSnapshot, MessageSnapshot, Observable};
+use crate::observe::{
+    AgentSnapshot, CronSnapshot, FilteredContentSnapshot, MemoryNoteSnapshot, MessageSnapshot,
+    Observable,
+};
 use crate::overseer::OverseerBackend;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -28,6 +31,10 @@ pub struct CaseObserve {
     pub context_est_delta: usize,
     /// 最后一条 assistant 消息原文（回答准确度扫读位）
     pub answer: Option<String>,
+    /// Memory index 摘要（name / description；不默认展开正文，docs/observability.md）
+    pub memory: Vec<MemoryNoteSnapshot>,
+    /// Cron 持久化计划投影（id / schedule / message / next_due；不含 sleep waiter）
+    pub cron: Vec<CronSnapshot>,
     /// 动作流（从 effect.jsonl 读）：后端副作用 + 前端非只读调用（docs/storage.md §effect.jsonl）
     pub effects: Vec<crate::EffectRecord>,
 }
@@ -65,6 +72,8 @@ pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
         usage_ts: h.last_usage_ts,
         context_est_delta,
         answer,
+        memory: h.memory.observe(),
+        cron: h.cron.observe(),
         effects: h.read_effects().unwrap_or_default(),
     }
 }
@@ -247,7 +256,7 @@ pub fn pre_parse_check(case: &CaseFile) -> Vec<String> {
     use crate::eval::{ExprParser, IntParser, Parser, RangeParser, VarEnv, VarIntParser};
     const TARGETS: &[&str] = &[
         "agents", "panorama", "context", "filtered_content", "queue", "event_buffer",
-        "usage", "effects", "answer",
+        "usage", "effects", "answer", "memory", "cron",
     ];
     let mut failures = vec![];
     // 已 store 的用户变量名（预检环境用占位值：引用有效性与语法在同一遍检查）
@@ -408,6 +417,44 @@ mod tests {
         );
         let case = parse(&text).unwrap();
         assert_eq!(pre_parse_check(&case), Vec::<String>::new());
+    }
+
+    #[test]
+    fn observe_includes_memory_and_cron() {
+        let dir = std::env::temp_dir().join(format!("overseer-case-obs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let mut ov = OverseerBackend::new(
+            harness,
+            crate::config::Config::default(),
+            crate::llm::DebugAgent::silent(),
+        );
+        ov.harness
+            .memory
+            .write("work-preferences", "正文", "用户的工作偏好")
+            .unwrap();
+        ov.harness
+            .cron
+            .create(crate::cron::Schedule::EveryMs(60_000), "日报", 1000)
+            .unwrap();
+        let obs = observe(&ov);
+        assert_eq!(obs.memory.len(), 1);
+        assert_eq!(obs.memory[0].name, "work-preferences");
+        assert_eq!(obs.memory[0].description, "用户的工作偏好");
+        assert_eq!(obs.cron.len(), 1);
+        assert_eq!(obs.cron[0].message, "日报");
+        assert_eq!(obs.cron[0].schedule, crate::cron::Schedule::EveryMs(60_000));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pre_parse_accepts_memory_and_cron_targets() {
+        let text = head(r#"[{ "observe": [{"target":"memory"},{"target":"cron"}] }]"#);
+        let case = parse(&text).unwrap();
+        assert_eq!(pre_parse_check(&case), Vec::<String>::new());
+        // 值类 target 不支持 lines
+        let c = parse(&head(r#"[{ "observe": [{"target":"memory","lines":"[1,2]"}] }]"#)).unwrap();
+        assert!(pre_parse_check(&c)[0].contains("值类"));
     }
 
     #[test]

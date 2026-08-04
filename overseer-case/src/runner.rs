@@ -199,6 +199,28 @@ fn print_observe(
                 (None, _) => println!("usage: (无真值)"),
             },
             "answer" => println!("answer: {}", obs.answer.as_deref().unwrap_or("(无)")),
+            "memory" => {
+                // Memory index 摘要（name / description / 总数）；不默认展开正文
+                println!("memory: Memory index 摘要（{} 条）", obs.memory.len());
+                for n in &obs.memory {
+                    println!("  {} | {}", n.name, n.description);
+                }
+            }
+            "cron" => {
+                // 持久化计划投影（id / schedule / message / next_due）；不含 sleep waiter
+                println!("cron: {} 个持久化计划", obs.cron.len());
+                for e in &obs.cron {
+                    let schedule = match e.schedule {
+                        overseer_core::cron::Schedule::At(ts) => format!("at {ts}"),
+                        overseer_core::cron::Schedule::EveryMs(ms) => format!("every {ms}ms"),
+                    };
+                    let next = e
+                        .next_due
+                        .map(|d| format!("next_due={d}"))
+                        .unwrap_or_else(|| "完成态".into());
+                    println!("  {} | {} | {} | {}", e.id, schedule, next, e.message);
+                }
+            }
             "context" => {
                 // 路径类：无 lines → 文件指针+摘要（行首 token 标注，#16）；带 lines → 切片原文
                 let path = storage_dir.join(overseer_core::CONTEXT_FILE);

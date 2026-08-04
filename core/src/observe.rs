@@ -49,6 +49,23 @@ pub struct FilteredContentSnapshot {
     pub ts: i64,
 }
 
+/// Memory note 摘要条目（index 摘要：name / description；不展开正文，docs/observability.md）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MemoryNoteSnapshot {
+    pub name: String,
+    pub description: String,
+}
+
+/// Cron 计划投影条目（id / schedule / message / next_due；不含 sleep waiter）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CronSnapshot {
+    pub id: String,
+    pub schedule: crate::cron::Schedule,
+    pub message: String,
+    /// None = 完成态（at 已发放），不再调度
+    pub next_due: Option<i64>,
+}
+
 impl Observable for Queue {
     type Snapshot = Vec<QueueInput>;
     fn observe(&self) -> Self::Snapshot {
@@ -100,6 +117,31 @@ impl Observable for Option<crate::llm::Usage> {
     }
 }
 
+impl Observable for crate::memory::Memory {
+    type Snapshot = Vec<MemoryNoteSnapshot>;
+    fn observe(&self) -> Self::Snapshot {
+        self.list_notes()
+            .into_iter()
+            .map(|(name, description)| MemoryNoteSnapshot { name, description })
+            .collect()
+    }
+}
+
+impl Observable for crate::cron::CronScheduler {
+    type Snapshot = Vec<CronSnapshot>;
+    fn observe(&self) -> Self::Snapshot {
+        self.entries()
+            .iter()
+            .map(|e| CronSnapshot {
+                id: e.id.clone(),
+                schedule: e.schedule,
+                message: e.message.clone(),
+                next_due: e.next_due,
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,5 +183,40 @@ mod tests {
         assert!(none.observe().is_none());
         let some = Some(crate::llm::Usage { prompt_tokens: 10, completion_tokens: 2 });
         assert_eq!(some.observe().unwrap().prompt_tokens, 10);
+    }
+
+    #[test]
+    fn memory_projection() {
+        let dir = std::env::temp_dir().join(format!("overseer-obs-mem-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let m = crate::memory::Memory::bootstrap(&dir).unwrap();
+        assert!(m.observe().is_empty());
+        m.write("work-preferences", "正文", "用户的工作偏好").unwrap();
+        // frontmatter 不合法的外部文件不进摘要
+        std::fs::write(m.notes_dir().join("no-fm.md"), "无 frontmatter").unwrap();
+        let snap = m.observe();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap[0].name, "work-preferences");
+        assert_eq!(snap[0].description, "用户的工作偏好");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cron_projection() {
+        let dir = std::env::temp_dir().join(format!("overseer-obs-cron-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut c = crate::cron::CronScheduler::load(&dir).unwrap();
+        let id = c.create(crate::cron::Schedule::EveryMs(60_000), "日报", 1000).unwrap();
+        let id2 = c.create(crate::cron::Schedule::At(70_000), "一次性", 2000).unwrap();
+        // at 发放后完成态：next_due = None 也进投影；every_ms 同刻到期重排
+        let _ = c.due(70_000).unwrap();
+        let snap = c.observe();
+        assert_eq!(snap.len(), 2);
+        let e = snap.iter().find(|e| e.id == id).unwrap();
+        assert_eq!(e.schedule, crate::cron::Schedule::EveryMs(60_000));
+        assert_eq!(e.message, "日报");
+        assert_eq!(e.next_due, Some(121_000));
+        assert_eq!(snap.iter().find(|e| e.id == id2).unwrap().next_due, None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
