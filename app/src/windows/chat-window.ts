@@ -3,7 +3,7 @@
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
-import { requestPlace, reportMoved } from "../positioning/tauri-server";
+import { requestPlace, requestRelease, reportMoved } from "../positioning/tauri-server";
 import { Direction } from "../positioning/types";
 
 let chatPanel: ChatPanel | null = null;
@@ -21,13 +21,14 @@ export async function main() {
     await listen("chat:toggle", () => {
       if (chatPanel?.isVisible()) {
         chatPanel.intentClose(); // 用户意图关（统一 API）
+        void requestRelease("chat-panel"); // 用户隐藏：释放占区、布局入记忆（重开原位恢复）
         void adapter?.hide();
       } else {
         chatPanel?.intentOpen();
         void showChat();
       }
     });
-    // 系统藏（pet 拖动/托盘）：统一 API，只藏不动 userClosed
+    // 系统藏（pet 拖动/托盘）：统一 API，只藏不动 userClosed——占区原地保留，不调 release
     await listen("chat:hide", () => {
       chatPanel?.systemHide();
       void adapter?.hide();
@@ -38,6 +39,7 @@ export async function main() {
     });
     win.onCloseRequested(async () => {
       chatPanel?.intentClose(); // × = 用户意图关
+      void requestRelease("chat-panel");
       await adapter?.hide();
     });
 

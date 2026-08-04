@@ -24,6 +24,9 @@ interface Occupied {
 
 export class PositioningEngine {
   private occupied: Occupied[] = [];
+  /** 布局记忆（docs/window-follow.md §一致性剖析）：用户隐藏释放占区但保留布局；
+   *  与系统临时隐藏（占区原地保留）和 dismiss（remove：结束 Surface 并忘记布局）区分 */
+  private layoutMemory = new Map<string, { offset: Point; w: number; h: number; manual?: boolean }>();
   private petCenter: Point = { x: 0, y: 0 };
   private petSize = { w: 0, h: 0 };
 
@@ -79,6 +82,25 @@ export class PositioningEngine {
         x: this.petCenter.x + existing.offset.x,
         y: this.petCenter.y + existing.offset.y,
       };
+    }
+
+    // 布局记忆命中（用户隐藏后重开）：恢复记忆偏移并重占区，不参与自动重排
+    const remembered = this.layoutMemory.get(newWindow.id);
+    if (!existing && remembered) {
+      this.layoutMemory.delete(newWindow.id);
+      this.occupied.push({
+        id: newWindow.id,
+        offset: remembered.offset,
+        w: newWindow.width,
+        h: newWindow.height,
+        manual: remembered.manual,
+      });
+      const result = {
+        x: this.petCenter.x + remembered.offset.x,
+        y: this.petCenter.y + remembered.offset.y,
+      };
+      console.info("[engine] place（布局记忆恢复）", newWindow.id, "→", Math.round(result.x), Math.round(result.y));
+      return result;
     }
 
     const petCenter = this.petCenter;
@@ -140,14 +162,27 @@ export class PositioningEngine {
       }));
   }
 
-  remove(id: string): void {
-    console.info("[engine] remove", id);
-    this.occupied = this.occupied.filter((o) => o.id !== id);
+  /** 用户隐藏：释放占区但保留布局记忆（重开时 place 原位恢复）。
+   *  系统临时隐藏不调它（占区原地保留）；dismiss 用 remove（连布局一起忘记）。 */
+  release(id: string): void {
+    const o = this.occupied.find((o) => o.id === id && o.id !== "_pet_");
+    if (!o) return;
+    this.layoutMemory.set(id, { offset: o.offset, w: o.w, h: o.h, manual: o.manual });
+    this.occupied = this.occupied.filter((x) => x.id !== id);
+    console.info("[engine] release（用户隐藏，布局入记忆）", id);
   }
 
-  /** 清空所有占区 */
+  /** dismiss：结束 Surface——占区与布局记忆一并忘记 */
+  remove(id: string): void {
+    console.info("[engine] remove（dismiss，忘记布局）", id);
+    this.occupied = this.occupied.filter((o) => o.id !== id);
+    this.layoutMemory.delete(id);
+  }
+
+  /** 清空所有占区与布局记忆 */
   clear(): void {
     this.occupied = [];
+    this.layoutMemory.clear();
   }
 
   private _valueAt(B: Point, A: Point, mAngle: number): number {

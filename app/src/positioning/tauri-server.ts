@@ -22,6 +22,11 @@ export async function setupServer() {
     engine.remove(ev.payload.id);
   });
 
+  // 用户隐藏：释放占区但保留布局记忆（docs/window-follow.md §一致性剖析）
+  await listen<{ id: string }>("engine:release", (ev) => {
+    engine.release(ev.payload.id);
+  });
+
   // #12/#15/#8①：chat/cards 拖拽结束回写真实位置 → 新跟随基准
   await listen<{ id: string; x: number; y: number }>("engine:moved", (ev) => {
     engine.updateCenter(ev.payload.id, { x: ev.payload.x, y: ev.payload.y });
@@ -63,7 +68,12 @@ export function requestPlace(
   });
 }
 
-/** chat/cards 窗调用：请求移除占区 */
+/** chat/cards 窗调用：请求移除占区（dismiss：结束 Surface 并忘记布局） */
 export async function requestRemove(id: string) {
   void emitEvent("engine:remove", { id });
+}
+
+/** chat 窗调用：用户隐藏（释放占区、保留布局记忆，重开原位恢复） */
+export async function requestRelease(id: string) {
+  void emitEvent("engine:release", { id });
 }
