@@ -196,7 +196,7 @@ pub struct Harness {
     /// last_usage 写入时的 ts（usage observe 项的时间锚点，docs/case-runner.md §observe 输出）
     #[cfg_attr(feature = "case-runner", observe(skip = "usage 行 ts 锚点（派生数据，随 last_usage 经 usage 项同步观测）"))]
     pub last_usage_ts: Option<i64>,
-    /// Memory（concepts §10f，docs/memory.md）：持久化理解 buffer 根管理器
+    /// Memory（concepts §10f，docs/memory.md）：持久工作空间根管理器（notes/ + cards/）
     #[cfg_attr(feature = "case-runner", observe(skip = "§10f 概念模块，observe 项未定义"))]
     pub memory: memory::Memory,
     /// Cron（concepts §10g，docs/cron.md）：持久化计划与延时调度（entries 持久化
@@ -256,7 +256,7 @@ impl Harness {
             std::fs::create_dir_all(config_dir)?;
             std::fs::write(agents_md_path, default_agents_md())?;
         }
-        // Memory 根 bootstrap（concepts §10f，docs/memory.md：storage/memory/ + 只读 AGENTS.md/index.md）
+        // Memory 工作空间 bootstrap（concepts §10f，docs/memory.md：storage/memory/ + notes/ + cards/ + 只读 AGENTS.md/index.md）
         let memory = memory::Memory::bootstrap(dir)?;
         // Cron 调度器：replay cron.jsonl 折叠计划集（concepts §10g，docs/cron.md）
         let cron = cron::CronScheduler::load(dir)?;
