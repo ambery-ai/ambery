@@ -1,6 +1,7 @@
 // 系统托盘 + 关闭隐藏到托盘。
 // 右键 → 设置面板（docs/config.md：原生菜单退役，100% web 渲染）
 use tauri::AppHandle;
+use tauri::Manager;
 use tauri::WebviewWindow;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
@@ -23,12 +24,12 @@ pub fn init_tray(app: &AppHandle, pet: &WebviewWindow) -> tauri::Result<()> {
         })
         .build(app)?;
 
-    // 关闭 → 隐藏到托盘
+    // 关闭 → 隐藏到托盘（经动作层：hide 成功记 window_hidden）
     let pet_clone = pet.clone();
     pet.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             api.prevent_close();
-            let _ = pet_clone.hide();
+            crate::tauri_runtime_actions::hide_window(pet_clone.app_handle(), "pet");
         }
     });
 

@@ -202,14 +202,14 @@ export async function main() {
   if (isTauri) {
     view.el.dataset.tauriDragRegion = "";
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const { emit, emitTo } = await import("@tauri-apps/api/event");
-    const { reportEffect } = await import("../effects");
+    // 非只读 Tauri 运行时动作只经动作层执行（docs/effect-reporting.md §运行时动作层）：
+    // 动作层执行真实 API 成功后自记 effect；业务只编排语义化动作，不拼 kind/payload
+    const actions = await import("../tauri_runtime_actions");
+    const emitR = (event: string, payload?: unknown) => { void actions.emitEvent(event, payload); };
+    const emitToR = (target: string, event: string, payload?: unknown) => { void actions.emitEvent(event, payload, target); };
     const win = getCurrentWindow();
-    // 动作流埋点（docs/effect-reporting.md）：emit/emitTo 经包装上报 event_emit（高频自动打包）
-    const emitR = (event: string, payload?: unknown) => { reportEffect("event_emit", { event }); void emit(event, payload); };
-    const emitToR = (target: string, event: string, payload?: unknown) => { reportEffect("event_emit", { event, target }); void emitTo(target, event, payload); };
     setupServer();
-    view.tauriStartDrag = () => { reportEffect("window_drag", { window: win.label }); void win.startDragging(); };
+    view.tauriStartDrag = () => { void actions.startDragging(win); };
 
     const { dragDebounce } = await import("../utils/debounce");
 
@@ -270,43 +270,44 @@ export async function main() {
         emitToR(label, "card:spec", spec);
         return;
       }
-      const webview = new WebviewWindow(label, {
-        url: "index.html#card",
-        // title 不依赖 agent（spec 无此概念）；直接用窗口 label 作标题，避免落到
-        // Tauri 默认 "Tauri App"（skipTaskbar + decorations:false，title 仅 UIA/OS 可见）
-        title: label,
-        width: 520,
-        height: 440,
-        decorations: false,
-        transparent: true,
-        alwaysOnTop: true,
-        focus: false,
-        shadow: false,
-        skipTaskbar: true,
-        visible: false,
-      });
-      webview.once("tauri://created", async () => {
-        // 动作流埋点（#25 观测：同 id 两条 window_opened 中间无 window_closed = 重复窗口实证）
-        reportEffect("window_opened", { window: label });
-        await new Promise(r => setTimeout(r, 500));
-        if (petVisible) {
-          emitToR(label, "card:spec", spec);
-        } else {
-          pendingCards.push({ label, spec });
-        }
-      });
-      webview.once("tauri://error", (e: any) => {
-        console.error("[pet] WebviewWindow error:", e);
-      });
+      // 创建经动作层（window_opened 在 tauri://created 成功后由动作层记录，
+      // #25 观测：同 id 两条 window_opened 中间无 window_closed = 重复窗口实证）
+      actions.createCardWindow(
+        label,
+        {
+          url: "index.html#card",
+          // title 不依赖 agent（spec 无此概念）；直接用窗口 label 作标题，避免落到
+          // Tauri 默认 "Tauri App"（skipTaskbar + decorations:false，title 仅 UIA/OS 可见）
+          title: label,
+          width: 520,
+          height: 440,
+          decorations: false,
+          transparent: true,
+          alwaysOnTop: true,
+          focus: false,
+          shadow: false,
+          skipTaskbar: true,
+          visible: false,
+        },
+        () => {
+          setTimeout(() => {
+            if (petVisible) {
+              emitToR(label, "card:spec", spec);
+            } else {
+              pendingCards.push({ label, spec });
+            }
+          }, 500);
+        },
+        (e) => console.error("[pet] WebviewWindow error:", e),
+      );
     });
 
-    // 显式关闭（持续管理协议：agent close action）
+    // 显式关闭（持续管理协议：agent close action；window_closed 由动作层在 close 成功后记录）
     bridge.onCloseComponent?.(async (id) => {
       const label = `card-${id}`;
       const existing = await WebviewWindow.getByLabel(label);
       if (existing) {
-        await existing.close();
-        reportEffect("window_closed", { window: label });
+        await actions.closeWindow(existing);
       }
       engine.remove(label);
     });
@@ -402,11 +403,10 @@ export async function main() {
     void applySize(true).then(() => syncObstacle());
   });
 
-  // 右键 → 通知 chat 窗口弹出（Tauri）
+  // 右键 → 通知 chat 窗口弹出（Tauri；经动作层 emit_event）
   if (isTauri) {
-    const { emit } = await import("@tauri-apps/api/event");
-    const { reportEffect } = await import("../effects");
-    view.el.addEventListener("chat:toggle", () => { reportEffect("event_emit", { event: "chat:toggle" }); void emit("chat:toggle"); });
+    const { emitEvent } = await import("../tauri_runtime_actions");
+    view.el.addEventListener("chat:toggle", () => { void emitEvent("chat:toggle"); });
   }
 
   await autonomy.init();

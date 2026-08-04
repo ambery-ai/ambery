@@ -4,25 +4,18 @@
 import { PositioningEngine } from "./engine";
 import type { Point, WindowSpec } from "./types";
 import { Direction } from "./types";
-import { reportEffect } from "../effects";
-
-/** engine 协调事件上报（event_emit，高频自动打包，docs/effect-reporting.md） */
-function emitR(emit: <T>(event: string, payload?: T) => void, event: string, payload?: unknown) {
-  reportEffect("event_emit", { event });
-  emit(event, payload);
-}
+import { emitEvent } from "../tauri_runtime_actions";
 
 export const engine = new PositioningEngine();
 
 /** pet 窗调用一次，注册处理 chat/cards 的 place 请求 */
 export async function setupServer() {
   const { listen } = await import("@tauri-apps/api/event");
-  const { emit } = await import("@tauri-apps/api/event");
 
   await listen<{ id: string; spec: WindowSpec; preferred: string }>("engine:place", (ev) => {
     const dir = Direction[ev.payload.preferred as keyof typeof Direction] ?? Direction.sse;
     const pos = engine.place(ev.payload.spec, dir);
-    emitR(emit, "engine:placed", { id: ev.payload.id, x: pos.x, y: pos.y });
+    void emitEvent("engine:placed", { id: ev.payload.id, x: pos.x, y: pos.y });
   });
 
   await listen<{ id: string }>("engine:remove", (ev) => {
@@ -37,8 +30,7 @@ export async function setupServer() {
 
 /** chat/cards 窗调用：拖拽结束回写中心点（OS 真实位置换算） */
 export async function reportMoved(id: string, center: Point) {
-  const { emit } = await import("@tauri-apps/api/event");
-  emitR(emit, "engine:moved", { id, x: center.x, y: center.y });
+  void emitEvent("engine:moved", { id, x: center.x, y: center.y });
 }
 
 /** chat/cards 窗调用：请求 engine 计算位置，返回 Promise<Point> */
@@ -48,7 +40,6 @@ export function requestPlace(
   preferred: Direction,
 ): Promise<Point> {
   return new Promise(async (resolve) => {
-    const { emit } = await import("@tauri-apps/api/event");
     const { listen } = await import("@tauri-apps/api/event");
     let settled = false;
     // B8: 2s 超时——pet 窗崩溃/reload 时防止 Promise 永不 resolve
@@ -68,12 +59,11 @@ export function requestPlace(
         resolve({ x: ev.payload.x, y: ev.payload.y });
       }
     });
-    emitR(emit, "engine:place", { id, spec, preferred: Direction[preferred] });
+    void emitEvent("engine:place", { id, spec, preferred: Direction[preferred] });
   });
 }
 
 /** chat/cards 窗调用：请求移除占区 */
 export async function requestRemove(id: string) {
-  const { emit } = await import("@tauri-apps/api/event");
-  emitR(emit, "engine:remove", { id });
+  void emitEvent("engine:remove", { id });
 }

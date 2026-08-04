@@ -16,19 +16,21 @@ use tauri::Manager;
 mod menu_window;
 mod window;
 mod tray;
+mod tauri_runtime_actions;
 
-/// 面板底部按钮（原托盘菜单动作）
+/// 面板底部按钮（原托盘菜单动作）。复合入口逐动作转发、逐动作记录
+/// （docs/effect-reporting.md：四个动作四条 effect，不能合成一条 toggle）
 #[tauri::command]
-fn toggle_pet(app: tauri::AppHandle) {
+fn toggle_pet<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     if let Some(w) = app.get_webview_window("pet") {
         if w.is_visible().unwrap_or(false) {
-            let _ = w.hide();
-            if let Some(ch) = app.get_webview_window("chat") { let _ = ch.hide(); }
-            let _ = app.emit("cards:hide", ());
-            let _ = app.emit("pet:hidden", ());
+            tauri_runtime_actions::hide_window(&app, "pet");
+            tauri_runtime_actions::hide_window(&app, "chat");
+            tauri_runtime_actions::emit_event(&app, "cards:hide", json!(()));
+            tauri_runtime_actions::emit_event(&app, "pet:hidden", json!(()));
         } else {
-            let _ = w.show();
-            let _ = app.emit("pet:shown", ());
+            tauri_runtime_actions::show_window(&app, "pet");
+            tauri_runtime_actions::emit_event(&app, "pet:shown", json!(()));
         }
     }
 }
@@ -296,9 +298,48 @@ mod ipc_tests {
     fn mock_app_with_commands() -> tauri::App<tauri::test::MockRuntime> {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
-            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config])
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn toggle_pet_records_each_runtime_action_not_one_toggle() {
+        let app = mock_app_with_commands();
+        let mgr = app.state::<SharedTauriState>();
+        *mgr.0.lock().unwrap() = Some(build_harness_state("toggle"));
+        tauri::WebviewWindowBuilder::new(&app, "pet", Default::default())
+            .build()
+            .unwrap();
+        let was_visible = app.get_webview_window("pet").unwrap().is_visible().unwrap_or(false);
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let resp = tauri::test::get_ipc_response(&window, ipc("toggle_pet"));
+        assert!(resp.is_ok(), "toggle_pet invoke 失败: {resp:?}");
+        // 复合入口逐动作记录：不能合成一条 toggle（docs/effect-reporting.md §一动作一记录）
+        let dir = std::env::temp_dir().join("overseer-ipc-test-toggle");
+        let mut content = String::new();
+        for _ in 0..60 {
+            content = std::fs::read_to_string(dir.join(overseer_core::EFFECT_FILE)).unwrap_or_default();
+            let hits = ["window_hidden", "window_visible", "event_emit"]
+                .iter()
+                .filter(|k| content.contains(*k))
+                .count();
+            if hits >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(!content.contains("\"kind\":\"toggle\""), "不得出现笼统 toggle effect: {content}");
+        if was_visible {
+            assert!(content.contains("window_hidden"), "hide 分支: {content}");
+            assert!(content.contains("pet:hidden"), "hide 分支: {content}");
+        } else {
+            assert!(content.contains("window_visible"), "show 分支: {content}");
+            assert!(content.contains("pet:shown"), "show 分支: {content}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

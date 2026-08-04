@@ -13,36 +13,26 @@ export interface WindowAdapter {
   getScreenHeight(): Promise<number>;
 }
 
-/** Tauri 模式：真实 OS 窗口（非只读操作埋点上报 effect 流，docs/effect-reporting.md） */
+/** Tauri 模式：真实 OS 窗口。写操作全部经 WebView 动作层执行+留痕
+ *  （tauri_runtime_actions，docs/effect-reporting.md §运行时动作层）；读取直调。 */
 export async function createTauriAdapter(
   viewEl: HTMLElement,
   _dpr: number,
 ): Promise<WindowAdapter> {
-  const { getCurrentWindow, currentMonitor, PhysicalSize, PhysicalPosition } = await import("@tauri-apps/api/window");
-  const { reportEffect } = await import("./effects");
+  const { getCurrentWindow, currentMonitor } = await import("@tauri-apps/api/window");
+  const actions = await import("./tauri_runtime_actions");
   const win = getCurrentWindow();
-  const label = win.label;
 
   return {
-    async setSize(w: number, h: number) {
-      await win.setSize(new PhysicalSize(w, h));
-      reportEffect("window_resized", { window: label, w, h });
-    },
-    async setPosition(x: number, y: number) {
-      await win.setPosition(new PhysicalPosition(x, y));
-      reportEffect("window_moved", { window: label, x, y });
-    },
+    setSize: (w, h) => actions.resizeWindow(win, w, h),
+    setPosition: (x, y) => actions.moveWindow(win, x, y),
     async getPosition() {
       const p = await win.outerPosition();
       return { x: p.x, y: p.y };
     },
-    setOffset(top: number, left: number) {
-      viewEl.style.top = `${top}px`;
-      viewEl.style.left = `${left}px`;
-      reportEffect("window_resized", { window: label, top, left });
-    },
-    async show() { await win.show(); await win.setFocus(); reportEffect("window_visible", { window: label }); },
-    async hide() { await win.hide(); reportEffect("window_hidden", { window: label }); },
+    setOffset: (top, left) => actions.offsetWindow(win, viewEl, top, left),
+    show: () => actions.showWindow(win),
+    hide: () => actions.hideWindow(win),
     async getScreenHeight() {
       const mon = await currentMonitor();
       return mon ? mon.size.height / mon.scaleFactor : 1080;
