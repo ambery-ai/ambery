@@ -14,7 +14,7 @@ pub const MAX_DESC_CHARS: usize = 80;
 /// 文件名长度上限
 pub const MAX_NAME_CHARS: usize = 64;
 /// 保留名（可读不可写）
-const RESERVED: &[&str] = &["index", "AGENTS"];
+pub const RESERVED: &[&str] = &["index", "AGENTS"];
 
 /// 文件名 grammar（docs/memory.md）：`^[a-z][a-z0-9_-]*$` 且 ≤ 64 字符
 pub fn valid_name(name: &str) -> bool {

@@ -15,6 +15,14 @@ pub struct ExportOpts {
     pub dedup: bool,
     /// 默认不导出 work_agents 节（含项目名，隐私）；显式才保留完整节（docs/case-runner.md §过滤器参数）
     pub keep_agents: bool,
+    /// Memory 导出资格（必须与 memory 同用，CLI 层校验成对）
+    pub keep_memory: bool,
+    /// Memory 文件过滤器：普通记忆按 name 选；保留值 `AGENTS` 带入导航原文；index.md 不可选
+    pub memory: Option<Vec<String>>,
+    /// Cron 导出资格（必须与 cron_ids 同用，CLI 层校验成对）
+    pub keep_cron: bool,
+    /// Cron 计划过滤器：选中 id 的 create / fire / delete 行完整保留，不受时间窗逐行裁断
+    pub cron_ids: Option<Vec<String>>,
     /// 预览过滤后各文件行数，不生成 case 文件（docs/case-runner.md §最小化参数）
     pub dry_run: bool,
 }
@@ -231,6 +239,53 @@ fn filter_queue(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
         .collect()
 }
 
+/// Memory 文件选择（--keep-memory + --memory）：`AGENTS` 带导航原文；普通记忆按 name
+/// 选 notes/<name>.md；index.md 不可选（CLI 层已拦），沙盒按已选普通记忆重建。
+/// 选中名不存在 → 警告并跳过（不阻断其余导出）。
+fn select_memory(storage_dir: &std::path::Path, names: &[String]) -> Vec<(String, String)> {
+    let mem_root = storage_dir.join(overseer_core::memory::MEMORY_DIR);
+    let mut out: Vec<(String, String)> = vec![];
+    // AGENTS.md 导航优先（先于 notes 出现，扫读时先见地图）
+    if names.iter().any(|n| n == "AGENTS") {
+        let p = mem_root.join("AGENTS.md");
+        match std::fs::read_to_string(&p) {
+            Ok(c) => out.push(("AGENTS.md".to_string(), c)),
+            Err(_) => eprintln!("[export] 警告：--memory 含 AGENTS 但 memory/AGENTS.md 不存在，跳过"),
+        }
+    }
+    for name in names.iter().filter(|n| n.as_str() != "AGENTS") {
+        if !overseer_core::memory::valid_name(name) || overseer_core::memory::RESERVED.contains(&name.as_str()) {
+            eprintln!("[export] 警告：--memory 名 '{name}' 不合法（文件名 grammar/保留名），跳过");
+            continue;
+        }
+        let rel = format!("notes/{name}.md");
+        match std::fs::read_to_string(mem_root.join(&rel)) {
+            Ok(c) => out.push((rel, c)),
+            Err(_) => eprintln!("[export] 警告：普通记忆 '{name}' 不存在（memory/{rel}），跳过"),
+        }
+    }
+    out
+}
+
+/// cron.jsonl 行过滤：只按 id 集选择（create / fire / delete 完整生命周期），
+/// 不套时间窗/--keep-last（因果链不按时间裁断，docs/case-runner.md §过滤器参数）
+fn filter_cron(lines: Vec<String>, ids: &[String]) -> Vec<String> {
+    let kept: Vec<String> = lines
+        .into_iter()
+        .filter(|l| {
+            let Some(v) = json(l) else { return false };
+            let id = v["id"].as_str().unwrap_or("");
+            ids.iter().any(|i| i == id)
+        })
+        .collect();
+    for id in ids {
+        if !kept.iter().any(|l| json(l).is_some_and(|v| v["id"].as_str() == Some(id))) {
+            eprintln!("[export] 警告：--cron-ids 的 id '{id}' 在 cron.jsonl 中无任何行，跳过");
+        }
+    }
+    kept
+}
+
 /// 实时 storage → 两段式 .case 文本（docs/case-runner.md §Case 文件格式）：
 /// JSON 头（meta/config/steps）+ __section 分节 JSONL 原文；mock_terminals 不再有节
 ///（读通道剧情由 steps 的 terminal/terminal_gone 表达，导出默认全 None）
@@ -244,12 +299,28 @@ pub fn export(storage_dir: &std::path::Path, opts: &ExportOpts) -> String {
     };
     let context = filter_context(lines_of(&storage_dir.join("context.jsonl")), opts);
     let queue = filter_queue(lines_of(&storage_dir.join("queue.jsonl")), opts);
+    // cron / memory 默认过滤（隐私）：inclusion bool + 类别过滤双重显式才进 case
+    let cron = if opts.keep_cron {
+        filter_cron(
+            lines_of(&storage_dir.join("cron.jsonl")),
+            opts.cron_ids.as_deref().unwrap_or(&[]),
+        )
+    } else {
+        vec![]
+    };
+    let memory = if opts.keep_memory {
+        select_memory(storage_dir, opts.memory.as_deref().unwrap_or(&[]))
+    } else {
+        vec![]
+    };
     if opts.dry_run {
         return format!(
-            "work_agents: {} 行, context: {} 行, queue: {} 行（dry-run 预览，未生成 case）\n",
+            "work_agents: {} 行, context: {} 行, queue: {} 行, cron: {} 行, memory: {} 文件（dry-run 预览，未生成 case）\n",
             work_agents.len(),
             context.len(),
-            queue.len()
+            queue.len(),
+            cron.len(),
+            memory.len()
         );
     }
     let head = serde_json::json!({
@@ -277,6 +348,23 @@ pub fn export(storage_dir: &std::path::Path, opts: &ExportOpts) -> String {
     section("work_agents", &work_agents);
     section("context", &context);
     section("queue", &queue);
+    section("cron", &cron);
+    // memory 节：Markdown 原文区——{"__file":...} 标记分文件，原文零转义（§一致性剖析：
+    // JSONL 与 Markdown 分属各自原始区和边界规则）；空节保留 marker
+    out.push_str("{\"__section\":\"=== memory ===\"}\n");
+    for (path, content) in &memory {
+        for (i, l) in content.lines().enumerate() {
+            if l.starts_with("{\"__") {
+                eprintln!(
+                    "[export] 警告：{path} 第 {} 行以 `{{\"__` 行首开头，与 case 标记语法冲突（case health 会拒）",
+                    i + 1
+                );
+            }
+        }
+        out.push_str(&format!("{{\"__file\":\"{path}\"}}\n"));
+        out.push_str(content.trim_end());
+        out.push('\n');
+    }
     out
 }
 
@@ -340,6 +428,10 @@ mod tests {
             trim_context: false,
             dedup: true,
             keep_agents: true,
+            keep_memory: false,
+            memory: None,
+            keep_cron: false,
+            cron_ids: None,
             dry_run: false,
         };
         let lines = vec![
@@ -375,6 +467,10 @@ mod tests {
             trim_context: false,
             dedup: false,
             keep_agents: false,
+            keep_memory: false,
+            memory: None,
+            keep_cron: false,
+            cron_ids: None,
             dry_run: false,
         };
         let out = export(&dir, &mk());
@@ -386,6 +482,152 @@ mod tests {
         let preview = export(&dir, &ExportOpts { dry_run: true, keep_agents: true, ..mk() });
         assert!(preview.contains("work_agents: 1 行"), "{preview}");
         assert!(!preview.contains("__section"), "dry-run 不生成 case 文件");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 造带 memory/cron 的 storage 目录
+    fn storage_with_memory_cron(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("overseer-export-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let notes = dir.join("memory/notes");
+        std::fs::create_dir_all(&notes).unwrap();
+        std::fs::write(dir.join("memory/AGENTS.md"), "# Memory Workspace\n导航").unwrap();
+        std::fs::write(
+            notes.join("work-preferences.md"),
+            "---\ndescription: 用户的工作偏好\n---\n\n- 不擅自提交\n",
+        )
+        .unwrap();
+        std::fs::write(notes.join("other-note.md"), "---\ndescription: 另一条\n---\n\n正文\n").unwrap();
+        std::fs::write(dir.join("memory/index.md"), "# Memory Index\n（派生文件）").unwrap();
+        std::fs::write(
+            dir.join("cron.jsonl"),
+            concat!(
+                "{\"op\":\"create\",\"id\":\"a1\",\"schedule\":{\"every_ms\":60000},\"message\":\"日报\",\"next_due\":61000,\"ts\":1000}\n",
+                "{\"op\":\"fire\",\"id\":\"a1\",\"next_due\":121000,\"ts\":61000}\n",
+                "{\"op\":\"create\",\"id\":\"b2\",\"schedule\":{\"at\":99999},\"message\":\"一次性\",\"next_due\":99999,\"ts\":2000}\n",
+                "{\"op\":\"delete\",\"id\":\"b2\",\"ts\":3000}\n",
+            ),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn memory_gated_and_selected() {
+        let dir = storage_with_memory_cron("mem");
+        let mk = || ExportOpts {
+            case_id: "t".into(),
+            notes: String::new(),
+            instances: None,
+            before: None,
+            after: None,
+            window_ms: None,
+            keep_last: None,
+            trim_context: false,
+            dedup: false,
+            keep_agents: false,
+            keep_memory: false,
+            memory: None,
+            keep_cron: false,
+            cron_ids: None,
+            dry_run: false,
+        };
+        // 默认：memory 节空（marker 保留），任何 memory 文件内容不进 case
+        let out = export(&dir, &mk());
+        assert!(out.contains("=== memory ==="));
+        assert!(!out.contains("不擅自提交"), "默认不导出 memory 原文");
+        assert!(!out.contains("AGENTS.md\""), "默认不带 AGENTS 标记");
+        // 显式选择：普通记忆按 name；AGENTS 带原文；index.md 永不导出
+        let out = export(
+            &dir,
+            &ExportOpts {
+                keep_memory: true,
+                memory: Some(vec!["work-preferences".into(), "AGENTS".into()]),
+                ..mk()
+            },
+        );
+        assert!(out.contains("{\"__file\":\"AGENTS.md\"}\n# Memory Workspace\n导航"));
+        assert!(out.contains("{\"__file\":\"notes/work-preferences.md\"}\n---\ndescription: 用户的工作偏好\n---\n\n- 不擅自提交"));
+        assert!(!out.contains("other-note"), "未选中的 note 不进 case");
+        assert!(!out.contains("Memory Index"), "派生 index.md 不导出");
+        // 选中的名不存在：警告跳过，其余照常
+        let out = export(
+            &dir,
+            &ExportOpts {
+                keep_memory: true,
+                memory: Some(vec!["no-such".into(), "other-note".into()]),
+                ..mk()
+            },
+        );
+        assert!(out.contains("notes/other-note.md"));
+        assert!(!out.contains("no-such"), "不存在的名跳过");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cron_gated_and_full_lifecycle_kept() {
+        let dir = storage_with_memory_cron("cron");
+        let mk = || ExportOpts {
+            case_id: "t".into(),
+            notes: String::new(),
+            instances: None,
+            before: None,
+            after: None,
+            window_ms: None,
+            keep_last: None,
+            trim_context: false,
+            dedup: false,
+            keep_agents: false,
+            keep_memory: false,
+            memory: None,
+            keep_cron: false,
+            cron_ids: None,
+            dry_run: false,
+        };
+        // 默认：cron 节空
+        let out = export(&dir, &mk());
+        assert!(out.contains("=== cron ==="));
+        assert!(!out.contains("\"id\":\"a1\""), "默认不导出 cron 行");
+        // 选中 id：create/fire/delete 完整生命周期保留；时间窗不适用（--after 2500 也裁不断 a1）
+        let out = export(
+            &dir,
+            &ExportOpts {
+                keep_cron: true,
+                cron_ids: Some(vec!["a1".into()]),
+                after: Some(2500), // 对 context/queue 生效，对 cron 无效
+                ..mk()
+            },
+        );
+        let cron_rows: Vec<&str> = out
+            .lines()
+            .filter(|l| l.contains("\"id\":\"a1\""))
+            .collect();
+        assert_eq!(cron_rows.len(), 2, "create+fire 全保留：{cron_rows:?}");
+        assert!(!out.contains("\"id\":\"b2\""), "未选中 id 不进 case");
+        // 选中 b2：delete 行也在（完整生命周期含消亡）
+        let out = export(
+            &dir,
+            &ExportOpts {
+                keep_cron: true,
+                cron_ids: Some(vec!["b2".into()]),
+                ..mk()
+            },
+        );
+        assert!(out.contains("\"op\":\"delete\",\"id\":\"b2\""));
+        // dry-run 含 cron/memory 计数
+        let preview = export(
+            &dir,
+            &ExportOpts {
+                dry_run: true,
+                keep_cron: true,
+                cron_ids: Some(vec!["a1".into()]),
+                keep_memory: true,
+                memory: Some(vec!["work-preferences".into()]),
+                ..mk()
+            },
+        );
+        assert!(preview.contains("cron: 2 行"), "{preview}");
+        assert!(preview.contains("memory: 1 文件"), "{preview}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

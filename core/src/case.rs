@@ -84,6 +84,18 @@ pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
 /// 之后按 marker 行分节，数据行归当前节。
 pub const SECTION_MARKER: &str = "{\"__section\":";
 
+/// memory 节文件标记（docs/case-runner.md §数据节）：`{"__file":"notes/<name>.md"}`
+/// 行起到下一标记的行为该文件原文（Markdown 原文区，不转义、不按 JSONL 解析）。
+pub const FILE_MARKER: &str = "{\"__file\":";
+
+/// case memory 节的一个文件（路径 + Markdown 原文）
+#[derive(Debug)]
+pub struct CaseMemoryFile {
+    /// `AGENTS.md` 或 `notes/<name>.md`（index.md 不进 case，沙盒按已选普通记忆重建）
+    pub path: String,
+    pub content: String,
+}
+
 #[derive(Debug)]
 pub struct CaseFile {
     pub meta: CaseMeta,
@@ -93,6 +105,10 @@ pub struct CaseFile {
     pub work_agents: String,
     pub context: String,
     pub queue: String,
+    /// cron.jsonl 原文（行序原样；默认过滤，--keep-cron + --cron-ids 才进 case）
+    pub cron: String,
+    /// memory/ 原文文件区（默认过滤，--keep-memory + --memory 才进 case）
+    pub memory: Vec<CaseMemoryFile>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -166,8 +182,12 @@ pub fn parse(text: &str) -> Result<CaseFile, String> {
             sections.push((section_name(line)?, vec![]));
         } else if sections.is_empty() {
             head_lines.push(line);
-        } else if !line.trim().is_empty() {
-            sections.last_mut().unwrap().1.push(line.to_string());
+        } else {
+            // memory 节是 Markdown 原文区：空行是文件内容的一部分，不按 JSONL 节丢弃
+            let in_memory = sections.last().is_some_and(|(n, _)| n == "memory");
+            if !line.trim().is_empty() || in_memory {
+                sections.last_mut().unwrap().1.push(line.to_string());
+            }
         }
     }
     let head: CaseHead = serde_json::from_str(&head_lines.join("\n"))
@@ -180,6 +200,11 @@ pub fn parse(text: &str) -> Result<CaseFile, String> {
             .map(|(_, rows)| rows.join("\n"))
             .unwrap_or_default()
     };
+    let memory_rows = sections
+        .iter()
+        .find(|(n, _)| n == "memory")
+        .map(|(_, rows)| rows.as_slice())
+        .unwrap_or(&[]);
     Ok(CaseFile {
         meta: head.meta,
         config: head.config,
@@ -187,7 +212,80 @@ pub fn parse(text: &str) -> Result<CaseFile, String> {
         work_agents: take("work_agents"),
         context: take("context"),
         queue: take("queue"),
+        cron: take("cron"),
+        memory: parse_memory_section(memory_rows)?,
     })
+}
+
+/// memory 节解析：文件标记行分文件，行间原文保留（含空行；文件尾空行视为分节 padding 裁掉）
+fn parse_memory_section(rows: &[String]) -> Result<Vec<CaseMemoryFile>, String> {
+    let mut files: Vec<CaseMemoryFile> = vec![];
+    let mut cur: Option<(String, Vec<String>)> = None;
+    let mut flush = |cur: &mut Option<(String, Vec<String>)>| {
+        if let Some((path, mut body)) = cur.take() {
+            while body.last().is_some_and(|l| l.trim().is_empty()) {
+                body.pop();
+            }
+            files.push(CaseMemoryFile {
+                path,
+                content: body.join("\n"),
+            });
+        }
+    };
+    for row in rows {
+        if row.starts_with(FILE_MARKER) {
+            flush(&mut cur);
+            let v: Value =
+                serde_json::from_str(row).map_err(|e| format!("memory 文件标记行非法 JSON: {e}"))?;
+            let path = v["__file"]
+                .as_str()
+                .ok_or_else(|| "memory 文件标记缺 __file 字符串".to_string())?;
+            check_memory_path(path)?;
+            cur = Some((path.to_string(), vec![]));
+        } else if row.starts_with("{\"__") {
+            // 原文行不得与标记语法撞车（否则被误认为新标记，静默断文件）
+            return Err(format!(
+                "memory 节原文行不得以 `{{\"__` 行首开头（与节/文件标记冲突）: {}",
+                &row[..row.len().min(40)]
+            ));
+        } else {
+            match &mut cur {
+                Some((_, body)) => body.push(row.clone()),
+                None => {
+                    if row.trim().is_empty() {
+                        continue; // 节首 padding
+                    }
+                    return Err(format!(
+                        "memory 节首行必须是 {FILE_MARKER} 文件标记，得到: {}",
+                        &row[..row.len().min(40)]
+                    ));
+                }
+            }
+        }
+    }
+    flush(&mut cur);
+    Ok(files)
+}
+
+/// memory 节路径白名单（docs/case-runner.md §数据节）：`AGENTS.md` 或
+/// `notes/<name>.md`（name 经文件名 grammar 且非保留名）；index.md 不导出（沙盒重建）、
+/// cards/ 不经此节（契约另定）。
+fn check_memory_path(path: &str) -> Result<(), String> {
+    if path == "AGENTS.md" {
+        return Ok(());
+    }
+    let name = path
+        .strip_prefix("notes/")
+        .and_then(|s| s.strip_suffix(".md"))
+        .filter(|n| crate::memory::valid_name(n) && !crate::memory::RESERVED.contains(n))
+        .ok_or_else(|| {
+            format!(
+                "memory 节路径 '{path}' 不合法（只允许 AGENTS.md 或 notes/<name>.md；\
+                 index.md 不进 case、沙盒重建，cards/ 不经此节）"
+            )
+        })?;
+    let _ = name;
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]
@@ -394,6 +492,49 @@ mod tests {
         let ok = r#"{ "meta": { "case_id": "t", "created": "x", "llm_mode": "real" },
   "config": { "llm.active": "foo" } }"#;
         assert!(parse(ok).is_ok());
+    }
+
+    // ── memory/cron 数据节（docs/case-runner.md §数据节）──
+
+    #[test]
+    fn parse_memory_section_files_and_blank_lines() {
+        let text = "{\n  \"meta\": { \"case_id\": \"t\", \"created\": \"x\", \"llm_mode\": \"debug\" }\n}\n\
+            {\"__section\":\"=== memory ===\"}\n\
+            {\"__file\":\"AGENTS.md\"}\n# Memory Workspace\n导航\n\
+            {\"__file\":\"notes/work-preferences.md\"}\n---\ndescription: 用户的工作偏好\n---\n\n- 不擅自提交\n\n\
+            {\"__section\":\"=== cron ===\"}\n\
+            {\"op\":\"create\",\"id\":\"a1\",\"schedule\":{\"every_ms\":60000},\"message\":\"日报\",\"next_due\":61000,\"ts\":1000}\n";
+        let case = parse(text).unwrap();
+        assert_eq!(case.memory.len(), 2);
+        assert_eq!(case.memory[0].path, "AGENTS.md");
+        assert_eq!(case.memory[0].content, "# Memory Workspace\n导航");
+        assert_eq!(case.memory[1].path, "notes/work-preferences.md");
+        // frontmatter 与正文间空行是原文的一部分（不按 JSONL 节丢弃）；文件尾空行裁掉
+        assert_eq!(
+            case.memory[1].content,
+            "---\ndescription: 用户的工作偏好\n---\n\n- 不擅自提交"
+        );
+        assert!(case.cron.contains("\"id\":\"a1\""));
+    }
+
+    #[test]
+    fn parse_memory_section_rejects_bad_paths_and_marker_collision() {
+        let head = "{ \"meta\": { \"case_id\": \"t\", \"created\": \"x\", \"llm_mode\": \"debug\" } }\n{\"__section\":\"=== memory ===\"}\n";
+        // index.md 不进 case（沙盒重建）
+        let bad = format!("{head}{{\"__file\":\"index.md\"}}\nx");
+        assert!(parse(&bad).unwrap_err().contains("不合法"), "index.md");
+        // cards/ 不经此节
+        let bad = format!("{head}{{\"__file\":\"cards/a.card.json\"}}\n{{}}");
+        assert!(parse(&bad).unwrap_err().contains("不合法"), "cards/");
+        // 保留名不能当 note 路径
+        let bad = format!("{head}{{\"__file\":\"notes/AGENTS.md\"}}\nx");
+        assert!(parse(&bad).unwrap_err().contains("不合法"), "reserved");
+        // 原文行与标记语法撞车
+        let bad = format!("{head}{{\"__file\":\"notes/a.md\"}}\n{{\"__comment\":true}}");
+        assert!(parse(&bad).unwrap_err().contains("行首"), "collision");
+        // 节首非空行必须是文件标记
+        let bad = format!("{head}裸文本");
+        assert!(parse(&bad).unwrap_err().contains("文件标记"), "bare");
     }
 
     // ── pre-parse 预检（docs/case-eval-system.md §checkhealth）──

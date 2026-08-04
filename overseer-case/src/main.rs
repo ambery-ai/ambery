@@ -19,6 +19,7 @@ async fn main() {
         eprintln!("usage: overseer-case <case.case> [--step-num N] [--health]");
         eprintln!("       overseer-case export [--storage DIR] [--instances a,b] [--window 30m]");
         eprintln!("              [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] [--dedup] [--dry-run] [--case-id ID]");
+        eprintln!("              [--keep-memory --memory name-a,AGENTS] [--keep-cron --cron-ids id-a,id-b]");
         std::process::exit(2);
     }
     if args[1] == "export" {
@@ -120,6 +121,14 @@ fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
     write_jsonl(&tmp, "work-agents.jsonl", &case.work_agents);
     write_jsonl(&tmp, "context.jsonl", &case.context);
     write_jsonl(&tmp, "queue.jsonl", &case.queue);
+    write_jsonl(&tmp, "cron.jsonl", &case.cron);
+    // memory 节：Markdown 原文按相对路径落盘；index.md 不进 case——
+    // Harness bootstrap 按已选普通记忆在沙盒重建（docs/case-runner.md §数据节）
+    for f in &case.memory {
+        let path = tmp.join(overseer_core::memory::MEMORY_DIR).join(&f.path);
+        std::fs::create_dir_all(path.parent().expect("memory file parent")).expect("memory dir");
+        std::fs::write(&path, &f.content).expect("write memory file");
+    }
 
     let mut config = Config::load_or_default(&tmp);
     // 头部 config 泛化（统一管道 set_by_path，timer 字段自然兼容）
@@ -182,10 +191,12 @@ fn health(text: &str, case: &CaseFile) {
             }
         }
     }
+    // JSONL 节逐行可解析；memory 节是 Markdown 原文区（结构已由 parse 校验），不适用
     for (name, content) in &[
         ("work_agents", &case.work_agents),
         ("context", &case.context),
         ("queue", &case.queue),
+        ("cron", &case.cron),
     ] {
         for (i, line) in content.lines().enumerate() {
             if serde_json::from_str::<serde_json::Value>(line).is_err() {
@@ -277,6 +288,25 @@ fn run_export(args: &[String]) {
     let case_id = opt_val("--case-id").unwrap_or_else(|| {
         format!("export-{}", std::process::id())
     });
+    // inclusion bool 与类别过滤器必须成对（docs/case-runner.md §过滤器参数）：单独指定 = USAGE
+    let keep_memory = has("--keep-memory");
+    let memory = opt_val("--memory")
+        .map(|s| s.split(',').map(|x| x.trim().to_string()).collect::<Vec<_>>());
+    let keep_cron = has("--keep-cron");
+    let cron_ids = opt_val("--cron-ids")
+        .map(|s| s.split(',').map(|x| x.trim().to_string()).collect::<Vec<_>>());
+    if keep_memory != memory.is_some() {
+        eprintln!("USAGE: --keep-memory 必须与 --memory <name,...> 同用（双重显式选择，单独指定报错）");
+        std::process::exit(2);
+    }
+    if keep_cron != cron_ids.is_some() {
+        eprintln!("USAGE: --keep-cron 必须与 --cron-ids <id,...> 同用（双重显式选择，单独指定报错）");
+        std::process::exit(2);
+    }
+    if memory.as_ref().is_some_and(|ns| ns.iter().any(|n| n == "index")) {
+        eprintln!("USAGE: index.md 不可选、不导出——沙盒按已选普通记忆重建");
+        std::process::exit(2);
+    }
     let opts = export::ExportOpts {
         case_id,
         notes: "导出自实时 storage，需手修 meta/notes 与 steps".into(),
@@ -289,6 +319,10 @@ fn run_export(args: &[String]) {
         trim_context: has("--trim-context"),
         dedup: has("--dedup"),
         keep_agents: has("--keep-agents"),
+        keep_memory,
+        memory,
+        keep_cron,
+        cron_ids,
         dry_run: has("--dry-run"),
     };
     print!("{}", export::export(&storage_dir, &opts));
