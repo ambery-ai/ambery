@@ -31,7 +31,6 @@ html.browser body {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   user-select: none;
   cursor: grab;
   touch-action: none;
@@ -77,11 +76,6 @@ html.browser body {
 /* ── Component（concepts §5 / docs/components.md） ── */
 /* cards 窗口模式：卡片自然流式布局，窗口自身定位（docs/multi-window.md） */
 .cards-mode { height: 100vh; }
-.cards-mode body {
-  /* #17：阴影留边——透明窗口按内容+padding 量尺寸，box-shadow 落在窗口内不被 clip */
-  padding: 24px;
-}
-
 .cards-mode .component { position: static; margin-bottom: 8px; width: fit-content; }
 
 .component {
@@ -93,7 +87,6 @@ html.browser body {
   border-radius: 10px;
   color: #cdd6f4;
   font-size: 13px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 .cmp-header {
@@ -191,7 +184,6 @@ html.browser body {
   background: rgba(30, 30, 46, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   color: #cdd6f4;
   font-size: 13px;
 }
