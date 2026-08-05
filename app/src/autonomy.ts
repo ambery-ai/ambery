@@ -1,7 +1,8 @@
 // Autonomy（concepts §4，设计 docs/autonomy.md）：
 // 默认行为由顶层状态规则推导（不经 LLM）；ペット可经 set_autonomy 覆盖，TTL 到期回落。
 
-import type { AppConfig, Bridge, Motion, TopState } from "./bridge";
+import type { AppConfig, Motion, TopState } from "./bridge";
+import type { Store } from "./store";
 import { motionDef } from "./motions";
 
 export interface Expression {
@@ -27,14 +28,15 @@ export class Autonomy {
   private overrideTimer: number | null = null;
 
   constructor(
-    private bridge: Bridge,
+    private store: Store,
     private onExpression: (e: Expression) => void,
   ) {}
 
-  async init() {
-    this.config = await this.bridge.getConfig();
-    this.topState = await this.bridge.getTopState();
-    this.bridge.onTopStateChanged((s) => {
+  /** 基线从 store 读（createStore 已完成拉取）；变化经 store 订阅 */
+  init() {
+    this.config = this.store.config;
+    this.topState = this.store.topState ?? { instances: [], pendingNotifications: 0 };
+    this.store.onTopState((s) => {
       this.topState = s;
       // 覆盖期间顶层状态变化不中断覆盖（docs/autonomy.md §set_autonomy）
       if (!this.override) this.apply();

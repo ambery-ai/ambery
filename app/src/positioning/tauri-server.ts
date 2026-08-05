@@ -4,12 +4,13 @@
 import { PositioningEngine } from "./engine";
 import type { Point, WindowSpec } from "./types";
 import { Direction } from "./types";
+import type { Bridge } from "../bridge";
 import { emitEvent } from "../tauri_runtime_actions";
 
 export const engine = new PositioningEngine();
 
-/** pet 窗调用一次，注册处理 chat/cards 的 place 请求 */
-export async function setupServer() {
+/** pet 窗调用一次，注册处理 chat/cards 的 place 请求（bridge 供布局回写写指令） */
+export async function setupServer(bridge: Bridge) {
   const { listen } = await import("@tauri-apps/api/event");
 
   await listen<{ id: string; spec: WindowSpec; preferred: string }>("engine:place", (ev) => {
@@ -34,9 +35,11 @@ export async function setupServer() {
     // （engine id = card-<spec.id>；只有 Card 有布局文件，chat 布局是运行期语义）
     if (offset && ev.payload.id.startsWith("card-")) {
       const id = ev.payload.id.slice("card-".length);
-      void import("@tauri-apps/api/core").then(({ invoke }) =>
-        invoke("update_card_layout", { id, offset: [Math.round(offset.x), Math.round(offset.y)] }),
-      ).catch((e) => console.warn("[card] 布局回写失败", e));
+      // 写指令走 bridge 写方法（invoke 收口规则，docs/case-runner.md §前端读取架构）；
+      // 本模块仅 Tauri 模式加载，TauriBridge 必实现 updateCardLayout
+      void bridge
+        .updateCardLayout!(id, [Math.round(offset.x), Math.round(offset.y)])
+        .catch((e) => console.warn("[card] 布局回写失败", e));
     }
   });
 }

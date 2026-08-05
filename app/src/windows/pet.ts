@@ -5,6 +5,7 @@ import { BrowserMockBridge, createBridge, type AppConfig, type Motion } from "..
 import { motionDef } from "../motions";
 import { contextSize, MAX_FACE_MARGIN, MIN_FACE_W, obstacleSize, windowSize } from "../pet-size";
 import { engine, setupServer } from "../positioning/tauri-server";
+import { Store } from "../store";
 import { View } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
@@ -12,6 +13,8 @@ export async function main() {
   if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("browser");
 
   const bridge = await createBridge();
+  // 前端 store（docs/case-runner.md §前端读取架构）：core 可读状态集中持有，读取走 store
+  const store = await Store.create(bridge);
 
   const mount = document.getElementById("app")!;
   const view = new View(mount);
@@ -29,7 +32,7 @@ export async function main() {
   };
   view.el.appendChild(badge);
   let unreadCount = 0;
-  bridge.onContextChanged((msgs) => {
+  store.onContext((msgs) => {
     const userMsgs = msgs.filter(m => m.role === "user").length;
     const prev = unreadCount > 0 ? unreadCount : userMsgs;
     const newAssist = msgs.filter(m => m.role === "assistant").length;
@@ -188,7 +191,12 @@ export async function main() {
   }
 
   // ── 初始尺寸（config 加载即重测+setSize，#18 消时序空窗） ──
-  const cfg = await bridge.getConfig();
+  // 基线读 store；core 未就绪兜底最小默认（原 getConfig 直抛会让 main 崩）
+  const cfg: AppConfig = store.config ?? {
+    kaomoji: { system: {}, user: {} },
+    setAutonomyDefaultTtlMs: 5000,
+    viewScale: 1,
+  };
   applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right");
   scale = cfg.viewScale ?? 1;
   view.el.style.setProperty("--view-scale", String(scale));
@@ -208,7 +216,7 @@ export async function main() {
     const emitR = (event: string, payload?: unknown) => { void actions.emitEvent(event, payload); };
     const emitToR = (target: string, event: string, payload?: unknown) => { void actions.emitEvent(event, payload, target); };
     const win = getCurrentWindow();
-    setupServer();
+    setupServer(bridge);
     view.tauriStartDrag = () => { void actions.startDragging(win); };
 
     const { dragDebounce } = await import("../utils/debounce");
@@ -353,24 +361,22 @@ export async function main() {
     broadcastPosition();
     await win.onMoved(() => broadcastPosition());
 
-    // Card 跨重启恢复（docs/components.md §Card 文件）：pull-on-ready——启动拉取存活
-    // 卡片，可见（user_closed=false）的重建窗口；manual 布局先 seed engine（相对 pet
-    // 偏移原样接棒），card 的 requestPlace 命中 manual 占区即原位恢复
-    if (bridge.listCards) {
-      for (const c of await bridge.listCards()) {
-        if (c.user_closed) continue;
-        if (c.layout.manual && c.layout.offset) {
-          engine.seedManual(`card-${c.component.id}`, { x: c.layout.offset[0], y: c.layout.offset[1] });
-        }
-        void renderCard(c.component);
+    // Card 跨重启恢复（docs/components.md §Card 文件）：pull-on-ready——store 基线即
+    // 存活卡片（component + _meta）；可见（user_closed=false）的重建窗口；manual 布局
+    // 先 seed engine（相对 pet 偏移原样接棒），card 的 requestPlace 命中 manual 占区即原位恢复
+    for (const c of store.cards ?? []) {
+      if (c.user_closed) continue;
+      if (c.layout.manual && c.layout.offset) {
+        engine.seedManual(`card-${c.component.id}`, { x: c.layout.offset[0], y: c.layout.offset[1] });
       }
+      void renderCard(c.component);
     }
   } else if (!import.meta.env.PROD) {
     // 浏览器模式（仅 Vite dev / preview，prod build tree-shaking 剔除）
     const { ChatPanel } = await import("./chat");
     const { ComponentManager } = await import("../components/component-manager");
     const mgr = new ComponentManager(mount, bridge, () => view.center(), false, engine);
-    const chatPanel = new ChatPanel(mount, bridge, engine);
+    const chatPanel = new ChatPanel(mount, bridge, store, engine);
     view.el.addEventListener("chat:toggle", () => chatPanel.toggle());
 
     // debug：positioning 面板（α/β 滑块 + 窗口注册）
@@ -390,18 +396,20 @@ export async function main() {
       shelfMount.style.display = "none";
     };
     const shelfPanel = new ShelfPanel(shelfMount, {
-      list: async () => (await bridge.listCards?.()) ?? [],
+      list: async () => store.cards ?? [],
       setUserClosed: async (c, userClosed) => {
         await bridge.setCardUserClosed?.(c.component.id, userClosed);
         mgr.setHidden(c.component.id, userClosed);
+        await store.refreshCards();
         await shelfPanel.refresh();
       },
       dismiss: async (c, title) => {
         bridge.pushEvent(`用户关闭了 ${c.component.type}「${title}」(${c.component.id})`, { cardId: c.component.id });
         mgr.closeById(c.component.id);
+        await store.refreshCards();
         await shelfPanel.refresh();
       },
-      onCardsChanged: (cb) => bridge.onCardsChanged?.(cb),
+      onCardsChanged: (cb) => store.onCards(cb),
     });
     view.el.addEventListener("auxclick", (e) => {
       if ((e as MouseEvent).button === 1) {
@@ -494,14 +502,15 @@ export async function main() {
   }
 
   // ── Autonomy：expression 变化驱动尺寸重算（入口 1/3） ──
-  const autonomy = new Autonomy(bridge, (e) => {
+  const autonomy = new Autonomy(store, (e) => {
     view.setExpression(e);
     faceW = measureFaceW(); // 入口 1：face 变 → 重测自然宽度
     curMotion = e.motion; // 入口 3：motion 变 → 换当前四向溢出
     void applySize(true); // 中心锚定（petCenter 已就位）
   });
-  bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args));
-  bridge.onConfigChanged?.((cfg) => {
+  bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args)); // set_autonomy 是推送事件（非 store 状态）
+
+  store.onConfig((cfg) => {
     autonomy.updateConfig(cfg); // 表情解析热更新（key 消失回落在 deriveDefault）
     applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right"); // view.md：badge 热更新
     // docs/autonomy.md 字段表：系统池变更 → 立即重扫、重算 pet 尺寸与固定障碍区

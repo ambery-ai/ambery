@@ -1,30 +1,19 @@
 // 托盘设置面板（docs/config.md）：schema 驱动的声明式 config UI。
 // 本文件不认识 Config——只是 GET /config/schema 节点的薄渲染器，
 // 加字段零成本自动出现；改值 → set_config（验证/热生效/广播都在 core）。
+// 读取走 bridge 方法、写入走动作层（invoke 收口规则，docs/case-runner.md §前端读取架构）。
 
-import { invoke } from "@tauri-apps/api/core";
+import { createBridge, type Bridge, type ConfigSchemaNode, type ConfigSchemaResp } from "../bridge";
+import * as actions from "../tauri_runtime_actions";
 
-interface NodeType {
-  kind: "bool" | "int" | "float" | "str" | "enum" | "map" | "other";
-  min?: number;
-  max?: number;
-  options?: string[];
-}
-interface ConfigNode {
-  path: string;
-  type: NodeType;
-  desc?: string;
-  value: unknown;
-}
-interface SchemaResp {
-  version: number;
-  readOnly: boolean;
-  restartRequired?: string[];
-  loadError?: string | null;
-  nodes: ConfigNode[];
-}
+type ConfigNode = ConfigSchemaNode;
+type SchemaResp = ConfigSchemaResp;
+
+/** 模块级 bridge（main 初始化后供 render/apply 使用） */
+let bridge: Bridge;
 
 export async function main() {
+  bridge = await createBridge();
   document.body.innerHTML = `<div id="menu-panel">
     <div id="panel-head">
       <span>⚙ 设置</span>
@@ -36,8 +25,8 @@ export async function main() {
       <button id="btn-quit">退出</button>
     </div>
   </div>`;
-  document.getElementById("btn-toggle")!.onclick = () => invoke("toggle_pet");
-  document.getElementById("btn-quit")!.onclick = () => invoke("quit_app");
+  document.getElementById("btn-toggle")!.onclick = () => void actions.togglePet();
+  document.getElementById("btn-quit")!.onclick = () => void actions.quitApp();
   document.getElementById("btn-close")!.onclick = async () => {
     if ("__TAURI_INTERNALS__" in window) {
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -59,7 +48,7 @@ async function render() {
   const body = document.getElementById("panel-body")!;
   let resp: SchemaResp;
   try {
-    resp = await invoke<SchemaResp>("get_config_schema");
+    resp = await bridge.getConfigSchema!();
   } catch {
     body.innerHTML = `<div class="err">连不上 core</div>`;
     return;
@@ -218,10 +207,7 @@ async function apply(path: string, value: unknown, control: HTMLElement) {
   const status = document.getElementById("panel-status")!;
   status.textContent = "…";
   try {
-    const resp = await invoke<{ ok: boolean; restartRequired?: string[]; error?: string }>(
-      "set_config",
-      { path, value },
-    );
+    const resp = await bridge.setConfig!(path, value);
     if (resp.ok) {
       const rr = resp.restartRequired as string[];
       status.textContent = rr?.length ? `⚠ ${rr.join(",")} 需重启` : "✓";

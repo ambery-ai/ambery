@@ -2,6 +2,7 @@
 // Tauri B 方案：通过 requestPlace/requestRemove 调 pet 窗 engine
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
+import { Store } from "../store";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 import { requestPlace, requestRelease, reportMoved } from "../positioning/tauri-server";
 import { Direction } from "../positioning/types";
@@ -62,9 +63,10 @@ export async function main() {
   }
 
   const bridge = await createBridge();
+  const store = await Store.create(bridge);
   const mount = document.getElementById("app")!;
   // ChatPanel 不需要 engine，toggle 直接用 DOM show/hide
-  chatPanel = new ChatPanel(mount, bridge, null!, true);
+  chatPanel = new ChatPanel(mount, bridge, store, null!, true);
 
   const el = document.getElementById("chat-panel");
   if (el) {

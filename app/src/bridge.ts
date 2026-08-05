@@ -128,6 +128,14 @@ export interface Bridge {
   setCardUserClosed?(id: string, userClosed: boolean): Promise<{ ok: boolean; error?: string }>;
   /** 可选：Card 集合外部变化通知（agent render/close）——Shelf 面板刷新触发 */
   onCardsChanged?(cb: () => void): void;
+  /** 可选（TauriBridge/RemoteBridge）：设置面板 schema 读取（单消费者、体积大，不进 store） */
+  getConfigSchema?(): Promise<ConfigSchemaResp>;
+  /** 可选（TauriBridge/RemoteBridge）：设置面板改值（写：core 统一修改管道，
+   *  端点记录 config_update effect，docs/effect-reporting.md） */
+  setConfig?(path: string, value: unknown): Promise<SetConfigResp>;
+  /** 可选（TauriBridge）：Card 布局回写（写：拖拽结束落 _meta.layout，
+   *  端点记录 card_layout effect，docs/components.md §Card 文件） */
+  updateCardLayout?(id: string, offset: [number, number]): Promise<{ ok: boolean; error?: string }>;
 }
 
 /** list_cards 返回项：component 原文 + _meta 状态 */
@@ -135,6 +143,35 @@ export interface RestoredCard {
   component: ComponentSpec;
   user_closed: boolean;
   layout: { direction: string | null; offset: [number, number] | null; manual: boolean };
+}
+
+/** 设置面板 schema（docs/config.md §统一修改入口）：menu 单消费者且体积大，
+ *  不满足 store 边界判据（多窗口/组件读），经 bridge 方法直读，不进 store */
+export interface ConfigNodeType {
+  kind: "bool" | "int" | "float" | "str" | "enum" | "map" | "other";
+  min?: number;
+  max?: number;
+  options?: string[];
+}
+export interface ConfigSchemaNode {
+  path: string;
+  type: ConfigNodeType;
+  desc?: string;
+  value: unknown;
+}
+export interface ConfigSchemaResp {
+  version: number;
+  readOnly: boolean;
+  restartRequired?: string[];
+  loadError?: string | null;
+  nodes: ConfigSchemaNode[];
+}
+
+/** set_config 响应（core 统一修改管道） */
+export interface SetConfigResp {
+  ok: boolean;
+  restartRequired?: string[];
+  error?: string;
 }
 
 // ── Chrome DevTools 调试驱动接口（window.__overseer） ──
@@ -436,6 +473,15 @@ class TauriBridge implements Bridge {
   }
   onCardsChanged(cb: () => void): void {
     this.cardsListeners.push(cb);
+  }
+  async getConfigSchema(): Promise<ConfigSchemaResp> {
+    return this.invokeFn("get_config_schema") as Promise<ConfigSchemaResp>;
+  }
+  async setConfig(path: string, value: unknown): Promise<SetConfigResp> {
+    return this.invokeFn("set_config", { path, value }) as Promise<SetConfigResp>;
+  }
+  async updateCardLayout(id: string, offset: [number, number]): Promise<{ ok: boolean; error?: string }> {
+    return this.invokeFn("update_card_layout", { id, offset }) as Promise<{ ok: boolean; error?: string }>;
   }
 }
 

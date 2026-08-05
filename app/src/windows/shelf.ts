@@ -5,6 +5,7 @@
 // 面板内容 = 共享 ShelfPanel（同 browser）。
 
 import { createBridge, type Bridge } from "../bridge";
+import { Store } from "../store";
 import * as actions from "../tauri_runtime_actions";
 import { ShelfPanel } from "./shelf-panel";
 
@@ -24,9 +25,11 @@ export async function main() {
   const { listen } = await import("@tauri-apps/api/event");
   const win = getCurrentWindow();
   const bridge: Bridge = await createBridge();
+  // 前端 store（docs/case-runner.md §前端读取架构）：cards 注册表经 store 读
+  const store = await Store.create(bridge);
 
   const panel = new ShelfPanel(document.body, {
-    list: async () => (await bridge.listCards?.()) ?? [],
+    list: async () => store.cards ?? [],
     setUserClosed: async (c, userClosed) => {
       const id = c.component.id;
       const resp = await bridge.setCardUserClosed?.(id, userClosed);
@@ -35,14 +38,16 @@ export async function main() {
         return;
       }
       await actions.emitEvent("shelf:visibility", { id, visible: !userClosed, spec: c.component }, "pet");
+      await store.refreshCards();
       await panel.refresh();
     },
     dismiss: async (c, title) => {
       bridge.pushEvent(`用户关闭了 ${c.component.type}「${title}」(${c.component.id})`, { cardId: c.component.id });
       await actions.emitEvent("shelf:dismiss", { id: c.component.id }, "pet");
+      await store.refreshCards();
       await panel.refresh();
     },
-    onCardsChanged: (cb) => bridge.onCardsChanged?.(cb),
+    onCardsChanged: (cb) => store.onCards(cb),
   });
 
   const close = () => void actions.hideWindow(win);

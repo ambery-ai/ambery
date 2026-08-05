@@ -5,8 +5,10 @@ import type {
   AppConfig,
   Bridge,
   ComponentSpec,
+  ConfigSchemaResp,
   Motion,
   ContextMessage,
+  SetConfigResp,
   TopState,
 } from "./bridge";
 
@@ -148,6 +150,15 @@ export class RemoteBridge implements Bridge {
 
   onAssistantDone(cb: () => void): void {
     this.doneListeners.push(cb);
+  }
+
+  // 设置面板（docs/config.md §统一修改入口 Server API；debug 全量 router 才有这两端点）
+  async getConfigSchema(): Promise<ConfigSchemaResp> {
+    return (await fetch(`${BASE}/config/schema`)).json() as Promise<ConfigSchemaResp>;
+  }
+
+  async setConfig(path: string, value: unknown): Promise<SetConfigResp> {
+    return (await fetch(`${BASE}/config`, post({ path, value }))).json() as Promise<SetConfigResp>;
   }
 }
 

@@ -4,6 +4,7 @@
 import type { Bridge, ContextMessage } from "../bridge";
 import { attachDrag } from "../drag";
 import type { PositioningEngine } from "../positioning/engine";
+import type { Store } from "../store";
 import { Direction } from "../positioning/types";
 
 const PANEL_W = 320;
@@ -26,6 +27,7 @@ export class ChatPanel {
   constructor(
     mount: HTMLElement,
     private bridge: Bridge,
+    private store: Store,
     private engine?: PositioningEngine,
     /** multi-window 模式：跳过 DOM 定位，面板填充窗口 */
     public windowed = false,
@@ -108,7 +110,7 @@ export class ChatPanel {
       this.thinkText = "";
     });
 
-    bridge.onContextChanged((msgs) => {
+    store.onContext((msgs) => {
       this.dropLoading();
       this.renderHistory(msgs);
     });
@@ -166,11 +168,13 @@ export class ChatPanel {
       // 不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见）
       this.el.style.left = `${pos.x - PANEL_W / 2}px`;
       this.el.style.top = `${pos.y - PANEL_H / 2}px`;
-      void this.bridge.getContext()
-        .then((msgs) => this.renderHistory(msgs))
-        .catch(() => {
-          this.historyEl.innerHTML = `<div class="chat-msg chat-system" style="opacity:0.7">⚠ 未连接到 core</div>`;
-        });
+      // 基线读 store（context_changed 事件保持新鲜）；core 未就绪时明示
+      const msgs = this.store.context;
+      if (msgs) {
+        this.renderHistory(msgs);
+      } else {
+        this.historyEl.innerHTML = `<div class="chat-msg chat-system" style="opacity:0.7">⚠ 未连接到 core</div>`;
+      }
       this.inputEl.focus();
     }
   }

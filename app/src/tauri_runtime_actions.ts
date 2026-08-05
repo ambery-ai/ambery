@@ -8,6 +8,7 @@
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { emit, emitTo } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { reportEffect } from "./effects";
 
 /** WebviewWindow 构造参数（url + 窗口选项的完整交集类型，跟随 API 版本） */
@@ -98,4 +99,15 @@ export async function emitEvent(event: string, payload?: unknown, target?: strin
     await emit(event, payload);
     reportEffect("event_emit", { event });
   }
+}
+
+/** toggle_pet：pet 显隐复合入口（Rust 端逐动作自记 window_hidden/window_visible/event_emit，
+ *  动作层只收口 invoke，不重复记录） */
+export async function togglePet(): Promise<void> {
+  await invoke("toggle_pet");
+}
+
+/** quit_app：退出应用（进程随即退出，无 effect 可记） */
+export async function quitApp(): Promise<void> {
+  await invoke("quit_app");
 }
