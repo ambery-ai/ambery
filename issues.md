@@ -184,6 +184,8 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 
 2026-08-05 reopen（打回）——用户明确要求阴影完全清除：pet/card/chat 一律不要阴影（「全部都不要阴影」）。留边方案违背用户选择，废弃；移除 #view / .component / #chat-panel 三处 box-shadow 与 cards-mode body 24px 留边、card-window 的 SHADOW_PAD（其为阴影容器专用）。
 
+2026-08-05 增补——透明窗口边界渲染两处细节：① pet 白色胶囊无描边，白底上与背景融为一体，需加 1px border 勾勒边界；② chat 面板填满窗口（`.chat-mode #chat-panel` width/height 100%），其 1px border 的右边/下边伸出窗口边界被裁——与阴影同类的透明窗口边界 clip，border 需整体落在窗口内（面板内缩，而非给阴影空间）。
+
 ## #18 pet 尺寸异常偏小、内容溢出窗口边界 (2026-07-30) — fixed
 
 多次 bounce/shake/float 动画切换后 pet 颜文字位置偏移累积，超出 View 窗口边界被 clip。**先复现**：连续触发多次动画切换（set_autonomy 反复改 motion），用 locate.ps1 观察窗口尺寸和位置是否偏离初始值，截图对比。再排查根因——可能是 `adjustWindowForMotion` 未正确复位窗口尺寸/offset，或动画 CSS transform 残留。禁止直接改代码。
