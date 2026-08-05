@@ -176,11 +176,13 @@ card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，
 
 **表现**: Component/card 窗口有 CSS box-shadow，被 Tauri 透明窗口裁剪（窗口尺寸 = 卡片内容尺寸，阴影超出窗口边界不可见）。pet 多次切换动画后颜文字超出窗口边界被裁。
 
-## #17 窗口阴影被透明窗口边界截断 (2026-07-30) — fixed
+## #17 窗口阴影被透明窗口边界截断 (2026-07-30) — open
 
 card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪看不见，透明窗口无额外缓冲区。**先复现确认**：打开 card 窗口，截图观察阴影是否可见。修复方向：删除阴影，或加 padding/margin 让窗口尺寸包含阴影区域。
 
 2026-07-30 修复——取「留边」方案：cards-mode body padding 24px + card-window 测量计入 2×24px（阴影 6+20px 模糊区落在透明窗口内不被 clip）；视觉中心与 engine 位置自洽（winX+24+(pw−48)/2 = pos.x），布局不偏移。删除阴影方案不取（阴影是卡片层级的视觉区分手段）。
+
+2026-08-05 reopen（打回）——用户明确要求阴影完全清除：pet/card/chat 一律不要阴影（「全部都不要阴影」）。留边方案违背用户选择，废弃；移除 #view / .component / #chat-panel 三处 box-shadow 与 cards-mode body 24px 留边、card-window 的 SHADOW_PAD（其为阴影容器专用）。
 
 ## #18 pet 尺寸异常偏小、内容溢出窗口边界 (2026-07-30) — fixed
 
