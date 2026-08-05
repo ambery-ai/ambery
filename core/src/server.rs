@@ -112,6 +112,9 @@ pub fn router(state: Arc<AppState>, ws_tx: tokio::sync::broadcast::Sender<String
         .route("/config/schema", get(get_config_schema))
         .route("/config", post(post_config))
         .route("/effect", post(post_effect))
+        .route("/cards", get(get_cards))
+        .route("/cards/layout", post(post_card_layout))
+        .route("/cards/user_closed", post(post_card_user_closed))
         .route("/hook", post(post_hook))
         .route("/ws", get(move |ws: WebSocketUpgrade, State(s): State<Arc<AppState>>| {
             let tx = ws_tx_clone.clone();
@@ -127,7 +130,9 @@ pub fn router(state: Arc<AppState>, ws_tx: tokio::sync::broadcast::Sender<String
             }
         }));
     #[cfg(feature = "mock")]
-    let app = app.route("/debug/terminal", post(crate::mock::post_debug_terminal));
+    let app = app
+        .route("/debug/terminal", post(crate::mock::post_debug_terminal))
+        .route("/debug/effect", post(crate::mock::post_debug_effect));
     app.layer(tower_http::cors::CorsLayer::permissive()).with_state(state_for_ws)
 }
 
@@ -239,6 +244,63 @@ async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>)
 async fn get_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let ov = s.overseer.lock().await;
     Json(config_json(&ov.config))
+}
+
+/// Card 跨重启恢复（readonly 查询，docs/components.md §Card 文件）：
+/// 与 Tauri command list_cards 同一 core 逻辑（双运输层共享）
+async fn get_cards(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+    let ov = s.overseer.lock().await;
+    let cards_dir = ov.harness.cards_dir();
+    let mut out = vec![];
+    for (id, e) in &ov.harness.cards {
+        if let Some(component) = crate::cards::read_component(&cards_dir, id) {
+            out.push(json!({
+                "component": component,
+                "user_closed": e.user_closed,
+                "layout": e.layout,
+            }));
+        }
+    }
+    Json(json!(out))
+}
+
+#[derive(Deserialize)]
+struct CardLayoutBody {
+    id: String,
+    offset: (i64, i64),
+}
+
+/// Card 布局回写（docs/components.md §Card 文件）：与 update_card_layout 同一 core 逻辑
+async fn post_card_layout(State(s): State<Arc<AppState>>, Json(body): Json<CardLayoutBody>) -> impl IntoResponse {
+    let mut ov = s.overseer.lock().await;
+    match ov.harness.cards_write_layout(&body.id, body.offset) {
+        Ok(()) => {
+            ov.record_frontend_effect("card_layout", json!({ "id": body.id.as_str(), "manual": true }));
+            Json(json!({ "ok": true }))
+        }
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
+}
+
+#[derive(Deserialize)]
+struct CardUserClosedBody {
+    id: String,
+    user_closed: bool,
+}
+
+/// Card 显示选择回写（Cards Shelf 显隐切换）：与 set_card_user_closed 同一 core 逻辑
+async fn post_card_user_closed(State(s): State<Arc<AppState>>, Json(body): Json<CardUserClosedBody>) -> impl IntoResponse {
+    let mut ov = s.overseer.lock().await;
+    match ov.harness.cards_write_user_closed(&body.id, body.user_closed) {
+        Ok(()) => {
+            ov.record_frontend_effect(
+                "card_visibility",
+                json!({ "id": body.id.as_str(), "user_closed": body.user_closed }),
+            );
+            Json(json!({ "ok": true }))
+        }
+        Err(e) => Json(json!({ "ok": false, "error": e })),
+    }
 }
 
 async fn get_config_schema(State(s): State<Arc<AppState>>) -> impl IntoResponse {

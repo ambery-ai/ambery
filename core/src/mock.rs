@@ -36,3 +36,14 @@ pub async fn post_debug_terminal(
     Json(json!({ "ok": true }))
 }
 
+/// POST /debug/effect {kind, ...} → 向 effect 下行总线广播任意 effect 消息
+/// （前端进 case v2 的注入面：headless 测试确定性驱动 render/close/config 等事件，
+///  不经 LLM；消息原样进 sender，WS 订阅方按 kind 分发）
+pub async fn post_debug_effect(
+    State(s): State<Arc<AppState>>,
+    Json(msg): Json<Value>,
+) -> impl IntoResponse {
+    s.broadcast_effect_json(msg).await;
+    Json(json!({ "ok": true }))
+}
+

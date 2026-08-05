@@ -133,10 +133,14 @@ async fn main() {
     overseer_core::server::spawn_cron_task(state.clone());
     let app = router(state, tx_for_ws);
 
-    let addr = "127.0.0.1:47600";
-    let listener = tokio::net::TcpListener::bind(addr)
+    let port: u16 = std::env::var("OVERSEER_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(47600);
+    let addr = format!("127.0.0.1:{port}");
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .expect("bind 47600");
+        .unwrap_or_else(|e| panic!("bind {addr}: {e}"));
     println!(
         "overseer-core debug listening on http://{addr}\n  config:  {}\n  storage: {}\n  timer tick: {tick_ms}ms",
         config_dir.display(),
