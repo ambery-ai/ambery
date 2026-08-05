@@ -258,6 +258,22 @@ pet 创建 card 窗口时 `new WebviewWindow(label, {...})` 未传 `title`，窗
 
 随机对同一 card id 执行创建→删除→更新（或创建后用户手动关闭再更新）时，同 id 卡片出现重复窗口/重复展示。疑因持续管理协议以 `getByLabel(label)` 判断存在性：窗口 `close()` 是异步的，关闭未完成时 getByLabel 仍返回旧窗口（emitTo 发往将死窗口，显示失败或无反应），关闭完成后再 create 又新建窗口，新旧并存；用户手动关闭的窗口也未同步通知 pet 移除注册，状态分叉。建议：以显式窗口生命周期状态跟踪（pending/creating/visible/closing/closed）取代依赖 getByLabel 的存在性判断，并让 user close 回传 pet 同步。
 
+**补充（2026-08-05，实测症状 + 代码定位）**——新增两个可观察症状：
+1. **单窗口多卡 HTML 堆叠**：一个 card 窗口内出现多张卡的 html box 叠在一起（非常乱），窗口不自动关闭。
+2. **LLM 打开 card 复活已关闭卡**：LLM 调 tool render 某 card 时，之前已关闭的 card 又出现。
+
+**根因 A（主，同时解释①②）——card 窗口订阅了全局 render 流，无 label 过滤**：
+- core 所有 effect 经 `handle.emit("effect", msg)` **全局广播**到所有窗口（`app/src-tauri/src/main.rs:313-316`）；
+- card-window.ts:22 构造 `new ComponentManager(...)`，其构造器无条件 `bridge.onRenderComponent(spec => this.render(spec))`（`app/src/components/component-manager.ts:36`）；
+- TauriBridge 在 `listenFn("effect")` 的 `case "render_component"` 分发到所有订阅者（`app/src/bridge.ts:346-350`）→ **每个 card 窗口收到所有卡**的 render_component；
+- `render()` 同 id 原地更新、**新 id appendChild**（component-manager.ts:39-61）→ 每张卡被渲染进每一个 card 窗口 → 堆叠；窗口尺寸按第一个 `.component`（`querySelector`，card-window.ts:48）setSize，其余卡溢出裁剪 → 视觉"非常乱"；
+- MutationObserver 只在 DOM 无 `.component` 时才 destroy 窗口（card-window.ts:76-83）→ 多卡共存后窗口永不关闭；
+- 已关闭卡的 render_component 经全局流重进各窗口 → 表现为"复活已关闭卡"。
+
+**根因 B（辅，原诊断保留）**：`getByLabel(label)` 作为唯一存在性判断（pet.ts:304）+ 关闭异步（card-window.ts:86-90 `onCloseRequested` preventDefault + `win.destroy()` 异步）→ 关闭未完成时 label 仍被 Tauri 注册表持有，`renderCard` 命中将死窗口。
+
+**修复方向**：card 窗口的 ComponentManager 不订阅全局 render 流——窗口只渲染自己的 label（`card:spec` 定向事件已足够，加 `spec.id === win.label.slice(5)` 过滤），或 ComponentManager 增加 windowed 模式跳过 `onRenderComponent` 订阅；配合原建议（显式窗口生命周期状态取代 getByLabel）。
+
 ## #26 chat 面板 × 按钮绕过统一关闭 API：窗口不隐藏、userClosed 不置、占区不清 (2026-08-05) — open
 
 chat 面板头部的 × 按钮（chat.ts `close.addEventListener("click", () => this.hide())`）直接调 `ChatPanel.hide()`，绕过文档定义的统一关闭 API（window-follow.md：× / toggle 关 → `intentClose()`）。Tauri 模式下 engine 为 null，`hide()` 只置 `el.hidden=true`，不调 `adapter.hide()`（透明空窗残留）、不置 `userClosed`、不释放 engine 占区；浏览器模式误用 `engine.remove`（dismiss 语义）而非 `engine.release`（释放占区保留布局记忆）。对比：toggle 关闭与窗口 onCloseRequested 两条路径都正确走 `intentClose() + requestRelease`。建议：× 点击改为 `intentClose() + requestRelease("chat-panel") + adapter.hide()`，与另两条路径统一；`hide()` 归并或弃用，避免旧语义残留。
