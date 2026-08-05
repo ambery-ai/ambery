@@ -1,162 +1,86 @@
-// Cards Shelf 窗口（docs/view.md：Card 集合的管理 Surface）——pet 中键唤出。
-// 每张 Card 一行：标题/类型 + 显隐切换 + dismiss；显示选择与布局的持久真相在
-// .card.json（docs/components.md §Card 文件），本窗口只做管理与转发：
-// - 显隐：setCardUserClosed 落文件 + shelf:visibility 事件让 pet 开窗/藏窗
-// - dismiss：pushEvent（closed_by_user 双行事件 + 删文件）+ shelf:dismiss 让 pet 销毁窗口
-// 显隐/恢复/拖拽语义与 chat 同款（engine 占区：系统藏保留、用户藏释放留布局记忆）。
+// Cards Shelf 窗口（docs/view.md：Card 集合的瞬时管理弹出层，不属于 Surface）。
+// 瞬时语义：尺寸 = pet 物理尺寸 ×3（钳制 180–480 × 120–240，toggle 载荷带来 pet
+// 中心与宽高，打开时现算）；位置 = 左下角落在 pet 中心、向右上延伸；中键点 pet 或
+// shelf 任意位置直接关闭；失焦即关（600ms 武装延迟）；pet 拖拽/托盘连坐关。
+// 面板内容 = 共享 ShelfPanel（同 browser）。
 
-import { createBridge, type Bridge, type RestoredCard } from "../bridge";
-import { requestPlace, requestRelease, reportMoved } from "../positioning/tauri-server";
-import { Direction } from "../positioning/types";
+import { createBridge, type Bridge } from "../bridge";
 import * as actions from "../tauri_runtime_actions";
+import { ShelfPanel } from "./shelf-panel";
 
-const PANEL_W = 380;
-const PANEL_H = 560;
+const MIN_W = 180;
+const MAX_W = 480;
+const MIN_H = 120;
+const MAX_H = 240;
+/** 失焦关闭的武装延迟：显示后 600ms 内的失焦事件忽略（焦点接力失败不秒杀） */
+const FOCUS_ARM_MS = 600;
 
-let bridge: Bridge;
-let cards: RestoredCard[] = [];
-/** 运行期显示选择（与 chat 同款：不跨重启，重启归隐藏） */
-let userClosed = false;
-let isVisible = false;
+let shownAt = 0;
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
 
 export async function main() {
-  if (!("__TAURI_INTERNALS__" in window)) return; // Shelf 只存在于 Tauri（无浏览器模拟）
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  if (!("__TAURI_INTERNALS__" in window)) return; // Shelf 面板在 browser 由 pet 页内嵌
+  const { getCurrentWindow, currentMonitor } = await import("@tauri-apps/api/window");
   const { listen } = await import("@tauri-apps/api/event");
   const win = getCurrentWindow();
-  bridge = await createBridge();
+  const bridge: Bridge = await createBridge();
 
-  document.body.innerHTML = `<div id="shelf-panel">
-    <div id="shelf-head"><span>🗂 Cards Shelf</span><button id="shelf-close" title="关闭">✕</button></div>
-    <div id="shelf-body">加载中…</div>
-  </div>`;
+  const panel = new ShelfPanel(document.body, {
+    list: async () => (await bridge.listCards?.()) ?? [],
+    setUserClosed: async (c, userClosed) => {
+      const id = c.component.id;
+      const resp = await bridge.setCardUserClosed?.(id, userClosed);
+      if (resp && !resp.ok) {
+        console.warn("[shelf] set_card_user_closed 失败", resp);
+        return;
+      }
+      await actions.emitEvent("shelf:visibility", { id, visible: !userClosed, spec: c.component }, "pet");
+      await panel.refresh();
+    },
+    dismiss: async (c, title) => {
+      bridge.pushEvent(`用户关闭了 ${c.component.type}「${title}」(${c.component.id})`, { cardId: c.component.id });
+      await actions.emitEvent("shelf:dismiss", { id: c.component.id }, "pet");
+      await panel.refresh();
+    },
+    onCardsChanged: (cb) => bridge.onCardsChanged?.(cb),
+  });
 
-  // 显隐切换（pet 中键）：toggle = 用户意图
-  await listen("shelf:toggle", async () => {
-    if (userClosed || !isVisible) {
-      userClosed = false;
-      await showShelf();
-    } else {
-      closeShelf();
+  const close = () => void actions.hideWindow(win);
+
+  // 中键 toggle（pet 或 shelf 任意位置中键都直接关闭）：pet 发来中心与物理宽高——
+  // 尺寸 = pet ×3（钳制），左下角落在 pet 中心、向右上延伸（屏边界钳制）
+  await listen<{ x: number; y: number; w: number; h: number }>("shelf:toggle", async (ev) => {
+    if (await win.isVisible()) {
+      close();
+      return;
     }
-  });
-  // 系统藏（pet 拖拽/托盘连坐）：只藏不动 userClosed
-  await listen("shelf:hide", () => {
-    isVisible = false;
-    void actions.hideWindow(win);
-  });
-  // 系统恢复：userClosed 不回弹
-  await listen<{ x: number; y: number }>("shelf:show", async (ev) => {
-    if (userClosed) return;
-    await setPos(ev.payload.x, ev.payload.y);
+    const w = clamp(Math.round(ev.payload.w * 3), MIN_W, MAX_W);
+    const h = clamp(Math.round(ev.payload.h * 3), MIN_H, MAX_H);
+    await actions.resizeWindow(win, w, h);
+    const mon = await currentMonitor();
+    const sx = mon ? mon.position.x + mon.size.width : Infinity;
+    const x = Math.min(Math.round(ev.payload.x), sx - w - 8);
+    const y = Math.max(8, Math.round(ev.payload.y) - h);
+    await actions.moveWindow(win, x, y);
+    shownAt = Date.now();
     await actions.showWindow(win);
-    isVisible = true;
+    await panel.refresh();
   });
-  // Card 集合变化（agent 渲染/关闭）→ 重拉
-  await listen("effect", (ev) => {
-    const kind = (ev.payload as { kind?: string })?.kind;
-    if (kind === "render_component" || kind === "close_component") void refresh();
-  });
+  // 系统藏（pet 拖拽/托盘连坐）：瞬时面板直接关
+  await listen("shelf:hide", close);
 
-  document.getElementById("shelf-close")!.onclick = () => closeShelf();
-
-  // 头部拖拽（与 chat 同款语义；拖拽结束回写 engine 偏移基准）
-  document.addEventListener("mousedown", (e) => {
-    const t = e.target as HTMLElement;
-    if (t.closest("#shelf-head") && !t.closest("#shelf-close")) {
-      void actions.startDragging(win);
+  // 中键点 shelf 任意位置 = 关闭（行内按钮保持左键语义）
+  document.addEventListener("auxclick", (e) => {
+    if ((e as MouseEvent).button === 1) {
+      e.preventDefault();
+      close();
     }
   });
-  let moveTimer: number | undefined;
-  await win.onMoved(() => {
-    clearTimeout(moveTimer);
-    moveTimer = window.setTimeout(async () => {
-      const pos = await win.outerPosition();
-      await reportMoved("cards-shelf", { x: pos.x + PANEL_W / 2, y: pos.y + PANEL_H / 2 });
-    }, 250);
+
+  // 失焦即关（瞬时语义；武装延迟防显示瞬间焦点接力失败秒杀）
+  await win.onFocusChanged((ev) => {
+    if (!ev.payload && Date.now() - shownAt > FOCUS_ARM_MS) {
+      close();
+    }
   });
-
-  await refresh();
-}
-
-function closeShelf() {
-  userClosed = true;
-  isVisible = false;
-  void requestRelease("cards-shelf"); // 用户隐藏：释放占区、布局入记忆
-  void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-    void actions.hideWindow(getCurrentWindow());
-  });
-}
-
-async function showShelf() {
-  const pos = await requestPlace(
-    "cards-shelf",
-    { id: "cards-shelf", width: PANEL_W, height: PANEL_H },
-    Direction.sse,
-  );
-  await setPos(pos.x, pos.y);
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  await actions.showWindow(getCurrentWindow());
-  isVisible = true;
-}
-
-async function setPos(cx: number, cy: number) {
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  await actions.moveWindow(getCurrentWindow(), Math.round(cx - PANEL_W / 2), Math.round(cy - PANEL_H / 2));
-}
-
-async function refresh() {
-  cards = (await bridge.listCards?.()) ?? [];
-  render();
-}
-
-function render() {
-  const body = document.getElementById("shelf-body");
-  if (!body) return;
-  if (cards.length === 0) {
-    body.innerHTML = `<div class="dim" style="padding:12px">（无存活卡片）</div>`;
-    return;
-  }
-  body.innerHTML = "";
-  for (const c of cards) {
-    const id = c.component.id;
-    const spec = c.component as { title?: string; label?: string };
-    const title = spec.title ?? spec.label ?? id;
-    const row = document.createElement("div");
-    row.className = "shelf-row";
-    const visBtn = c.user_closed ? "显示" : "隐藏";
-    row.innerHTML = `<div class="shelf-info"><div class="shelf-title"></div>
-      <div class="shelf-sub">${escapeHtml(c.component.type)} · ${escapeHtml(id)}${c.user_closed ? " · 已隐藏" : ""}</div></div>
-      <button class="shelf-vis">${visBtn}</button>
-      <button class="shelf-dismiss" title="dismiss（结束 Surface，忘记布局）">✕</button>`;
-    row.querySelector(".shelf-title")!.textContent = title;
-    row.querySelector(".shelf-vis")!.addEventListener("click", () => void setVisibility(c, !c.user_closed));
-    row.querySelector(".shelf-dismiss")!.addEventListener("click", () => void dismissCard(c, title));
-    body.appendChild(row);
-  }
-}
-
-/** 显隐切换：落文件（显示选择）+ 通知 pet 开窗/藏窗 */
-async function setVisibility(c: RestoredCard, visible: boolean) {
-  const id = c.component.id;
-  const resp = await bridge.setCardUserClosed?.(id, !visible);
-  if (resp && !resp.ok) {
-    console.warn("[shelf] set_card_user_closed 失败", resp);
-    return;
-  }
-  await actions.emitEvent("shelf:visibility", { id, visible, spec: c.component }, "pet");
-  c.user_closed = !visible;
-  render();
-}
-
-/** dismiss：closed_by_user 双行事件 + 删 .card.json（core 侧 push_event 路径）
- *  + pet 销毁窗口（shelf:dismiss） */
-async function dismissCard(c: RestoredCard, title: string) {
-  bridge.pushEvent(`用户关闭了 ${c.component.type}「${title}」(${c.component.id})`, { cardId: c.component.id });
-  await actions.emitEvent("shelf:dismiss", { id: c.component.id }, "pet");
-  await refresh();
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
 }

@@ -126,6 +126,8 @@ export interface Bridge {
   listCards?(): Promise<RestoredCard[]>;
   /** 可选（TauriBridge）：Card 显示选择回写（Cards Shelf 显隐切换 → _meta.user_closed） */
   setCardUserClosed?(id: string, userClosed: boolean): Promise<{ ok: boolean; error?: string }>;
+  /** 可选：Card 集合外部变化通知（agent render/close）——Shelf 面板刷新触发 */
+  onCardsChanged?(cb: () => void): void;
 }
 
 /** list_cards 返回项：component 原文 + _meta 状态 */
@@ -210,12 +212,44 @@ export class BrowserMockBridge implements Bridge {
     this.renderListeners.push(cb);
   }
 
-  pushEvent(desc: string): void {
+  // ── mock Card 集合（Shelf 面板数据源；真实链路的 .card.json 注册表在 core） ──
+  private mockCards = new Map<string, { spec: ComponentSpec; user_closed: boolean }>();
+  private cardsListeners: (() => void)[] = [];
+
+  pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void {
     this.events.push(desc);
+    // 用户 × 关卡 / Shelf dismiss：出 mock 注册表（对应 core 的 cards_remove）
+    if (opts?.cardId && this.mockCards.delete(opts.cardId)) this.emitCards();
   }
 
   debugCallComponent(spec: ComponentSpec) {
+    this.mockCards.set(spec.id, { spec: structuredClone(spec), user_closed: false });
     for (const cb of this.renderListeners) cb(structuredClone(spec));
+    this.emitCards();
+  }
+
+  async listCards(): Promise<RestoredCard[]> {
+    return [...this.mockCards.values()].map((c) => ({
+      component: structuredClone(c.spec),
+      user_closed: c.user_closed,
+      layout: { direction: null, offset: null, manual: false },
+    }));
+  }
+
+  async setCardUserClosed(id: string, userClosed: boolean): Promise<{ ok: boolean; error?: string }> {
+    const c = this.mockCards.get(id);
+    if (!c) return { ok: false, error: `Card '${id}' 不存在` };
+    c.user_closed = userClosed;
+    this.emitCards();
+    return { ok: true };
+  }
+
+  onCardsChanged(cb: () => void): void {
+    this.cardsListeners.push(cb);
+  }
+
+  private emitCards() {
+    for (const cb of this.cardsListeners) cb();
   }
 
   debugEventBuffer(): string[] {
@@ -289,6 +323,7 @@ class TauriBridge implements Bridge {
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
   private doneListeners: (() => void)[] = [];
   private closeListeners: ((id: string) => void)[] = [];
+  private cardsListeners: (() => void)[] = [];
 
   constructor(
     private invokeFn: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>,
@@ -311,9 +346,11 @@ class TauriBridge implements Bridge {
       switch (msg.kind) {
         case "render_component":
           if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec!));
+          this.cardsListeners.forEach((cb) => cb());
           break;
         case "close_component":
           if (msg.id) this.closeListeners.forEach((cb) => cb(msg.id!));
+          this.cardsListeners.forEach((cb) => cb());
           break;
         case "set_autonomy":
           this.autonomyListeners.forEach((cb) =>
@@ -396,6 +433,9 @@ class TauriBridge implements Bridge {
   }
   async setCardUserClosed(id: string, userClosed: boolean): Promise<{ ok: boolean; error?: string }> {
     return this.invokeFn("set_card_user_closed", { id, userClosed }) as Promise<{ ok: boolean; error?: string }>;
+  }
+  onCardsChanged(cb: () => void): void {
+    this.cardsListeners.push(cb);
   }
 }
 

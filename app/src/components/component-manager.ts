@@ -88,6 +88,12 @@ export class ComponentManager {
     this.layer.hidden = false;
   }
 
+  /** Shelf 显隐（browser）：user_closed = 只藏不销（DOM 原位即布局记忆；dismiss 走 closeById） */
+  setHidden(id: string, hidden: boolean) {
+    const el = this.cards.get(id);
+    if (el) el.style.display = hidden ? "none" : "";
+  }
+
   private buildCard(spec: ComponentSpec): HTMLDivElement {
     const card = document.createElement("div");
     card.className = "component";

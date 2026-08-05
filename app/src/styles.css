@@ -281,38 +281,39 @@ html.browser body {
   font-size: 12px;
   overflow: hidden;
 }
-#shelf-head {
-  padding: 10px 12px;
-  font-weight: 600;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  display: flex;
-  justify-content: space-between;
-  cursor: move;
-  user-select: none;
-}
-#shelf-close { background: none; border: none; color: #aaa; cursor: pointer; }
-#shelf-close:hover { color: #fff; }
-#shelf-body { flex: 1; overflow-y: auto; padding: 8px 12px; }
+#shelf-body { flex: 1; overflow-y: auto; padding: 4px 6px; }
 .shelf-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 4px;
+  gap: 6px;
+  padding: 4px 2px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-.shelf-info { flex: 1; min-width: 0; }
-.shelf-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.shelf-sub { color: #8a8a9e; font-size: 10px; }
-.shelf-vis, .shelf-dismiss {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e6e6f0;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  padding: 3px 8px;
-  cursor: pointer;
+.shelf-type { flex: none; width: 18px; text-align: center; }
+.shelf-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.shelf-vis:hover, .shelf-dismiss:hover { background: rgba(255, 255, 255, 0.16); }
+.shelf-title.closed { opacity: 0.45; text-decoration: line-through; }
+.shelf-vis, .shelf-dismiss {
+  flex: none;
+  background: none;
+  border: none;
+  color: #e6e6f0;
+  padding: 2px 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.shelf-vis:hover, .shelf-dismiss:hover { background: rgba(255, 255, 255, 0.16); border-radius: 4px; }
 .shelf-dismiss { color: #ff9b92; }
+/* browser overlay 容器（pet 页内嵌的瞬时 Shelf 面板；尺寸由 pet×3 现算） */
+#shelf-overlay {
+  position: fixed;
+  z-index: 9997;
+}
 
 /* ===== 托盘设置面板（docs/config.md，windows/menu.ts） ===== */
 #menu-panel {

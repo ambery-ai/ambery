@@ -229,8 +229,6 @@ export async function main() {
         void settleDragEnd().then(() => {
           const r = engine.restorePositions(petCenter ?? latest);
           if (r.some((w) => w.id === "chat-panel")) emitR("chat:show");
-          const sh = r.find((w) => w.id === "cards-shelf");
-          if (sh) emitR("shelf:show", { x: sh.center.x, y: sh.center.y });
           for (const w of r) {
             if (w.id.startsWith("card-")) emitR("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
           }
@@ -256,20 +254,21 @@ export async function main() {
         petCenter = await derivePetCenter();
         const r = engine.restorePositions(petCenter);
         if (r.some((w) => w.id === "chat-panel")) emitR("chat:show");
-        const sh = r.find((w) => w.id === "cards-shelf");
-        if (sh) emitR("shelf:show", { x: sh.center.x, y: sh.center.y });
         for (const w of r) {
           if (w.id.startsWith("card-")) emitR("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
         }
       })();
     });
 
-    // Cards Shelf（docs/view.md：Card 集合管理 Surface）：中键 toggle；
-    // shelf:visibility / shelf:dismiss 执行窗口侧动作（文件侧已在 core 落盘）
-    view.el.addEventListener("auxclick", (e) => {
+    // Cards Shelf（docs/view.md：瞬时管理弹出层，不属于 Surface）：中键唤出——
+    // 发去 pet 中心与物理宽高，shelf 按 ×3 现算尺寸、遮挡 pet 向右上延伸；
+    // 关闭走 中键/失焦/pet 拖拽
+    view.el.addEventListener("auxclick", async (e) => {
       if ((e as MouseEvent).button === 1) {
         e.preventDefault();
-        void actions.emitEvent("shelf:toggle", undefined, "shelf");
+        const c = petCenter ?? view.center();
+        const size = await win.outerSize();
+        void actions.emitEvent("shelf:toggle", { x: c.x, y: c.y, w: size.width, h: size.height }, "shelf");
       }
     });
     listen<{ id: string; visible: boolean; spec?: any }>("shelf:visibility", async (ev) => {
@@ -377,6 +376,67 @@ export async function main() {
     // debug：positioning 面板（α/β 滑块 + 窗口注册）
     const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
     const panel = new DebugPositioningPanel(engine);
+
+    // Cards Shelf（browser 与 Tauri 共享 ShelfPanel）：中键 toggle——瞬时 overlay，
+    // 尺寸 = pet ×3、左下角落在 pet 中心向右上延伸；中键点 pet 或 shelf 任意位置 /
+    // 点面板外（失焦等价）/ pet 拖拽关闭
+    const { ShelfPanel } = await import("./shelf-panel");
+    const shelfMount = document.createElement("div");
+    shelfMount.id = "shelf-overlay";
+    shelfMount.style.display = "none";
+    document.body.appendChild(shelfMount);
+    const clampN = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+    const closeShelfOverlay = () => {
+      shelfMount.style.display = "none";
+    };
+    const shelfPanel = new ShelfPanel(shelfMount, {
+      list: async () => (await bridge.listCards?.()) ?? [],
+      setUserClosed: async (c, userClosed) => {
+        await bridge.setCardUserClosed?.(c.component.id, userClosed);
+        mgr.setHidden(c.component.id, userClosed);
+        await shelfPanel.refresh();
+      },
+      dismiss: async (c, title) => {
+        bridge.pushEvent(`用户关闭了 ${c.component.type}「${title}」(${c.component.id})`, { cardId: c.component.id });
+        mgr.closeById(c.component.id);
+        await shelfPanel.refresh();
+      },
+      onCardsChanged: (cb) => bridge.onCardsChanged?.(cb),
+    });
+    view.el.addEventListener("auxclick", (e) => {
+      if ((e as MouseEvent).button === 1) {
+        e.preventDefault();
+        if (shelfMount.style.display === "none") {
+          const r = view.el.getBoundingClientRect();
+          const w = clampN(Math.round(r.width * 3), 180, 480);
+          const h = clampN(Math.round(r.height * 3), 120, 240);
+          shelfMount.style.width = `${w}px`;
+          shelfMount.style.height = `${h}px`;
+          const c = view.center();
+          shelfMount.style.left = `${Math.min(Math.round(c.x), window.innerWidth - w - 8)}px`;
+          shelfMount.style.top = `${Math.max(8, Math.round(c.y) - h)}px`;
+          shelfMount.style.display = "";
+          void shelfPanel.refresh();
+        } else {
+          closeShelfOverlay();
+        }
+      }
+    });
+    // 中键点 shelf 任意位置 = 关闭
+    shelfMount.addEventListener("auxclick", (e) => {
+      if ((e as MouseEvent).button === 1) {
+        e.preventDefault();
+        closeShelfOverlay();
+      }
+    });
+    // 失焦等价：点面板外关闭（pet 自身除外——pet 的中键 toggle 与拖拽关闭各自走自己通道）
+    document.addEventListener("mousedown", (e) => {
+      const t = e.target as HTMLElement;
+      if (shelfMount.style.display !== "none" && !t.closest("#shelf-overlay") && !t.closest("#view")) {
+        closeShelfOverlay();
+      }
+    });
+    view.el.addEventListener("view:drag-start", closeShelfOverlay);
     // 拖拽时隐藏所有附属窗口，结束后以相对偏移恢复
     let markOffsets: { dx: number; dy: number; css: string }[] = [];
     const syncPanel = () => {
