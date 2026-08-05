@@ -97,13 +97,21 @@ pub fn valid_options(config: &Config, path: &str) -> Option<Vec<String>> {
 }
 
 /// 动态 enum 注册表（唯二手工钩子之一）：path → 选项提供者
-static OPTIONS: &[(&str, fn(&Config) -> Vec<String>)] = &[("llm.active", |c| {
-    let mut v = vec!["debug".to_string()];
-    let mut keys: Vec<String> = c.llm.providers.keys().cloned().collect();
-    keys.sort();
-    v.extend(keys);
-    v
-})];
+static OPTIONS: &[(&str, fn(&Config) -> Vec<String>)] = &[
+    ("llm.active", |c| {
+        let mut v = vec!["debug".to_string()];
+        let mut keys: Vec<String> = c.llm.providers.keys().cloned().collect();
+        keys.sort();
+        v.extend(keys);
+        v
+    }),
+    ("theme", |c| {
+        // 合法主题名 = themes 的 key（docs/theme.md）
+        let mut keys: Vec<String> = c.themes.keys().cloned().collect();
+        keys.sort();
+        keys
+    }),
+];
 
 /// 按点分路径写入 JSON Value（中间缺失自动建 object；撞到非 object 报错）。
 /// 只搬数据不做验证——验证 = 调用方反序列化回 Config（serde 白送）。

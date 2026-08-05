@@ -3,6 +3,7 @@
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
 import { Store } from "../store";
+import { wireTheme } from "../theme";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 import { requestPlace, requestRelease, reportMoved } from "../positioning/tauri-server";
 import { Direction } from "../positioning/types";
@@ -60,6 +61,7 @@ export async function main() {
 
   const bridge = await createBridge();
   const store = await Store.create(bridge);
+  wireTheme(store); // docs/theme.md：新窗口随当前主题，切换即生效
   const mount = document.getElementById("app")!;
   // ChatPanel 不需要 engine，toggle 直接用 DOM show/hide
   chatPanel = new ChatPanel(mount, bridge, store, null!, true);

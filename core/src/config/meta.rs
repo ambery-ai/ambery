@@ -58,6 +58,19 @@ fn kaomoji_pools_func(v: &Value) -> Vec<String> {
     }
 }
 
+fn probe_theme_value(v: &Value) -> Option<Value> {
+    serde_json::from_value::<std::collections::HashMap<String, String>>(v.clone())
+        .ok()
+        .map(|t| serde_json::to_value(t).unwrap())
+}
+
+fn themes_func(v: &Value) -> Vec<String> {
+    match serde_json::from_value::<std::collections::HashMap<String, std::collections::HashMap<String, String>>>(v.clone()) {
+        Ok(themes) => super::validate_theme_table(&themes),
+        Err(e) => vec![format!("themes 结构不合法：{e}")],
+    }
+}
+
 /// descriptor tree 行为元数据（单源）。desc/类型见 config.rs 结构体 doc comment + schemars。
 pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "kaomoji", kind: NodeKind::Object, validate: &[Validation::Func(kaomoji_pools_func)], no_llm_visible: false, cold: false },
@@ -78,6 +91,8 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "view_scale", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(0.2), max: Some(4.0) }], no_llm_visible: false, cold: false },
     NodeMeta { path: "badge_style", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "badge_side", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
+    NodeMeta { path: "theme", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
+    NodeMeta { path: "themes", kind: NodeKind::Map { entry_probe: probe_theme_value }, validate: &[Validation::Func(themes_func)], no_llm_visible: false, cold: false },
     NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false },
     NodeMeta { path: "llm.active", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider }, validate: V, no_llm_visible: false, cold: false },

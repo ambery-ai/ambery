@@ -103,3 +103,13 @@ export async function togglePet(): Promise<void> {
 export async function quitApp(): Promise<void> {
   await invoke("quit_app");
 }
+
+/** export_theme：主题导出到 config_root/themes/<name>.theme.json（docs/theme.md §导出） */
+export async function exportTheme(name: string): Promise<{ ok: boolean; path?: string; error?: string }> {
+  return (await invoke("export_theme", { name })) as { ok: boolean; path?: string; error?: string };
+}
+
+/** import_theme：主题导入（版本检查/兼容/校验在 Rust 端；config_update 由端点记录） */
+export async function importTheme(file: string): Promise<{ ok: boolean; name?: string; error?: string }> {
+  return (await invoke("import_theme", { file })) as { ok: boolean; name?: string; error?: string };
+}

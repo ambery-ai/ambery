@@ -7,6 +7,7 @@ import { motionDef } from "../motions";
 import { contextSize, MAX_FACE_MARGIN, MIN_FACE_W, obstacleSize, windowSize } from "../pet-size";
 import { engine, setupServer } from "../positioning/tauri-server";
 import { Store } from "../store";
+import { wireTheme } from "../theme";
 import { View } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
@@ -16,6 +17,7 @@ export async function main() {
   const bridge = await createBridge();
   // 前端 store（docs/case-runner.md §前端读取架构）：core 可读状态集中持有，读取走 store
   const store = await Store.create(bridge);
+  wireTheme(store); // docs/theme.md：基线即应用 + 切换即全窗口生效
 
   const mount = document.getElementById("app")!;
   const view = new View(mount);

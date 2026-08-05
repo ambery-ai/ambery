@@ -4,6 +4,8 @@ import { createBridge, type ComponentSpec } from "../bridge";
 import { ComponentManager } from "../components/component-manager";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 import { requestPlace, requestRemove, reportMoved } from "../positioning/tauri-server";
+import { Store } from "../store";
+import { wireTheme } from "../theme";
 import * as actions from "../tauri_runtime_actions";
 import { Direction } from "../positioning/types";
 
@@ -18,6 +20,8 @@ export async function main() {
   adapter = await createTauriAdapter(document.body, dpr);
 
   const bridge = await createBridge();
+  // docs/theme.md：新卡窗随当前主题，切换即生效
+  wireTheme(await Store.create(bridge));
   const mount = document.getElementById("app")!;
   mount.classList.add("cards-mode");
   const mgr = new ComponentManager(mount, bridge, () => ({ x: 0, y: 0 }), true);

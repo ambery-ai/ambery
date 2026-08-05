@@ -4,6 +4,8 @@
 // 读取走 bridge 方法、写入走动作层（invoke 收口规则，docs/case-runner.md §前端读取架构）。
 
 import { createBridge, type Bridge, type ConfigSchemaNode, type ConfigSchemaResp } from "../bridge";
+import { Store } from "../store";
+import { wireTheme } from "../theme";
 import * as actions from "../tauri_runtime_actions";
 
 type ConfigNode = ConfigSchemaNode;
@@ -14,6 +16,8 @@ let bridge: Bridge;
 
 export async function main() {
   bridge = await createBridge();
+  // docs/theme.md：设置面板同样采用当前主题
+  wireTheme(await Store.create(bridge));
   document.body.innerHTML = `<div id="menu-panel">
     <div id="panel-head">
       <span>⚙ 设置</span>
@@ -96,6 +100,35 @@ async function render() {
     for (const n of nodes) {
       body.appendChild(renderNode(n, resp.readOnly, pools));
     }
+  }
+  // 主题分享（docs/theme.md §导出、分享与兼容）：导出到 config_root/themes/，按文件名导入
+  if (!resp.readOnly) {
+    const currentTheme = String(resp.nodes.find((n) => n.path === "theme")?.value ?? "dark");
+    body.insertAdjacentHTML("beforeend", `<div class="group">theme</div>`);
+    const share = document.createElement("div");
+    share.className = "cfg-row";
+    share.innerHTML = `<div class="cfg-line">
+      <button type="button" data-act="export">导出当前主题</button>
+      <input type="text" data-role="file" placeholder="主题文件名" />
+      <button type="button" data-act="import">导入</button>
+    </div>`;
+    const status = document.getElementById("panel-status")!;
+    share.querySelector('[data-act="export"]')!.addEventListener("click", async () => {
+      status.textContent = "…";
+      const r = await actions.exportTheme(currentTheme);
+      status.textContent = r.ok ? `✓ 已导出 ${r.path}` : `✗ ${r.error}`;
+      status.className = r.ok ? "ok" : "err";
+    });
+    share.querySelector('[data-act="import"]')!.addEventListener("click", async () => {
+      const file = (share.querySelector('[data-role="file"]') as HTMLInputElement).value.trim();
+      if (!file) return;
+      status.textContent = "…";
+      const r = await actions.importTheme(file);
+      status.textContent = r.ok ? `✓ 已导入 ${r.name}` : `✗ ${r.error}`;
+      status.className = r.ok ? "ok" : "err";
+      if (r.ok) setTimeout(() => void render(), 300);
+    });
+    body.appendChild(share);
   }
 }
 

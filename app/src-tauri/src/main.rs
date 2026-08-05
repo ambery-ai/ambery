@@ -113,7 +113,45 @@ async fn get_config(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     let cfg = &ov.config;
-    Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale, "badgeStyle": cfg.badge_style, "badgeSide": cfg.badge_side }))
+    Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale, "badgeStyle": cfg.badge_style, "badgeSide": cfg.badge_side, "theme": cfg.theme, "themes": cfg.themes }))
+}
+
+/// 主题导出（docs/theme.md §导出、分享与兼容）：写 `<config_root>/themes/<name>.theme.json`
+#[tauri::command]
+async fn export_theme(state: tauri::State<'_, SharedTauriState>, name: String) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let ov = s.overseer().lock().await;
+    let root = ov.harness.config_dir().to_path_buf();
+    match overseer_core::config::theme::export_theme(&root, &ov.config, &name) {
+        Ok(path) => Ok(json!({ "ok": true, "path": path.display().to_string() })),
+        Err(e) => Ok(json!({ "ok": false, "error": e })),
+    }
+}
+
+/// 主题导入（docs/theme.md §导出、分享与兼容）：版本检查 → 兼容变换 → 校验 →
+/// 统一修改管道写入 themes.<name>（原子拒绝 + 广播 config_changed，全部窗口即切）
+#[tauri::command]
+async fn import_theme(state: tauri::State<'_, SharedTauriState>, file: String) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let root = {
+        let ov = s.overseer().lock().await;
+        ov.harness.config_dir().to_path_buf()
+    };
+    let (name, value) = match overseer_core::config::theme::import_theme(&root, &file) {
+        Ok(r) => r,
+        Err(e) => return Ok(json!({ "ok": false, "error": e })),
+    };
+    let path = format!("themes.{name}");
+    let mut ov = s.overseer().lock().await;
+    match ov.apply_config_by_path(&path, value) {
+        Ok(outcome) => {
+            ov.record_frontend_effect("config_update", json!({ "path": path.as_str() }));
+            drop(ov);
+            overseer_core::server::finish_config_outcome(&s, outcome).await;
+            Ok(json!({ "ok": true, "name": name }))
+        }
+        Err(e) => Ok(json!({ "ok": false, "error": e })),
+    }
 }
 
 #[tauri::command]
@@ -350,7 +388,7 @@ fn main() {
             toggle_pet, quit_app,
             get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config,
             record_effect, list_cards, update_card_layout, set_card_user_closed,
-            ensure_card_window, close_card_window
+            ensure_card_window, close_card_window, export_theme, import_theme
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {
@@ -488,7 +526,7 @@ mod ipc_tests {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
             .manage(CardWindowRegistry::default())
-            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards, update_card_layout, set_card_user_closed, ensure_card_window, close_card_window])
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards, update_card_layout, set_card_user_closed, ensure_card_window, close_card_window, export_theme, import_theme])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
     }

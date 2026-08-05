@@ -5,6 +5,7 @@
 pub mod meta;
 pub mod migrate;
 pub mod reflect;
+pub mod theme;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,13 @@ pub struct Config {
     /// 未读角标方位：right（正右边，默认）/ left
     #[serde(default = "default_badge_side")]
     pub badge_side: String,
+    /// 当前主题名（docs/theme.md）：合法值为 themes 的 key（动态 enum，OPTIONS 注册表校验）
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// 主题表（docs/theme.md）：主题名 → token 覆写表（token 名去 `--ov-` 前缀 → CSS 值）；
+    /// 未覆写的 token 回落 styles.css :root 内置默认。内置 "dark" = 全空覆写（= 当前默认视觉）
+    #[serde(default = "default_themes")]
+    pub themes: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     /// LLM 多 profile 配置（docs/agent-loop.md §LLM 抽象）
     #[serde(default)]
     pub llm: LlmConfig,
@@ -165,6 +173,44 @@ fn default_badge_style() -> String {
 
 fn default_badge_side() -> String {
     "right".into()
+}
+
+/// 默认主题名（docs/theme.md）：内置深色（空覆写 = styles.css :root 值即 dark 主题）
+fn default_theme() -> String {
+    "dark".into()
+}
+
+/// 主题表语义 default（map 字段必须声明自身 default，docs/config.md）：仅内置 dark
+fn default_themes() -> std::collections::HashMap<String, std::collections::HashMap<String, String>> {
+    let mut m = std::collections::HashMap::new();
+    m.insert("dark".into(), std::collections::HashMap::new());
+    m
+}
+
+/// 主题 token 校验（docs/theme.md）：token 名去 --ov- 前缀后须 `^[a-z][a-z0-9-]*$`；
+/// CSS 值拒绝结构字符（`;{}<>` 与引号外注入面），空值拒绝。
+/// 主题名本身走动态 map key grammar（valid_dynamic_key）。返回 message 列表（空 = 通过）
+pub fn validate_theme_table(
+    themes: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+) -> Vec<String> {
+    let mut errors = Vec::new();
+    for (name, table) in themes {
+        if !valid_dynamic_key(name) {
+            errors.push(format!("主题名不符合 path grammar（小写字母开头，仅小写字母/数字/_/-）：{name}"));
+        }
+        for (token, value) in table {
+            let mut chars = token.chars();
+            let head_ok = matches!(chars.next(), Some(c) if c.is_ascii_lowercase());
+            if !head_ok || !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+                errors.push(format!("主题 {name} 的 token 名须 ^[a-z][a-z0-9-]*$：{token}"));
+            }
+            if value.is_empty() || value.contains([';', '{', '}', '<', '>']) {
+                errors.push(format!("主题 {name} 的 token {token} 值含非法字符或为空"));
+            }
+        }
+    }
+    errors.sort();
+    errors
 }
 
 fn default_compression_reserve() -> usize {
@@ -348,6 +394,8 @@ impl Default for Config {
             view_scale: default_view_scale(),
             badge_style: default_badge_style(),
             badge_side: default_badge_side(),
+            theme: default_theme(),
+            themes: default_themes(),
             llm: LlmConfig::default(),
             read_only: false,
             load_report: Vec::new(),

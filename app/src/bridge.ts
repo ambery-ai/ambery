@@ -43,6 +43,10 @@ export interface AppConfig {
   badgeStyle?: "number" | "bubble";
   /** 未读角标方位（#5）：right（默认）/ left */
   badgeSide?: "right" | "left";
+  /** 当前主题名（docs/theme.md）：themes 的 key */
+  theme?: string;
+  /** 主题表（docs/theme.md）：主题名 → token 覆写表（token 名去 --ov- 前缀 → CSS 值） */
+  themes?: Record<string, Record<string, string>>;
 }
 
 /** docs/components.md：Component 方位（八方位词；引擎内部按 16 方位环解析） */

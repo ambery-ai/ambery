@@ -74,6 +74,22 @@ for (const f of tsFiles) {
   }
 }
 
+// 3. theme.ts KNOWN_TOKENS 与 :root 定义双向一致（主题应用的写表面 = token 表）
+const themeTs = readFileSync(join(srcDir, "theme.ts"), "utf8");
+const ktMatch = themeTs.match(/KNOWN_TOKENS\s*=\s*\[([\s\S]*?)\]/);
+if (!ktMatch) {
+  fail("theme.ts 找不到 KNOWN_TOKENS");
+} else {
+  const known = [...ktMatch[1].matchAll(/"([a-z0-9-]+)"/g)].map((m) => m[1]);
+  const definedNames = [...defined].map((d) => d.replace(/^--ov-/, ""));
+  for (const k of known) {
+    if (!definedNames.includes(k)) fail(`theme.ts KNOWN_TOKENS 的 ${k} 在 :root 无定义`);
+  }
+  for (const d of definedNames) {
+    if (!known.includes(d)) fail(`:root 的 ${d} 不在 theme.ts KNOWN_TOKENS`);
+  }
+}
+
 if (failures) {
   console.error(`\n${failures} 处违规`);
   process.exit(1);
