@@ -21,9 +21,7 @@ export async function main() {
     await listen("pet:moved", () => {}); // 占位，确保事件系统初始化
     await listen("chat:toggle", () => {
       if (chatPanel?.isVisible()) {
-        chatPanel.intentClose(); // 用户意图关（统一 API）
-        void requestRelease("chat-panel"); // 用户隐藏：释放占区、布局入记忆（重开原位恢复）
-        void adapter?.hide();
+        chatPanel.intentClose(); // 用户意图关（统一 API，副作用经 onIntentClose 钩子）
       } else {
         chatPanel?.intentOpen();
         void showChat();
@@ -38,10 +36,8 @@ export async function main() {
     await listen("chat:show", () => {
       if (chatPanel?.systemRestore()) void showChat();
     });
-    win.onCloseRequested(async () => {
-      chatPanel?.intentClose(); // × = 用户意图关
-      void requestRelease("chat-panel");
-      await adapter?.hide();
+    win.onCloseRequested(() => {
+      chatPanel?.intentClose(); // OS 关闭请求 = 用户意图关（统一 API）
     });
 
     // #8②：chat 头部可拖拽（排除 × 按钮）
@@ -67,6 +63,12 @@ export async function main() {
   const mount = document.getElementById("app")!;
   // ChatPanel 不需要 engine，toggle 直接用 DOM show/hide
   chatPanel = new ChatPanel(mount, bridge, store, null!, true);
+  // 统一关闭副作用（#26：× / toggle 关 / OS 关闭请求同一收口）：
+  // 用户隐藏释放占区、布局入记忆（重开原位恢复），窗口随藏
+  chatPanel.onIntentClose = () => {
+    void requestRelease("chat-panel");
+    void adapter?.hide();
+  };
 
   const el = document.getElementById("chat-panel");
   if (el) {

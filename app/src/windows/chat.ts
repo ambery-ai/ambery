@@ -44,7 +44,8 @@ export class ChatPanel {
     const close = document.createElement("button");
     close.className = "chat-close";
     close.textContent = "×";
-    close.addEventListener("click", () => this.hide());
+    // #26：× 与 toggle 关 / OS 关闭请求同走统一关闭 API（intentClose）
+    close.addEventListener("click", () => this.intentClose());
     header.append(title, close);
 
     this.historyEl = document.createElement("div");
@@ -117,16 +118,22 @@ export class ChatPanel {
   }
 
   showPanel() { this.el.hidden = false; this.visible = true; }
-  hidePanel() { this.engine?.remove("chat-panel"); this.el.hidden = true; this.visible = false; }
   isVisible() {
     return this.visible;
   }
 
   // ── 统一可见性 API（docs/window-follow.md §两路径统一：语义单源，分支只做事件翻译）──
-  /** 用户意图关（× / toggle 关）：置 userClosed + 隐藏 */
+  /** windowed 模式由 chat-window.ts 注入的统一关闭副作用（requestRelease + adapter.hide） */
+  onIntentClose: (() => void) | null = null;
+
+  /** 用户意图关（× / toggle 关 / OS 关闭请求，#26 统一收口）：
+   *  置 userClosed + 隐藏 + 释放占区保留布局记忆（release 而非 remove——remove 是 dismiss） */
   intentClose() {
     this.userClosed = true;
-    this.hide();
+    this.el.hidden = true;
+    this.visible = false;
+    this.engine?.release("chat-panel"); // browser 路径；windowed 由 onIntentClose 覆盖
+    this.onIntentClose?.();
   }
   /** 用户意图开（toggle 开 / 唤出）：复位 userClosed；定位与显示由路径负责 */
   intentOpen() {
@@ -149,8 +156,6 @@ export class ChatPanel {
     this.el.style.top = `${center.y - PANEL_H / 2}px`;
     this.showPanel();
   }
-
-  hide() { this.visible = false; this.el.hidden = true; this.engine?.remove("chat-panel"); }
 
   /** 右键 toggle：engine.place(Direction.sse) 定位 */
   toggle() {

@@ -254,7 +254,7 @@ pet 创建 card 窗口时 `new WebviewWindow(label, {...})` 未传 `title`，窗
 
 2026-08-02 验证——注入 notification hook 引导 agent 调 `call_component`，locate.ps1 实测新建 card 窗口 title = `card-watch-focus-6`（= label），不再是默认 "Tauri App"。改代码前已创建的旧 "Tauri App" 窗口不会自动更新，属预期。
 
-## #25 card 重复展示：create/delete/update 序列下同 id 出现重复窗口 (2026-08-02) — open
+## #25 card 重复展示：create/delete/update 序列下同 id 出现重复窗口 (2026-08-02) — fixed
 
 随机对同一 card id 执行创建→删除→更新（或创建后用户手动关闭再更新）时，同 id 卡片出现重复窗口/重复展示。疑因持续管理协议以 `getByLabel(label)` 判断存在性：窗口 `close()` 是异步的，关闭未完成时 getByLabel 仍返回旧窗口（emitTo 发往将死窗口，显示失败或无反应），关闭完成后再 create 又新建窗口，新旧并存；用户手动关闭的窗口也未同步通知 pet 移除注册，状态分叉。建议：以显式窗口生命周期状态跟踪（pending/creating/visible/closing/closed）取代依赖 getByLabel 的存在性判断，并让 user close 回传 pet 同步。
 
@@ -274,9 +274,13 @@ pet 创建 card 窗口时 `new WebviewWindow(label, {...})` 未传 `title`，窗
 
 **修复方向**：card 窗口的 ComponentManager 不订阅全局 render 流——窗口只渲染自己的 label（`card:spec` 定向事件已足够，加 `spec.id === win.label.slice(5)` 过滤），或 ComponentManager 增加 windowed 模式跳过 `onRenderComponent` 订阅；配合原建议（显式窗口生命周期状态取代 getByLabel）。
 
-## #26 chat 面板 × 按钮绕过统一关闭 API：窗口不隐藏、userClosed 不置、占区不清 (2026-08-05) — open
+2026-08-06 修复——双根因断根：① 根因 A：ComponentManager windowed 模式跳过全局 render 流订阅（card 窗只渲染 `card:spec` 定向事件的本卡）；② 根因 B：窗口决策上提 Rust 权威注册表——新 `ensure_card_window` / `close_card_window` command 取代前端 `getByLabel` 自决；实现中发现 Tauri 注册表移除走事件循环（`destroy()` 经 dispatcher 分发异步生效），瞬时视图仍有将死窗口期，`CardWindowRegistry` 以 `Closing` 状态吸收（close 等物理移除才出表、ensure 见 Closing 等待、Alive 无窗自愈）。agent close / shelf dismiss / 用户 × 三路径统一收口 `close_card_window`（destroy 不经 onCloseRequested）。壳测试 ensure/close 决策序列绿（opened/reused/closed/absent + effect 流）；前端 vite build 绿 + 浏览器 CDP 9 断言绿。
+
+## #26 chat 面板 × 按钮绕过统一关闭 API：窗口不隐藏、userClosed 不置、占区不清 (2026-08-05) — fixed
 
 chat 面板头部的 × 按钮（chat.ts `close.addEventListener("click", () => this.hide())`）直接调 `ChatPanel.hide()`，绕过文档定义的统一关闭 API（window-follow.md：× / toggle 关 → `intentClose()`）。Tauri 模式下 engine 为 null，`hide()` 只置 `el.hidden=true`，不调 `adapter.hide()`（透明空窗残留）、不置 `userClosed`、不释放 engine 占区；浏览器模式误用 `engine.remove`（dismiss 语义）而非 `engine.release`（释放占区保留布局记忆）。对比：toggle 关闭与窗口 onCloseRequested 两条路径都正确走 `intentClose() + requestRelease`。建议：× 点击改为 `intentClose() + requestRelease("chat-panel") + adapter.hide()`，与另两条路径统一；`hide()` 归并或弃用，避免旧语义残留。
+
+2026-08-06 修复——统一关闭收口：`intentClose()` 成为 × / toggle 关 / OS 关闭请求的唯一路径（置 userClosed + 隐藏 + browser 走 `engine.release` 释放占区保留布局记忆）；windowed 副作用（requestRelease + adapter.hide）经新 `onIntentClose` 钩子由 chat-window.ts 注入，toggle 关与 onCloseRequested 不再各自拼装；旧 `hide()`/`hidePanel()`（engine.remove dismiss 语义残留）删除。浏览器 CDP 实测：× 后 pet 移动不被唤回（userClosed 生效）、重开原位恢复（release 布局记忆）。
 
 ## #27 表情自动回落的 effect 可观测性不显式：只能从 window_resized 侧击 (2026-08-05) — open
 

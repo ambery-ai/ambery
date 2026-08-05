@@ -125,5 +125,35 @@ await check(
   })()`,
 );
 
+// #26 统一关闭：× → userClosed + release 占区（pet 移动的系统恢复不得唤回）
+await check(
+  "chat × 统一关闭：pet 移动后不被唤回",
+  `(async () => {
+    const view = document.getElementById("view");
+    const panel = document.getElementById("chat-panel");
+    panel.querySelector(".chat-close").click();
+    if (!panel.hidden) return false;
+    view.dispatchEvent(new Event("view:drag-start"));
+    view.dispatchEvent(new CustomEvent("view:moved", { detail: { x: 300, y: 300 } }));
+    await new Promise((r) => setTimeout(r, 300));
+    return panel.hidden;
+  })()`,
+);
+await check(
+  "chat 重开原位恢复（release 布局记忆）",
+  `(async () => {
+    const view = document.getElementById("view");
+    const panel = document.getElementById("chat-panel");
+    view.dispatchEvent(new Event("chat:toggle"));
+    await new Promise((r) => setTimeout(r, 100));
+    const left1 = panel.style.left, top1 = panel.style.top;
+    view.dispatchEvent(new Event("chat:toggle"));
+    await new Promise((r) => setTimeout(r, 50));
+    view.dispatchEvent(new Event("chat:toggle"));
+    await new Promise((r) => setTimeout(r, 100));
+    return !panel.hidden && panel.style.left === left1 && panel.style.top === top1;
+  })()`,
+);
+
 console.log(`\nCDP 冒烟全过（${passed} 断言）`);
 process.exit(0);

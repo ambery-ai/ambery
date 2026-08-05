@@ -245,18 +245,18 @@ export async function main() {
       200,
     );
 
-    // #13: pet 隐藏时 card 窗口延迟到恢复显示
+    // #13: pet 隐藏时 card 窗口延迟到恢复显示（整段 ensure 推迟，同 id 最新 spec 覆盖）
     let petVisible = true;
-    type PendingCard = { label: string; spec: any };
-    const pendingCards: PendingCard[] = [];
+    const pendingCards = new Map<string, any>();
 
     const { listen } = await import("@tauri-apps/api/event");
     listen("pet:hidden", () => { petVisible = false; });
     listen("pet:shown", () => {
       petVisible = true;
-      for (const pc of pendingCards.splice(0)) {
-        emitToR(pc.label, "card:spec", pc.spec);
+      for (const [id, spec] of pendingCards) {
+        void actions.ensureCardWindow(id, spec);
       }
+      pendingCards.clear();
       // 托盘回来：恢复位置广播（#12 定案 grill⑤——系统藏的系统恢复，各窗口自查 userClosed）
       void (async () => {
         petCenter = await derivePetCenter();
@@ -283,13 +283,8 @@ export async function main() {
       const { id, visible, spec } = ev.payload;
       const label = `card-${id}`;
       if (visible) {
-        // 显示：窗在 → 重发 spec（card 侧 requestPlace 命中布局记忆原位恢复 + show）；窗不在 → 重建
-        const existing = await WebviewWindow.getByLabel(label);
-        if (existing && spec) {
-          emitToR(label, "card:spec", spec);
-        } else if (spec) {
-          void renderCard(spec);
-        }
+        // 显示：Rust 注册表决策 reuse（重发 spec 原位恢复）/ create（重建），无需 getByLabel
+        if (spec) void actions.ensureCardWindow(id, spec);
       } else {
         // 用户隐藏：释放占区保留布局记忆（一致性剖析），窗口藏起
         engine.release(label);
@@ -297,65 +292,25 @@ export async function main() {
       }
     });
     listen<{ id: string }>("shelf:dismiss", async (ev) => {
-      const label = `card-${ev.payload.id}`;
-      const existing = await WebviewWindow.getByLabel(label);
-      if (existing) {
-        await actions.closeWindow(existing);
-      }
-      engine.remove(label);
+      // 统一关闭收口（Rust destroy 同步出注册表）
+      void actions.closeCardWindow(ev.payload.id);
+      engine.remove(`card-${ev.payload.id}`);
     });
 
-    // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const renderCard = async (spec: any) => {
-      const label = `card-${spec.id}`;
-      const existing = await WebviewWindow.getByLabel(label);
-      // 持续管理协议：同 id = 原地更新（重发 spec），不再 toggle 关闭
-      if (existing) {
-        emitToR(label, "card:spec", spec);
+    // #9: 每个 card 一个独立 Tauri 窗口；#25 断根——窗口决策上提 Rust 权威注册表
+    const renderCard = (spec: any) => {
+      if (!petVisible) {
+        pendingCards.set(spec.id, spec);
         return;
       }
-      // 创建经动作层（window_opened 在 tauri://created 成功后由动作层记录，
-      // #25 观测：同 id 两条 window_opened 中间无 window_closed = 重复窗口实证）
-      actions.createCardWindow(
-        label,
-        {
-          url: "index.html#card",
-          // title 不依赖 agent（spec 无此概念）；直接用窗口 label 作标题，避免落到
-          // Tauri 默认 "Tauri App"（skipTaskbar + decorations:false，title 仅 UIA/OS 可见）
-          title: label,
-          width: 520,
-          height: 440,
-          decorations: false,
-          transparent: true,
-          alwaysOnTop: true,
-          focus: false,
-          shadow: false,
-          skipTaskbar: true,
-          visible: false,
-        },
-        () => {
-          setTimeout(() => {
-            if (petVisible) {
-              emitToR(label, "card:spec", spec);
-            } else {
-              pendingCards.push({ label, spec });
-            }
-          }, 500);
-        },
-        (e) => console.error("[pet] WebviewWindow error:", e),
-      );
+      void actions.ensureCardWindow(spec.id, spec);
     };
     bridge.onRenderComponent(renderCard);
 
-    // 显式关闭（持续管理协议：agent close action；window_closed 由动作层在 close 成功后记录）
-    bridge.onCloseComponent?.(async (id) => {
-      const label = `card-${id}`;
-      const existing = await WebviewWindow.getByLabel(label);
-      if (existing) {
-        await actions.closeWindow(existing);
-      }
-      engine.remove(label);
+    // 显式关闭（持续管理协议：agent close action；统一关闭收口，window_closed Rust 端记录）
+    bridge.onCloseComponent?.((id) => {
+      void actions.closeCardWindow(id);
+      engine.remove(`card-${id}`);
     });
 
     broadcastPosition();

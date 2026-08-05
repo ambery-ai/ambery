@@ -4,6 +4,7 @@ import { createBridge, type ComponentSpec } from "../bridge";
 import { ComponentManager } from "../components/component-manager";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 import { requestPlace, requestRemove, reportMoved } from "../positioning/tauri-server";
+import * as actions from "../tauri_runtime_actions";
 import { Direction } from "../positioning/types";
 
 let adapter: WindowAdapter | null = null;
@@ -26,7 +27,7 @@ export async function main() {
   // #8 拖拽：card header mousedown → 开始移动窗口
   document.addEventListener("mousedown", (e) => {
     if ((e.target as HTMLElement).closest(".cmp-header") && !(e.target as HTMLElement).closest(".cmp-close")) {
-      void import("../tauri_runtime_actions").then((m) => m.startDragging(win));
+      void actions.startDragging(win);
     }
   });
 
@@ -72,21 +73,22 @@ export async function main() {
     await adapter?.show();
   });
 
-  // 卡片关闭：× 按钮清除 DOM → 清理引擎 + 关闭窗口
+  // 卡片关闭：× 按钮清除 DOM → 清理引擎 + 统一关闭收口（Rust destroy 同步出注册表）
   const observer = new MutationObserver(() => {
     const card = document.querySelector(".component");
     (window as any).__diag_mutation = { ts: Date.now(), hasCard: !!card };
     if (!card) {
       requestRemove(win.label);
-      win.destroy();
+      void actions.closeCardWindow(win.label.slice("card-".length));
     }
   });
   observer.observe(mount, { childList: true, subtree: true });
 
+  // OS 级关闭请求：同样收口（destroy 不触发本事件，无回环）
   win.onCloseRequested((ev) => {
     ev.preventDefault();
     requestRemove(win.label);
-    win.destroy();
+    void actions.closeCardWindow(win.label.slice("card-".length));
   });
 }
 

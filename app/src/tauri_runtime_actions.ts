@@ -6,13 +6,9 @@
 // 调用处直接使用；浏览器模拟（DOM）不进本层、不埋点。
 
 import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { emit, emitTo } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { reportEffect } from "./effects";
-
-/** WebviewWindow 构造参数（url + 窗口选项的完整交集类型，跟随 API 版本） */
-type CardWindowOptions = ConstructorParameters<typeof WebviewWindow>[1];
 
 /** 动作目标：`@tauri-apps/api/window` 的 Window 与 webviewWindow 的 WebviewWindow
  *  共有的写方法结构子集——动作层不关心调用处拿到的是哪一种 */
@@ -65,21 +61,17 @@ export async function startDragging(win: WindowLike): Promise<void> {
   reportEffect("window_drag", { window: win.label });
 }
 
-/** create_card_window：new WebviewWindow；tauri://created 成功 → window_opened {window}
- *  （tauri://error = 创建失败，只回调不记录）；onCreated 在记录之后链入业务收尾 */
-export function createCardWindow(
-  label: string,
-  options: CardWindowOptions,
-  onCreated?: () => void,
-  onError?: (e: unknown) => void,
-): WebviewWindow {
-  const webview = new WebviewWindow(label, options);
-  webview.once("tauri://created", () => {
-    reportEffect("window_opened", { window: label });
-    onCreated?.();
-  });
-  webview.once("tauri://error", (e) => onError?.(e));
-  return webview;
+/** ensure_card_window：Rust 权威注册表同步决策 create/reuse（#25 断根——前端不再
+ *  getByLabel 自决存在性，docs/case-runner.md §窗口决策上提）。window_opened 与
+ *  card:spec 的 event_emit 由 Rust 端记录，动作层只收口 invoke */
+export async function ensureCardWindow(id: string, spec: unknown): Promise<{ result: string }> {
+  return (await invoke("ensure_card_window", { id, spec })) as { result: string };
+}
+
+/** close_card_window：统一关闭（destroy 同步出注册表，无将死窗口窗口期）。
+ *  agent close / shelf dismiss / 用户 × 三路径收口；window_closed 由 Rust 端记录 */
+export async function closeCardWindow(id: string): Promise<{ result: string }> {
+  return (await invoke("close_card_window", { id })) as { result: string };
 }
 
 /** close_window：close 成功 → window_closed {window} */

@@ -33,7 +33,9 @@ export class ComponentManager {
     this.layer.id = "components";
     if (windowed) mount.classList.add("cards-mode");
     mount.appendChild(this.layer);
-    bridge.onRenderComponent((spec) => this.render(spec));
+    // windowed（card 窗口）：不订阅全局 render 流——本窗只渲染 card:spec 定向事件
+    // （#25 根因 A：全局广播使每个 card 窗口渲染所有卡 → 一窗多卡堆叠 + 复活已关闭卡）
+    if (!windowed) bridge.onRenderComponent((spec) => this.render(spec));
   }
 
   render(spec: ComponentSpec) {

@@ -214,12 +214,143 @@ async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, 
     Ok(json!({ "ok": true }))
 }
 
+/// card 窗口 id 合法性（与 core cards 注册同约束：安全 label 片段）
+fn valid_card_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Card 窗口权威注册表（docs/case-runner.md §窗口决策上提，#25 断根）。
+/// Tauri 注册表的移除走事件循环（`destroy()` 经 dispatcher 分发、event loop 处理时才出表），
+/// 决策若读其瞬时视图仍有「将死窗口」窗口期（#25 根因 B 的残留形态）。
+/// 本表是 create / reuse / close 决策的唯一依据：`Closing` 吸收 destroy 的生效窗口期——
+/// close 等物理移除（或兜底超时）后才出表；ensure 见 `Closing` 等其出表再重建。
+#[derive(Default)]
+struct CardWindowRegistry(std::sync::Mutex<std::collections::HashMap<String, CardWinState>>);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CardWinState {
+    Alive,
+    Closing,
+}
+
+/// 等 Tauri 注册表物理移除（destroy 经事件循环生效；MockRuntime 无事件循环时兜底超时）
+async fn wait_window_gone<R: tauri::Runtime>(app: &tauri::AppHandle<R>, label: &str) {
+    for _ in 0..50 {
+        if app.get_webview_window(label).is_none() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    eprintln!("[card-win] wait_window_gone 超时（事件循环未处理 destroy？）: {label}");
+}
+
+/// 窗口决策上提（docs/case-runner.md §窗口决策上提，#25 断根）：
+/// 前端不再 getByLabel 自查自决存在性——Rust 权威注册表同步决策 create / reuse。
+/// create → window_opened 记录 + 500ms 后推 card:spec（等页面 JS listener 就绪）；
+/// reuse → 立即重推 card:spec（原地更新），记录 event_emit。
+#[tauri::command]
+async fn ensure_card_window<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    registry: tauri::State<'_, CardWindowRegistry>,
+    state: tauri::State<'_, SharedTauriState>,
+    id: String,
+    spec: Value,
+) -> Result<Value, String> {
+    if !valid_card_id(&id) {
+        return Ok(json!({ "result": "error", "error": format!("非法 card id: {id}") }));
+    }
+    let label = format!("card-{id}");
+    let s = wait_state(&state)?;
+    // 决策环：Closing → 等其出表（close 侧物理移除后才出表，出表即可安全重建）
+    for _ in 0..100 {
+        let st = registry.0.lock().unwrap().get(&label).copied();
+        match st {
+            None => break,
+            Some(CardWinState::Alive) => {
+                if let Some(w) = app.get_webview_window(&label) {
+                    let _ = w.emit("card:spec", spec);
+                    let ov = s.overseer().lock().await;
+                    ov.record_frontend_effect("event_emit", json!({ "event": "card:spec", "target": label.as_str() }));
+                    return Ok(json!({ "result": "reused" }));
+                }
+                // 表与 Tauri 注册表不一致（窗口意外消亡）：自愈清表转重建
+                registry.0.lock().unwrap().remove(&label);
+                break;
+            }
+            Some(CardWinState::Closing) => {
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        }
+    }
+    // 出表后 Tauri 注册表仍有残留（destroy 未被事件循环处理的极端）：先收尸再建
+    if app.get_webview_window(&label).is_some() {
+        if let Some(w) = app.get_webview_window(&label) {
+            let _ = w.destroy();
+        }
+        wait_window_gone(&app, &label).await;
+    }
+    let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html#card".into()))
+        .title(&label)
+        .inner_size(520.0, 440.0)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .focused(false)
+        .shadow(false)
+        .skip_taskbar(true)
+        .visible(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    registry.0.lock().unwrap().insert(label.clone(), CardWinState::Alive);
+    {
+        let ov = s.overseer().lock().await;
+        ov.record_frontend_effect("window_opened", json!({ "window": label.as_str() }));
+    }
+    // 页面 JS listener 注册在 load 之后；沿用 500ms 经验延迟推 spec（窗已毁则 emit 静默失败）
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let _ = win.emit("card:spec", spec);
+    });
+    Ok(json!({ "result": "opened" }))
+}
+
+/// 统一关闭（docs/multi-window.md §窗口创建与生命周期）：destroy 不经 onCloseRequested
+/// （preventDefault 会留将死窗口，#25 根因 B 的机制）。标 Closing → destroy → 等物理
+/// 移除 → 出表；ensure 侧见 Closing 等待，窗口期被本表完全吸收。
+/// agent close / shelf dismiss / 用户 × 三条路径收口到本命令。
+#[tauri::command]
+async fn close_card_window<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    registry: tauri::State<'_, CardWindowRegistry>,
+    state: tauri::State<'_, SharedTauriState>,
+    id: String,
+) -> Result<Value, String> {
+    let label = format!("card-{id}");
+    {
+        let mut m = registry.0.lock().unwrap();
+        if !m.contains_key(&label) {
+            return Ok(json!({ "result": "absent" }));
+        }
+        m.insert(label.clone(), CardWinState::Closing);
+    }
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.destroy();
+    }
+    wait_window_gone(&app, &label).await;
+    registry.0.lock().unwrap().remove(&label);
+    let s = wait_state(&state)?;
+    let ov = s.overseer().lock().await;
+    ov.record_frontend_effect("window_closed", json!({ "window": label.as_str() }));
+    Ok(json!({ "result": "closed" }))
+}
+
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             toggle_pet, quit_app,
             get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config,
-            record_effect, list_cards, update_card_layout, set_card_user_closed
+            record_effect, list_cards, update_card_layout, set_card_user_closed,
+            ensure_card_window, close_card_window
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {
@@ -356,7 +487,8 @@ mod ipc_tests {
     fn mock_app_with_commands() -> tauri::App<tauri::test::MockRuntime> {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
-            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards, update_card_layout, set_card_user_closed])
+            .manage(CardWindowRegistry::default())
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards, update_card_layout, set_card_user_closed, ensure_card_window, close_card_window])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
     }
@@ -501,6 +633,52 @@ mod ipc_tests {
             assert!(content.contains("window_visible"), "show 分支: {content}");
             assert!(content.contains("pet:shown"), "show 分支: {content}");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn ensure_and_close_card_window_authoritative() {
+        let app = mock_app_with_commands();
+        *app.state::<SharedTauriState>().0.lock().unwrap() = Some(build_harness_state("ensure"));
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let spec = json!({"id":"todo-1","type":"text_card","title":"t","text":"x"});
+        let call = |cmd: &str, body: Value| {
+            let mut req = ipc(cmd);
+            req.body = tauri::ipc::InvokeBody::Json(body);
+            tauri::test::get_ipc_response(&window, req)
+                .unwrap()
+                .deserialize::<Value>()
+                .unwrap()
+        };
+        // 缺席 → create：opened + 窗口在注册表 + window_opened effect
+        let r = call("ensure_card_window", json!({ "id": "todo-1", "spec": spec }));
+        assert_eq!(r["result"], json!("opened"), "{r}");
+        assert!(app.get_webview_window("card-todo-1").is_some());
+        // 存在 → reuse：不新建第二个（label 唯一），result=reused
+        let r = call("ensure_card_window", json!({ "id": "todo-1", "spec": spec }));
+        assert_eq!(r["result"], json!("reused"), "{r}");
+        // 统一关闭：权威注册表决策（MockRuntime 无事件循环，物理移除不可观测，
+        // close 兜底超时后仍出表；生产由 wait_window_gone 等事件循环真移除）
+        let r = call("close_card_window", json!({ "id": "todo-1" }));
+        assert_eq!(r["result"], json!("closed"), "{r}");
+        // 关已关的窗：absent 幂等（决策层已出表）
+        let r = call("close_card_window", json!({ "id": "todo-1" }));
+        assert_eq!(r["result"], json!("absent"), "{r}");
+        // 非法 id 拒绝
+        let r = call("ensure_card_window", json!({ "id": "bad id!", "spec": spec }));
+        assert_eq!(r["result"], json!("error"), "{r}");
+        // effect 流含 window_opened / window_closed
+        let dir = std::env::temp_dir().join("overseer-ipc-test-ensure");
+        let mut content = String::new();
+        for _ in 0..40 {
+            content = std::fs::read_to_string(dir.join(overseer_core::EFFECT_FILE)).unwrap_or_default();
+            if content.contains("window_opened") && content.contains("window_closed") { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(content.contains("\"kind\":\"window_opened\""), "{content}");
+        assert!(content.contains("\"kind\":\"window_closed\""), "{content}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
