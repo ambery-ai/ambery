@@ -176,11 +176,13 @@ html.browser body {
 
 /* ── Chat Panel（concepts §3a / docs/chat-panel.md） ── */
 /* chat 窗口模式：面板填充整个窗口（docs/multi-window.md）；
-   内缩 2px 让 1px border 整体落在窗口内（#17 增补：右/下 border 被窗口边界裁；
-   高 DPI 下 1px 逻辑 ≈ <1 物理 px 会被边缘吞掉，取 2px） */
+   内缩 2px 让 1px border 整体落在窗口内（#17 增补：右/下 border 被窗口边界裁）。
+   box-sizing:border-box 必须——否则 calc(100%-4px) 是内容宽，border 再加 2px
+   使 border-box=100%-2px 溢出到窗口边缘，内缩失效 */
 .chat-mode { height: 100vh; }
 .chat-mode #chat-panel {
   position: static;
+  box-sizing: border-box;
   width: calc(100% - 4px);
   height: calc(100% - 4px);
   margin: 2px;
@@ -267,7 +269,8 @@ html.browser body {
 #shelf-panel {
   display: flex;
   flex-direction: column;
-  /* 内缩 2px 让 1px border 落在窗口内（#17 增补，同 chat 裁切） */
+  /* 内缩 2px 让 1px border 落在窗口内（#17 增补，同 chat 裁切；border-box 理由同 chat） */
+  box-sizing: border-box;
   width: calc(100% - 4px);
   height: calc(100% - 4px);
   margin: 2px;
@@ -315,7 +318,11 @@ html.browser body {
 #menu-panel {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* 同 chat/shelf：border 落在窗口内（#17 增补） */
+  box-sizing: border-box;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  margin: 2px;
   background: rgba(30, 30, 46, 0.97);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.12);
