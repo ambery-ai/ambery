@@ -121,6 +121,16 @@ export interface Bridge {
   onAssistantDone?(cb: () => void): void;
   /** 可选：显式关闭卡片（Component 持续管理协议：action="close"） */
   onCloseComponent?(cb: (id: string) => void): void;
+  /** 可选（TauriBridge）：Card 跨重启恢复——启动拉取全部存活卡片
+   *  （component + _meta 显示选择与布局；readonly 查询，docs/components.md §Card 文件） */
+  listCards?(): Promise<RestoredCard[]>;
+}
+
+/** list_cards 返回项：component 原文 + _meta 状态 */
+export interface RestoredCard {
+  component: ComponentSpec;
+  user_closed: boolean;
+  layout: { direction: string | null; offset: [number, number] | null; manual: boolean };
 }
 
 // ── Chrome DevTools 调试驱动接口（window.__overseer） ──
@@ -374,6 +384,13 @@ class TauriBridge implements Bridge {
   }
   onCloseComponent(cb: (id: string) => void): void {
     this.closeListeners.push(cb);
+  }
+  async listCards(): Promise<RestoredCard[]> {
+    // 恢复失败 = 无卡片（best-effort，不阻断 pet 启动）
+    return (this.invokeFn("list_cards") as Promise<RestoredCard[]>).catch((e) => {
+      console.error("[bridge] list_cards", e);
+      return [];
+    });
   }
 }
 

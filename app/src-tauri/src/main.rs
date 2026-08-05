@@ -149,6 +149,27 @@ async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, val
     }
 }
 
+/// Card 跨重启恢复（readonly 查询，docs/components.md §Card 文件）：
+/// pet 启动 pull 全部存活卡片（component + _meta）；可见性过滤在前端（pull-on-ready，
+/// 规避 push-at-startup 的 webview 未就绪时序漏洞）
+#[tauri::command]
+async fn list_cards(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let ov = s.overseer().lock().await;
+    let cards_dir = ov.harness.cards_dir();
+    let mut out = vec![];
+    for (id, e) in &ov.harness.cards {
+        if let Some(component) = overseer_core::cards::read_component(&cards_dir, id) {
+            out.push(json!({
+                "component": component,
+                "user_closed": e.user_closed,
+                "layout": e.layout,
+            }));
+        }
+    }
+    Ok(json!(out))
+}
+
 /// 前端非 readonly @tauri-apps/api 调用上报（docs/effect-reporting.md §通道）
 #[tauri::command]
 async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, payload: Option<Value>) -> Result<Value, String> {
@@ -163,7 +184,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             toggle_pet, quit_app,
             get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config,
-            record_effect
+            record_effect, list_cards
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {
@@ -298,9 +319,44 @@ mod ipc_tests {
     fn mock_app_with_commands() -> tauri::App<tauri::test::MockRuntime> {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
-            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet])
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn list_cards_returns_alive_cards_with_meta() {
+        let app = mock_app_with_commands();
+        let state = build_harness_state("list-cards");
+        // 落两张卡：一张正常、一张用户已隐藏（user_closed）
+        {
+            let mut ov = state.overseer().lock().await;
+            ov.harness
+                .cards_upsert(&json!({"id":"todo-1","type":"todobox","title":"清单","items":[{"text":"a","done":false}]}), 1000)
+                .unwrap();
+            ov.harness
+                .cards_upsert(&json!({"id":"note-2","type":"text_card","title":"便签","text":"x"}), 1001)
+                .unwrap();
+            ov.harness.cards_write_user_closed("note-2", true).unwrap();
+            ov.harness.cards_write_layout("todo-1", (30, 40)).unwrap();
+        }
+        *app.state::<SharedTauriState>().0.lock().unwrap() = Some(state);
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let resp = tauri::test::get_ipc_response(&window, ipc("list_cards"));
+        let body = resp.unwrap().deserialize::<Value>().unwrap();
+        let arr = body.as_array().expect("list_cards 返回数组");
+        assert_eq!(arr.len(), 2);
+        let todo = arr.iter().find(|c| c["component"]["id"] == "todo-1").unwrap();
+        assert_eq!(todo["component"]["type"], "todobox");
+        assert_eq!(todo["user_closed"], json!(false));
+        assert_eq!(todo["layout"]["offset"], json!([30, 40]));
+        assert_eq!(todo["layout"]["manual"], json!(true));
+        let note = arr.iter().find(|c| c["component"]["id"] == "note-2").unwrap();
+        assert_eq!(note["user_closed"], json!(true));
+        let dir = std::env::temp_dir().join("overseer-ipc-test-list-cards");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

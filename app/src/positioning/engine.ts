@@ -172,6 +172,19 @@ export class PositioningEngine {
     console.info("[engine] release（用户隐藏，布局入记忆）", id);
   }
 
+  /** 跨重启布局接棒（docs/components.md §Card 文件）：恢复 Card 的 manual 偏移——
+   *  无占区时新建条目（尺寸待首个 place 刷新），有占区只刷偏移与 manual 标记 */
+  seedManual(id: string, offset: Point): void {
+    const o = this.occupied.find((o) => o.id === id && o.id !== "_pet_");
+    if (o) {
+      o.offset = { ...offset };
+      o.manual = true;
+    } else {
+      this.occupied.push({ id, offset: { ...offset }, w: 0, h: 0, manual: true });
+    }
+    console.info("[engine] seedManual（跨重启接棒）", id, "→ offset", Math.round(offset.x), Math.round(offset.y));
+  }
+
   /** dismiss：结束 Surface——占区与布局记忆一并忘记 */
   remove(id: string): void {
     console.info("[engine] remove（dismiss，忘记布局）", id);

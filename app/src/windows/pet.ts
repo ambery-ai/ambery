@@ -262,7 +262,7 @@ export async function main() {
 
     // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
     const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    bridge.onRenderComponent(async (spec) => {
+    const renderCard = async (spec: any) => {
       const label = `card-${spec.id}`;
       const existing = await WebviewWindow.getByLabel(label);
       // 持续管理协议：同 id = 原地更新（重发 spec），不再 toggle 关闭
@@ -300,7 +300,8 @@ export async function main() {
         },
         (e) => console.error("[pet] WebviewWindow error:", e),
       );
-    });
+    };
+    bridge.onRenderComponent(renderCard);
 
     // 显式关闭（持续管理协议：agent close action；window_closed 由动作层在 close 成功后记录）
     bridge.onCloseComponent?.(async (id) => {
@@ -314,6 +315,19 @@ export async function main() {
 
     broadcastPosition();
     await win.onMoved(() => broadcastPosition());
+
+    // Card 跨重启恢复（docs/components.md §Card 文件）：pull-on-ready——启动拉取存活
+    // 卡片，可见（user_closed=false）的重建窗口；manual 布局先 seed engine（相对 pet
+    // 偏移原样接棒），card 的 requestPlace 命中 manual 占区即原位恢复
+    if (bridge.listCards) {
+      for (const c of await bridge.listCards()) {
+        if (c.user_closed) continue;
+        if (c.layout.manual && c.layout.offset) {
+          engine.seedManual(`card-${c.component.id}`, { x: c.layout.offset[0], y: c.layout.offset[1] });
+        }
+        void renderCard(c.component);
+      }
+    }
   } else if (!import.meta.env.PROD) {
     // 浏览器模式（仅 Vite dev / preview，prod build tree-shaking 剔除）
     const { ChatPanel } = await import("./chat");
