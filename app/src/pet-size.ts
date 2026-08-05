@@ -14,6 +14,8 @@ export const MIN_FACE_W = 72;
 export const PAD_LR = 44;
 /** maxFaceWidth 余量（设计常量）：系统池扫描取 max 后加的防 clip 边距 */
 export const MAX_FACE_MARGIN = 4;
+/** #view 描边总宽（CSS border 1px × 2 边，不随 scale）：窗口公式补偿，防边缘 border 被窗口裁（#17 增补） */
+export const BORDER_PX = 2;
 
 export interface PetSize {
   w: number;
@@ -21,11 +23,11 @@ export interface PetSize {
 }
 
 /** 内容区尺寸（不含 motion 溢出）：
- *  contextW = max(minFaceW, faceW) × scale + padLR × scale；contextH = baselineH × scale */
+ *  contextW = max(minFaceW, faceW) × scale + padLR × scale + 描边；contextH = baselineH × scale + 描边 */
 export function contextSize(faceW: number, scale: number): PetSize {
   return {
-    w: Math.max(MIN_FACE_W, faceW) * scale + PAD_LR * scale,
-    h: BASELINE_H * scale,
+    w: Math.max(MIN_FACE_W, faceW) * scale + PAD_LR * scale + BORDER_PX,
+    h: BASELINE_H * scale + BORDER_PX,
   };
 }
 
@@ -42,7 +44,7 @@ export function windowSize(faceW: number, scale: number, overflow: MotionOverflo
  *  内容区最坏情况（maxFaceWidth）+ 所有已注册 motion 的四向最大溢出（MotionDef 扫描，不硬编码） */
 export function obstacleSize(maxFaceW: number, scale: number): PetSize {
   return {
-    w: Math.max(MIN_FACE_W, maxFaceW) * scale + PAD_LR * scale + ANIM_LEFT + ANIM_RIGHT,
-    h: BASELINE_H * scale + ANIM_TOP + ANIM_BOTTOM,
+    w: Math.max(MIN_FACE_W, maxFaceW) * scale + PAD_LR * scale + BORDER_PX + ANIM_LEFT + ANIM_RIGHT,
+    h: BASELINE_H * scale + BORDER_PX + ANIM_TOP + ANIM_BOTTOM,
   };
 }
