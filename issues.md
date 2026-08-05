@@ -176,7 +176,7 @@ card 窗口右上角 × 按钮点击后，ComponentManager 移除了 card DOM，
 
 **表现**: Component/card 窗口有 CSS box-shadow，被 Tauri 透明窗口裁剪（窗口尺寸 = 卡片内容尺寸，阴影超出窗口边界不可见）。pet 多次切换动画后颜文字超出窗口边界被裁。
 
-## #17 窗口阴影被透明窗口边界截断 (2026-07-30) — open
+## #17 窗口阴影被透明窗口边界截断 (2026-07-30) — fixed
 
 card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪看不见，透明窗口无额外缓冲区。**先复现确认**：打开 card 窗口，截图观察阴影是否可见。修复方向：删除阴影，或加 padding/margin 让窗口尺寸包含阴影区域。
 
@@ -185,6 +185,8 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 2026-08-05 reopen（打回）——用户明确要求阴影完全清除：pet/card/chat 一律不要阴影（「全部都不要阴影」）。留边方案违背用户选择，废弃；移除 #view / .component / #chat-panel 三处 box-shadow 与 cards-mode body 24px 留边、card-window 的 SHADOW_PAD（其为阴影容器专用）。
 
 2026-08-05 增补——透明窗口边界渲染两处细节：① pet 白色胶囊无描边，白底上与背景融为一体，需加 1px border 勾勒边界；② chat 面板填满窗口（`.chat-mode #chat-panel` width/height 100%），其 1px border 的右边/下边伸出窗口边界被裁——与阴影同类的透明窗口边界 clip，border 需整体落在窗口内（面板内缩，而非给阴影空间）。
+
+2026-08-05 关闭——按用户选择阴影完全清除，并补透明窗口边缘渲染：① 移除 #view / .component / #chat-panel 三处 box-shadow 与 cards-mode 24px 留边、card-window SHADOW_PAD（`b79aa5a`）；② pet 加 1px 描边（`#view` border rgba(0,0,0,0.28)），pet-size 公式 +BORDER_PX=2 补偿防裁，docs/pet-window-size.md 常量与公式同步（`4986e1c`）；③ chat/shelf/menu 面板内缩 2px 让 border 落在窗口内——真因是面板 content-box 下 `calc(100%-4px)` 为内容宽，border 再加 2px 使 border-box 溢出到窗口边缘，补 `box-sizing:border-box` 后 border-box 即 100%-4px（`edb4dd9` / `83a3673`）。card 窗口 `setSize(+8)` 已有冗余、`fit-content` 不填满窗口，无需内缩。locate.ps1 实测 chat 316×376、pet 尺寸含描边；用户确认四边 border 完整。
 
 ## #18 pet 尺寸异常偏小、内容溢出窗口边界 (2026-07-30) — fixed
 
