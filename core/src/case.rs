@@ -3,8 +3,8 @@
 
 use crate::llm::Llm;
 use crate::observe::{
-    AgentSnapshot, CronSnapshot, FilteredContentSnapshot, MemoryNoteSnapshot, MessageSnapshot,
-    Observable,
+    AgentSnapshot, CardSnapshot, CronSnapshot, FilteredContentSnapshot, MemoryNoteSnapshot,
+    MessageSnapshot, Observable,
 };
 use crate::overseer::OverseerBackend;
 use serde::{Deserialize, Serialize};
@@ -35,6 +35,8 @@ pub struct CaseObserve {
     pub memory: Vec<MemoryNoteSnapshot>,
     /// Cron 持久化计划投影（id / schedule / message / next_due；不含 sleep waiter）
     pub cron: Vec<CronSnapshot>,
+    /// Card 注册表投影（id/typ/title/created/user_closed/layout 摘要；不展开 component）
+    pub cards: Vec<CardSnapshot>,
     /// 动作流（从 effect.jsonl 读）：后端副作用 + 前端非只读调用（docs/storage.md §effect.jsonl）
     pub effects: Vec<crate::EffectRecord>,
 }
@@ -74,6 +76,7 @@ pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
         answer,
         memory: h.memory.observe(),
         cron: h.cron.observe(),
+        cards: h.cards.observe(),
         effects: h.read_effects().unwrap_or_default(),
     }
 }
@@ -354,7 +357,7 @@ pub fn pre_parse_check(case: &CaseFile) -> Vec<String> {
     use crate::eval::{ExprParser, IntParser, Parser, RangeParser, VarEnv, VarIntParser};
     const TARGETS: &[&str] = &[
         "agents", "panorama", "context", "filtered_content", "queue", "event_buffer",
-        "usage", "effects", "answer", "memory", "cron",
+        "usage", "effects", "answer", "memory", "cron", "cards",
     ];
     let mut failures = vec![];
     // 已 store 的用户变量名（预检环境用占位值：引用有效性与语法在同一遍检查）
@@ -578,6 +581,12 @@ mod tests {
             .cron
             .create(crate::cron::Schedule::EveryMs(60_000), "日报", 1000)
             .unwrap();
+        ov.harness
+            .cards_upsert(
+                &serde_json::json!({"id":"todo-1","type":"todobox","title":"清单","items":[{"text":"a","done":false}]}),
+                1000,
+            )
+            .unwrap();
         let obs = observe(&ov);
         assert_eq!(obs.memory.len(), 1);
         assert_eq!(obs.memory[0].name, "work-preferences");
@@ -585,12 +594,16 @@ mod tests {
         assert_eq!(obs.cron.len(), 1);
         assert_eq!(obs.cron[0].message, "日报");
         assert_eq!(obs.cron[0].schedule, crate::cron::Schedule::EveryMs(60_000));
+        assert_eq!(obs.cards.len(), 1);
+        assert_eq!(obs.cards[0].id, "todo-1");
+        assert_eq!(obs.cards[0].typ, "todobox");
+        assert!(!obs.cards[0].user_closed);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn pre_parse_accepts_memory_and_cron_targets() {
-        let text = head(r#"[{ "observe": [{"target":"memory"},{"target":"cron"}] }]"#);
+        let text = head(r#"[{ "observe": [{"target":"memory"},{"target":"cron"},{"target":"cards"}] }]"#);
         let case = parse(&text).unwrap();
         assert_eq!(pre_parse_check(&case), Vec::<String>::new());
         // 值类 target 不支持 lines

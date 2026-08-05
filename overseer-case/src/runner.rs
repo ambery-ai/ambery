@@ -221,6 +221,24 @@ fn print_observe(
                     println!("  {} | {} | {} | {}", e.id, schedule, next, e.message);
                 }
             }
+            "cards" => {
+                // Card 注册表投影（id/typ/title/created/user_closed/layout；不展开 component）
+                println!("cards: {} 张存活", obs.cards.len());
+                for c in &obs.cards {
+                    let visibility = if c.user_closed { "user_closed" } else { "visible" };
+                    let layout = match (c.layout.offset, c.layout.manual) {
+                        (Some((x, y)), true) => format!("manual({x},{y})"),
+                        (Some((x, y)), false) => format!("offset({x},{y})"),
+                        _ => c
+                            .layout
+                            .direction
+                            .as_deref()
+                            .map(|d| format!("auto/{d}"))
+                            .unwrap_or_else(|| "auto".into()),
+                    };
+                    println!("  {} | {}「{}」| {} | {}", c.id, c.typ, c.title, visibility, layout);
+                }
+            }
             "context" => {
                 // 路径类：无 lines → 文件指针+摘要（行首 token 标注，#16）；带 lines → 切片原文
                 let path = storage_dir.join(overseer_core::CONTEXT_FILE);
