@@ -29,7 +29,15 @@ export async function setupServer() {
 
   // #12/#15/#8①：chat/cards 拖拽结束回写真实位置 → 新跟随基准
   await listen<{ id: string; x: number; y: number }>("engine:moved", (ev) => {
-    engine.updateCenter(ev.payload.id, { x: ev.payload.x, y: ev.payload.y });
+    const offset = engine.updateCenter(ev.payload.id, { x: ev.payload.x, y: ev.payload.y });
+    // Card 布局回写（docs/components.md §Card 文件）：相对 pet 偏移落 .card.json
+    // （engine id = card-<spec.id>；只有 Card 有布局文件，chat 布局是运行期语义）
+    if (offset && ev.payload.id.startsWith("card-")) {
+      const id = ev.payload.id.slice("card-".length);
+      void import("@tauri-apps/api/core").then(({ invoke }) =>
+        invoke("update_card_layout", { id, offset: [Math.round(offset.x), Math.round(offset.y)] }),
+      ).catch((e) => console.warn("[card] 布局回写失败", e));
+    }
   });
 }
 

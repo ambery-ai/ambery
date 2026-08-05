@@ -143,13 +143,15 @@ export class PositioningEngine {
     return result;
   }
 
-  /** 拖拽结束回写（#12/#15/#8①）：OS 真实屏幕中心 → 换算偏移 → manual 标记 */
-  updateCenter(id: string, center: Point): void {
+  /** 拖拽结束回写（#12/#15/#8①）：OS 真实屏幕中心 → 换算偏移 → manual 标记。
+   *  返回相对偏移（供 Card 布局回写落盘）；无占区 = null */
+  updateCenter(id: string, center: Point): Point | null {
     const o = this.occupied.find((o) => o.id === id && o.id !== "_pet_");
-    if (!o) return;
+    if (!o) return null;
     o.offset = { x: center.x - this.petCenter.x, y: center.y - this.petCenter.y };
     o.manual = true;
     console.info("[engine] updateCenter (manual)", id, "→ offset", Math.round(o.offset.x), Math.round(o.offset.y));
+    return o.offset;
   }
 
   /** 恢复坐标（pet 移动/托盘回来）：现算 petCenter + offset，无快照（设计定案） */

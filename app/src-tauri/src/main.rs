@@ -170,6 +170,22 @@ async fn list_cards(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
     Ok(json!(out))
 }
 
+/// Card 布局回写（docs/components.md §Card 文件）：拖拽结束把相对 pet 偏移落
+/// .card.json（_meta.layout.offset/manual）。invoke 写动作，端点记录 card_layout
+/// effect（docs/effect-reporting.md §通道：core 接收端记录）
+#[tauri::command]
+async fn update_card_layout(state: tauri::State<'_, SharedTauriState>, id: String, offset: (i64, i64)) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let mut ov = s.overseer().lock().await;
+    match ov.harness.cards_write_layout(&id, offset) {
+        Ok(()) => {
+            ov.record_frontend_effect("card_layout", json!({ "id": id.as_str(), "manual": true }));
+            Ok(json!({ "ok": true }))
+        }
+        Err(e) => Ok(json!({ "ok": false, "error": e })),
+    }
+}
+
 /// 前端非 readonly @tauri-apps/api 调用上报（docs/effect-reporting.md §通道）
 #[tauri::command]
 async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, payload: Option<Value>) -> Result<Value, String> {
@@ -184,7 +200,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             toggle_pet, quit_app,
             get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config,
-            record_effect, list_cards
+            record_effect, list_cards, update_card_layout
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {
@@ -319,7 +335,7 @@ mod ipc_tests {
     fn mock_app_with_commands() -> tauri::App<tauri::test::MockRuntime> {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
-            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards])
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards, update_card_layout])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
     }
@@ -356,6 +372,44 @@ mod ipc_tests {
         let note = arr.iter().find(|c| c["component"]["id"] == "note-2").unwrap();
         assert_eq!(note["user_closed"], json!(true));
         let dir = std::env::temp_dir().join("overseer-ipc-test-list-cards");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn update_card_layout_writes_file_and_effect() {
+        let app = mock_app_with_commands();
+        let state = build_harness_state("layout");
+        {
+            let mut ov = state.overseer().lock().await;
+            ov.harness
+                .cards_upsert(&json!({"id":"todo-1","type":"todobox","title":"清单","items":[{"text":"a","done":false}]}), 1000)
+                .unwrap();
+        }
+        *app.state::<SharedTauriState>().0.lock().unwrap() = Some(state);
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let mut req = ipc("update_card_layout");
+        req.body = tauri::ipc::InvokeBody::Json(json!({ "id": "todo-1", "offset": [30, 40] }));
+        let resp = tauri::test::get_ipc_response(&window, req);
+        let body = resp.unwrap().deserialize::<Value>().unwrap();
+        assert_eq!(body["ok"], json!(true), "{body}");
+        // 文件 _meta.layout 已回写
+        let dir = std::env::temp_dir().join("overseer-ipc-test-layout");
+        let raw: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("memory/cards/todo-1.card.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(raw["_meta"]["layout"]["offset"], json!([30, 40]));
+        assert_eq!(raw["_meta"]["layout"]["manual"], json!(true));
+        // 端点记录 card_layout effect（invoke 写动作 core 接收端记录）
+        let effects = std::fs::read_to_string(dir.join("effect.jsonl")).unwrap();
+        assert!(effects.contains("\"kind\":\"card_layout\""), "{effects}");
+        // 未知 id：ok=false 不落文件
+        let mut req = ipc("update_card_layout");
+        req.body = tauri::ipc::InvokeBody::Json(json!({ "id": "no-such", "offset": [1, 2] }));
+        let resp = tauri::test::get_ipc_response(&window, req);
+        assert_eq!(resp.unwrap().deserialize::<Value>().unwrap()["ok"], json!(false));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
