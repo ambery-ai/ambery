@@ -260,6 +260,51 @@ html.browser body {
 }
 
 
+/* ===== Cards Shelf（docs/view.md，windows/shelf.ts） ===== */
+#shelf-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: rgba(30, 30, 46, 0.97);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e6e6f0;
+  font-size: 12px;
+  overflow: hidden;
+}
+#shelf-head {
+  padding: 10px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  justify-content: space-between;
+  cursor: move;
+  user-select: none;
+}
+#shelf-close { background: none; border: none; color: #aaa; cursor: pointer; }
+#shelf-close:hover { color: #fff; }
+#shelf-body { flex: 1; overflow-y: auto; padding: 8px 12px; }
+.shelf-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.shelf-info { flex: 1; min-width: 0; }
+.shelf-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shelf-sub { color: #8a8a9e; font-size: 10px; }
+.shelf-vis, .shelf-dismiss {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e6e6f0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.shelf-vis:hover, .shelf-dismiss:hover { background: rgba(255, 255, 255, 0.16); }
+.shelf-dismiss { color: #ff9b92; }
+
 /* ===== 托盘设置面板（docs/config.md，windows/menu.ts） ===== */
 #menu-panel {
   display: flex;

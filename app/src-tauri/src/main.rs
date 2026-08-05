@@ -186,6 +186,25 @@ async fn update_card_layout(state: tauri::State<'_, SharedTauriState>, id: Strin
     }
 }
 
+/// Card 显示选择回写（Cards Shelf 显隐切换，docs/components.md §Card 文件）：
+/// 只改 _meta.user_closed（窗口动作由 pet 经 shelf:visibility 事件执行）；
+/// invoke 写动作，端点记录 card_visibility effect（docs/effect-reporting.md §通道）
+#[tauri::command]
+async fn set_card_user_closed(state: tauri::State<'_, SharedTauriState>, id: String, user_closed: bool) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let mut ov = s.overseer().lock().await;
+    match ov.harness.cards_write_user_closed(&id, user_closed) {
+        Ok(()) => {
+            ov.record_frontend_effect(
+                "card_visibility",
+                json!({ "id": id.as_str(), "user_closed": user_closed }),
+            );
+            Ok(json!({ "ok": true }))
+        }
+        Err(e) => Ok(json!({ "ok": false, "error": e })),
+    }
+}
+
 /// 前端非 readonly @tauri-apps/api 调用上报（docs/effect-reporting.md §通道）
 #[tauri::command]
 async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, payload: Option<Value>) -> Result<Value, String> {
@@ -200,16 +219,18 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             toggle_pet, quit_app,
             get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config,
-            record_effect, list_cards, update_card_layout
+            record_effect, list_cards, update_card_layout, set_card_user_closed
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .setup(|app| {
             let pet = app.get_webview_window("pet").expect("pet window");
             let chat = app.get_webview_window("chat").expect("chat window");
             let menu = app.get_webview_window("menu").expect("menu window");
+            let shelf = app.get_webview_window("shelf").expect("shelf window");
 
             window::init_window(&pet);
             window::init_window(&chat);
+            window::init_window(&shelf);
             menu_window::init_menu_window(&menu);
             tray::init_tray(app.handle(), &pet)?;
 
@@ -335,7 +356,7 @@ mod ipc_tests {
     fn mock_app_with_commands() -> tauri::App<tauri::test::MockRuntime> {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
-            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards, update_card_layout])
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards, update_card_layout, set_card_user_closed])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
     }
@@ -410,6 +431,37 @@ mod ipc_tests {
         req.body = tauri::ipc::InvokeBody::Json(json!({ "id": "no-such", "offset": [1, 2] }));
         let resp = tauri::test::get_ipc_response(&window, req);
         assert_eq!(resp.unwrap().deserialize::<Value>().unwrap()["ok"], json!(false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn set_card_user_closed_writes_file_and_effect() {
+        let app = mock_app_with_commands();
+        let state = build_harness_state("visibility");
+        {
+            let mut ov = state.overseer().lock().await;
+            ov.harness
+                .cards_upsert(&json!({"id":"todo-1","type":"todobox","title":"清单","items":[{"text":"a","done":false}]}), 1000)
+                .unwrap();
+        }
+        *app.state::<SharedTauriState>().0.lock().unwrap() = Some(state);
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let mut req = ipc("set_card_user_closed");
+        req.body = tauri::ipc::InvokeBody::Json(json!({ "id": "todo-1", "userClosed": true }));
+        let resp = tauri::test::get_ipc_response(&window, req);
+        assert_eq!(resp.unwrap().deserialize::<Value>().unwrap()["ok"], json!(true));
+        let dir = std::env::temp_dir().join("overseer-ipc-test-visibility");
+        let raw: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("memory/cards/todo-1.card.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(raw["_meta"]["user_closed"], json!(true), "显示选择落文件");
+        // component 不被显示选择回写触碰
+        assert_eq!(raw["component"]["title"], "清单");
+        let effects = std::fs::read_to_string(dir.join("effect.jsonl")).unwrap();
+        assert!(effects.contains("\"kind\":\"card_visibility\""), "{effects}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

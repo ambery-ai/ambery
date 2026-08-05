@@ -53,6 +53,21 @@
         "skipTaskbar": true,
         "visible": true,
         "resizable": false
+      },
+      {
+        "label": "shelf",
+        "title": "shelf",
+        "url": "index.html#shelf",
+        "width": 380,
+        "height": 560,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "focus": false,
+        "shadow": false,
+        "skipTaskbar": true,
+        "visible": false,
+        "resizable": false
       }
     ],
     "security": {

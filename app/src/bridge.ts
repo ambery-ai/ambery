@@ -124,6 +124,8 @@ export interface Bridge {
   /** 可选（TauriBridge）：Card 跨重启恢复——启动拉取全部存活卡片
    *  （component + _meta 显示选择与布局；readonly 查询，docs/components.md §Card 文件） */
   listCards?(): Promise<RestoredCard[]>;
+  /** 可选（TauriBridge）：Card 显示选择回写（Cards Shelf 显隐切换 → _meta.user_closed） */
+  setCardUserClosed?(id: string, userClosed: boolean): Promise<{ ok: boolean; error?: string }>;
 }
 
 /** list_cards 返回项：component 原文 + _meta 状态 */
@@ -391,6 +393,9 @@ class TauriBridge implements Bridge {
       console.error("[bridge] list_cards", e);
       return [];
     });
+  }
+  async setCardUserClosed(id: string, userClosed: boolean): Promise<{ ok: boolean; error?: string }> {
+    return this.invokeFn("set_card_user_closed", { id, userClosed }) as Promise<{ ok: boolean; error?: string }>;
   }
 }
 

@@ -223,12 +223,14 @@ export async function main() {
 
     const onMove = dragDebounce(
       // 系统藏（#12 定案：不动 engine，无快照）
-      () => { emitR("chat:hide"); emitR("cards:hide"); },
+      () => { emitR("chat:hide"); emitR("cards:hide"); emitR("shelf:hide"); },
       (latest: { x: number; y: number }) => {
         // 拖拽结束收束：原则⑥ 越界拉回后再恢复附属窗口
         void settleDragEnd().then(() => {
           const r = engine.restorePositions(petCenter ?? latest);
           if (r.some((w) => w.id === "chat-panel")) emitR("chat:show");
+          const sh = r.find((w) => w.id === "cards-shelf");
+          if (sh) emitR("shelf:show", { x: sh.center.x, y: sh.center.y });
           for (const w of r) {
             if (w.id.startsWith("card-")) emitR("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
           }
@@ -254,10 +256,46 @@ export async function main() {
         petCenter = await derivePetCenter();
         const r = engine.restorePositions(petCenter);
         if (r.some((w) => w.id === "chat-panel")) emitR("chat:show");
+        const sh = r.find((w) => w.id === "cards-shelf");
+        if (sh) emitR("shelf:show", { x: sh.center.x, y: sh.center.y });
         for (const w of r) {
           if (w.id.startsWith("card-")) emitR("cards:show", { id: w.id, x: w.center.x, y: w.center.y });
         }
       })();
+    });
+
+    // Cards Shelf（docs/view.md：Card 集合管理 Surface）：中键 toggle；
+    // shelf:visibility / shelf:dismiss 执行窗口侧动作（文件侧已在 core 落盘）
+    view.el.addEventListener("auxclick", (e) => {
+      if ((e as MouseEvent).button === 1) {
+        e.preventDefault();
+        void actions.emitEvent("shelf:toggle", undefined, "shelf");
+      }
+    });
+    listen<{ id: string; visible: boolean; spec?: any }>("shelf:visibility", async (ev) => {
+      const { id, visible, spec } = ev.payload;
+      const label = `card-${id}`;
+      if (visible) {
+        // 显示：窗在 → 重发 spec（card 侧 requestPlace 命中布局记忆原位恢复 + show）；窗不在 → 重建
+        const existing = await WebviewWindow.getByLabel(label);
+        if (existing && spec) {
+          emitToR(label, "card:spec", spec);
+        } else if (spec) {
+          void renderCard(spec);
+        }
+      } else {
+        // 用户隐藏：释放占区保留布局记忆（一致性剖析），窗口藏起
+        engine.release(label);
+        emitToR(label, "cards:hide");
+      }
+    });
+    listen<{ id: string }>("shelf:dismiss", async (ev) => {
+      const label = `card-${ev.payload.id}`;
+      const existing = await WebviewWindow.getByLabel(label);
+      if (existing) {
+        await actions.closeWindow(existing);
+      }
+      engine.remove(label);
     });
 
     // #9: 每个 card 一个独立 Tauri 窗口，由 pet 动态创建
