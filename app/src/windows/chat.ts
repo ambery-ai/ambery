@@ -210,9 +210,7 @@ export class ChatPanel {
   /** ThinkingBubble：透明气泡「…」，点击展开 ThinkingModal 看 reasoning 全文 */
   private showThinkingBubble() {
     this.thinkEl = document.createElement("div");
-    this.thinkEl.className = "chat-msg chat-system";
-    this.thinkEl.style.cssText =
-      "opacity:0.6;border:1px dashed rgba(255,255,255,0.35);border-radius:8px;cursor:default";
+    this.thinkEl.className = "chat-msg chat-system chat-thinking";
     this.thinkEl.textContent = "…";
     this.thinkEl.title = "思考中（点击看思维链）";
     this.thinkEl.addEventListener("click", () => this.toggleThinkingModal());
@@ -226,13 +224,10 @@ export class ChatPanel {
       return;
     }
     this.thinkModal = document.createElement("div");
-    this.thinkModal.style.cssText =
-      "position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999";
+    this.thinkModal.className = "think-overlay";
     const card = document.createElement("div");
-    card.style.cssText =
-      "max-width:480px;max-height:60vh;overflow:auto;background:#1e1e28;color:#dde;padding:16px;border-radius:10px;font-size:12px";
+    card.className = "think-card";
     const pre = document.createElement("pre");
-    pre.style.cssText = "white-space:pre-wrap;margin:0;font-family:inherit";
     pre.textContent = this.thinkText;
     card.appendChild(pre);
     this.thinkModal.appendChild(card);

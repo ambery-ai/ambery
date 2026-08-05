@@ -55,7 +55,8 @@ export async function main() {
     lastPh = ph;
     const label = win.label; // e.g., "card-notify-ft"
     const pos = await requestPlace(label, { id: label, width: pw, height: ph }, dir);
-    await adapter?.setSize(pw + 8, ph + 8);
+    // chrome 规则（styles.css）：测量值已含 border，窗口恰好包裹内容（阴影留边已废弃）
+    await adapter?.setSize(pw, ph);
     await adapter?.setPosition(Math.round(pos.x - pw / 2), Math.round(pos.y - ph / 2));
     await adapter?.show();
   });

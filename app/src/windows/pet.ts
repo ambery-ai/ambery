@@ -21,15 +21,11 @@ export async function main() {
   const view = new View(mount);
   const faceEl = document.getElementById("face")!;
 
-  // #5 pet 未读角标（spec：默认纯数字、容器内右上；样式/方位走 Config）
+  // #5 pet 未读角标（spec：默认纯数字、容器内右上；样式/方位走 Config，视觉在 styles.css 类）
   const badge = document.createElement("div");
   badge.id = "pet-badge";
   const applyBadgeStyle = (style: string, side: string) => {
-    const pos = side === "left" ? "left:8px;" : "right:8px;";
-    const base = `display:none;position:absolute;${pos}top:50%;transform:translateY(-50%);font-size:12px;font-weight:700;line-height:1;z-index:10;pointer-events:none;`;
-    badge.style.cssText = style === "bubble"
-      ? `${base}background:#f38ba8;color:#fff;border-radius:10px;padding:1px 6px;`
-      : `${base}color:#f38ba8;`;
+    badge.className = `badge-${style === "bubble" ? "bubble" : "number"} side-${side === "left" ? "left" : "right"}`;
   };
   view.el.appendChild(badge);
   let unreadCount = 0;
@@ -39,7 +35,7 @@ export async function main() {
     const newAssist = msgs.filter(m => m.role === "assistant").length;
     unreadCount = Math.max(0, newAssist - prev);
     badge.textContent = String(unreadCount);
-    badge.style.display = unreadCount > 0 ? "" : "none";
+    badge.style.display = unreadCount > 0 ? "block" : "none";
   });
 
   // ── 适配模式 ──

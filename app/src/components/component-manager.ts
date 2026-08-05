@@ -195,7 +195,8 @@ export class ComponentManager {
     wrap.className = "cmp-chart";
     const W = 220;
     const H = 120;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg");
     svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
     svg.setAttribute("width", String(W));
     svg.setAttribute("height", String(H));
@@ -203,7 +204,9 @@ export class ComponentManager {
     const { kind, labels, series } = spec.chart;
     const flat = series.flatMap((s) => s.data);
     const max = Math.max(...flat, 1);
-    const colors = ["#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8"];
+    // 调色板走设计 token（styles.css --ov-chart-*）：SVG paint 属性不认 var()，
+    // 经 style 属性引用（fill/stroke 是 CSS 属性，var() 在文档内解析）
+    const colors = ["var(--ov-chart-1)", "var(--ov-chart-2)", "var(--ov-chart-3)", "var(--ov-chart-4)"];
 
     if (kind === "line") {
       series.forEach((s, si) => {
@@ -211,19 +214,19 @@ export class ComponentManager {
         const points = s.data
           .map((v, i) => `${i * step},${H - (v / max) * (H - 16)}`)
           .join(" ");
-        const pl = document.createElementNS(svg.namespaceURI, "polyline");
+        const pl = document.createElementNS(NS, "polyline");
         pl.setAttribute("points", points);
-        pl.setAttribute("fill", "none");
-        pl.setAttribute("stroke", colors[si % colors.length]);
+        pl.style.fill = "none";
+        pl.style.stroke = colors[si % colors.length];
         pl.setAttribute("stroke-width", "2");
         svg.append(pl);
         s.data.forEach((v, i) => {
-          const c = document.createElementNS(svg.namespaceURI, "circle");
+          const c = document.createElementNS(NS, "circle");
           c.setAttribute("cx", String(i * step));
           c.setAttribute("cy", String(H - (v / max) * (H - 16)));
           c.setAttribute("r", "3");
-          c.setAttribute("fill", colors[si % colors.length]);
-          const tip = document.createElementNS(svg.namespaceURI, "title");
+          c.style.fill = colors[si % colors.length];
+          const tip = document.createElementNS(NS, "title");
           tip.textContent = `${s.name} ${labels[i] ?? i}: ${v}`;
           c.append(tip);
           svg.append(c);
@@ -234,14 +237,14 @@ export class ComponentManager {
       const bw = W / Math.max(groups * series.length, 1);
       series.forEach((s, si) => {
         s.data.forEach((v, i) => {
-          const r = document.createElementNS(svg.namespaceURI, "rect");
+          const r = document.createElementNS(NS, "rect");
           const h = (v / max) * (H - 16);
           r.setAttribute("x", String((i * series.length + si) * bw));
           r.setAttribute("y", String(H - h));
           r.setAttribute("width", String(bw - 2));
           r.setAttribute("height", String(h));
-          r.setAttribute("fill", colors[si % colors.length]);
-          const tip = document.createElementNS(svg.namespaceURI, "title");
+          r.style.fill = colors[si % colors.length];
+          const tip = document.createElementNS(NS, "title");
           tip.textContent = `${s.name} ${labels[i] ?? i}: ${v}`;
           r.append(tip);
           svg.append(r);
@@ -261,13 +264,13 @@ export class ComponentManager {
         const y1 = cy + r * Math.sin(angle);
         const x2 = cx + r * Math.cos(angle + sweep);
         const y2 = cy + r * Math.sin(angle + sweep);
-        const path = document.createElementNS(svg.namespaceURI, "path");
+        const path = document.createElementNS(NS, "path");
         path.setAttribute(
           "d",
           `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`,
         );
-        path.setAttribute("fill", colors[i % colors.length]);
-        const tip = document.createElementNS(svg.namespaceURI, "title");
+        path.style.fill = colors[i % colors.length];
+        const tip = document.createElementNS(NS, "title");
         tip.textContent = `${labels[i] ?? i}: ${v}`;
         path.append(tip);
         svg.append(path);

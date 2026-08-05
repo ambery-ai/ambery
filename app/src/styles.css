@@ -1,6 +1,72 @@
-/* ── 主题变量（#3）── */
-:root { --bg:#11111b; --surface:rgba(30,30,46,0.96); --text:#cdd6f4; --muted:#9399b2; --border:rgba(255,255,255,0.18); --accent:#89b4fa; }
-[data-theme="light"] { --bg:#f5f5f5; --surface:rgba(255,255,255,0.96); --text:#1e1e2e; --muted:#6c7086; --border:rgba(0,0,0,0.12); --accent:#1e66f5; }
+/* ── 设计 token（docs/theme.md：主题 value 的字段收敛源——主题即写这张表）──
+   收敛自既有界面视觉（值与原硬编码逐一对应，视觉零变化）；默认配色表 = 深色。 */
+:root {
+  /* 页面底（仅 browser 调试模式；Tauri 窗口透明） */
+  --ov-bg: #1e1e2e;
+
+  /* 面板族（chat / shelf / menu） */
+  --ov-panel-bg: rgba(30, 30, 46, 0.97);
+  --ov-panel-border: rgba(255, 255, 255, 0.18); /* chat */
+  --ov-panel-border-soft: rgba(255, 255, 255, 0.12); /* shelf / menu */
+  --ov-panel-radius: 12px;
+
+  /* 卡片族（Component） */
+  --ov-card-bg: rgba(30, 30, 46, 0.96);
+  --ov-card-border: rgba(255, 255, 255, 0.18);
+  --ov-card-radius: 10px;
+
+  /* 文本（同族多档透明度由 color-mix 从 --ov-text-strong 派生，主题只调基色） */
+  --ov-text: #cdd6f4;
+  --ov-text-strong: #e6e6f0;
+  --ov-muted: #9399b2;
+  --ov-group: #9dc3ff;
+  --ov-code-bg: rgba(0, 0, 0, 0.3);
+
+  /* 强调与状态 */
+  --ov-accent: #89b4fa;
+  --ov-accent-bg: rgba(137, 180, 250, 0.15);
+  --ov-accent-border: rgba(137, 180, 250, 0.4);
+  --ov-danger: #f38ba8; /* close hover / badge / chart4 */
+  --ov-dismiss: #ff9b92; /* shelf 删除图标 */
+  --ov-success: #a6e3a1;
+  --ov-ok: #7ee787;
+  --ov-warn: #f2cc60;
+  --ov-error: #ff7b72;
+
+  /* pet 白胶囊 */
+  --ov-view-bg: rgba(255, 255, 255, 0.92);
+  --ov-view-border: rgba(0, 0, 0, 0.28);
+
+  /* 控件 */
+  --ov-input-bg: rgba(255, 255, 255, 0.08);
+  --ov-input-border: rgba(255, 255, 255, 0.15);
+  --ov-hover-bg: rgba(255, 255, 255, 0.16);
+  --ov-divider: rgba(255, 255, 255, 0.08);
+  --ov-divider-soft: rgba(255, 255, 255, 0.06);
+  --ov-control-radius: 6px;
+  --ov-input-radius: 8px;
+
+  /* chat 气泡 */
+  --ov-bubble-user: rgba(137, 180, 250, 0.2);
+  --ov-bubble-assistant: rgba(166, 227, 161, 0.14);
+  --ov-bubble-system: rgba(255, 255, 255, 0.06);
+  --ov-thinking-border: rgba(255, 255, 255, 0.35);
+  --ov-overlay-bg: rgba(0, 0, 0, 0.6);
+  --ov-modal-bg: #1e1e28;
+  --ov-modal-text: #dde;
+
+  /* 图表调色板（SVG paint 经 style 属性引用） */
+  --ov-chart-1: #89b4fa;
+  --ov-chart-2: #a6e3a1;
+  --ov-chart-3: #f9e2af;
+  --ov-chart-4: #f38ba8;
+}
+
+/* ── 透明窗口 chrome 规则（#17 定案，单一机制）──
+   填充型面板（chat/shelf/menu 窗口模式）：box-sizing: border-box + 100% 填满窗口，
+     border 内绘于自身盒内，天然落在窗口边界内（不再需要 calc(100%-4px)+margin 内缩环）。
+   自然尺寸型：pet 由窗口尺寸公式 +BORDER_PX 补偿（pet-size.ts）；
+     card 按 offsetWidth/offsetHeight 测量（已含 border），窗口恰好包裹内容。 */
 
 html,
 body {
@@ -14,7 +80,7 @@ body {
 /* 浏览器调试模式：暗色背景 */
 html.browser,
 html.browser body {
-  background: #1e1e2e;
+  background: var(--ov-bg);
 }
 
 /* ── View（concepts §3）：球场圆形浮动窗口，窗内仅颜文字 ──
@@ -27,9 +93,9 @@ html.browser body {
   height: calc(40px * var(--view-scale)); /* ← JS: baselineH 基底 */
   padding: 0 calc(22px * var(--view-scale)); /* ← JS: padLR 基底（22×2） */
   border-radius: calc(20px * var(--view-scale)); /* 球场圆形（pill）= height/2 */
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--ov-view-bg);
   /* 描边（#17 增补）：白胶囊与背景区分；1px 不随 scale。窗口公式 +BORDER_PX 补偿（pet-size.ts） */
-  border: 1px solid rgba(0, 0, 0, 0.28);
+  border: 1px solid var(--ov-view-border);
   box-sizing: content-box;
   display: flex;
   align-items: center;
@@ -45,6 +111,28 @@ html.browser body {
   white-space: nowrap;
   flex-shrink: 0; /* 必须：禁止被容器压缩，确保测量为自然宽度 */
   pointer-events: none;
+}
+
+/* #5 pet 未读角标：样式/方位由 Config 驱动（pet.ts 切 class），默认纯数字容器内右 */
+#pet-badge {
+  display: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  z-index: 10;
+  pointer-events: none;
+}
+#pet-badge.side-right { right: 8px; }
+#pet-badge.side-left { left: 8px; }
+#pet-badge.badge-number { color: var(--ov-danger); }
+#pet-badge.badge-bubble {
+  background: var(--ov-danger);
+  color: #fff;
+  border-radius: 10px;
+  padding: 1px 6px;
 }
 
 /* ── Autonomy motion（docs/autonomy.md） ──
@@ -78,7 +166,7 @@ html.browser body {
 
 /* ── Component（concepts §5 / docs/components.md） ── */
 /* cards 窗口模式：卡片自然流式布局，窗口自身定位（docs/multi-window.md）；
-   card-window 窗口量 card.offsetWidth+8，border 已落在窗口内（无需内缩） */
+   窗口量 offsetWidth/offsetHeight（已含 border），恰好包裹内容（chrome 规则） */
 .cards-mode { height: 100vh; }
 .cards-mode .component { position: static; margin-bottom: 8px; width: fit-content; }
 
@@ -86,10 +174,10 @@ html.browser body {
   position: fixed;
   min-width: 200px;
   max-width: 480px;
-  background: rgba(30, 30, 46, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 10px;
-  color: #cdd6f4;
+  background: var(--ov-card-bg);
+  border: 1px solid var(--ov-card-border);
+  border-radius: var(--ov-card-radius);
+  color: var(--ov-text);
   font-size: 13px;
 }
 
@@ -110,13 +198,13 @@ html.browser body {
 .cmp-close {
   background: none;
   border: none;
-  color: #9399b2;
+  color: var(--ov-muted);
   font-size: 15px;
   cursor: pointer;
   padding: 0 2px;
 }
 
-.cmp-close:hover { color: #f38ba8; }
+.cmp-close:hover { color: var(--ov-danger); }
 
 .cmp-body {
   padding: 4px 10px 10px;
@@ -126,10 +214,10 @@ html.browser body {
 .cmp-body p { margin: 4px 0 8px; white-space: pre-wrap; }
 
 .cmp-body button {
-  background: rgba(137, 180, 250, 0.15);
-  border: 1px solid rgba(137, 180, 250, 0.4);
-  border-radius: 6px;
-  color: #89b4fa;
+  background: var(--ov-accent-bg);
+  border: 1px solid var(--ov-accent-border);
+  border-radius: var(--ov-control-radius);
+  color: var(--ov-accent);
   padding: 3px 10px;
   cursor: pointer;
   font-size: 12px;
@@ -142,12 +230,12 @@ html.browser body {
 
 .cmp-git-log li { margin: 2px 0; font-family: Consolas, monospace; font-size: 12px; }
 
-.cmp-body details summary { cursor: pointer; color: #89b4fa; }
+.cmp-body details summary { cursor: pointer; color: var(--ov-accent); }
 
 .cmp-body details pre {
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--ov-code-bg);
   padding: 6px;
-  border-radius: 6px;
+  border-radius: var(--ov-control-radius);
   overflow: auto;
   max-height: 180px;
   font-size: 11px;
@@ -157,17 +245,17 @@ html.browser body {
 
 .cmp-todo li { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
 
-.cmp-todo li input[type="checkbox"] { accent-color: #a6e3a1; }
+.cmp-todo li input[type="checkbox"] { accent-color: var(--ov-success); }
 
 .cmp-todo li:has(input:checked) span { text-decoration: line-through; opacity: 0.55; }
 
 .cmp-todo > input {
   width: 100%;
   box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  color: #cdd6f4;
+  background: var(--ov-input-bg);
+  border: 1px solid var(--ov-input-border);
+  border-radius: var(--ov-control-radius);
+  color: var(--ov-text);
   padding: 4px 8px;
   margin-top: 6px;
 }
@@ -175,17 +263,14 @@ html.browser body {
 .cmp-chart svg { display: block; }
 
 /* ── Chat Panel（concepts §3a / docs/chat-panel.md） ── */
-/* chat 窗口模式：面板填充整个窗口（docs/multi-window.md）；
-   内缩 2px 让 1px border 整体落在窗口内（#17 增补：右/下 border 被窗口边界裁）。
-   box-sizing:border-box 必须——否则 calc(100%-4px) 是内容宽，border 再加 2px
-   使 border-box=100%-2px 溢出到窗口边缘，内缩失效 */
+/* chat 窗口模式：面板填充整个窗口（docs/multi-window.md + chrome 规则：
+   border-box 100%，border 内绘不被窗口裁；面板与窗口同尺寸，无内缩环） */
 .chat-mode { height: 100vh; }
 .chat-mode #chat-panel {
   position: static;
   box-sizing: border-box;
-  width: calc(100% - 4px);
-  height: calc(100% - 4px);
-  margin: 2px;
+  width: 100%;
+  height: 100%;
 }
 
 #chat-panel {
@@ -194,10 +279,10 @@ html.browser body {
   height: 380px;
   display: flex;
   flex-direction: column;
-  background: rgba(30, 30, 46, 0.97);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 12px;
-  color: #cdd6f4;
+  background: var(--ov-panel-bg);
+  border: 1px solid var(--ov-panel-border);
+  border-radius: var(--ov-panel-radius);
+  color: var(--ov-text);
   font-size: 13px;
 }
 
@@ -214,12 +299,12 @@ html.browser body {
 .chat-close {
   background: none;
   border: none;
-  color: #9399b2;
+  color: var(--ov-muted);
   font-size: 16px;
   cursor: pointer;
 }
 
-.chat-close:hover { color: #f38ba8; }
+.chat-close:hover { color: var(--ov-danger); }
 
 .chat-history {
   flex: 1;
@@ -232,34 +317,69 @@ html.browser body {
 
 .chat-msg {
   padding: 6px 10px;
-  border-radius: 10px;
+  border-radius: var(--ov-card-radius);
   max-width: 85%;
   white-space: pre-wrap;
 }
 
 .chat-user {
   align-self: flex-end;
-  background: rgba(137, 180, 250, 0.2);
+  background: var(--ov-bubble-user);
 }
 
 .chat-assistant {
   align-self: flex-start;
-  background: rgba(166, 227, 161, 0.14);
+  background: var(--ov-bubble-assistant);
 }
 
 .chat-system {
   align-self: center;
-  background: rgba(255, 255, 255, 0.06);
-  color: #9399b2;
+  background: var(--ov-bubble-system);
+  color: var(--ov-muted);
   font-size: 12px;
+}
+
+/* ThinkingBubble（docs/streaming.md）：虚线透明气泡「…」，点击展开 ThinkingModal */
+.chat-thinking {
+  opacity: 0.6;
+  border: 1px dashed var(--ov-thinking-border);
+  border-radius: var(--ov-input-radius);
+  cursor: default;
+}
+
+.think-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--ov-overlay-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.think-card {
+  max-width: 480px;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--ov-modal-bg);
+  color: var(--ov-modal-text);
+  padding: 16px;
+  border-radius: var(--ov-card-radius);
+  font-size: 12px;
+}
+
+.think-card pre {
+  white-space: pre-wrap;
+  margin: 0;
+  font-family: inherit;
 }
 
 .chat-input {
   margin: 8px 12px 12px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  color: #cdd6f4;
+  background: var(--ov-input-bg);
+  border: 1px solid var(--ov-input-border);
+  border-radius: var(--ov-input-radius);
+  color: var(--ov-text);
   padding: 8px 10px;
   outline: none;
 }
@@ -269,15 +389,14 @@ html.browser body {
 #shelf-panel {
   display: flex;
   flex-direction: column;
-  /* 内缩 2px 让 1px border 落在窗口内（#17 增补，同 chat 裁切；border-box 理由同 chat） */
+  /* 填充型面板 chrome 规则：border-box 100%，border 内绘 */
   box-sizing: border-box;
-  width: calc(100% - 4px);
-  height: calc(100% - 4px);
-  margin: 2px;
-  background: rgba(30, 30, 46, 0.97);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #e6e6f0;
+  width: 100%;
+  height: 100%;
+  background: var(--ov-panel-bg);
+  border-radius: var(--ov-panel-radius);
+  border: 1px solid var(--ov-panel-border-soft);
+  color: var(--ov-text-strong);
   font-size: 12px;
   overflow: hidden;
 }
@@ -287,7 +406,7 @@ html.browser body {
   align-items: center;
   gap: 6px;
   padding: 4px 2px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--ov-divider-soft);
 }
 .shelf-type { flex: none; width: 18px; text-align: center; }
 .shelf-title {
@@ -302,13 +421,13 @@ html.browser body {
   flex: none;
   background: none;
   border: none;
-  color: #e6e6f0;
+  color: var(--ov-text-strong);
   padding: 2px 4px;
   cursor: pointer;
   font-size: 12px;
 }
-.shelf-vis:hover, .shelf-dismiss:hover { background: rgba(255, 255, 255, 0.16); border-radius: 4px; }
-.shelf-dismiss { color: #ff9b92; }
+.shelf-vis:hover, .shelf-dismiss:hover { background: var(--ov-hover-bg); border-radius: 4px; }
+.shelf-dismiss { color: var(--ov-dismiss); }
 /* browser overlay 容器（pet 页内嵌的瞬时 Shelf 面板；尺寸由 pet×3 现算） */
 #shelf-overlay {
   position: fixed;
@@ -319,49 +438,48 @@ html.browser body {
 #menu-panel {
   display: flex;
   flex-direction: column;
-  /* 同 chat/shelf：border 落在窗口内（#17 增补） */
+  /* 填充型面板 chrome 规则：border-box 100%，border 内绘 */
   box-sizing: border-box;
-  width: calc(100% - 4px);
-  height: calc(100% - 4px);
-  margin: 2px;
-  background: rgba(30, 30, 46, 0.97);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #e6e6f0;
+  width: 100%;
+  height: 100%;
+  background: var(--ov-panel-bg);
+  border-radius: var(--ov-panel-radius);
+  border: 1px solid var(--ov-panel-border-soft);
+  color: var(--ov-text-strong);
   font-size: 12px;
   overflow: hidden;
 }
 #panel-head {
   padding: 10px 12px;
   font-weight: 600;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--ov-divider);
   display: flex;
   justify-content: space-between;
 }
-#panel-status.ok { color: #7ee787; }
-#panel-status.err { color: #ff7b72; }
-#panel-status.warn { color: #f2cc60; }
+#panel-status.ok { color: var(--ov-ok); }
+#panel-status.err { color: var(--ov-error); }
+#panel-status.warn { color: var(--ov-warn); }
 #panel-body { flex: 1; overflow-y: auto; padding: 8px 12px; }
 #panel-foot {
   padding: 8px 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--ov-divider);
   display: flex;
   gap: 8px;
 }
 #panel-foot button {
   flex: 1;
-  background: rgba(255, 255, 255, 0.08);
-  color: #e6e6f0;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
+  background: var(--ov-input-bg);
+  color: var(--ov-text-strong);
+  border: 1px solid var(--ov-input-border);
+  border-radius: var(--ov-control-radius);
   padding: 5px 0;
   cursor: pointer;
 }
-#panel-foot button:hover { background: rgba(255, 255, 255, 0.16); }
+#panel-foot button:hover { background: var(--ov-hover-bg); }
 .group {
   margin: 10px 0 4px;
   font-weight: 600;
-  color: #9dc3ff;
+  color: var(--ov-group);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -370,29 +488,29 @@ html.browser body {
 .cfg-line .name { flex-shrink: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cfg-line input[type="text"], .cfg-line input[type="number"], .cfg-line select {
   width: 170px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--ov-input-bg);
+  border: 1px solid var(--ov-input-border);
   border-radius: 5px;
-  color: #e6e6f0;
+  color: var(--ov-text-strong);
   padding: 3px 6px;
 }
-.cfg-line input.bad, .cfg-line select.bad { border-color: #ff7b72; }
+.cfg-line input.bad, .cfg-line select.bad { border-color: var(--ov-error); }
 .cfg-line input:disabled { opacity: 0.45; }
-.desc { color: rgba(230, 230, 240, 0.45); font-size: 11px; margin-top: 1px; }
-.map-head { color: rgba(230, 230, 240, 0.75); font-weight: 600; margin-top: 6px; }
-.dim { color: rgba(230, 230, 240, 0.35); font-weight: 400; }
-.warn { color: #f2cc60; padding: 6px 0; }
-.err { color: #ff7b72; }
-.readonly { color: rgba(230, 230, 240, 0.5); }
+.desc { color: color-mix(in srgb, var(--ov-text-strong) 45%, transparent); font-size: 11px; margin-top: 1px; }
+.map-head { color: color-mix(in srgb, var(--ov-text-strong) 75%, transparent); font-weight: 600; margin-top: 6px; }
+.dim { color: color-mix(in srgb, var(--ov-text-strong) 35%, transparent); font-weight: 400; }
+.warn { color: var(--ov-warn); padding: 6px 0; }
+.err { color: var(--ov-error); }
+.readonly { color: color-mix(in srgb, var(--ov-text-strong) 50%, transparent); }
 
 #panel-head-right { display: flex; align-items: center; gap: 8px; }
 #btn-close {
   background: transparent;
   border: none;
-  color: rgba(230, 230, 240, 0.6);
+  color: color-mix(in srgb, var(--ov-text-strong) 60%, transparent);
   font-size: 13px;
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
 }
-#btn-close:hover { color: #ff7b72; }
+#btn-close:hover { color: var(--ov-error); }

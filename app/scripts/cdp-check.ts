@@ -81,6 +81,32 @@ await check(
   `(() => { window.__overseer.callComponent({id:"t1",type:"text_card",title:"T",text:"hello"}); return !!document.querySelector(".component"); })()`,
 );
 
+// C5 token 生效：卡片底色来自 var(--ov-card-bg)（rgba(30,30,46,0.96)）
+await check(
+  "card 底色经 token 解析",
+  `(() => getComputedStyle(document.querySelector(".component")).backgroundColor)()`,
+  "rgba(30, 30, 46, 0.96)",
+);
+// chart 调色板经 token（SVG style 属性引用 var）
+await check(
+  "chart 调色板经 token 解析",
+  `(() => {
+    window.__overseer.callComponent({id:"c1",type:"data_chart",title:"C",chart:{kind:"line",labels:["a","b"],series:[{name:"s",data:[1,2]}]}});
+    const circle = document.querySelector(".cmp-chart circle");
+    return circle && getComputedStyle(circle).fill;
+  })()`,
+  "rgb(137, 180, 250)",
+);
+// badge 类化 + token 色
+await check(
+  "badge 类与 token 色",
+  `(() => {
+    const b = document.getElementById("pet-badge");
+    return b.className.includes("badge-number") && b.className.includes("side-right") && getComputedStyle(b).color;
+  })()`,
+  "rgb(243, 139, 168)",
+);
+
 // store.cards 基线被 shelf 消费：中键开 shelf → 行数 = 1
 await check(
   "中键开 shelf 且行来自 store.cards",
