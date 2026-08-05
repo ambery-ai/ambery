@@ -282,6 +282,8 @@ chat 面板头部的 × 按钮（chat.ts `close.addEventListener("click", () => 
 
 2026-08-06 修复——统一关闭收口：`intentClose()` 成为 × / toggle 关 / OS 关闭请求的唯一路径（置 userClosed + 隐藏 + browser 走 `engine.release` 释放占区保留布局记忆）；windowed 副作用（requestRelease + adapter.hide）经新 `onIntentClose` 钩子由 chat-window.ts 注入，toggle 关与 onCloseRequested 不再各自拼装；旧 `hide()`/`hidePanel()`（engine.remove dismiss 语义残留）删除。浏览器 CDP 实测：× 后 pet 移动不被唤回（userClosed 生效）、重开原位恢复（release 布局记忆）。
 
-## #27 表情自动回落的 effect 可观测性不显式：只能从 window_resized 侧击 (2026-08-05) — open
+## #27 表情自动回落的 effect 可观测性不显式：只能从 window_resized 侧击 (2026-08-05) — fixed
 
 表情自动回落（TTL 到期 → `Autonomy.apply()` → `onExpression` → `applySize`）会无条件调 `adapter.setSize`，每次 set_autonomy / 回落 / 默认推导变化都产一条 `window_resized` effect——即使窗口尺寸未变（motion overflow 相同）也记（applySize 无条件 setSize + window-adapter 无条件 reportEffect）。effect 流里没有"表情变化"专用 kind，回落的可观测语义只能靠 w/h 是否变化从 resize 侧击推断。建议：新增专用 effect kind `expression_changed {face, motion, source: set_autonomy|revert|derive}`，让覆盖/回落/推导各自语义显式；`applySize` 先比较窗口尺寸，未变则不调 setSize（window_resized 回归只记真正 resize，消除尺寸未变的噪音）。
+
+2026-08-06 修复——双件落地：① `expression_changed {face, motion, source}` 专用 kind（source = set_autonomy 覆盖 / revert TTL 回落 / derive 默认推导），pet.ts Autonomy 回调处经 reportEffect 上报（Tauri 模式；browser no-op）；② 双去重——Autonomy.apply 表情未变不 emit（lastFace/lastMotion 比对），applySize 尺寸/偏移未变不调 setSize/setOffset（lastSizeKey/lastOffsetKey），window_resized 只记真正 resize。autonomy 冒烟 9 断言绿（derive/set_autonomy/revert 源语义 + 去重 + 覆盖期 topState 不中断 + TTL 回落）；CDP 9 断言回归绿。

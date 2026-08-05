@@ -2,6 +2,7 @@
 // 窗口尺寸走 docs/pet-window-size.md：纯函数公式 + 六入口 + 中心锚定（钉基准中心，非窗口几何中心）
 import { Autonomy } from "../autonomy";
 import { BrowserMockBridge, createBridge, type AppConfig, type Motion } from "../bridge";
+import { reportEffect } from "../effects";
 import { motionDef } from "../motions";
 import { contextSize, MAX_FACE_MARGIN, MIN_FACE_W, obstacleSize, windowSize } from "../pet-size";
 import { engine, setupServer } from "../positioning/tauri-server";
@@ -99,6 +100,10 @@ export async function main() {
     }
   }
 
+  /** #27：尺寸/偏移未变不调 setSize/setOffset（window_resized 回归只记真正 resize） */
+  let lastSizeKey = "";
+  let lastOffsetKey = "";
+
   /** 一个公式 → setSize + 中心锚定（入口 1/2/3 共用）。anchor=false 仅重设尺寸（init 时中心待推） */
   async function applySize(anchor: boolean) {
     const o = motionDef(curMotion).overflow;
@@ -108,9 +113,19 @@ export async function main() {
         `[pet] face 宽 ${faceW.toFixed(1)} 超 maxFaceWidth ${maxFaceW.toFixed(1)}（障碍区外，clip 风险）`,
       );
     }
-    await adapter.setSize(Math.ceil(sz.w * dpr()), Math.ceil(sz.h * dpr()));
+    const w = Math.ceil(sz.w * dpr());
+    const h = Math.ceil(sz.h * dpr());
+    const sizeKey = `${w}x${h}`;
+    if (sizeKey !== lastSizeKey) {
+      lastSizeKey = sizeKey;
+      await adapter.setSize(w, h);
+    }
     // view 在窗口内归位（CSS px）：上/左留出当前 motion 的溢出空间
-    adapter.setOffset(o.top, o.left);
+    const offsetKey = `${o.top},${o.left}`;
+    if (offsetKey !== lastOffsetKey) {
+      lastOffsetKey = offsetKey;
+      adapter.setOffset(o.top, o.left);
+    }
     if (anchor && petCenter) {
       // 原则① 中心不变：先定新 center = old center，再反推新左上角
       const off = centerOffset();
@@ -457,11 +472,13 @@ export async function main() {
   }
 
   // ── Autonomy：expression 变化驱动尺寸重算（入口 1/3） ──
-  const autonomy = new Autonomy(store, (e) => {
+  const autonomy = new Autonomy(store, (e, source) => {
     view.setExpression(e);
     faceW = measureFaceW(); // 入口 1：face 变 → 重测自然宽度
     curMotion = e.motion; // 入口 3：motion 变 → 换当前四向溢出
-    void applySize(true); // 中心锚定（petCenter 已就位）
+    // #27：表情变化专用 effect（Tauri 模式；browser 为 no-op），覆盖/回落/推导语义显式
+    reportEffect("expression_changed", { face: e.face, motion: e.motion, source });
+    void applySize(true); // 中心锚定（petCenter 已就位；尺寸未变内部跳过 setSize）
   });
   bridge.onSetAutonomy?.((args) => autonomy.setAutonomy(args)); // set_autonomy 是推送事件（非 store 状态）
 

@@ -3,7 +3,7 @@
 
 import type { AppConfig, Motion, TopState } from "./bridge";
 import type { Store } from "./store";
-import { motionDef } from "./motions";
+import { motionDef } from "./motions.ts"; // 显式扩展名：node 冒烟可直接跑本模块链
 
 export interface Expression {
   face: string;
@@ -14,6 +14,9 @@ interface Override {
   face?: string;
   motion?: Motion;
 }
+
+/** 表情变化来源（#27 effect 语义显式）：set_autonomy 覆盖 / revert TTL 回落 / derive 默认推导 */
+export type AutonomySource = "set_autonomy" | "revert" | "derive";
 
 const FALLBACK: Record<string, Expression> = {
   notify: { face: "✧*｡٩(ˊᗜˋ*)و✧*｡", motion: "bounce" },
@@ -27,9 +30,13 @@ export class Autonomy {
   private override: Override | null = null;
   private overrideTimer: number | null = null;
 
+  /** 上次实际发出的表情（#27：未变不 emit——effect 流不再靠 window_resized 侧击推断） */
+  private lastFace: string | null = null;
+  private lastMotion: Motion | null = null;
+
   constructor(
     private store: Store,
-    private onExpression: (e: Expression) => void,
+    private onExpression: (e: Expression, source: AutonomySource) => void,
   ) {}
 
   /** 基线从 store 读（createStore 已完成拉取）；变化经 store 订阅 */
@@ -39,9 +46,9 @@ export class Autonomy {
     this.store.onTopState((s) => {
       this.topState = s;
       // 覆盖期间顶层状态变化不中断覆盖（docs/autonomy.md §set_autonomy）
-      if (!this.override) this.apply();
+      if (!this.override) this.apply("derive");
     });
-    this.apply();
+    this.apply("derive");
   }
 
   /** 默认推导（优先级：notify > processing > idle）；key 在两池并集解析（docs/autonomy.md） */
@@ -64,7 +71,7 @@ export class Autonomy {
   /** edit_config 推送后热更新映射表（RemoteBridge onConfigChanged） */
   updateConfig(config: AppConfig) {
     this.config = config;
-    this.apply();
+    this.apply("derive");
   }
 
   /** set_autonomy tool 语义（docs/autonomy.md）：once=true 按 MotionDef.durationMs 取 TTL
@@ -75,7 +82,7 @@ export class Autonomy {
       (args.face === undefined && args.motion === undefined) || args.ttlMs === 0;
     if (isClear) {
       this.clearOverride();
-      this.apply();
+      this.apply("set_autonomy");
       return;
     }
     this.override = { face: args.face, motion: args.motion };
@@ -90,9 +97,9 @@ export class Autonomy {
     this.overrideTimer = window.setTimeout(() => {
       this.override = null;
       this.overrideTimer = null;
-      this.apply();
+      this.apply("revert");
     }, ttl);
-    this.apply();
+    this.apply("set_autonomy");
   }
 
   private clearOverride() {
@@ -103,11 +110,15 @@ export class Autonomy {
     }
   }
 
-  private apply() {
+  private apply(source: AutonomySource) {
     const d = this.deriveDefault(this.topState);
     const e: Expression = this.override
       ? { face: this.override.face ?? d.face, motion: this.override.motion ?? d.motion }
       : d;
-    this.onExpression(e);
+    // #27：表情未实际变化不 emit——调用处（尺寸重算 / expression_changed 上报）随之跳过
+    if (e.face === this.lastFace && e.motion === this.lastMotion) return;
+    this.lastFace = e.face;
+    this.lastMotion = e.motion;
+    this.onExpression(e, source);
   }
 }
