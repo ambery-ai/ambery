@@ -88,15 +88,15 @@ async fn push_event(state: tauri::State<'_, SharedTauriState>, desc: String, car
     let mut ov = s.overseer().lock().await;
     // 动作流记录（docs/effect-reporting.md §kind）：前端 push_event = interaction/frontend
     ov.record_frontend_effect("interaction", json!({ "desc": desc.as_str(), "card_id": card_id.as_deref() }));
-    // 用户 × 关卡：closed_by_user 双行事件（docs/components.md）
+    // 用户 × 关卡：dismiss（删 .card.json、出注册表、忘记布局）+ closed_by_user 双行事件
     if let Some(cid) = card_id.as_deref() {
         let ts = now_ms();
-        if let Some(meta) = ov.cards.remove(cid) {
+        if let Some(entry) = ov.harness.cards_remove(cid) {
             let lc = overseer_core::lifecycle::DefaultLifecycle;
             use overseer_core::lifecycle::Lifecycle;
-            ov.harness.event_buffer.push(lc.user_close_line(&meta));
-            let alive = ov.cards.len();
-            ov.harness.event_buffer.push(lc.closed_line(&meta, alive, ts));
+            ov.harness.event_buffer.push(lc.user_close_line(&entry.meta));
+            let alive = ov.harness.cards.len();
+            ov.harness.event_buffer.push(lc.closed_line(&entry.meta, alive, ts));
             return Ok(json!({ "ok": true }));
         }
     }

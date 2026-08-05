@@ -66,6 +66,17 @@ pub struct CronSnapshot {
     pub next_due: Option<i64>,
 }
 
+/// Card 快照条目（注册表投影：id/typ/title/created + _meta 显示选择与布局；不展开 component）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CardSnapshot {
+    pub id: String,
+    pub typ: String,
+    pub title: String,
+    pub created: i64,
+    pub user_closed: bool,
+    pub layout: crate::cards::CardLayout,
+}
+
 impl Observable for Queue {
     type Snapshot = Vec<QueueInput>;
     fn observe(&self) -> Self::Snapshot {
@@ -142,6 +153,25 @@ impl Observable for crate::cron::CronScheduler {
     }
 }
 
+impl Observable for std::collections::HashMap<String, crate::cards::CardEntry> {
+    type Snapshot = Vec<CardSnapshot>;
+    fn observe(&self) -> Self::Snapshot {
+        let mut v: Vec<CardSnapshot> = self
+            .values()
+            .map(|e| CardSnapshot {
+                id: e.meta.id.clone(),
+                typ: e.meta.typ.clone(),
+                title: e.meta.title.clone(),
+                created: e.meta.created,
+                user_closed: e.user_closed,
+                layout: e.layout.clone(),
+            })
+            .collect();
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+        v
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,6 +228,28 @@ mod tests {
         assert_eq!(snap.len(), 1);
         assert_eq!(snap[0].name, "work-preferences");
         assert_eq!(snap[0].description, "用户的工作偏好");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cards_projection() {
+        let mut cards = std::collections::HashMap::new();
+        let dir = std::env::temp_dir().join(format!("overseer-obs-cards-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        crate::cards::upsert(
+            &dir,
+            &mut cards,
+            &serde_json::json!({"id":"todo-1","type":"todobox","title":"清单","items":[{"text":"a","done":false}]}),
+            1000,
+        )
+        .unwrap();
+        let snap = cards.observe();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap[0].id, "todo-1");
+        assert_eq!(snap[0].typ, "todobox");
+        assert!(!snap[0].user_closed);
+        assert_eq!(snap[0].layout.offset, None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

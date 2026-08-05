@@ -6,6 +6,7 @@
 // 别名让 crate 内外（含 doctest/下游）都能解析（serde 同款手法）
 extern crate self as overseer_core;
 
+pub mod cards;
 pub mod config;
 pub mod content;
 pub mod context;
@@ -201,6 +202,9 @@ pub struct Harness {
     /// Cron（concepts §10g，docs/cron.md）：持久化计划与延时调度（entries 持久化
     /// + sleep waiters 共享句柄）
     pub cron: cron::CronScheduler,
+    /// Card 注册表（docs/components.md §Card 文件）：存活卡片的运行期投影
+    /// （memory/cards/<id>.card.json 文件即真相；dismiss = 删文件出注册表）
+    pub cards: std::collections::HashMap<String, cards::CardEntry>,
     #[cfg_attr(feature = "case-runner", observe(skip = "JSONL 持久化句柄（机制非概念）"))]
     store: JsonlStore,
     #[cfg_attr(feature = "case-runner", observe(skip = "Config 域路径（机制非概念）"))]
@@ -258,6 +262,8 @@ impl Harness {
         let memory = memory::Memory::bootstrap(dir)?;
         // Cron 调度器：replay cron.jsonl 折叠计划集（concepts §10g，docs/cron.md）
         let cron = cron::CronScheduler::load(dir)?;
+        // Card 注册表：从 memory/cards/*.card.json 恢复（文件即真相，不经 effect replay）
+        let cards = cards::load_all(&dir.join(memory::MEMORY_DIR).join(memory::CARDS_DIR));
         let mut h = Self {
             // Queue 不 replay：崩溃丢失未放行输入可接受（docs/storage.md 设计决定）
             queue: Queue::default(),
@@ -271,6 +277,7 @@ impl Harness {
             last_usage_ts: None,
             memory,
             cron,
+            cards,
             store,
             config_dir: config_dir.to_path_buf(),
         };
@@ -399,6 +406,36 @@ impl Harness {
 
     pub fn storage_dir(&self) -> &std::path::Path {
         self.store.dir()
+    }
+
+    /// memory/cards/ 目录（Card 文件落盘处）
+    pub fn cards_dir(&self) -> std::path::PathBuf {
+        self.storage_dir().join(memory::MEMORY_DIR).join(memory::CARDS_DIR)
+    }
+
+    /// Card upsert 落盘（render_component 创建/更新）：文件先写成功后改内存；
+    /// 返回 (CardMeta, created)——created=true 时调用方发 created 生命周期事件
+    pub fn cards_upsert(
+        &mut self,
+        spec: &serde_json::Value,
+        ts: i64,
+    ) -> Result<(crate::lifecycle::CardMeta, bool), String> {
+        cards::upsert(&self.cards_dir(), &mut self.cards, spec, ts)
+    }
+
+    /// Card dismiss（agent close / 用户 × 共用）：删文件、出注册表、忘记布局
+    pub fn cards_remove(&mut self, id: &str) -> Option<cards::CardEntry> {
+        cards::remove(&self.cards_dir(), &mut self.cards, id)
+    }
+
+    /// Card 布局回写（用户拖拽结束）：只改 _meta.layout.offset/manual
+    pub fn cards_write_layout(&mut self, id: &str, offset: (i64, i64)) -> Result<(), String> {
+        cards::write_layout(&self.cards_dir(), &mut self.cards, id, offset)
+    }
+
+    /// Card 显示选择回写（用户隐藏/恢复）：只改 _meta.user_closed
+    pub fn cards_write_user_closed(&mut self, id: &str, user_closed: bool) -> Result<(), String> {
+        cards::write_user_closed(&self.cards_dir(), &mut self.cards, id, user_closed)
     }
 
     /// Config 域目录（AGENTS.md 等，docs/storage.md）

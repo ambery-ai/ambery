@@ -88,9 +88,6 @@ pub struct OverseerBackend<L: Llm> {
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
     /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
     pub sidecar_enabled: bool,
-    /// 存活卡片注册表（Component 持续管理协议：create/update/close 判定依据
-    /// + 生命周期事件元数据，docs/components.md）
-    pub cards: std::collections::HashMap<String, crate::lifecycle::CardMeta>,
     /// 流式 delta 旁路（docs/streaming.md）：run_trigger 每收到 delta 即发——
     /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播
     pub effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>,
@@ -190,7 +187,6 @@ impl<L: Llm> OverseerBackend<L> {
             terminal_reader: None,
             vd_switcher: None,
             sidecar_enabled: false,
-            cards: std::collections::HashMap::new(),
             effect_sink: None,
             config_cold_snapshot,
             query_snapshots: Vec::new(),
@@ -1363,10 +1359,14 @@ impl<L: Llm> OverseerBackend<L> {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                // Tauri label 规则：只允许 [A-Za-z0-9_\-/.]+
-                if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/') {
+                // Tauri label 规则：只允许 [A-Za-z0-9_\-/.]+；id 即 Card 文件相对路径
+                //（memory/cards/<id>.card.json）——禁空段与 `..` 段（路径逃逸防护）
+                if id.is_empty()
+                    || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/')
+                    || id.split('/').any(|seg| seg.is_empty() || seg == "..")
+                {
                     return (
-                        json!({ "ok": false, "error": format!("spec.id '{id}' 不合法：窗口名只允许 A-Z a-z 0-9 _ - . /，不含空格、中文或特殊字符") }),
+                        json!({ "ok": false, "error": format!("spec.id '{id}' 不合法：窗口名只允许 A-Z a-z 0-9 _ - . /，不含空格、中文或特殊字符；路径段不得为空或 '..'") }),
                         vec![],
                     );
                 }
@@ -1380,10 +1380,11 @@ impl<L: Llm> OverseerBackend<L> {
                     .and_then(Value::as_str);
                 if action == Some("close") {
                     let ts = crate::server::now_ms();
-                    if let Some(meta) = self.cards.remove(&id) {
+                    // dismiss：删 .card.json 文件、出注册表、忘记布局（docs/components.md §Card 文件）
+                    if let Some(entry) = self.harness.cards_remove(&id) {
                         // closed_by_agent 生命周期事件（一行，进 EventBuffer 静默簿记）
-                        let alive = self.cards.len();
-                        let line = crate::lifecycle::DefaultLifecycle.closed_line(&meta, alive, ts);
+                        let alive = self.harness.cards.len();
+                        let line = crate::lifecycle::DefaultLifecycle.closed_line(&entry.meta, alive, ts);
                         self.harness.event_buffer.push(line);
                     }
                     return (
@@ -1436,24 +1437,20 @@ impl<L: Llm> OverseerBackend<L> {
                         }
                     }
                 }
-                // 创建 / 原地更新（同 id 不再 toggle 关闭）
-                let typ = spec.get("type").and_then(Value::as_str).unwrap_or("").to_string();
-                let title = spec.get("title").and_then(Value::as_str).unwrap_or("").to_string();
-                if !self.cards.contains_key(&id) {
-                    // created 生命周期事件（进 EventBuffer 静默簿记；agent 更新不产事件）
-                    let ts = crate::server::now_ms();
-                    let meta = crate::lifecycle::CardMeta {
-                        id: id.clone(),
-                        typ,
-                        title,
-                        created: ts,
-                    };
-                    let line = crate::lifecycle::DefaultLifecycle.created_line(&meta, self.cards.len() + 1);
-                    self.harness.event_buffer.push(line);
-                    self.cards.insert(id.clone(), meta);
-                    (json!({ "ok": true, "rendered": id }), vec![Effect::RenderComponent(spec)])
-                } else {
-                    (json!({ "ok": true, "updated": id }), vec![Effect::RenderComponent(spec)])
+                // 创建 / 原地更新（同 id 不再 toggle 关闭）：先落 .card.json 文件再改注册表；
+                // 更新只换 component，_meta（显示选择/布局）保留——Agent 不能借更新覆盖用户选择
+                let ts = crate::server::now_ms();
+                match self.harness.cards_upsert(&spec, ts) {
+                    Err(e) => (json!({ "ok": false, "error": e }), vec![]),
+                    Ok((meta, created)) => {
+                        if created {
+                            // created 生命周期事件（进 EventBuffer 静默簿记；agent 更新不产事件）
+                            let line = crate::lifecycle::DefaultLifecycle.created_line(&meta, self.harness.cards.len());
+                            self.harness.event_buffer.push(line);
+                            return (json!({ "ok": true, "rendered": id }), vec![Effect::RenderComponent(spec)]);
+                        }
+                        (json!({ "ok": true, "updated": id }), vec![Effect::RenderComponent(spec)])
+                    }
                 }
             }
             "fetch_terminal" => {
@@ -2387,17 +2384,24 @@ mod tests {
             name: "call_component".into(),
             arguments: json!({"spec": {"id": "todo-1", "type": "todobox", "title": "t", "items": [{"text": text, "done": false}]}}).to_string(),
         };
-        // 创建 → rendered
+        // 创建 → rendered + .card.json 落盘
         let (r1, e1) = ov.execute_tool(&mk("a")).await;
         assert_eq!(r1["rendered"], json!("todo-1"));
         assert!(matches!(e1[0], Effect::RenderComponent(_)));
-        assert!(ov.cards.contains_key("todo-1"));
-        // 同 id → updated（不再 toggle 关闭）
+        assert!(ov.harness.cards.contains_key("todo-1"));
+        let card_file = ov.harness.cards_dir().join("todo-1.card.json");
+        assert!(card_file.exists(), "创建即落盘 .card.json");
+        let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&card_file).unwrap()).unwrap();
+        assert_eq!(on_disk["component"]["items"][0]["text"], "a");
+        // 同 id → updated（不再 toggle 关闭）；component 换、_meta 保留
         let (r2, e2) = ov.execute_tool(&mk("b")).await;
         assert_eq!(r2["updated"], json!("todo-1"));
         assert!(matches!(e2[0], Effect::RenderComponent(_)));
-        assert!(ov.cards.contains_key("todo-1"));
-        // close action → closed + CloseComponent effect
+        assert!(ov.harness.cards.contains_key("todo-1"));
+        let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&card_file).unwrap()).unwrap();
+        assert_eq!(on_disk["component"]["items"][0]["text"], "b", "更新只换 component");
+        assert_eq!(on_disk["_meta"]["user_closed"], false);
+        // close action → closed + CloseComponent effect + dismiss 删文件
         let close_call = crate::context::ToolCall {
             id: "c2".into(),
             name: "call_component".into(),
@@ -2406,7 +2410,8 @@ mod tests {
         let (r3, e3) = ov.execute_tool(&close_call).await;
         assert_eq!(r3["closed"], json!("todo-1"));
         assert!(matches!(e3[0], Effect::CloseComponent(_)));
-        assert!(!ov.cards.contains_key("todo-1"));
+        assert!(!ov.harness.cards.contains_key("todo-1"));
+        assert!(!card_file.exists(), "dismiss 删 .card.json");
         // 生命周期事件（docs/components.md）：created 一行 + closed 一行，均进 EventBuffer 静默簿记
         let owned = ov.harness.event_buffer.events();
         let events: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
@@ -2435,8 +2440,33 @@ mod tests {
         let (r2, e2) = ov.execute_tool(&close).await;
         assert_eq!(r2["closed"], json!("demo_line"));
         assert!(matches!(e2[0], Effect::CloseComponent(_)));
-        assert!(!ov.cards.contains_key("demo_line"));
+        assert!(!ov.harness.cards.contains_key("demo_line"));
         let _ = std::fs::remove_dir_all(tmp_dir("cmp-close-outside"));
+    }
+
+    #[tokio::test]
+    async fn call_component_registry_restored_from_card_files() {
+        // Card 跨重启（docs/components.md §Card 文件）：文件即真相——新 Harness 从
+        // memory/cards/*.card.json 恢复注册表，不经 effect.jsonl replay
+        let tag = "cmp-reload";
+        let dir = tmp_dir(tag);
+        {
+            let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
+            let mut ov = OverseerBackend::new(harness, Config::default(), DebugAgent::silent());
+            let call = crate::context::ToolCall {
+                id: "c1".into(),
+                name: "call_component".into(),
+                arguments: json!({"spec": {"id": "todo-1", "type": "todobox", "title": "清单", "items": [{"text": "a", "done": false}]}}).to_string(),
+            };
+            ov.execute_tool(&call).await;
+            assert!(ov.harness.cards.contains_key("todo-1"));
+        } // ov drop（模拟进程退出）
+        // 第二次 load 不清目录 = 进程重启
+        let harness2 = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let ov2 = OverseerBackend::new(harness2, Config::default(), DebugAgent::silent());
+        assert!(ov2.harness.cards.contains_key("todo-1"), "重启后注册表从文件恢复");
+        assert_eq!(ov2.harness.cards["todo-1"].meta.title, "清单");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
