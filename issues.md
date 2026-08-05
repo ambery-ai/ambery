@@ -261,3 +261,7 @@ pet 创建 card 窗口时 `new WebviewWindow(label, {...})` 未传 `title`，窗
 ## #26 chat 面板 × 按钮绕过统一关闭 API：窗口不隐藏、userClosed 不置、占区不清 (2026-08-05) — open
 
 chat 面板头部的 × 按钮（chat.ts `close.addEventListener("click", () => this.hide())`）直接调 `ChatPanel.hide()`，绕过文档定义的统一关闭 API（window-follow.md：× / toggle 关 → `intentClose()`）。Tauri 模式下 engine 为 null，`hide()` 只置 `el.hidden=true`，不调 `adapter.hide()`（透明空窗残留）、不置 `userClosed`、不释放 engine 占区；浏览器模式误用 `engine.remove`（dismiss 语义）而非 `engine.release`（释放占区保留布局记忆）。对比：toggle 关闭与窗口 onCloseRequested 两条路径都正确走 `intentClose() + requestRelease`。建议：× 点击改为 `intentClose() + requestRelease("chat-panel") + adapter.hide()`，与另两条路径统一；`hide()` 归并或弃用，避免旧语义残留。
+
+## #27 表情自动回落的 effect 可观测性不显式：只能从 window_resized 侧击 (2026-08-05) — open
+
+表情自动回落（TTL 到期 → `Autonomy.apply()` → `onExpression` → `applySize`）会无条件调 `adapter.setSize`，每次 set_autonomy / 回落 / 默认推导变化都产一条 `window_resized` effect——即使窗口尺寸未变（motion overflow 相同）也记（applySize 无条件 setSize + window-adapter 无条件 reportEffect）。effect 流里没有"表情变化"专用 kind，回落的可观测语义只能靠 w/h 是否变化从 resize 侧击推断。建议：新增专用 effect kind `expression_changed {face, motion, source: set_autonomy|revert|derive}`，让覆盖/回落/推导各自语义显式；`applySize` 先比较窗口尺寸，未变则不调 setSize（window_resized 回归只记真正 resize，消除尺寸未变的噪音）。
