@@ -257,3 +257,7 @@ pet 创建 card 窗口时 `new WebviewWindow(label, {...})` 未传 `title`，窗
 ## #25 card 重复展示：create/delete/update 序列下同 id 出现重复窗口 (2026-08-02) — open
 
 随机对同一 card id 执行创建→删除→更新（或创建后用户手动关闭再更新）时，同 id 卡片出现重复窗口/重复展示。疑因持续管理协议以 `getByLabel(label)` 判断存在性：窗口 `close()` 是异步的，关闭未完成时 getByLabel 仍返回旧窗口（emitTo 发往将死窗口，显示失败或无反应），关闭完成后再 create 又新建窗口，新旧并存；用户手动关闭的窗口也未同步通知 pet 移除注册，状态分叉。建议：以显式窗口生命周期状态跟踪（pending/creating/visible/closing/closed）取代依赖 getByLabel 的存在性判断，并让 user close 回传 pet 同步。
+
+## #26 chat 面板 × 按钮绕过统一关闭 API：窗口不隐藏、userClosed 不置、占区不清 (2026-08-05) — open
+
+chat 面板头部的 × 按钮（chat.ts `close.addEventListener("click", () => this.hide())`）直接调 `ChatPanel.hide()`，绕过文档定义的统一关闭 API（window-follow.md：× / toggle 关 → `intentClose()`）。Tauri 模式下 engine 为 null，`hide()` 只置 `el.hidden=true`，不调 `adapter.hide()`（透明空窗残留）、不置 `userClosed`、不释放 engine 占区；浏览器模式误用 `engine.remove`（dismiss 语义）而非 `engine.release`（释放占区保留布局记忆）。对比：toggle 关闭与窗口 onCloseRequested 两条路径都正确走 `intentClose() + requestRelease`。建议：× 点击改为 `intentClose() + requestRelease("chat-panel") + adapter.hide()`，与另两条路径统一；`hide()` 归并或弃用，避免旧语义残留。
