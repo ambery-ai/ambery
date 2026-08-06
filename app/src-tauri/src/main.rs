@@ -151,7 +151,11 @@ async fn export_theme(state: tauri::State<'_, SharedTauriState>, name: String) -
     let ov = s.overseer().lock().await;
     let root = ov.harness.config_dir().to_path_buf();
     match overseer_core::config::theme::export_theme(&root, &ov.config, &name) {
-        Ok(path) => Ok(json!({ "ok": true, "path": path.display().to_string() })),
+        Ok(path) => {
+            // 写文件副作用，端点记录（docs/effect-reporting.md §通道）
+            ov.record_frontend_effect("theme_export", json!({ "name": name.as_str() }));
+            Ok(json!({ "ok": true, "path": path.display().to_string() }))
+        }
         Err(e) => Ok(json!({ "ok": false, "error": e })),
     }
 }

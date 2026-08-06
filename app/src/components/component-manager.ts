@@ -21,6 +21,9 @@ export class ComponentManager {
   private layer: HTMLDivElement;
   private cards = new Map<string, HTMLDivElement>();
 
+  /** 屏幕逻辑高度缓存（#20 高度 cap 取口） */
+  private screenH: number | null = null;
+
   constructor(
     mount: HTMLElement,
     private bridge: Bridge,
@@ -29,7 +32,11 @@ export class ComponentManager {
     public windowed = false,
     /** browser 模式：卡片纳入 engine 语义（place 注册 / follow 重排，docs/window-follow.md） */
     private engine?: PositioningEngine,
+    /** 屏幕高度提供方（docs/window-follow.md §显示器几何：消费通道统一走 adapter 取口；
+     *  缺省回落 window.screen——browser 单屏调试可接受） */
+    private screenHeightProvider?: () => Promise<number>,
   ) {
+    void this.screenHeightProvider?.().then((h) => (this.screenH = h));
     this.layer = document.createElement("div");
     this.layer.id = "components";
     if (windowed) mount.classList.add("cards-mode");
@@ -71,6 +78,7 @@ export class ComponentManager {
       if (spec.direction) existing.dataset.direction = spec.direction;
       return;
     }
+    void this.screenHeightProvider?.().then((h) => (this.screenH = h));
     const card = this.buildCard(spec);
     if (spec.direction) card.dataset.direction = spec.direction;
     // browser：DOM 拖拽（docs/window-follow.md §拖拽回写；Tauri 走 OS startDragging）
@@ -143,8 +151,10 @@ export class ComponentManager {
     const body = this.buildBody(spec);
     card.append(header, body);
     // #20 高度 cap（单源：Tauri/browser 共用渲染路径）——body 限高 = 屏高×0.5 − header，
+    // 屏高经 adapter 取口（docs/window-follow.md §显示器几何：分支不各自 window.screen），
     // 超长走 .cmp-body 滚动（styles.css overflow-y:auto），内容不截断
-    const cap = Math.max(window.screen.availHeight * 0.5 - (header.offsetHeight || 40), 120);
+    const screenH = this.screenH ?? window.screen.availHeight;
+    const cap = Math.max(screenH * 0.5 - (header.offsetHeight || 40), 120);
     body.style.maxHeight = `${cap}px`;
     return card;
   }
@@ -362,23 +372,24 @@ export class ComponentManager {
   }
 
   /** 方位几何（docs/components.md）：engine 优先（单源语义），无 engine 时本地锚点偏移。
+   *  auto 在两路径各自现算最大剩余空间（engine 与本地四象限同一语义）。
    *  不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见） */
   private place(card: HTMLDivElement, dir: Direction) {
-    const d =
-      dir === "auto"
-        ? this.autoDirection()
-        : dir;
     const cw = card.offsetWidth || 260;
     const ch = card.offsetHeight || 140;
     if (this.engine) {
-      // engine 语义：注册进 occupied（跟随/恢复由 engine 管）
+      // engine 语义：注册进 occupied（跟随/恢复由 engine 管）；auto 透传（engine 现算最大剩余空间）
       const specId = card.dataset.id!;
-      const edir = directionFromName(d) ?? 7; // 默认 sse（16 方位枚举值）
+      const edir = dir === "auto" ? "auto" as const : directionFromName(dir) ?? 7; // 默认 sse（16 方位枚举值）
       const pos = this.engine.place({ id: `card-${specId}`, width: cw, height: ch }, edir);
       card.style.left = `${pos.x - cw / 2}px`;
       card.style.top = `${pos.y - ch / 2}px`;
       return;
     }
+    const d =
+      dir === "auto"
+        ? this.autoDirection()
+        : dir;
     const { x, y } = this.anchor();
     // 方位几何（docs/components.md）：锚点 ± (View 半径 + 12px 间距 + 卡片半尺寸)；
     // 斜方位 = 两轴分别偏移

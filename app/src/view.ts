@@ -81,6 +81,8 @@ export class View {
   /** 环境层在移动到位后回写吸附态（派发契约事件 view:docked / view:undocked） */
   setDock(edge: DockEdge | null) {
     this.docked = edge;
+    // 吸附态漂浮动画停止（docs/view.md §状态机：docked 漂浮移动停止）
+    this.el.classList.toggle("docked", edge !== null);
     if (edge) {
       this.dispatch("view:docked", { edge });
     } else {

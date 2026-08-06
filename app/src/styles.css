@@ -163,6 +163,8 @@ html.browser body {
 #view[data-motion="bounce"] { animation: bounce 0.9s ease-in-out infinite; }
 #view[data-motion="shake"] { animation: shake 0.4s ease-in-out infinite; }
 /* data-motion="still"：无动画 */
+/* 吸附态漂浮移动停止（docs/view.md §状态机；class 由 View.setDock 切换） */
+#view.docked { animation: none; }
 
 /* ── Component（concepts §5 / docs/components.md） ── */
 /* cards 窗口模式：卡片自然流式布局，窗口自身定位（docs/multi-window.md）；

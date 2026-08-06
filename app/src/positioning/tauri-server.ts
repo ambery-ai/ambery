@@ -12,9 +12,14 @@ export const engine = new PositioningEngine();
 /** pet 窗调用一次，注册处理 chat/cards 的 place 请求（bridge 供布局回写写指令） */
 export async function setupServer(bridge: Bridge) {
   const { listen } = await import("@tauri-apps/api/event");
+  // 显示器缓存启动一次（docs/window-follow.md §显示器几何：缓存时机启动一次，出界自愈）
+  void import("./monitors").then((m) => m.refreshMonitors());
 
   await listen<{ id: string; spec: WindowSpec; preferred: string }>("engine:place", (ev) => {
-    const dir = Direction[ev.payload.preferred as keyof typeof Direction] ?? Direction.sse;
+    // auto 透传（docs/components.md §调用协议：剩余空间最大方位由 engine 现算）
+    const dir = ev.payload.preferred === "auto"
+      ? "auto"
+      : Direction[ev.payload.preferred as keyof typeof Direction] ?? Direction.sse;
     const pos = engine.place(ev.payload.spec, dir);
     void emitEvent("engine:placed", { id: ev.payload.id, x: pos.x, y: pos.y });
   });
@@ -53,7 +58,7 @@ export async function reportMoved(id: string, center: Point) {
 export function requestPlace(
   id: string,
   spec: WindowSpec,
-  preferred: Direction,
+  preferred: Direction | "auto",
 ): Promise<Point> {
   return new Promise(async (resolve) => {
     const { listen } = await import("@tauri-apps/api/event");
@@ -75,7 +80,11 @@ export function requestPlace(
         resolve({ x: ev.payload.x, y: ev.payload.y });
       }
     });
-    void emitEvent("engine:place", { id, spec, preferred: Direction[preferred] });
+    void emitEvent("engine:place", {
+      id,
+      spec,
+      preferred: preferred === "auto" ? "auto" : Direction[preferred],
+    });
   });
 }
 

@@ -82,7 +82,9 @@ export class RemoteBridge implements Bridge {
           );
           break;
         case "config":
-          if (msg.config) this.configListeners.forEach((cb) => cb(msg.config!));
+          // config effect 是裸信号（无载荷）——按需重拉（与 TauriBridge 同一刷新语义，
+          // docs/case-runner.md §前端读取架构：事件提示时按需重拉）
+          void this.getConfig().then((cfg) => this.configListeners.forEach((cb) => cb(cfg)));
           break;
         case "assistant_delta":
           this.deltaListeners.forEach((cb) =>

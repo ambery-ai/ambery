@@ -27,7 +27,8 @@ export async function main() {
   wireI18n(store);
   const mount = document.getElementById("app")!;
   mount.classList.add("cards-mode");
-  const mgr = new ComponentManager(mount, bridge, () => ({ x: 0, y: 0 }), true);
+  // 屏高 cap 取口统一走 adapter（docs/window-follow.md §显示器几何）
+  const mgr = new ComponentManager(mount, bridge, () => ({ x: 0, y: 0 }), true, undefined, () => adapter!.getScreenHeight());
 
   const { listen } = await import("@tauri-apps/api/event");
 
@@ -100,11 +101,12 @@ export async function main() {
   });
 }
 
-function cardDirection(el: HTMLElement): Direction {
+function cardDirection(el: HTMLElement): Direction | "auto" {
   const d = el.dataset.direction;
   if (d && d !== "auto") {
     const dir = Direction[d as keyof typeof Direction];
     if (dir !== undefined) return dir;
   }
-  return Direction.sse;
+  // auto/省略：engine 按「屏幕剩余空间最大的方位」现算（docs/components.md §调用协议）
+  return "auto";
 }

@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 /// 同一记录入口：record_frontend_effect → harness.log_effect(Frontend, ...)
 /// （origin=frontend 不区分 WebView 与 Rust 壳的实现位置）
-fn record<R: tauri::Runtime>(app: &AppHandle<R>, kind: &'static str, payload: Value) {
+pub(crate) fn record<R: tauri::Runtime>(app: &AppHandle<R>, kind: &'static str, payload: Value) {
     let mgr = app.state::<SharedTauriState>().inner().clone();
     tauri::async_runtime::spawn(async move {
         let Some(s) = mgr.0.lock().unwrap().clone() else {

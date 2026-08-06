@@ -30,6 +30,8 @@ pub fn show_at(app: &tauri::AppHandle, x: f64, y: f64) {
     // 非 Windows：走 Tauri 标准聚焦
     #[cfg(not(windows))]
     let _ = w.set_focus();
+    // focus 是独立的非只读动作，单独记录（docs/effect-reporting.md §一动作一记录）
+    crate::tauri_runtime_actions::record(app, "window_focused", serde_json::json!({ "window": "menu" }));
 }
 
 /// 失焦 → 隐藏（菜单语义：点别的地方就关）；

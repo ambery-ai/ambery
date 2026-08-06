@@ -19,7 +19,7 @@ export async function createTauriAdapter(
   viewEl: HTMLElement,
   _dpr: number,
 ): Promise<WindowAdapter> {
-  const { getCurrentWindow, currentMonitor } = await import("@tauri-apps/api/window");
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const actions = await import("./tauri_runtime_actions");
   const win = getCurrentWindow();
 
@@ -34,8 +34,12 @@ export async function createTauriAdapter(
     show: () => actions.showWindow(win),
     hide: () => actions.hideWindow(win),
     async getScreenHeight() {
-      const mon = await currentMonitor();
-      return mon ? mon.size.height / mon.scaleFactor : 1080;
+      // 读缓存 monitor 表（docs/window-follow.md §显示器几何：其 Tauri 实现内部读本表；
+      // 窗口实际所在屏 = 当前位置命中项，多屏正确）
+      const p = await win.outerPosition();
+      const { monitorOf } = await import("./positioning/monitors");
+      const m = monitorOf({ x: p.x, y: p.y });
+      return m.height / m.scaleFactor;
     },
   };
 }

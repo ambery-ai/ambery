@@ -42,11 +42,13 @@ export async function moveWindow(win: WindowLike, x: number, y: number): Promise
   reportEffect("window_moved", { window: win.label, x, y });
 }
 
-/** show_window：show + setFocus → window_visible {window} */
+/** show_window：show + setFocus → window_visible {window} + window_focused {window}
+ *  （一调用两动作分别记录，docs/effect-reporting.md §一动作一记录） */
 export async function showWindow(win: WindowLike): Promise<void> {
   await win.show();
   await win.setFocus();
   reportEffect("window_visible", { window: win.label });
+  reportEffect("window_focused", { window: win.label });
 }
 
 /** hide_window：hide → window_hidden {window} */

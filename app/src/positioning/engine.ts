@@ -5,7 +5,7 @@
 import { computeCDSegments } from "./geometry";
 import { ternarySearch } from "./math";
 import { monitorOf } from "./monitors";
-import { directionAngle, type Direction, type Point, type WindowSpec } from "./types";
+import { directionAngle, Direction, type Point, type WindowSpec } from "./types";
 
 const DEFAULT_ALPHA = 20;
 const DEFAULT_BETA = 0.1;
@@ -42,15 +42,16 @@ export class PositioningEngine {
   }
 
   /** 放置新窗口：自动布局（或 manual 保持偏移）。返回屏幕绝对坐标（左上角换算由调用方做）。
-   *  出屏兜底（docs/window-follow.md §出屏与重叠，issues #21）：完全出屏 → 全 16 方位环
-   *  重试（±1~±8，首选命中即止）；全失败取最初结果（不压人，不做位置修正）。
-   *  算法层零改动，重试是薄包装。 */
-  place(newWindow: WindowSpec, preferred: Direction): Point {
-    const dirs: Direction[] = [preferred];
+   *  preferred 可传 "auto"（docs/components.md §调用协议）：按「屏幕剩余空间最大的方位」
+   *  自动选择（以 pet 中心划分四象限比较）。出屏兜底（docs/window-follow.md §出屏与重叠，
+   *  issues #21）：完全出屏 → 全 16 方位环重试（±1~±8，首选命中即止）；全失败取最初结果。 */
+  place(newWindow: WindowSpec, preferred: Direction | "auto"): Point {
+    const dir0 = preferred === "auto" ? this.autoDirection() : preferred;
+    const dirs: Direction[] = [dir0];
     for (let i = 1; i <= 7; i++) {
-      dirs.push((((preferred + i) % 16) + 16) % 16, (((preferred - i) % 16) + 16) % 16);
+      dirs.push((((dir0 + i) % 16) + 16) % 16, (((dir0 - i) % 16) + 16) % 16);
     }
-    dirs.push((((preferred + 8) % 16) + 16) % 16); // 正对面
+    dirs.push((((dir0 + 8) % 16) + 16) % 16); // 正对面
     // 首个「非完全出屏」即止（部分可见即可，用户不要求完全可见，#21）
     let first: Point | null = null;
     for (const dir of dirs) {
@@ -59,6 +60,19 @@ export class PositioningEngine {
       if (!this._fullyOffscreen(p, newWindow)) return p;
     }
     return first!;
+  }
+
+  /** auto 方位（docs/components.md）：pet 中心到缓存 monitor 四边的最大剩余空间方位 */
+  private autoDirection(): Direction {
+    const m = monitorOf(this.petCenter);
+    const spaces: [Direction, number][] = [
+      [Direction.w, this.petCenter.x - m.x],
+      [Direction.e, m.x + m.width - this.petCenter.x],
+      [Direction.n, this.petCenter.y - m.y],
+      [Direction.s, m.y + m.height - this.petCenter.y],
+    ];
+    spaces.sort((a, b) => b[1] - a[1]);
+    return spaces[0][0];
   }
 
   /** 完全出屏判定（零相交才否决；部分出屏接受；视口 = 缓存 monitor 表，docs/window-follow.md） */

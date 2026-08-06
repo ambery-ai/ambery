@@ -133,6 +133,7 @@ export class ChatPanel {
     });
     this.sendEl = document.createElement("button");
     this.sendEl.className = "chat-send";
+    this.sendEl.disabled = true; // 初始空内容不可用（docs/chat-panel.md §输入与发送）
     this.sendEl.addEventListener("click", () => void this.send());
     inputRow.append(this.inputEl, this.sendEl);
 
