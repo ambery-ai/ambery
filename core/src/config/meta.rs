@@ -25,6 +25,20 @@ pub enum Validation {
     Func(fn(&Value) -> Vec<String>),
 }
 
+/// Migration（docs/config.md §Migration enum）：历史 JSON → 当前 JSON 的纯、确定性、
+/// 可重放映射。适用源版本由所属 range 表达；未命中显式 range = 隐式 Current。
+/// Func/RenameWithFunc 可失败——任意 migration 失败统一 default 化该节点（migrate.rs）
+pub enum Migration {
+    /// 当前节点的 default
+    Default,
+    /// from 指定的完整旧点分 path 的值原样成为当前节点值
+    Rename { from: &'static str },
+    /// 当前节点在旧 JSON 中的同路径子树经 func 变换
+    Func(fn(&Value) -> Result<Value, String>),
+    /// from 完整旧点分 path 的值经 func 变换
+    RenameWithFunc { from: &'static str, func: fn(&Value) -> Result<Value, String> },
+}
+
 pub struct NodeMeta {
     /// 完整点分 path（静态字段；map entry 不入表，由 Map 节点自身承载规则）
     pub path: &'static str,
@@ -35,9 +49,14 @@ pub struct NodeMeta {
     /// 冷字段：写盘但保持当前运行行为，重启生效（docs/config.md §热/冷语义）。
     /// 待重启状态 = 保存值与启动快照不同（docs/config.md §待重启状态）
     pub cold: bool,
+    /// 迁移表（docs/config.md §Migration enum）：(源版本 range, 规则) 稀疏映射；
+    /// 显式 range 不得相交（同节点内、祖先与后代节点间；启动时 check_migrate_ranges 检查）
+    pub migrate: &'static [(std::ops::RangeInclusive<u32>, Migration)],
 }
 
 const V: &[Validation] = &[];
+/// 空迁移表（绝大多数节点：隐式 Current）
+const M: &[(std::ops::RangeInclusive<u32>, Migration)] = &[];
 
 fn probe_kaomoji_entry(v: &Value) -> Option<Value> {
     serde_json::from_value::<super::KaomojiEntry>(v.clone())
@@ -71,6 +90,58 @@ fn themes_func(v: &Value) -> Vec<String> {
     }
 }
 
+/// v0..=1 扁平 kaomoji map → 两池（docs/config.md §表情池；从 migrate.rs 步进表收编为
+/// per-node 迁移规则）。以系统池 default 为底、旧条目覆盖同名 key（行为保持 + 天然满足
+/// 基础 key 不变量）；已是两池形态原样返回（幂等防御）
+fn migrate_kaomoji_v1(old: &Value) -> Result<Value, String> {
+    if old.get("system").is_some() || old.get("user").is_some() {
+        return Ok(old.clone());
+    }
+    let Value::Object(flat) = old else {
+        return Err(format!("kaomoji 应为 object，实际：{}", old.to_string().chars().take(60).collect::<String>()));
+    };
+    let mut system = serde_json::to_value(super::KaomojiConfig::default().system).unwrap();
+    let smap = system.as_object_mut().unwrap();
+    for (k, v) in flat {
+        smap.insert(k.clone(), v.clone());
+    }
+    Ok(serde_json::json!({ "system": system, "user": {} }))
+}
+
+/// 显式 range 不相交检查（docs/config.md §历史覆盖与父子关系）：
+/// 同一节点表内 range 不重叠；任一祖先与后代节点的显式 range 不相交。
+/// 启动时由 migrate::check 调用一次；测试覆盖
+pub fn check_migrate_ranges() -> Result<(), String> {
+    fn overlaps(a: &std::ops::RangeInclusive<u32>, b: &std::ops::RangeInclusive<u32>) -> bool {
+        a.start() <= b.end() && b.start() <= a.end()
+    }
+    for n in NODES {
+        let ranges: Vec<_> = n.migrate.iter().map(|(r, _)| r).collect();
+        for i in 0..ranges.len() {
+            for j in (i + 1)..ranges.len() {
+                if overlaps(ranges[i], ranges[j]) {
+                    return Err(format!("{} 迁移表 range 相交", n.path));
+                }
+            }
+        }
+    }
+    // 祖先×后代：共同显式 range 相交即拒绝（path 前缀即父子）
+    let explicit: Vec<(&'static NodeMeta, &std::ops::RangeInclusive<u32>)> = NODES
+        .iter()
+        .flat_map(|n| n.migrate.iter().map(move |(r, _)| (n, r)))
+        .collect();
+    for (i, (a, ra)) in explicit.iter().enumerate() {
+        for (b, rb) in &explicit[i + 1..] {
+            let related = a.path.starts_with(&format!("{}.", b.path))
+                || b.path.starts_with(&format!("{}.", a.path));
+            if related && overlaps(ra, rb) {
+                return Err(format!("祖先/后代迁移 range 相交：{} × {}", a.path, b.path));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn pet_name_func(v: &Value) -> Vec<String> {
     match v.as_str() {
         Some(s) => super::validate_pet_name(s),
@@ -78,35 +149,52 @@ fn pet_name_func(v: &Value) -> Vec<String> {
     }
 }
 
+/// providers 动态 key grammar（docs/config.md §Config path grammar：动态 key 在每次
+/// update 时由统一 validation 运行时检查——覆盖 update 路径，加载侧 reconcile 已有）
+fn providers_keys_func(v: &Value) -> Vec<String> {
+    let mut errs = Vec::new();
+    if let Some(obj) = v.as_object() {
+        for k in obj.keys() {
+            if !super::valid_dynamic_key(k) {
+                errs.push(format!("provider key 不符合 path grammar（小写字母开头，仅小写字母/数字/_/-）：{k}"));
+            }
+        }
+    }
+    errs
+}
+
 /// descriptor tree 行为元数据（单源）。desc/类型见 config.rs 结构体 doc comment + schemars。
+///
+/// 迁移表语义（docs/config.md）：kaomoji v0..=1 扁平 map → 两池；timer.* v0..=2 四个
+/// 扁平顶层字段 → timer 子树（逐字段 Rename 完整旧路径）。失败统一 default 化（migrate.rs）。
 pub static NODES: &[NodeMeta] = &[
-    NodeMeta { path: "kaomoji", kind: NodeKind::Object, validate: &[Validation::Func(kaomoji_pools_func)], no_llm_visible: false, cold: false },
-    NodeMeta { path: "kaomoji.system", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry }, validate: V, no_llm_visible: false, cold: false },
-    NodeMeta { path: "kaomoji.user", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry }, validate: V, no_llm_visible: false, cold: false },
-    NodeMeta { path: "compression_reserve_default", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
-    NodeMeta { path: "set_autonomy_default_ttl_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
+    NodeMeta { path: "kaomoji", kind: NodeKind::Object, validate: &[Validation::Func(kaomoji_pools_func)], no_llm_visible: false, cold: false, migrate: &[(0..=1, Migration::Func(migrate_kaomoji_v1))] },
+    NodeMeta { path: "kaomoji.system", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry }, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "kaomoji.user", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry }, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "compression_reserve_default", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false, migrate: M },
+    NodeMeta { path: "set_autonomy_default_ttl_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
     // filter_strategy 已退役（Filter 按实例 kind 选择，docs/filter.md；旧字段经 reconcile 剔除）
-    NodeMeta { path: "timer", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false },
-    NodeMeta { path: "timer.interval_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
-    NodeMeta { path: "timer.stagger_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
-    NodeMeta { path: "timer.tick_ms", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(100.0), max: None }], no_llm_visible: false, cold: true },
-    NodeMeta { path: "timer.batch", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true },
-    NodeMeta { path: "stop_hook_mode", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
-    NodeMeta { path: "max_tool_calls_in_one_response", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: true, cold: true },
-    NodeMeta { path: "max_tool_calls_per_turn", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: true, cold: true },
-    NodeMeta { path: "base_prompt", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
-    NodeMeta { path: "view_scale", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(0.2), max: Some(4.0) }], no_llm_visible: false, cold: false },
-    NodeMeta { path: "badge_style", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
-    NodeMeta { path: "badge_side", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
-    NodeMeta { path: "theme", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
-    NodeMeta { path: "themes", kind: NodeKind::Map { entry_probe: probe_theme_value }, validate: &[Validation::Func(themes_func)], no_llm_visible: false, cold: false },
-    NodeMeta { path: "ui_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false },
-    NodeMeta { path: "harness_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false },
-    NodeMeta { path: "name", kind: NodeKind::Leaf, validate: &[Validation::Func(pet_name_func)], no_llm_visible: false, cold: false },
-    NodeMeta { path: "context_compression_keep_recent_messages", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true },
-    NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false },
-    NodeMeta { path: "llm.active", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
-    NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider }, validate: V, no_llm_visible: false, cold: false },
+    NodeMeta { path: "timer", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "timer.interval_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_interval_ms" })] },
+    NodeMeta { path: "timer.stagger_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_stagger_ms" })] },
+    NodeMeta { path: "timer.tick_ms", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(100.0), max: None }], no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_tick_ms" })] },
+    NodeMeta { path: "timer.batch", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_batch" })] },
+    NodeMeta { path: "stop_hook_mode", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false, migrate: M },
+    NodeMeta { path: "max_tool_calls_in_one_response", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: true, cold: true, migrate: M },
+    NodeMeta { path: "max_tool_calls_per_turn", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: true, cold: true, migrate: M },
+    NodeMeta { path: "base_prompt", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false, migrate: M },
+    NodeMeta { path: "view_scale", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(0.2), max: Some(4.0) }], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "badge_style", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "badge_side", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "theme", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "themes", kind: NodeKind::Map { entry_probe: probe_theme_value }, validate: &[Validation::Func(themes_func)], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "ui_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "harness_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "name", kind: NodeKind::Leaf, validate: &[Validation::Func(pet_name_func)], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "context_compression_keep_recent_messages", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true, migrate: M },
+    NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false, migrate: M },
+    NodeMeta { path: "llm.active", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider }, validate: &[Validation::Func(providers_keys_func)], no_llm_visible: false, cold: false, migrate: M },
 ];
 
 pub fn node_meta(path: &str) -> Option<&'static NodeMeta> {

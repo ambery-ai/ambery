@@ -149,6 +149,18 @@ fn run_offline(cmd: Cmd) -> Result<String, String> {
             reflect::set_by_path(&mut v, &path, value.clone())?;
             let new: Config =
                 serde_json::from_value(v).map_err(|e| format!("验证失败: {e}"))?;
+            // 统一 validation（docs/config.md §统一修改入口：验证只能有一份——
+            // offline 直写同样跑 meta validators，原子拒绝）
+            let verrs = overseer_core::config::meta::validate_for_update(
+                &serde_json::to_value(&new).map_err(|e| e.to_string())?,
+                &path,
+            );
+            if !verrs.is_empty() {
+                return Err(format!(
+                    "验证失败: {}",
+                    verrs.iter().map(|(p, m)| format!("{p}: {m}")).collect::<Vec<_>>().join("；")
+                ));
+            }
             if let (Some(opts), Value::String(s)) = (reflect::valid_options(&new, &path), &value) {
                 if !opts.contains(s) {
                     return Err(format!("{path}: '{s}' 不在合法选项 {opts:?} 中"));

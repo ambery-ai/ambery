@@ -16,70 +16,53 @@ use meta::NodeKind;
 /// v3：timer_* 扁平字段 → timer 子树（docs/timer.md 字段表）
 pub const CURRENT_VERSION: u32 = 3;
 
-/// 迁移步进表（累计应用）：target version → 变换；source version < target 的步
-/// 全部按序应用。每步是纯、确定性、可重放的 JSON→JSON 映射（docs/config.md
-/// §版本与 migration）；不读环境、网络、文件或其他运行时状态。
-static STEPS: &[(u32, fn(Value) -> Value)] = &[
-    (2, migrate_kaomoji_pools),
-    (3, migrate_timer_subtree),
-];
-
-/// 从 from 版本累计步进到 current
-fn migrate_steps(mut value: Value, from: u32) -> Value {
-    for (target, f) in STEPS {
-        if from < *target {
-            value = f(value);
+/// 从 from 版本迁移到 current——per-node 稀疏 range 映射（docs/config.md §Migration enum）：
+/// 逐节点查 meta 迁移表，命中显式 range 应用规则；未命中 = 隐式 Current（交 reconcile）。
+/// 任意 migration 失败（Rename 源缺失 / Func 返回 Err）统一 default 化该节点、逐项
+/// 上报并继续（§失败与删除）。规则是纯、确定性、可重放的映射，不读环境/网络/文件。
+fn migrate_steps(mut value: Value, from: u32, report: &mut Vec<String>) -> Value {
+    debug_assert!(meta::check_migrate_ranges().is_ok());
+    let default_v = serde_json::to_value(Config::default()).unwrap_or(Value::Null);
+    for node in meta::NODES {
+        let Some((_, rule)) = node.migrate.iter().find(|(r, _)| r.contains(&from)) else {
+            continue; // 隐式 Current：原样保留，随后 reconcile
+        };
+        let out: Result<Value, String> = match rule {
+            meta::Migration::Default => {
+                Ok(meta::value_at(&default_v, node.path).cloned().unwrap_or(Value::Null))
+            }
+            meta::Migration::Rename { from: src } => match meta::value_at(&value, src).cloned() {
+                Some(v) => Ok(v),
+                None => Err(format!("Rename 源路径 {src} 不存在")),
+            },
+            meta::Migration::Func(f) => {
+                let cur = meta::value_at(&value, node.path).cloned().unwrap_or(Value::Null);
+                f(&cur)
+            }
+            meta::Migration::RenameWithFunc { from: src, func } => match meta::value_at(&value, src).cloned() {
+                Some(v) => func(&v),
+                None => Err(format!("RenameWithFunc 源路径 {src} 不存在")),
+            },
+        };
+        match out {
+            Ok(v) => {
+                let _ = crate::config::reflect::set_by_path(&mut value, node.path, v);
+            }
+            Err(e) => {
+                report.push(format!("migrate: {}（源 v{from}）失败，节点 default 化——{e}", node.path));
+                let dv = meta::value_at(&default_v, node.path).cloned().unwrap_or(Value::Null);
+                let _ = crate::config::reflect::set_by_path(&mut value, node.path, dv);
+            }
         }
     }
     value
 }
 
-/// v2→v3：timer_* 四个扁平字段收编为 timer 子树（docs/timer.md 字段表）。
-/// 缺失字段交 reconcile 补 default；已是子树形态时不动（防御）。
-fn migrate_timer_subtree(mut value: Value) -> Value {
-    let Some(obj) = value.as_object_mut() else { return value };
-    if obj.contains_key("timer") {
-        return value;
+/// 加载前启动检查（docs/config.md §历史覆盖与父子关系）：显式 range 不相交
+pub fn check() {
+    if let Err(e) = meta::check_migrate_ranges() {
+        eprintln!("[config] 迁移表 range 相交（实现错误，启动即暴露）：{e}");
     }
-    let mut timer = serde_json::Map::new();
-    for (old, new) in [
-        ("timer_interval_ms", "interval_ms"),
-        ("timer_stagger_ms", "stagger_ms"),
-        ("timer_tick_ms", "tick_ms"),
-        ("timer_batch", "batch"),
-    ] {
-        if let Some(v) = obj.remove(old) {
-            timer.insert(new.into(), v);
-        }
-    }
-    obj.insert("timer".into(), Value::Object(timer));
-    value
-}
-
-/// v1→v2：旧扁平 kaomoji map 整体迁入 system 池（行为保持：旧表既是请求头表
-/// 也是尺寸扫描来源，与 system 池职责一致），user 池空；用户随后可在面板移动。
-/// 以系统池 default 为底、旧条目覆盖同名 key——用户自定义的基础表情保留，
-/// 且迁移产物天然满足「基础 key ⊆ 并集」不变量（不被加载校验 default 化误伤）。
-/// 无 kaomoji 字段或已是两池形态时不动（交 reconcile 补 default）。
-fn migrate_kaomoji_pools(mut value: Value) -> Value {
-    let Some(obj) = value.as_object_mut() else { return value };
-    let Some(kaomoji) = obj.get("kaomoji").cloned() else { return value };
-    if kaomoji.get("system").is_some() || kaomoji.get("user").is_some() {
-        return value; // 已是两池形态（防御；正常 v0/v1 不会命中）
-    }
-    if let Value::Object(flat) = kaomoji {
-        let mut system =
-            serde_json::to_value(super::KaomojiConfig::default().system).unwrap();
-        let smap = system.as_object_mut().unwrap();
-        for (k, v) in flat {
-            smap.insert(k, v);
-        }
-        obj.insert(
-            "kaomoji".into(),
-            serde_json::json!({ "system": system, "user": {} }),
-        );
-    }
-    value
 }
 
 /// 加载入口（Config::load_or_default 的实现体）
@@ -148,7 +131,7 @@ pub fn load(dir: &Path) -> Config {
         }
         std::cmp::Ordering::Less => {
             report.push(format!("config v{version} → v{CURRENT_VERSION} 迁移（累计步进）"));
-            value = migrate_steps(value, version);
+            value = migrate_steps(value, version, &mut report);
             let mut cfg = validate_and_repair(reconcile(value, &mut report));
             upgrade_base_prompt_default(&mut cfg);
             let bak = backup_bytes(dir, &format!("v{version:04}"), raw.as_bytes());
@@ -224,7 +207,7 @@ fn downgrade(dir: &Path, file_version: u32, raw: &str) -> Config {
                 .map(|v| v as u32)
                 .unwrap_or(0);
             if bak_version < CURRENT_VERSION {
-                value = migrate_steps(value, bak_version);
+                value = migrate_steps(value, bak_version, &mut report);
                 report.push(format!("备份 v{bak_version} → v{CURRENT_VERSION} 迁移（累计步进）"));
             }
             let mut cfg = validate_and_repair(reconcile(value, &mut report));
@@ -458,7 +441,8 @@ pub fn preview(dir: &Path) -> Result<Config, String> {
             ));
         }
         std::cmp::Ordering::Less => {
-            value = migrate_steps(value, version);
+            let mut ignored = Vec::new();
+            value = migrate_steps(value, version, &mut ignored);
         }
         std::cmp::Ordering::Equal => {}
     }
@@ -572,6 +556,70 @@ mod tests {
         std::fs::write(dir2.join(CONFIG_FILE), serde_json::to_string_pretty(&v).unwrap()).unwrap();
         let cfg2 = load(&dir2);
         assert_eq!(cfg2.base_prompt, "自定义 prompt");
+    }
+
+    #[test]
+    fn per_node_migration_fixtures_each_published_version() {
+        // v0 fixture：扁平 kaomoji（Func）+ 扁平 timer 四字段（Rename ×4）
+        let dir = tmp();
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"kaomoji": {"idle": {"face": "(´ω`)", "motion": "still"}, "celebrate": {"face": "🎉", "motion": "bounce"}},
+                "timer_interval_ms": 7000, "timer_stagger_ms": 800, "timer_tick_ms": 9000, "timer_batch": 3}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        assert_eq!(cfg.kaomoji.system["celebrate"].face, "🎉");
+        assert!(cfg.kaomoji.user.is_empty());
+        assert_eq!(cfg.timer.interval_ms, 7000);
+        assert_eq!(cfg.timer.stagger_ms, 800);
+        assert_eq!(cfg.timer.tick_ms, 9000);
+        assert_eq!(cfg.timer.batch, 3);
+        // v1 fixture：扁平 kaomoji + 扁平 timer（历史事实：timer 子树 v3 才存在）
+        let dir = tmp();
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 1, "kaomoji": {"idle": {"face": "x", "motion": "still"}}, "timer_interval_ms": 4000}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        assert_eq!(cfg.kaomoji.system["idle"].face, "x");
+        assert_eq!(cfg.timer.interval_ms, 4000);
+        // v2 fixture：两池已建 + 扁平 timer → kaomoji 隐式 Current、timer Rename 命中
+        // （fixture 必须满足 v2 既有不变量：基础三 key ⊆ 并集）
+        let dir = tmp();
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            r#"{"version": 2, "kaomoji": {"system": {
+                  "idle": {"face": "y", "motion": "float"},
+                  "processing": {"face": "p", "motion": "float"},
+                  "notify": {"face": "n", "motion": "bounce"}}, "user": {}},
+                "timer_interval_ms": 6000}"#,
+        )
+        .unwrap();
+        let cfg = load(&dir);
+        assert_eq!(cfg.kaomoji.system["idle"].face, "y");
+        assert_eq!(cfg.timer.interval_ms, 6000);
+        // 旧扁平字段不残留（reconcile 清除未知 path）
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap()).unwrap();
+        assert!(written.get("timer_interval_ms").is_none());
+    }
+
+    #[test]
+    fn migration_func_failure_defaults_node_and_reports() {
+        // 任意 migration 失败统一 default 化该节点、逐项上报并继续（docs/config.md §失败与删除）：
+        // kaomoji 同路径子树不是 object → Func 返回 Err → kaomoji 节点 default 化
+        let mut report = Vec::new();
+        let v = migrate_steps(serde_json::json!({"kaomoji": 42}), 0, &mut report);
+        assert!(report.iter().any(|m| m.contains("kaomoji")), "{report:?}");
+        assert_eq!(v["kaomoji"]["system"]["idle"]["face"], "(´ω`)");
+    }
+
+    #[test]
+    fn migrate_ranges_non_overlapping() {
+        // 显式 range 不相交（同节点 + 祖先/后代，docs/config.md §历史覆盖与父子关系）
+        assert_eq!(meta::check_migrate_ranges(), Ok(()));
     }
 
     #[test]

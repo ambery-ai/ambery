@@ -281,7 +281,7 @@ fn default_compression_reserve() -> usize {
 }
 
 fn default_ttl_ms() -> u64 {
-    5000
+    60_000 // docs/autonomy.md：ttlMs 省略时默认 60000ms
 }
 
 fn default_timer_interval() -> i64 {

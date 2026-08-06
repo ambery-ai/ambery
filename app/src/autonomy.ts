@@ -86,7 +86,8 @@ export class Autonomy {
       return;
     }
     this.override = { face: args.face, motion: args.motion };
-    let ttl = args.ttlMs ?? this.config?.setAutonomyDefaultTtlMs ?? 5000;
+    // 省略 ttlMs 的默认：config 下发值（默认 60000，docs/autonomy.md）；5000 仅为投影缺失兜底
+    let ttl = args.ttlMs ?? this.config?.setAutonomyDefaultTtlMs ?? 60000;
     if (args.once) {
       // 一次播放：持续时间为「生效 motion」的注册表时长（未传 motion = 默认推导 motion）；
       // still 无 durationMs → 0（立即回落）

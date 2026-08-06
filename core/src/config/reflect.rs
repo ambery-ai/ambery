@@ -60,7 +60,9 @@ pub fn reflect<T: Serialize + schemars::JsonSchema>(value: &T) -> Vec<ConfigNode
     out
 }
 
-/// Config 专用入口：reflect() + OPTIONS 注册表动态 enum 注入
+/// Config 专用入口：reflect() + OPTIONS 注册表动态 enum 注入 + meta 静态约束投影
+/// （docs/config.md §Validation enum：Range/OneOf 是 descriptor/reflect 输出的一部分，
+///  供 CLI 与设置面板机械选择控件——后端仍是唯一放行者，此处只是同一真值的只读投影）
 pub fn config_nodes(config: &Config) -> Vec<ConfigNode> {
     let mut nodes = reflect(config);
     for (path, f) in OPTIONS {
@@ -68,6 +70,7 @@ pub fn config_nodes(config: &Config) -> Vec<ConfigNode> {
             n.ty = NodeType::Enum { options: f(config) };
         }
     }
+    apply_meta_constraints(&mut nodes);
     nodes
 }
 
@@ -85,7 +88,30 @@ pub fn config_nodes_llm(config: &Config) -> Vec<ConfigNode> {
             n.ty = NodeType::Enum { options: f(config) };
         }
     }
+    apply_meta_constraints(&mut nodes);
     nodes
+}
+
+/// meta 注册表的静态约束投影进节点（Range → min/max；OneOf → enum options）。
+/// OPTIONS 动态 enum 优先（已覆盖者跳过 OneOf）；Func 不输出静态约束（提交后由统一
+/// validation 返回其 message，docs/config.md §Validation enum）
+fn apply_meta_constraints(nodes: &mut [ConfigNode]) {
+    for n in nodes.iter_mut() {
+        let Some(meta) = crate::config::meta::node_meta(&n.path) else { continue };
+        for v in meta.validate {
+            match (v, &mut n.ty) {
+                (crate::config::meta::Validation::Range { min, max }, NodeType::Int { min: m, max: x })
+                | (crate::config::meta::Validation::Range { min, max }, NodeType::Float { min: m, max: x }) => {
+                    *m = *min;
+                    *x = *max;
+                }
+                (crate::config::meta::Validation::OneOf(opts), ty @ NodeType::Str) => {
+                    *ty = NodeType::Enum { options: opts.iter().map(|s| s.to_string()).collect() };
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// 动态 enum 校验：path 有 OPTIONS 提供者时返回当前合法选项（验证集中于此）
@@ -311,6 +337,46 @@ mod tests {
         assert!(matches!(get("kaomoji.system.idle.face").ty, NodeType::Str));
         assert!(matches!(get("llm.providers.deepseek.base_url").ty, NodeType::Str));
         assert!(matches!(get("llm.providers.deepseek.temperature").ty, NodeType::Float { .. }));
+    }
+
+    #[test]
+    fn meta_constraints_project_into_nodes() {
+        // docs/config.md §Validation enum：Range/OneOf 是 reflect 输出的只读投影
+        let cfg = Config::default();
+        let nodes = config_nodes(&cfg);
+        let vs = nodes.iter().find(|n| n.path == "view_scale").unwrap();
+        match &vs.ty {
+            NodeType::Float { min, max } => {
+                assert_eq!(*min, Some(0.2));
+                assert_eq!(*max, Some(4.0));
+            }
+            other => panic!("view_scale 应为 Float: {other:?}"),
+        }
+        let tick = nodes.iter().find(|n| n.path == "timer.tick_ms").unwrap();
+        match &tick.ty {
+            NodeType::Int { min, .. } => assert_eq!(*min, Some(100.0)),
+            other => panic!("timer.tick_ms 应为 Int: {other:?}"),
+        }
+        let lang = nodes.iter().find(|n| n.path == "ui_language").unwrap();
+        match &lang.ty {
+            NodeType::Enum { options } => assert_eq!(options, &["zh", "en"]),
+            other => panic!("ui_language 应为 Enum: {other:?}"),
+        }
+        // OPTIONS 动态 enum 优先（theme 的 options = themes keys）
+        let theme = nodes.iter().find(|n| n.path == "theme").unwrap();
+        match &theme.ty {
+            NodeType::Enum { options } => assert!(options.contains(&"dark".to_string())),
+            other => panic!("theme 应为 Enum: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn provider_keys_grammar_validated_on_update() {
+        // docs/config.md §Config path grammar：动态 key 在每次 update 时由统一 validation 检查
+        let mut c = serde_json::to_value(Config::default()).unwrap();
+        c["llm"]["providers"]["Bad Key"] = serde_json::json!({"base_url": "http://x", "model": "m"});
+        let errs = crate::config::meta::validate_for_update(&c, "llm.providers.Bad Key");
+        assert!(errs.iter().any(|(p, m)| p == "llm.providers" && m.contains("grammar")), "{errs:?}");
     }
 
     #[test]
