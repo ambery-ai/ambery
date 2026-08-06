@@ -114,8 +114,13 @@ export class RemoteBridge implements Bridge {
     return (await fetch(`${BASE}/context`)).json() as Promise<ContextMessage[]>;
   }
 
-  appendUserMessage(text: string): void {
-    void fetch(`${BASE}/queue/user`, post({ text }));
+  async appendUserMessage(text: string): Promise<boolean> {
+    try {
+      const r = await fetch(`${BASE}/queue/user`, post({ text }));
+      return r.ok;
+    } catch {
+      return false;
+    }
   }
 
   pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void {

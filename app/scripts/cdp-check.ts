@@ -228,5 +228,47 @@ await check(
   })()`,
 );
 
+// C10 输入区：多行自增长到上限封顶（110px），发送按钮随内容启用
+await check(
+  "输入区自增长封顶 + 发送按钮启用",
+  `(() => {
+    const input = document.querySelector(".chat-input");
+    input.value = Array.from({length: 20}, (_, i) => "第" + i + "行内容").join("\\n");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const btn = document.querySelector(".chat-send");
+    // style.height 封顶 110px（自增长上限）；按钮随非空启用
+    const capped = input.style.height === "110px";
+    input.value = "一行";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    const shrunk = parseInt(input.style.height) < 110;
+    return capped && shrunk && btn.disabled === false;
+  })()`,
+);
+// C10 滚动意图（真实几何）：阅读历史时新消息只提示不抢视口，点提示回底
+await check(
+  "滚动意图：滚离后提示不抢视口，点击回底",
+  `(async () => {
+    const panel = document.getElementById("chat-panel");
+    const history = panel.querySelector(".chat-history");
+    // 灌入足够消息使历史可滚
+    for (let i = 0; i < 30; i++) window.__overseer.appendMessage("assistant", "历史消息 " + i);
+    await new Promise((r) => setTimeout(r, 300));
+    if (history.scrollHeight <= history.clientHeight) return "不可滚动，跳过断言几何";
+    // 滚到中部（阅读历史）
+    history.scrollTop = 100;
+    history.dispatchEvent(new Event("scroll"));
+    await new Promise((r) => setTimeout(r, 50));
+    const topBefore = history.scrollTop;
+    window.__overseer.appendMessage("assistant", "滚离后的新消息");
+    await new Promise((r) => setTimeout(r, 300));
+    const pill = panel.querySelector(".chat-pill");
+    if (pill.hidden || !pill.textContent.includes("1")) return "pill 未提示: " + pill.textContent + " hidden=" + pill.hidden;
+    if (history.scrollTop !== topBefore) return "视口被抢: " + history.scrollTop + " != " + topBefore;
+    pill.click();
+    await new Promise((r) => setTimeout(r, 50));
+    return history.scrollTop > topBefore && pill.hidden;
+  })()`,
+);
+
 console.log(`\nCDP 冒烟全过（${passed} 断言）`);
 process.exit(0);

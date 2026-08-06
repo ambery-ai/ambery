@@ -267,7 +267,8 @@ html.browser body {
    border-box 100%，border 内绘不被窗口裁；面板与窗口同尺寸，无内缩环） */
 .chat-mode { height: 100vh; }
 .chat-mode #chat-panel {
-  position: static;
+  /* relative：填充即定位（无偏移 = static 同布局），同时充当 chat-pill 的 offsetParent */
+  position: relative;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
@@ -313,6 +314,7 @@ html.browser body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  position: relative; /* 锚点恢复（chat.ts offsetTop 参照系） */
 }
 
 .chat-msg {
@@ -374,14 +376,83 @@ html.browser body {
   font-family: inherit;
 }
 
-.chat-input {
+/* 输入区（docs/chat-panel.md §输入与发送）：自增长多行 + 发送按钮（与 Enter 同语义） */
+.chat-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
   margin: 8px 12px 12px;
+}
+
+.chat-input {
+  flex: 1;
   background: var(--ov-input-bg);
   border: 1px solid var(--ov-input-border);
   border-radius: var(--ov-input-radius);
   color: var(--ov-text);
   padding: 8px 10px;
   outline: none;
+  resize: none; /* 自增长由 JS 驱动（上限 110px，超过自身滚动，不挤没历史） */
+  font: inherit;
+  line-height: 1.4;
+  overflow-y: hidden;
+}
+
+.chat-send {
+  flex: none;
+  background: var(--ov-accent-bg);
+  border: 1px solid var(--ov-accent-border);
+  border-radius: var(--ov-control-radius);
+  color: var(--ov-accent);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.chat-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 「↓ N 条新消息」提示（阅读历史时；点击回底部恢复跟随） */
+.chat-pill {
+  position: absolute;
+  right: 16px;
+  bottom: 8px;
+  background: var(--ov-accent-bg);
+  border: 1px solid var(--ov-accent-border);
+  border-radius: 10px;
+  color: var(--ov-accent);
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+/* 排队状态翻译（已发送未回复 > 正在处理的一条时显示） */
+.chat-queue-status {
+  align-self: center;
+  color: var(--ov-muted);
+  font-size: 11px;
+  padding: 0 12px 4px;
+}
+
+/* 回应提示「…」轻量动画：透明度呼吸，不改布局、不抢焦点 */
+.chat-replying {
+  animation: chat-replying-pulse 1.2s ease-in-out infinite;
+}
+@keyframes chat-replying-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+.chat-send-failed button {
+  margin-left: 6px;
+  background: var(--ov-accent-bg);
+  border: 1px solid var(--ov-accent-border);
+  border-radius: var(--ov-control-radius);
+  color: var(--ov-accent);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 8px;
 }
 
 

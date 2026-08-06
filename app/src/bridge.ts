@@ -113,9 +113,11 @@ export interface Bridge {
    *  opts.cardId：用户 × 关卡（closed_by_user 双行事件）；
    *  opts.state：结构化快照（双载荷，todobox 交互附带，同 card 去重合并） */
   pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void;
-  /** Queue：对话历史读取 + 用户输入写入 user role（concepts §3a） */
+  /** Queue：对话历史读取 + 用户输入写入 user role（concepts §3a）。
+   *  appendUserMessage 返回是否成功送达 core——失败时调用方必须让用户文字不丢
+   *  （docs/chat-panel.md §输入与发送：明确说明失败 + 可重试/继续编辑） */
   getContext(): Promise<ContextMessage[]>;
-  appendUserMessage(text: string): void;
+  appendUserMessage(text: string): Promise<boolean>;
   onContextChanged(cb: (msgs: ContextMessage[]) => void): void;
   /** 可选（RemoteBridge）：Overseer 推送 set_autonomy（ペット的 tool call 结果） */
   onSetAutonomy?(
@@ -311,9 +313,10 @@ export class BrowserMockBridge implements Bridge {
     return structuredClone(this.queue);
   }
 
-  appendUserMessage(text: string): void {
+  async appendUserMessage(text: string): Promise<boolean> {
     this.queue.push({ role: "user", content: text, ts: Date.now() });
     this.emitQueue();
+    return true;
   }
 
   onContextChanged(cb: (msgs: ContextMessage[]) => void): void {
@@ -439,8 +442,14 @@ class TauriBridge implements Bridge {
       return [];
     });
   }
-  appendUserMessage(text: string): void {
-    void this.invokeFn("append_user", { text }).catch((e) => console.error("[bridge] append_user", e));
+  async appendUserMessage(text: string): Promise<boolean> {
+    try {
+      await this.invokeFn("append_user", { text });
+      return true;
+    } catch (e) {
+      console.error("[bridge] append_user", e);
+      return false;
+    }
   }
   pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void {
     void this.invokeFn("push_event", { desc, cardId: opts?.cardId, stateSnapshot: opts?.state }).catch((e) => console.error("[bridge] push_event", e));
