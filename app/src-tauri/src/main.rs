@@ -254,9 +254,15 @@ async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, 
     Ok(json!({ "ok": true }))
 }
 
-/// card 窗口 id 合法性（与 core cards 注册同约束：安全 label 片段）
+/// card 窗口 id 合法性（与 core 同一约束，docs/components.md §Card 文件）：
+/// A-Z a-z 0-9 _ - . /，路径段不得为空或 `..`（嵌套子目录合法；core 接受壳不得拒绝）
 fn valid_card_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '/'))
+        && !id.split('/').any(|seg| seg.is_empty() || seg == "..")
 }
 
 /// Card 窗口权威注册表（docs/case-runner.md §窗口决策上提，#25 断根）。
@@ -709,6 +715,15 @@ mod ipc_tests {
         assert_eq!(r["result"], json!("absent"), "{r}");
         // 非法 id 拒绝
         let r = call("ensure_card_window", json!({ "id": "bad id!", "spec": spec }));
+        assert_eq!(r["result"], json!("error"), "{r}");
+        // 嵌套 id（docs/components.md §Card 文件：可含 / 子目录）core 接受壳也接受
+        let r = call("ensure_card_window", json!({ "id": "proj/nested-1", "spec": spec }));
+        assert_eq!(r["result"], json!("opened"), "{r}");
+        assert!(app.get_webview_window("card-proj/nested-1").is_some());
+        // 路径逃逸与空段拒绝
+        let r = call("ensure_card_window", json!({ "id": "../escape", "spec": spec }));
+        assert_eq!(r["result"], json!("error"), "{r}");
+        let r = call("ensure_card_window", json!({ "id": "a//b", "spec": spec }));
         assert_eq!(r["result"], json!("error"), "{r}");
         // effect 流含 window_opened / window_closed
         let dir = std::env::temp_dir().join("overseer-ipc-test-ensure");
