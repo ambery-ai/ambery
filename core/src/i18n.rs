@@ -87,6 +87,15 @@ static TABLE: &[(&str, &str, &str)] = &[
     ("lifecycle.user-close", "用户关闭了 {type}「{title}」({id})", "User closed {type} \"{title}\" ({id})"),
     ("lifecycle.user-action", "用户{action} {type} 条目「{text}」", "User {action} {type} item \"{text}\""),
 
+    // ── Component 交互事件文本（lifecycle.rs user_action_desc；前端只报结构化事实）──
+    ("ev.copy", "用户复制了 {type}「{title}」的内容", "User copied the content of {type} \"{title}\""),
+    ("ev.jump", "用户点击 {type} 跳转到「{target}」", "User clicked {type} to jump to \"{target}\""),
+    ("ev.expand-diff", "用户展开了 {type}「{title}」的 diff", "User expanded the diff of {type} \"{title}\""),
+    ("ev.todo-toggle", "用户{verb} {type} 条目「{text}」", "User {verb} the {type} item \"{text}\""),
+    ("ev.verb-checked", "勾选了", "checked"),
+    ("ev.verb-unchecked", "取消勾选了", "unchecked"),
+    ("ev.todo-add", "用户新增了 {type} 条目「{text}」", "User added the {type} item \"{text}\""),
+
     // ── Hook / 事件簿记与注入（overseer.rs）──
     ("hook.register", "+ {name} 注册 → 存活 {alive}", "+ {name} registered → alive {alive}"),
     ("hook.closed", "− {name} 关闭 → 存活 {alive}", "− {name} closed → alive {alive}"),

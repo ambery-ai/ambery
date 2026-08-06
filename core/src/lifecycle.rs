@@ -13,6 +13,26 @@ pub struct CardMeta {
     pub created: i64,
 }
 
+/// Component 交互事件文本（语义单源，docs/i18n.md §Harness 内部语言）：
+/// 前端只上报结构化事实（action + 字段），自然语言由 core 按 Harness 语言现写。
+/// 输入 = push_event 的结构化载荷（serde_json Value）
+pub fn user_action_desc(lang: crate::i18n::Lang, ev: &serde_json::Value) -> String {
+    use crate::i18n::{tr, trf};
+    let g = |k: &str| ev[k].as_str().unwrap_or("").to_string();
+    match ev["action"].as_str().unwrap_or("") {
+        "copy" => trf(lang, "ev.copy", &[("type", g("card_type")), ("title", g("title"))]),
+        "jump" => trf(lang, "ev.jump", &[("type", g("card_type")), ("target", g("target"))]),
+        "expand_diff" => trf(lang, "ev.expand-diff", &[("type", g("card_type")), ("title", g("title"))]),
+        "todo_toggle" => {
+            let checked = ev["checked"].as_bool().unwrap_or(false);
+            let verb = tr(lang, if checked { "ev.verb-checked" } else { "ev.verb-unchecked" }).to_string();
+            trf(lang, "ev.todo-toggle", &[("verb", verb), ("type", g("card_type")), ("text", g("text"))])
+        }
+        "todo_add" => trf(lang, "ev.todo-add", &[("type", g("card_type")), ("text", g("text"))]),
+        other => format!("component interaction: {other}"), // 未知 action 原样留痕（不静默丢）
+    }
+}
+
 /// 生命周期事件生产（五类：created / closed_by_user / closed_by_agent / user_action / agent 更新不产事件）
 pub trait Lifecycle {
     /// `card created: {type}「{title}」({id}) @ {YYMMDD-HH:MM}, → 存活 N`

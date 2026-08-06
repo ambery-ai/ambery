@@ -83,23 +83,49 @@ async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) ->
 }
 
 #[tauri::command]
-async fn push_event(state: tauri::State<'_, SharedTauriState>, desc: String, card_id: Option<String>, state_snapshot: Option<Value>) -> Result<Value, String> {
+#[allow(clippy::too_many_arguments)]
+async fn push_event(
+    state: tauri::State<'_, SharedTauriState>,
+    action: String,
+    card_id: Option<String>,
+    card_type: Option<String>,
+    title: Option<String>,
+    text: Option<String>,
+    target: Option<String>,
+    checked: Option<bool>,
+    state_snapshot: Option<Value>,
+) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let mut ov = s.overseer().lock().await;
+    // 结构化事实 → 文本（lifecycle 语义单源，docs/i18n.md §Harness 内部语言）
+    let ev = json!({
+        "action": action,
+        "card_type": card_type,
+        "title": title,
+        "text": text,
+        "target": target,
+        "checked": checked,
+    });
+    let desc = overseer_core::lifecycle::user_action_desc(
+        overseer_core::i18n::Lang::of(&ov.config.harness_language),
+        &ev,
+    );
     // 动作流记录（docs/effect-reporting.md §kind）：前端 push_event = interaction/frontend
     ov.record_frontend_effect("interaction", json!({ "desc": desc.as_str(), "card_id": card_id.as_deref() }));
     // 用户 × 关卡：dismiss（删 .card.json、出注册表、忘记布局）+ closed_by_user 双行事件
-    if let Some(cid) = card_id.as_deref() {
-        let ts = now_ms();
-        if let Some(entry) = ov.harness.cards_remove(cid) {
-            let lc = overseer_core::lifecycle::DefaultLifecycle::for_lang(
-                overseer_core::i18n::Lang::of(&ov.config.harness_language),
-            );
-            use overseer_core::lifecycle::Lifecycle;
-            ov.harness.event_buffer.push(lc.user_close_line(&entry.meta));
-            let alive = ov.harness.cards.len();
-            ov.harness.event_buffer.push(lc.closed_line(&entry.meta, alive, ts));
-            return Ok(json!({ "ok": true }));
+    if action == "dismiss" {
+        if let Some(cid) = card_id.as_deref() {
+            let ts = now_ms();
+            if let Some(entry) = ov.harness.cards_remove(cid) {
+                let lc = overseer_core::lifecycle::DefaultLifecycle::for_lang(
+                    overseer_core::i18n::Lang::of(&ov.config.harness_language),
+                );
+                use overseer_core::lifecycle::Lifecycle;
+                ov.harness.event_buffer.push(lc.user_close_line(&entry.meta));
+                let alive = ov.harness.cards.len();
+                ov.harness.event_buffer.push(lc.closed_line(&entry.meta, alive, ts));
+                return Ok(json!({ "ok": true }));
+            }
         }
     }
     match state_snapshot {

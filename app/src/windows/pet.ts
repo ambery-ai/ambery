@@ -444,7 +444,9 @@ export async function main() {
         await shelfPanel.refresh();
       },
       dismiss: async (c, title) => {
-        bridge.pushEvent(`用户关闭了 ${c.component.type}「${title}」(${c.component.id})`, { cardId: c.component.id });
+        // 结构化事实；closed_by_user 双行事件由 core 按 lifecycle 单源现写
+        void title;
+        bridge.pushEvent({ action: "dismiss", cardId: c.component.id });
         mgr.closeById(c.component.id);
         await store.refreshCards();
         await shelfPanel.refresh();

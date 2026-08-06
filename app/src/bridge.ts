@@ -110,9 +110,11 @@ export interface Bridge {
   /** Overseer → UI：渲染 Component（ペット call_component 的执行结果） */
   onRenderComponent(cb: (spec: ComponentSpec) => void): void;
   /** UI → Harness：Component 交互事件写入 Event Buffer（concepts §10e）。
-   *  opts.cardId：用户 × 关卡（closed_by_user 双行事件）；
-   *  opts.state：结构化快照（双载荷，todobox 交互附带，同 card 去重合并） */
-  pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void;
+   *  前端只上报结构化事实；自然语言文本由 core 按 Harness 语言现写
+   *  （lifecycle 语义单源 + docs/i18n.md §Harness 内部语言）。
+   *  dismiss：closed_by_user 双行事件 + 删 .card.json + 出注册表；
+   *  todo_toggle/todo_add 经 state 携带双载荷快照（同 card 去重合并） */
+  pushEvent(ev: UserActionEvent): void;
   /** Queue：对话历史读取 + 用户输入写入 user role（concepts §3a）。
    *  appendUserMessage 返回是否成功送达 core——失败时调用方必须让用户文字不丢
    *  （docs/chat-panel.md §输入与发送：明确说明失败 + 可重试/继续编辑） */
@@ -146,6 +148,18 @@ export interface Bridge {
   /** 可选（TauriBridge）：Card 布局回写（写：拖拽结束落 _meta.layout，
    *  端点记录 card_layout effect，docs/components.md §Card 文件） */
   updateCardLayout?(id: string, offset: [number, number]): Promise<{ ok: boolean; error?: string }>;
+}
+
+/** Component 交互事件（结构化事实；desc 组合在 core，lifecycle.rs user_action_desc） */
+export interface UserActionEvent {
+  action: "copy" | "jump" | "expand_diff" | "todo_toggle" | "todo_add" | "dismiss";
+  cardId?: string;
+  cardType?: string;
+  title?: string;
+  text?: string;
+  target?: string;
+  checked?: boolean;
+  state?: unknown;
 }
 
 /** list_cards 返回项：component 原文 + _meta 状态 */
@@ -182,6 +196,24 @@ export interface SetConfigResp {
   ok: boolean;
   restartRequired?: string[];
   error?: string;
+}
+
+/** mock 的 debug 文本组合（仅 BrowserMockBridge 事件检视用；生产文本在 core lifecycle） */
+function mockActionDesc(ev: UserActionEvent): string {
+  switch (ev.action) {
+    case "copy":
+      return `用户复制了 ${ev.cardType}「${ev.title}」的内容`;
+    case "jump":
+      return `用户点击 ${ev.cardType} 跳转到「${ev.target}」`;
+    case "expand_diff":
+      return `用户展开了 ${ev.cardType}「${ev.title}」的 diff`;
+    case "todo_toggle":
+      return `用户${ev.checked ? "勾选" : "取消勾选"}了 ${ev.cardType} 条目「${ev.text}」`;
+    case "todo_add":
+      return `用户新增了 ${ev.cardType} 条目「${ev.text}」`;
+    case "dismiss":
+      return `用户关闭了 ${ev.cardType ?? "card"}(${ev.cardId})`;
+  }
 }
 
 // ── Chrome DevTools 调试驱动接口（window.__overseer） ──
@@ -263,10 +295,11 @@ export class BrowserMockBridge implements Bridge {
   private mockCards = new Map<string, { spec: ComponentSpec; user_closed: boolean }>();
   private cardsListeners: (() => void)[] = [];
 
-  pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void {
-    this.events.push(desc);
+  pushEvent(ev: UserActionEvent): void {
+    // mock 本地组合 debug 文本（生产由 core 按 Harness 语言现写，lifecycle 单源）
+    this.events.push(mockActionDesc(ev));
     // 用户 × 关卡 / Shelf dismiss：出 mock 注册表（对应 core 的 cards_remove）
-    if (opts?.cardId && this.mockCards.delete(opts.cardId)) this.emitCards();
+    if (ev.action === "dismiss" && ev.cardId && this.mockCards.delete(ev.cardId)) this.emitCards();
   }
 
   debugCallComponent(spec: ComponentSpec) {
@@ -451,8 +484,17 @@ class TauriBridge implements Bridge {
       return false;
     }
   }
-  pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void {
-    void this.invokeFn("push_event", { desc, cardId: opts?.cardId, stateSnapshot: opts?.state }).catch((e) => console.error("[bridge] push_event", e));
+  pushEvent(ev: UserActionEvent): void {
+    void this.invokeFn("push_event", {
+      action: ev.action,
+      cardId: ev.cardId,
+      cardType: ev.cardType,
+      title: ev.title,
+      text: ev.text,
+      target: ev.target,
+      checked: ev.checked,
+      stateSnapshot: ev.state,
+    }).catch((e) => console.error("[bridge] push_event", e));
   }
   onRenderComponent(cb: (spec: ComponentSpec) => void): void {
     this.renderListeners.push(cb);

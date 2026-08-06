@@ -134,8 +134,9 @@ export class ComponentManager {
     close.className = "cmp-close";
     close.textContent = "×";
     close.addEventListener("click", () => {
-      // closed_by_user 双行生命周期事件（docs/components.md）：desc + cardId
-      this.bridge.pushEvent(`用户关闭了 ${spec.type}「${title.textContent}」`, { cardId: spec.id });
+      // closed_by_user 双行生命周期事件（docs/components.md）：结构化事实，
+      // 文本由 core 按 Harness 语言现写（lifecycle 单源，docs/i18n.md）
+      this.bridge.pushEvent({ action: "dismiss", cardId: spec.id });
       this.closeById(spec.id);
     });
     header.append(title, close);
@@ -159,7 +160,7 @@ export class ComponentManager {
         copy.textContent = t("card.copy");
         copy.addEventListener("click", () => {
           void navigator.clipboard?.writeText(spec.text ?? "");
-          this.bridge.pushEvent(`用户复制了 text_card「${spec.title}」的内容`);
+          this.bridge.pushEvent({ action: "copy", cardType: "text_card", title: spec.title });
         });
         body.append(p, copy);
         break;
@@ -170,7 +171,7 @@ export class ComponentManager {
         btn.textContent = `→ ${spec.target}`;
         btn.addEventListener("click", () => {
           // 真实切换 WT 标签页待 C# sidecar 接入（docs/components.md）
-          this.bridge.pushEvent(`用户点击 quick_jump 跳转到「${spec.target}」`);
+          this.bridge.pushEvent({ action: "jump", cardType: "quick_jump", target: spec.target });
         });
         body.append(btn);
         break;
@@ -193,7 +194,7 @@ export class ComponentManager {
           details.append(summary, pre);
           details.addEventListener("toggle", () => {
             if (details.open)
-              this.bridge.pushEvent(`用户展开了 git_display「${spec.title}」的 diff`);
+              this.bridge.pushEvent({ action: "expand_diff", cardType: "git_display", title: spec.title });
           });
           body.append(details);
         }
@@ -317,11 +318,16 @@ export class ComponentManager {
       cb.type = "checkbox";
       cb.checked = done;
       cb.addEventListener("change", () => {
-        // 双载荷（docs/harness.md）：自然语言 + 该 card 当前完整 items 快照（同 card 去重合并）
-        this.bridge.pushEvent(
-          `用户${cb.checked ? "勾选" : "取消勾选"}了 todobox 条目「${text}」`,
-          { state: { id: spec.id, type: "todobox", items: collectItems() } },
-        );
+        // 双载荷（docs/harness.md）：该 card 当前完整 items 快照（同 card 去重合并）；
+        // 文本由 core 现写（lifecycle 单源）
+        this.bridge.pushEvent({
+          action: "todo_toggle",
+          cardId: spec.id,
+          cardType: "todobox",
+          text,
+          checked: cb.checked,
+          state: { id: spec.id, type: "todobox", items: collectItems() },
+        });
       });
       const span = document.createElement("span");
       span.textContent = text;
@@ -341,7 +347,11 @@ export class ComponentManager {
       if (ev.key === "Enter" && input.value.trim()) {
         const text = input.value.trim();
         addItem(text, false);
-        this.bridge.pushEvent(`用户新增 todobox 条目「${text}」`, {
+        this.bridge.pushEvent({
+          action: "todo_add",
+          cardId: spec.id,
+          cardType: "todobox",
+          text,
           state: { id: spec.id, type: "todobox", items: collectItems() },
         });
         input.value = "";

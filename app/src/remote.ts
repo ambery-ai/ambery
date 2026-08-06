@@ -10,6 +10,7 @@ import type {
   ContextMessage,
   SetConfigResp,
   TopState,
+  UserActionEvent,
 } from "./bridge";
 
 const BASE = "http://127.0.0.1:47600";
@@ -123,8 +124,17 @@ export class RemoteBridge implements Bridge {
     }
   }
 
-  pushEvent(desc: string, opts?: { cardId?: string; state?: unknown }): void {
-    void fetch(`${BASE}/events`, post({ desc, card_id: opts?.cardId, state: opts?.state }));
+  pushEvent(ev: UserActionEvent): void {
+    void fetch(`${BASE}/events`, post({
+      action: ev.action,
+      card_id: ev.cardId,
+      card_type: ev.cardType,
+      title: ev.title,
+      text: ev.text,
+      target: ev.target,
+      checked: ev.checked,
+      state: ev.state,
+    }));
   }
 
   onTopStateChanged(cb: (s: TopState) => void): void {

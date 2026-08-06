@@ -46,7 +46,8 @@ export async function main() {
       await panel.refresh();
     },
     dismiss: async (c, title) => {
-      bridge.pushEvent(`用户关闭了 ${c.component.type}「${title}」(${c.component.id})`, { cardId: c.component.id });
+      void title; // 文本由 core 现写（lifecycle 单源，docs/i18n.md）
+      bridge.pushEvent({ action: "dismiss", cardId: c.component.id });
       await actions.emitEvent("shelf:dismiss", { id: c.component.id }, "pet");
       await store.refreshCards();
       await panel.refresh();

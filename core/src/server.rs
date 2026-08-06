@@ -205,38 +205,65 @@ async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -
     Json(json!({ "ok": true })).into_response()
 }
 
+/// Component 交互事件（结构化事实载荷，docs/i18n.md：文本由 core 按 Harness 语言现写）
 #[derive(Deserialize)]
 struct EventBody {
-    desc: String,
+    action: String,
     /// 用户 × 关闭卡片时的 card id（生命周期 closed_by_user 双行事件，docs/components.md）
     card_id: Option<String>,
+    card_type: Option<String>,
+    title: Option<String>,
+    text: Option<String>,
+    target: Option<String>,
+    checked: Option<bool>,
     /// 结构化状态快照（双载荷，todobox 交互附带，docs/harness.md）
     state: Option<Value>,
 }
 
+impl EventBody {
+    fn as_value(&self) -> Value {
+        json!({
+            "action": self.action,
+            "card_id": self.card_id,
+            "card_type": self.card_type,
+            "title": self.title,
+            "text": self.text,
+            "target": self.target,
+            "checked": self.checked,
+        })
+    }
+}
+
 async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>) -> impl IntoResponse {
     let mut ov = s.overseer.lock().await;
+    // 结构化事实 → 文本（lifecycle 语义单源，docs/i18n.md §Harness 内部语言）
+    let desc = crate::lifecycle::user_action_desc(
+        crate::i18n::Lang::of(&ov.config.harness_language),
+        &body.as_value(),
+    );
     // 动作流记录（docs/effect-reporting.md §kind）：前端 push_event = interaction/frontend
     ov.record_frontend_effect(
         "interaction",
-        json!({ "desc": body.desc.as_str(), "card_id": body.card_id.as_deref() }),
+        json!({ "desc": desc.as_str(), "card_id": body.card_id.as_deref() }),
     );
-    if body.desc.starts_with("用户关闭了") { *s.pending_notifications.lock().await = s.pending_notifications.lock().await.saturating_sub(1); }
+    if body.action == "dismiss" { *s.pending_notifications.lock().await = s.pending_notifications.lock().await.saturating_sub(1); }
     // 用户 × 关卡：dismiss（删 .card.json、出注册表、忘记布局）+ closed_by_user 双行事件
-    if let Some(cid) = body.card_id.as_deref() {
-        let ts = now_ms();
-        if let Some(entry) = ov.harness.cards_remove(cid) {
-            let lc = crate::lifecycle::DefaultLifecycle::for_lang(crate::i18n::Lang::of(&ov.config.harness_language));
-            ov.harness.event_buffer.push(lc.user_close_line(&entry.meta));
-            let alive = ov.harness.cards.len();
-            ov.harness.event_buffer.push(lc.closed_line(&entry.meta, alive, ts));
-            return Json(json!({ "ok": true }));
+    if body.action == "dismiss" {
+        if let Some(cid) = body.card_id.as_deref() {
+            let ts = now_ms();
+            if let Some(entry) = ov.harness.cards_remove(cid) {
+                let lc = crate::lifecycle::DefaultLifecycle::for_lang(crate::i18n::Lang::of(&ov.config.harness_language));
+                ov.harness.event_buffer.push(lc.user_close_line(&entry.meta));
+                let alive = ov.harness.cards.len();
+                ov.harness.event_buffer.push(lc.closed_line(&entry.meta, alive, ts));
+                return Json(json!({ "ok": true }));
+            }
         }
     }
     // 双载荷（docs/harness.md）：带快照走 push_with_state，否则普通描述
     match body.state {
-        Some(state) => ov.harness.event_buffer.push_with_state(body.desc, state),
-        None => ov.harness.event_buffer.push(body.desc),
+        Some(state) => ov.harness.event_buffer.push_with_state(desc, state),
+        None => ov.harness.event_buffer.push(desc),
     }
     Json(json!({ "ok": true }))
 }
