@@ -97,12 +97,13 @@ pub trait Filter {
     fn detect_change(&self, prev: &str, next: &str) -> Change;
 }
 
-/// 按 Config.filter_strategy 选择实现（concepts §11 可替换策略）；
-/// "default" 兼容映射 claude
-pub fn by_name(name: &str) -> Box<dyn Filter + Send> {
+/// 按实例 hook kind 选择实现（docs/filter.md：Filter 唯一按实例 kind 选择——
+/// 无全局 Config 策略、无 "default" 兼容映射、无未知回退）；
+/// 缺失或不受支持的 kind 返回 None（调用方在处理前直接拒绝）
+pub fn by_name(name: &str) -> Option<std::sync::Arc<dyn Filter + Send + Sync>> {
     match name {
-        "claude" | "default" => Box::new(claude::ClaudeFilter::default()),
-        "opencode" => Box::new(opencode::OpenCodeFilter::default()),
-        _ => Box::new(claude::ClaudeFilter::default()), // 未知策略回退 claude
+        "claude" => Some(std::sync::Arc::new(claude::ClaudeFilter::default())),
+        "opencode" => Some(std::sync::Arc::new(opencode::OpenCodeFilter::default())),
+        _ => None,
     }
 }

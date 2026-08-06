@@ -85,7 +85,7 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "kaomoji.user", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry }, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "compression_reserve_default", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
     NodeMeta { path: "set_autonomy_default_ttl_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
-    NodeMeta { path: "filter_strategy", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false },
+    // filter_strategy 已退役（Filter 按实例 kind 选择，docs/filter.md；旧字段经 reconcile 剔除）
     NodeMeta { path: "timer", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "timer.interval_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },
     NodeMeta { path: "timer.stagger_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true },

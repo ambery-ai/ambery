@@ -98,6 +98,7 @@ static TABLE: &[(&str, &str, &str)] = &[
     ("hook.stop.empty", "{name} 完成，无汇报内容。评估是否通知。", "{name} finished with no report content. Evaluate whether to notify."),
     ("hook.stop.report", "[汇报] {name} 完成：{hint}", "[report] {name} finished: {hint}"),
     ("hook.sweep-line", "启动扫描: {located} tab 已定位（{marked} marker / {placeholder} 占位），claude.exe 进程 {n}，cloaked 窗口 {cloaked_n}", "Startup sweep: {located} tabs located ({marked} markers / {placeholder} placeholders), claude.exe processes {n}, cloaked windows {cloaked_n}"),
+    ("timer.scan.updated", "{name} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。", "{name}: fallback sweep found changes; Context updated ({len} chars). Evaluate whether to notify."),
     ("hook.sweep-cloaked", "（有窗口对其他桌面不可读，可开 WT「全桌面显示」）", " (some windows are unreadable from other desktops; consider enabling WT \"show on all desktops\")"),
 
     // ── 工具执行错误反馈（overseer.rs execute_tool 等）──

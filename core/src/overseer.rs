@@ -77,8 +77,9 @@ pub struct OverseerBackend<L: Llm> {
     pub harness: Harness,
     pub config: Config,
     llm: L,
-    /// Filter（concepts §11）：Content → Context 链路上应用
-    filter: Box<dyn Filter + Send>,
+    /// Filter 按实例 kind 的缓存（docs/filter.md：Filter 唯一按实例 hook kind 选择——
+    /// 无全局策略、无默认回退；缺失或不受支持的 kind 在处理前直接拒绝）
+    filter_cache: std::collections::HashMap<String, Arc<dyn Filter + Send + Sync>>,
     /// Timer（concepts §1a）：每实例兜底扫描调度
     pub timers: TimerWheel,
     /// 读通道（docs/timer.md §Scanner）：sidecar 或 MockTerminals；fetch_terminal 优先于 Context
@@ -167,7 +168,6 @@ fn node_type_name(ty: &crate::config::reflect::NodeType) -> &'static str {
 
 impl<L: Llm> OverseerBackend<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
-        let filter = crate::filter::by_name(&config.filter_strategy);
         let timers = TimerWheel::new(config.timer.interval_ms, config.timer.stagger_ms);
         // 工具调用预算（冷字段，启动时捕获）
         let tool_budget_response = config.max_tool_calls_in_one_response;
@@ -186,7 +186,7 @@ impl<L: Llm> OverseerBackend<L> {
             harness,
             config,
             llm,
-            filter,
+            filter_cache: std::collections::HashMap::new(),
             timers,
             terminal_reader: None,
             vd_switcher: None,
@@ -277,10 +277,7 @@ impl<L: Llm> OverseerBackend<L> {
         // 一次成功写入使相交路径的 query 快照失效（docs/config.md §快照有效性；
         // 统一管道单点——LLM/CLI/面板/外部载入全部经此，无关路径不受影响）
         self.query_snapshots.retain(|r| !paths_intersect(&r.path, path));
-        // 热应用：filter 重建（其余字段每轮现读/经 effective_* 出口现取，天然热）
-        if self.config.filter_strategy != old.filter_strategy {
-            self.filter = crate::filter::by_name(&self.config.filter_strategy);
-        }
+        // 其余字段每轮现读/经 effective_* 出口现取，天然热（Filter 按实例 kind 现选现缓存）
         let llm_changed = self.config.llm != old.llm;
         Ok(ConfigOutcome {
             effects: vec![Effect::ConfigChanged { llm_changed }],
@@ -574,13 +571,9 @@ impl<L: Llm> OverseerBackend<L> {
         let new_v = serde_json::to_value(&new_cfg).unwrap_or(Value::Null);
         let changed = diff_paths("", &old_v, &new_v);
         let old_llm = self.config.llm.clone();
-        let old_filter = self.config.filter_strategy.clone();
         let read_only = self.config.read_only;
         self.config = new_cfg;
         self.config.read_only = read_only;
-        if self.config.filter_strategy != old_filter {
-            self.filter = crate::filter::by_name(&self.config.filter_strategy);
-        }
         self.query_snapshots
             .retain(|r| !changed.iter().any(|p| paths_intersect(&r.path, p)));
         self.config.llm != old_llm
@@ -1107,6 +1100,12 @@ impl<L: Llm> OverseerBackend<L> {
         let kind = kind
             .map(String::from)
             .or_else(|| prev.and_then(|a| a.kind.clone()));
+        // Filter 按实例 kind（docs/filter.md）：缺失或不受支持的 kind 在实例状态更新、
+        // 读、Filter 与 Queue 之前直接拒绝（事件整体不处理）
+        if !Self::kind_supported(kind.as_deref()) {
+            eprintln!("[hook] {name} kind 缺失或不受支持（{kind:?}），事件拒绝处理");
+            return Ok(());
+        }
         // Hook 到达 → Timer 重排（docs/timer.md）
         self.timers.reset(&name, ts);
         let mut upsert = |status: AgentStatus, tab: Option<crate::TabRef>| {
@@ -1164,7 +1163,7 @@ impl<L: Llm> OverseerBackend<L> {
                             .terminal_reader
                             .as_ref()
                             .and_then(|r| r(&name))
-                            .map(|raw| {
+                            .and_then(|raw| {
                                 let _ = self.harness.append_terminal_content(
                                     TerminalContentRecord {
                                         instance: name.clone(),
@@ -1173,8 +1172,12 @@ impl<L: Llm> OverseerBackend<L> {
                                         ts,
                                     },
                                 );
-                                let filtered = self.filter.digest(&raw).render();
-                                self.note_filtered(&name, filtered.clone());
+                                let filtered = self
+                                    .filter_for(&name)
+                                    .map(|f| f.digest(&raw).render());
+                                if let Some(f2) = &filtered {
+                                    self.note_filtered(&name, f2.clone());
+                                }
                                 filtered
                             });
                         match content {
@@ -1225,8 +1228,13 @@ impl<L: Llm> OverseerBackend<L> {
             source: RecordSource::Hook,
             ts,
         })?;
-        // Filter：Content → Context 链路（concepts §11），存归一后文本，字数按归一后计
-        let filtered = self.filter.digest(content).render();
+        // Filter：Content → Context 链路（concepts §11），存归一后文本，字数按归一后计。
+        // mock hook 语义 = 模拟 claude CLI 实例（docs/agent-loop.md §Mock Hook 契约），
+        // 故 kind 恒为 claude（docs/filter.md：Filter 按实例 kind 选择）
+        let filtered = crate::filter::by_name("claude")
+            .expect("claude filter 必须存在")
+            .digest(content)
+            .render();
         // Hook 到达 → Timer 重排（近期有 Hook 的实例不该被补扫，docs/timer.md）
         self.timers.reset(instance, ts);
         match event {
@@ -1236,7 +1244,7 @@ impl<L: Llm> OverseerBackend<L> {
                     hash: crate::agent_hash(instance, project, ts),
                     name: instance.into(),
                     project: project.into(),
-                    kind: None,
+                    kind: Some("claude".into()),
                     status: AgentStatus::Idle,
                     tab: None,
                     first_seen: ts,
@@ -1266,7 +1274,7 @@ impl<L: Llm> OverseerBackend<L> {
                     hash,
                     name: instance.into(),
                     project: project.into(),
-                    kind: None,
+                    kind: Some("claude".into()),
                     status: AgentStatus::Idle,
                     tab: None,
                     first_seen,
@@ -1299,24 +1307,41 @@ impl<L: Llm> OverseerBackend<L> {
         self.timers.due(now, batch)
     }
 
+    /// 实例 kind 解析（docs/filter.md：Filter 按实例 kind 选择）
+    fn resolve_kind(&self, instance: &str) -> Option<String> {
+        self.harness
+            .agents
+            .iter()
+            .rev()
+            .find(|a| a.name == instance && a.status != AgentStatus::Closed)
+            .and_then(|a| a.kind.clone())
+    }
+
     /// filtered_content 现算（不持久化，docs/storage.md §filtered_content 退役）：
-    /// terminal-content.jsonl 原文逐条 digest 出归一全文（agent 实际读到的终端内容）
+    /// terminal-content.jsonl 原文逐条 digest 出归一全文（agent 实际读到的终端内容）；
+    /// 逐条按实例 kind 选择 Filter（docs/filter.md），kind 缺失/不受支持的记录不入归一视图
     pub fn filtered_content(&self) -> Vec<crate::FilteredContent> {
         self.harness
             .terminal_content_records()
             .unwrap_or_default()
             .iter()
-            .map(|r| crate::FilteredContent {
-                instance: r.instance.clone(),
-                filtered_content: self.filter.digest(&r.raw).render(),
-                source: r.source,
-                ts: r.ts,
+            .filter_map(|r| {
+                let kind = self.resolve_kind(&r.instance)?;
+                let f = crate::filter::by_name(&kind)?;
+                Some(crate::FilteredContent {
+                    instance: r.instance.clone(),
+                    filtered_content: f.digest(&r.raw).render(),
+                    source: r.source,
+                    ts: r.ts,
+                })
             })
             .collect()
     }
 
     /// 某实例最新一条归一全文（fetch_terminal 回退/追问，从原文现算）
     pub fn filtered_content_latest(&self, instance: &str) -> Option<crate::FilteredContent> {
+        let kind = self.resolve_kind(instance)?;
+        let f = crate::filter::by_name(&kind)?;
         self.harness
             .terminal_content_records()
             .unwrap_or_default()
@@ -1325,10 +1350,33 @@ impl<L: Llm> OverseerBackend<L> {
             .find(|r| r.instance == instance)
             .map(|r| crate::FilteredContent {
                 instance: r.instance.clone(),
-                filtered_content: self.filter.digest(&r.raw).render(),
+                filtered_content: f.digest(&r.raw).render(),
                 source: r.source,
                 ts: r.ts,
             })
+    }
+
+    /// Filter 按实例 kind 现选现缓存（docs/filter.md：唯一按实例 hook kind 选择；
+    /// 无全局策略、无默认回退）。kind 缺失或不受支持 → None（调用方直接拒绝）
+    fn filter_for(&mut self, instance: &str) -> Option<Arc<dyn Filter + Send + Sync>> {
+        let kind = self
+            .harness
+            .agents
+            .iter()
+            .rev()
+            .find(|a| a.name == instance && a.status != AgentStatus::Closed)
+            .and_then(|a| a.kind.clone())?;
+        if let Some(f) = self.filter_cache.get(&kind) {
+            return Some(f.clone());
+        }
+        let f = crate::filter::by_name(&kind)?;
+        self.filter_cache.insert(kind.clone(), f.clone());
+        Some(f)
+    }
+
+    /// kind 合法性（注册/事件前置判据，docs/filter.md）：kind 存在且受支持
+    fn kind_supported(kind: Option<&str>) -> bool {
+        kind.map_or(false, |k| crate::filter::by_name(k).is_some())
     }
 
     /// 变化检测 prev 登记（每实例最新已知归一全文；内存态，重启丢）；
@@ -1380,16 +1428,26 @@ impl<L: Llm> OverseerBackend<L> {
             source: RecordSource::Timer,
             ts,
         })?;
-        let filtered = self.filter.digest(content).render();
+        // Filter 按实例 kind（docs/filter.md）：缺失/不受支持在 Filter 与 Queue 之前拒绝
+        // （原文存档不受影响；判死读通道在调用方，不经此函数）
+        let Some(filter) = self.filter_for(instance) else {
+            eprintln!("[timer-scan] {instance} kind 缺失或不受支持，内容处理拒绝");
+            return Ok(());
+        };
+        let filtered = filter.digest(content).render();
         // 变化检测 prev 存内存（重启丢，docs/storage.md §filtered_content 退役）
         let prev = self.filtered_prev.get(instance).cloned().unwrap_or_default();
-        let change = self.filter.detect_change(&prev, &filtered);
+        let change = filter.detect_change(&prev, &filtered);
         let len = filtered.chars().count();
         self.note_filtered(instance, filtered);
         if matches!(change, Change::Substantive(_)) {
             self.enqueue(
                 Role::System,
-                format!("{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。"),
+                crate::i18n::trf(
+                    crate::i18n::Lang::of(&self.config.harness_language),
+                    "timer.scan.updated",
+                    &[("name", instance.to_string()), ("len", len.to_string())],
+                ),
                 ts,
             )?;
         }
@@ -1619,15 +1677,17 @@ impl<L: Llm> OverseerBackend<L> {
                     ov.terminal_reader
                         .as_ref()
                         .and_then(|r| r(inst))
-                        .map(|raw| {
+                        .and_then(|raw| {
                             let _ = ov.harness.append_terminal_content(TerminalContentRecord {
                                 instance: inst.into(),
                                 raw: raw.clone(),
                                 source: RecordSource::FetchTerminal,
                                 ts: crate::server::now_ms(),
                             });
-                            let filtered = ov.filter.digest(&raw).render();
-                            ov.note_filtered(inst, filtered.clone());
+                            let filtered = ov.filter_for(inst).map(|f| f.digest(&raw).render());
+                            if let Some(f2) = &filtered {
+                                ov.note_filtered(inst, f2.clone());
+                            }
                             filtered
                         })
                 };
@@ -1846,7 +1906,7 @@ mod tests {
         let f2 = forgotten.clone();
         ov.tab_forgetter = Some(std::sync::Arc::new(move |name: &str| f2.lock().unwrap().push(name.to_string())));
         // session_start：注册 + 定位探测回写 tab 快照
-        ov.handle_real_hook("session_start", "sess-1234-abc", "/tmp/demo", None, None, None, None, 1000)
+        ov.handle_real_hook("session_start", "sess-1234-abc", "/tmp/demo", Some("claude"), None, None, None, 1000)
             .await
             .unwrap();
         let a = ov
@@ -1859,7 +1919,7 @@ mod tests {
             .clone();
         assert_eq!(a.tab, Some(crate::TabRef { hwnd: 100, index: 2 }), "定位探测回写");
         // session_end：tab=null + forgetter 调用
-        ov.handle_real_hook("session_end", "sess-1234-abc", "/tmp/demo", None, None, None, None, 1001)
+        ov.handle_real_hook("session_end", "sess-1234-abc", "/tmp/demo", Some("claude"), None, None, None, 1001)
             .await
             .unwrap();
         let last = ov.harness.agents.last().unwrap();
@@ -1891,11 +1951,16 @@ mod tests {
     async fn fetch_terminal_ok_flag_consistent() {
         // toolset.md §fetch_terminal：成功与失败形态自洽（ok 字段恒在）
         let mut ov = make_overseer("fetch-ok");
+        // Filter 按实例 kind（docs/filter.md）：未注册实例 kind 缺失，读取被拒绝
         let call = ToolCall { id: "f".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost","vd_switch":false}).to_string() };
         let (r, _) = ov.execute_tool(&call).await;
         assert_eq!(r["ok"], json!(false), "{r}");
+        // 注册（带 kind）后读取正常（name = <project>·<sid8>）
+        ov.handle_real_hook("session_start", "sess0000-1111", "/tmp/ghost", Some("claude"), None, None, None, 1)
+            .await
+            .unwrap();
         ov.terminal_reader = Some(std::sync::Arc::new(|_| Some("内容".to_string())));
-        let (r, _) = ov.execute_tool(&ToolCall { id: "f2".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost","vd_switch":false}).to_string() }).await;
+        let (r, _) = ov.execute_tool(&ToolCall { id: "f2".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost·sess0000","vd_switch":false}).to_string() }).await;
         assert_eq!(r["ok"], json!(true), "{r}");
     }
 
@@ -1932,10 +1997,10 @@ mod tests {
         assert!(sleep.description.contains("Wait"), "{}", sleep.description);
         assert_eq!(sleep.name, "sleep"); // tool name 机器契约不译
         // hook 事件文字：事件发生时刻的语言
-        ov.handle_real_hook("session_start", "sid-0000-1111", "/tmp/demo", None, None, None, None, 1000)
+        ov.handle_real_hook("session_start", "sid-0000-1111", "/tmp/demo", Some("claude"), None, None, None, 1000)
             .await
             .unwrap();
-        ov.handle_real_hook("notification", "sid-0000-1111", "/tmp/demo", None, None, Some("need eyes"), None, 1001)
+        ov.handle_real_hook("notification", "sid-0000-1111", "/tmp/demo", Some("claude"), None, Some("need eyes"), None, 1001)
             .await
             .unwrap();
         let msgs = ov.harness.context.messages();
@@ -1954,7 +2019,7 @@ mod tests {
         assert!(q.contains("requests attention: need eyes"), "{q}");
         // zh 对照：默认语言事件文字中文
         let mut ov2 = make_overseer("i18n-zh");
-        ov2.handle_real_hook("session_start", "sid-0000-2222", "/tmp/demo", None, None, None, None, 1000)
+        ov2.handle_real_hook("session_start", "sid-0000-2222", "/tmp/demo", Some("claude"), None, None, None, 1000)
             .await
             .unwrap();
         let buf2 = ov2.harness.event_buffer.events().join("\n");
@@ -2236,6 +2301,8 @@ mod tests {
         let dir = tmp_dir("prev-loss");
         {
             let mut ov = make_overseer("prev-loss");
+            // 先注册（kind=claude）：Filter 按实例 kind，未注册实例扫描内容被拒绝
+            ov.handle_hook("session_start", "ft", "p", "", 0).await.unwrap();
             ov.handle_timer_scan("ft", "相同内容", 1).await.unwrap();
         }
         // 同目录重开（Harness replay + 新 OverseerBackend：prev 为空）
@@ -2821,7 +2888,7 @@ mod tests {
         // B（默认 queue_only）：hint 形态
         let mut ov = make_overseer("rh5");
         let _ = ov
-            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000)
+            .handle_real_hook("stop", sid, r"/tmp/p", Some("claude"), None, None, Some("修了 3 个文件"), 1000)
             .await
             .unwrap();
         ov.drain_queue(0).await.unwrap();
@@ -2833,7 +2900,7 @@ mod tests {
         let mut ov = make_overseer("rh6");
         ov.config.stop_hook_mode = "message".into();
         let _ = ov
-            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, Some("修了 3 个文件"), 1000)
+            .handle_real_hook("stop", sid, r"/tmp/p", Some("claude"), None, None, Some("修了 3 个文件"), 1000)
             .await
             .unwrap();
         ov.drain_queue(0).await.unwrap();
@@ -2849,7 +2916,7 @@ mod tests {
             Some("● 完成。hooks 已配置".to_string())
         }));
         let _ = ov
-            .handle_real_hook("stop", sid, r"/tmp/p", None, None, None, None, 1000)
+            .handle_real_hook("stop", sid, r"/tmp/p", Some("claude"), None, None, None, 1000)
             .await
             .unwrap();
         ov.drain_queue(0).await.unwrap();
@@ -2947,8 +3014,12 @@ mod tests {
         assert!(r2["error"].as_str().unwrap_or("").contains("vd_switch=true 重试"), "{r2}");
         let _ = std::fs::remove_dir_all(tmp_dir("vd1"));
 
-        // true + 切换成功:重读命中
+        // true + 切换成功:重读命中（先注册实例——Filter 按实例 kind，未注册读取被拒）
         let mut ov = make_overseer("vd2");
+        ov.handle_real_hook("session_start", "x0x00000-1", "/tmp/p", Some("claude"), None, None, None, 1)
+            .await
+            .unwrap();
+        let inst_name = ov.harness.agents[0].name.clone();
         ov.terminal_reader = Some(std::sync::Arc::new(|inst: &str| {
             if std::env::var("VD_TEST_READY").is_ok() { Some(format!("内容:{inst}")) } else { None }
         }));
@@ -2956,10 +3027,10 @@ mod tests {
             std::env::set_var("VD_TEST_READY", "1");
             true
         }));
-        let call3 = ToolCall { id: "c3".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"x","vd_switch":true}).to_string() };
+        let call3 = ToolCall { id: "c3".into(), name: "fetch_terminal".into(), arguments: json!({"instance":inst_name,"vd_switch":true}).to_string() };
         let (r3, _) = ov.execute_tool(&call3).await;
         std::env::remove_var("VD_TEST_READY");
-        assert_eq!(r3["content"].as_str().unwrap_or(""), "内容:x");
+        assert_eq!(r3["content"].as_str().unwrap_or(""), format!("内容:{inst_name}"));
         let _ = std::fs::remove_dir_all(tmp_dir("vd2"));
     }
 
@@ -3002,7 +3073,7 @@ mod tests {
                 "stop",
                 "aaaa0000-1111-2222",
                 r"/tmp/p",
-                None,
+                Some("claude"),
                 None,
                 None,
                 Some("修完了"),
@@ -3037,7 +3108,7 @@ mod tests {
                     "session_start",
                     "bbbb1111-2222-3333",
                     r"/tmp/p",
-                    None,
+                    Some("claude"),
                     None,
                     None,
                     None,
@@ -3057,11 +3128,11 @@ mod tests {
         let mut ov = make_overseer("rh4");
         let sid = "cccc2222-3333-4444";
         let _ = ov
-            .handle_real_hook("session_start", sid, r"/tmp/p", None, None, None, None, 1000)
+            .handle_real_hook("session_start", sid, r"/tmp/p", Some("claude"), None, None, None, 1000)
             .await
             .unwrap();
         let _ = ov
-            .handle_real_hook("user_prompt", sid, r"/tmp/p", None, Some("帮我修 bug"), None, None, 2000)
+            .handle_real_hook("user_prompt", sid, r"/tmp/p", Some("claude"), Some("帮我修 bug"), None, None, 2000)
             .await
             .unwrap();
         ov.drain_queue(0).await.unwrap();
@@ -3074,7 +3145,7 @@ mod tests {
             .iter()
             .any(|m| m.content.as_deref().unwrap_or("").contains("[观察] 用户在")));
         let _ = ov
-            .handle_real_hook("session_end", sid, r"/tmp/p", None, None, None, None, 3000)
+            .handle_real_hook("session_end", sid, r"/tmp/p", Some("claude"), None, None, None, 3000)
             .await
             .unwrap();
         let a = ov.harness.agents.iter().find(|a| a.hash == "cccc2222").unwrap();

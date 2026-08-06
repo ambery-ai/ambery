@@ -26,9 +26,7 @@ pub struct Config {
     /// set_autonomy 省略 ttlMs 时的默认值（docs/autonomy.md）
     #[serde(default = "default_ttl_ms")]
     pub set_autonomy_default_ttl_ms: u64,
-    /// Filter 策略名（concepts §11/§12，docs/filter.md）
-    #[serde(default = "default_filter_strategy")]
-    pub filter_strategy: String,
+    // Filter 按实例 hook kind 选择（concepts §12 / docs/filter.md）：本结构不设全局策略字段
     /// Timer 兜底扫描调度（concepts §1a，docs/timer.md；全部冷字段，重启生效）
     #[serde(default)]
     pub timer: TimerConfig,
@@ -286,10 +284,6 @@ fn default_ttl_ms() -> u64 {
     5000
 }
 
-fn default_filter_strategy() -> String {
-    "default".into()
-}
-
 fn default_timer_interval() -> i64 {
     300_000 // 5 分钟（concepts §1a）
 }
@@ -448,7 +442,6 @@ impl Default for Config {
             kaomoji: KaomojiConfig::default(),
             compression_reserve_default: default_compression_reserve(),
             set_autonomy_default_ttl_ms: default_ttl_ms(),
-            filter_strategy: default_filter_strategy(),
             timer: TimerConfig::default(),
             stop_hook_mode: default_stop_hook_mode(),
             max_tool_calls_in_one_response: default_max_tool_calls_in_one_response(),

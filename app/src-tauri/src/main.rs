@@ -445,8 +445,9 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
     {
         let mock = mock.clone();
+        let sidecar_for_read = sidecar.clone();
         overseer.terminal_reader = Some(Arc::new(move |inst: &str| {
-            sidecar.as_ref().and_then(|s| s.read_instance(inst))
+            sidecar_for_read.as_ref().and_then(|s| s.read_instance(inst))
                 .or_else(|| mock.lock().unwrap().get(inst).cloned())
         }));
     }

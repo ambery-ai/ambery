@@ -4,7 +4,7 @@
 use overseer_core::filter::{Change, Filter};
 
 fn main() {
-    let f = overseer_core::filter::by_name("default");
+    let f = overseer_core::filter::by_name("claude").expect("claude filter");
     let mut prev: Option<String> = None;
     for path in std::env::args().skip(1) {
         let raw = std::fs::read_to_string(&path).expect("read file");
