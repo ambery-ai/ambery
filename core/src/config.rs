@@ -59,6 +59,14 @@ pub struct Config {
     /// 未覆写的 token 回落 styles.css :root 内置默认。内置 "dark" = 全空覆写（= 当前默认视觉）
     #[serde(default = "default_themes")]
     pub themes: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    /// UI 语言（docs/i18n.md）：zh / en。首次初始化跟随受支持的系统语言，不支持回退项目默认；
+    /// 用户显式选择后系统语言不再覆盖
+    #[serde(default = "default_ui_language")]
+    pub ui_language: String,
+    /// Harness 内部语言（docs/i18n.md）：zh / en。首次初始化取项目明确默认语言（不随系统
+    /// 语言），切换从下一次新的 LLM 交互起生效，不改写既有 Context/历史
+    #[serde(default = "default_harness_language")]
+    pub harness_language: String,
     /// LLM 多 profile 配置（docs/agent-loop.md §LLM 抽象）
     #[serde(default)]
     pub llm: LlmConfig,
@@ -185,6 +193,32 @@ fn default_themes() -> std::collections::HashMap<String, std::collections::HashM
     let mut m = std::collections::HashMap::new();
     m.insert("dark".into(), std::collections::HashMap::new());
     m
+}
+
+/// 0.1.0 支持的语言集合（docs/i18n.md §0.1.0 支持范围）
+pub const SUPPORTED_LANGUAGES: &[&str] = &["zh", "en"];
+/// 项目明确的默认语言（docs/i18n.md：系统语言不受支持时的回退；Harness 首启默认）
+pub const PROJECT_DEFAULT_LANGUAGE: &str = "zh";
+
+/// UI 语言 default（docs/i18n.md）：跟随受支持的系统语言；不受支持回退项目默认。
+/// 只在首次初始化（或旧配置缺字段的 reconcile）求值一次，之后是稳定用户偏好
+fn default_ui_language() -> String {
+    let locale = sys_locale::get_locale().unwrap_or_default();
+    let lang = locale
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if SUPPORTED_LANGUAGES.contains(&lang.as_str()) {
+        lang
+    } else {
+        PROJECT_DEFAULT_LANGUAGE.into()
+    }
+}
+
+/// Harness 语言 default（docs/i18n.md）：项目明确默认，不随系统语言自动改变
+fn default_harness_language() -> String {
+    PROJECT_DEFAULT_LANGUAGE.into()
 }
 
 /// 主题 token 校验（docs/theme.md）：token 名去 --ov- 前缀后须 `^[a-z][a-z0-9-]*$`；
@@ -396,6 +430,8 @@ impl Default for Config {
             badge_side: default_badge_side(),
             theme: default_theme(),
             themes: default_themes(),
+            ui_language: default_ui_language(),
+            harness_language: default_harness_language(),
             llm: LlmConfig::default(),
             read_only: false,
             load_report: Vec::new(),

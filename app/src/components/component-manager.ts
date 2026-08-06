@@ -7,6 +7,7 @@
 
 import type { Bridge, ComponentSpec, Direction } from "../bridge";
 import { attachDrag } from "../drag";
+import { onLanguageChange, t } from "../i18n";
 import type { PositioningEngine } from "../positioning/engine";
 import { directionFromName, type Point } from "../positioning/types";
 
@@ -36,6 +37,28 @@ export class ComponentManager {
     // windowed（card 窗口）：不订阅全局 render 流——本窗只渲染 card:spec 定向事件
     // （#25 根因 A：全局广播使每个 card 窗口渲染所有卡 → 一窗多卡堆叠 + 复活已关闭卡）
     if (!windowed) bridge.onRenderComponent((spec) => this.render(spec));
+    // UI 语言切换：原地重贴 chrome 文案（docs/i18n.md；不重建 DOM——todobox 勾选态
+    // 只在 DOM，重建会丢交互状态）
+    onLanguageChange(() => this.relabel());
+  }
+
+  /** chrome 文案原地重贴（复制按钮 / diff 摘要 / todo 输入占位；卡片内容不翻译） */
+  private relabel() {
+    for (const card of this.cards.values()) {
+      const body = card.querySelector(".cmp-body");
+      if (!body) continue;
+      const type = card.dataset.type;
+      if (type === "text_card") {
+        const btn = body.querySelector(":scope > button");
+        if (btn) btn.textContent = t("card.copy");
+      } else if (type === "git_display") {
+        const summary = body.querySelector("details > summary");
+        if (summary) summary.textContent = t("card.expand-diff");
+      } else if (type === "todobox") {
+        const input = body.querySelector(":scope > input");
+        if (input) (input as HTMLInputElement).placeholder = t("card.todo-placeholder");
+      }
+    }
   }
 
   render(spec: ComponentSpec) {
@@ -133,7 +156,7 @@ export class ComponentManager {
         const p = document.createElement("p");
         p.textContent = spec.text;
         const copy = document.createElement("button");
-        copy.textContent = "复制";
+        copy.textContent = t("card.copy");
         copy.addEventListener("click", () => {
           void navigator.clipboard?.writeText(spec.text ?? "");
           this.bridge.pushEvent(`用户复制了 text_card「${spec.title}」的内容`);
@@ -164,7 +187,7 @@ export class ComponentManager {
         if (spec.diff) {
           const details = document.createElement("details");
           const summary = document.createElement("summary");
-          summary.textContent = "展开 diff";
+          summary.textContent = t("card.expand-diff");
           const pre = document.createElement("pre");
           pre.textContent = spec.diff;
           details.append(summary, pre);
@@ -313,7 +336,7 @@ export class ComponentManager {
     for (const item of spec.items) addItem(item.text, item.done);
 
     const input = document.createElement("input");
-    input.placeholder = "新增条目…";
+    input.placeholder = t("card.todo-placeholder");
     input.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && input.value.trim()) {
         const text = input.value.trim();

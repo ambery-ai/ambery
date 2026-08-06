@@ -5,6 +5,7 @@
 
 import { createBridge, type Bridge, type ConfigSchemaNode, type ConfigSchemaResp } from "../bridge";
 import { Store } from "../store";
+import { t, wireI18n } from "../i18n";
 import { wireTheme } from "../theme";
 import * as actions from "../tauri_runtime_actions";
 
@@ -16,17 +17,19 @@ let bridge: Bridge;
 
 export async function main() {
   bridge = await createBridge();
-  // docs/theme.md：设置面板同样采用当前主题
-  wireTheme(await Store.create(bridge));
+  const store = await Store.create(bridge);
+  // docs/theme.md：设置面板同样采用当前主题；docs/i18n.md：UI 语言切换即重渲染
+  wireTheme(store);
+  wireI18n(store, () => void render());
   document.body.innerHTML = `<div id="menu-panel">
     <div id="panel-head">
-      <span>⚙ 设置</span>
-      <span id="panel-head-right"><span id="panel-status"></span><button id="btn-close" title="关闭">✕</button></span>
+      <span>${t("menu.title")}</span>
+      <span id="panel-head-right"><span id="panel-status"></span><button id="btn-close" title="${t("menu.close-title")}">✕</button></span>
     </div>
-    <div id="panel-body">加载中…</div>
+    <div id="panel-body">${t("menu.loading")}</div>
     <div id="panel-foot">
-      <button id="btn-toggle">显示/隐藏</button>
-      <button id="btn-quit">退出</button>
+      <button id="btn-toggle">${t("menu.toggle-pet")}</button>
+      <button id="btn-quit">${t("menu.quit")}</button>
     </div>
   </div>`;
   document.getElementById("btn-toggle")!.onclick = () => void actions.togglePet();
@@ -54,28 +57,31 @@ async function render() {
   try {
     resp = await bridge.getConfigSchema!();
   } catch {
-    body.innerHTML = `<div class="err">连不上 core</div>`;
+    const err = document.createElement("div");
+    err.className = "err";
+    err.textContent = t("menu.offline");
+    body.replaceChildren(err);
     return;
   }
   body.innerHTML = "";
   if (resp.readOnly) {
     body.insertAdjacentHTML(
       "beforeend",
-      `<div class="warn">只读降级模式：备份文件加载中，修改被拒绝（docs/config.md）</div>`,
+      `<div class="warn">${escapeHtml(t("menu.readonly"))}</div>`,
     );
   }
   // 外部自动载入错误（docs/config.md §外部文件自动载入：保持 live Config，UI 显示具体错误）
   if (resp.loadError) {
     body.insertAdjacentHTML(
       "beforeend",
-      `<div class="err">配置文件外部载入失败：${escapeHtml(resp.loadError)}（当前仍使用已加载配置；修复文件后自动重试）</div>`,
+      `<div class="err">${escapeHtml(t("menu.load-error", { error: resp.loadError }))}</div>`,
     );
   }
   // 待重启状态（docs/config.md §待重启状态：保存值与运行值不同）
   if (resp.restartRequired?.length) {
     body.insertAdjacentHTML(
       "beforeend",
-      `<div class="warn">以下字段已保存，重启应用后生效：${escapeHtml(resp.restartRequired.join(", "))}</div>`,
+      `<div class="warn">${escapeHtml(t("menu.restart-banner", { paths: resp.restartRequired.join(", ") }))}</div>`,
     );
   }
   // 按 path 前缀分组：顶层标量一组（__top），llm.* / kaomoji.* 各一组
@@ -104,19 +110,19 @@ async function render() {
   // 主题分享（docs/theme.md §导出、分享与兼容）：导出到 config_root/themes/，按文件名导入
   if (!resp.readOnly) {
     const currentTheme = String(resp.nodes.find((n) => n.path === "theme")?.value ?? "dark");
-    body.insertAdjacentHTML("beforeend", `<div class="group">theme</div>`);
+    body.insertAdjacentHTML("beforeend", `<div class="group">${t("menu.theme-group")}</div>`);
     const share = document.createElement("div");
     share.className = "cfg-row";
     share.innerHTML = `<div class="cfg-line">
-      <button type="button" data-act="export">导出当前主题</button>
-      <input type="text" data-role="file" placeholder="主题文件名" />
-      <button type="button" data-act="import">导入</button>
+      <button type="button" data-act="export">${t("menu.theme-export")}</button>
+      <input type="text" data-role="file" placeholder="${t("menu.theme-file-placeholder")}" />
+      <button type="button" data-act="import">${t("menu.theme-import")}</button>
     </div>`;
     const status = document.getElementById("panel-status")!;
     share.querySelector('[data-act="export"]')!.addEventListener("click", async () => {
       status.textContent = "…";
       const r = await actions.exportTheme(currentTheme);
-      status.textContent = r.ok ? `✓ 已导出 ${r.path}` : `✗ ${r.error}`;
+      status.textContent = r.ok ? t("menu.exported", { path: r.path ?? "" }) : `✗ ${r.error}`;
       status.className = r.ok ? "ok" : "err";
     });
     share.querySelector('[data-act="import"]')!.addEventListener("click", async () => {
@@ -124,7 +130,7 @@ async function render() {
       if (!file) return;
       status.textContent = "…";
       const r = await actions.importTheme(file);
-      status.textContent = r.ok ? `✓ 已导入 ${r.name}` : `✗ ${r.error}`;
+      status.textContent = r.ok ? t("menu.imported", { name: r.name ?? "" }) : `✗ ${r.error}`;
       status.className = r.ok ? "ok" : "err";
       if (r.ok) setTimeout(() => void render(), 300);
     });
@@ -145,7 +151,7 @@ function renderNode(
 
   if (n.type.kind === "map") {
     // map 节点只作分组标记（已有条目已展开为独立子节点）
-    row.innerHTML = `<div class="map-head" ${title}>${escapeHtml(label)} <span class="dim">(map)</span></div>`;
+    row.innerHTML = `<div class="map-head" ${title}>${escapeHtml(label)} <span class="dim">${t("menu.map-tag")}</span></div>`;
     return row;
   }
 
@@ -215,11 +221,11 @@ function renderNode(
     const from = m[1] as "system" | "user";
     const key = m[2];
     const btn = document.createElement("button");
-    btn.textContent = from === "system" ? "→user" : "→system";
-    btn.title = `把「${key}」移到 ${from === "system" ? "user" : "system"} 池（原子移动）`;
+    const to = from === "system" ? "user" : "system";
+    btn.textContent = `→${to}`;
+    btn.title = t("menu.move-title", { key, to });
     btn.disabled = readOnly;
     btn.onclick = () => {
-      const to = from === "system" ? "user" : "system";
       const next = {
         system: { ...pools.system },
         user: { ...pools.user },
@@ -243,7 +249,7 @@ async function apply(path: string, value: unknown, control: HTMLElement) {
     const resp = await bridge.setConfig!(path, value);
     if (resp.ok) {
       const rr = resp.restartRequired as string[];
-      status.textContent = rr?.length ? `⚠ ${rr.join(",")} 需重启` : "✓";
+      status.textContent = rr?.length ? t("menu.need-restart", { paths: rr.join(",") }) : "✓";
       status.className = rr?.length ? "warn" : "ok";
       control.classList.remove("bad");
       setTimeout(() => void render(), 300); // 热刷新（值归一后重渲染）

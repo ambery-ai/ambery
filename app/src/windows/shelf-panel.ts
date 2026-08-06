@@ -5,6 +5,7 @@
 // browser = mock bridge + DOM 卡片显隐。
 
 import type { RestoredCard } from "../bridge";
+import { t } from "../i18n";
 
 /** 类型图标（concepts §5 五类 Component） */
 const TYPE_ICON: Record<string, string> = {
@@ -32,7 +33,7 @@ export class ShelfPanel {
   constructor(mount: HTMLElement, private actions: ShelfActions) {
     const root = document.createElement("div");
     root.id = "shelf-panel";
-    root.innerHTML = `<div id="shelf-body">加载中…</div>`;
+    root.innerHTML = `<div id="shelf-body">${t("shelf.loading")}</div>`;
     mount.appendChild(root);
     this.body = root.querySelector("#shelf-body")!;
     actions.onCardsChanged?.(() => void this.refresh());
@@ -41,7 +42,11 @@ export class ShelfPanel {
   async refresh() {
     const cards = await this.actions.list();
     if (cards.length === 0) {
-      this.body.innerHTML = `<div class="dim" style="padding:6px 8px">（无存活卡片）</div>`;
+      const empty = document.createElement("div");
+      empty.className = "dim";
+      empty.style.padding = "6px 8px";
+      empty.textContent = t("shelf.empty");
+      this.body.replaceChildren(empty);
       return;
     }
     this.body.innerHTML = "";
@@ -54,8 +59,8 @@ export class ShelfPanel {
       // 行 = 类型图标 + 标题 + 显隐/删除两图标（极简单行；中键点任意位置关面板）
       row.innerHTML = `<span class="shelf-type" title="${escapeHtml(c.component.type)}">${TYPE_ICON[c.component.type] ?? "▢"}</span>
         <span class="shelf-title${c.user_closed ? " closed" : ""}"></span>
-        <button class="shelf-vis" title="${c.user_closed ? "显示" : "隐藏"}">${c.user_closed ? "👁" : "🙈"}</button>
-        <button class="shelf-dismiss" title="dismiss（结束 Surface，忘记布局）">✕</button>`;
+        <button class="shelf-vis" title="${c.user_closed ? t("shelf.show") : t("shelf.hide")}">${c.user_closed ? "👁" : "🙈"}</button>
+        <button class="shelf-dismiss" title="${t("shelf.dismiss-title")}">✕</button>`;
       row.querySelector(".shelf-title")!.textContent = title;
       row.querySelector(".shelf-title")!.setAttribute("title", `${title} (${id})`);
       row.querySelector(".shelf-vis")!.addEventListener("click", () => void this.actions.setUserClosed(c, !c.user_closed));

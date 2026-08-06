@@ -118,7 +118,7 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_config",
-            description: "统一 Config 工具（受限投影，非法值被拒绝并返回错误）。action 必填：grep（pattern 正则搜 path/desc，不返回 value）→ query（精确 path；叶子带 value，容器默认 children 导航，view=object 读完整容器）→ update（path+value 写入，需更早 response 中仍有效的完整 query 快照）。可见顶层：kaomoji 表情状态映射、set_autonomy_default_ttl_ms Autonomy 默认持续时间、timer Timer 调度子树、view_scale/badge_style/badge_side View 外观、theme/themes 主题（当前主题名与主题 token 表）。路径未知先 grep，再 query；优先 view=children，必要时才对已定位的小 object 使用 view=object",
+            description: "统一 Config 工具（受限投影，非法值被拒绝并返回错误）。action 必填：grep（pattern 正则搜 path/desc，不返回 value）→ query（精确 path；叶子带 value，容器默认 children 导航，view=object 读完整容器）→ update（path+value 写入，需更早 response 中仍有效的完整 query 快照）。可见顶层：kaomoji 表情状态映射、set_autonomy_default_ttl_ms Autonomy 默认持续时间、timer Timer 调度子树、view_scale/badge_style/badge_side View 外观、theme/themes 主题（当前主题名与主题 token 表）、ui_language/harness_language 语言（UI 与 Harness 内部文本语言）。路径未知先 grep，再 query；优先 view=children，必要时才对已定位的小 object 使用 view=object",
             parameters: json!({
                 "type": "object",
                 "properties": {

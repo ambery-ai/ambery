@@ -93,6 +93,8 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "badge_side", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "theme", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "themes", kind: NodeKind::Map { entry_probe: probe_theme_value }, validate: &[Validation::Func(themes_func)], no_llm_visible: false, cold: false },
+    NodeMeta { path: "ui_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false },
+    NodeMeta { path: "harness_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false },
     NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false },
     NodeMeta { path: "llm.active", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider }, validate: V, no_llm_visible: false, cold: false },

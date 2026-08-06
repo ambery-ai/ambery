@@ -3,6 +3,7 @@
 
 import type { Bridge, ContextMessage } from "../bridge";
 import { attachDrag } from "../drag";
+import { t, wireI18n } from "../i18n";
 import type { PositioningEngine } from "../positioning/engine";
 import type { Store } from "../store";
 import { Direction } from "../positioning/types";
@@ -14,6 +15,7 @@ export class ChatPanel {
   private el: HTMLDivElement;
   private historyEl: HTMLDivElement;
   private inputEl: HTMLInputElement;
+  private titleEl!: HTMLSpanElement;
   private visible = false;
   private loadingEl: HTMLDivElement | null = null;
   /** 用户意图关闭（docs/window-follow.md：窗口私有，与系统藏分离，单源语义） */
@@ -39,21 +41,22 @@ export class ChatPanel {
 
     const header = document.createElement("div");
     header.className = "chat-header";
-    const title = document.createElement("span");
-    title.textContent = "ペット";
+    this.titleEl = document.createElement("span");
     const close = document.createElement("button");
     close.className = "chat-close";
     close.textContent = "×";
     // #26：× 与 toggle 关 / OS 关闭请求同走统一关闭 API（intentClose）
     close.addEventListener("click", () => this.intentClose());
-    header.append(title, close);
+    header.append(this.titleEl, close);
 
     this.historyEl = document.createElement("div");
     this.historyEl.className = "chat-history";
 
     this.inputEl = document.createElement("input");
     this.inputEl.className = "chat-input";
-    this.inputEl.placeholder = "和ペット说话…";
+    this.relabel();
+    // UI 语言切换即重渲染文案（docs/i18n.md；历史内容不翻译）
+    wireI18n(store, () => this.relabel());
     this.inputEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && this.inputEl.value.trim()) {
         const text = this.inputEl.value.trim();
@@ -178,10 +181,22 @@ export class ChatPanel {
       if (msgs) {
         this.renderHistory(msgs);
       } else {
-        this.historyEl.innerHTML = `<div class="chat-msg chat-system" style="opacity:0.7">⚠ 未连接到 core</div>`;
+        const warn = document.createElement("div");
+        warn.className = "chat-msg chat-system";
+        warn.style.opacity = "0.7";
+        warn.textContent = t("chat.offline");
+        this.historyEl.replaceChildren(warn);
       }
       this.inputEl.focus();
     }
+  }
+
+  /** UI 文案（i18n）：标题 = pet 名称（Config 稳定身份值，docs/view.md §名称）；
+   *  placeholder 跟随 UI 语言。切换语言只重贴文案，不动历史 */
+  private relabel() {
+    const name = this.store.config?.name ?? t("pet.default-name");
+    this.titleEl.textContent = name;
+    this.inputEl.placeholder = t("chat.placeholder", { name });
   }
 
   private renderHistory(msgs: ContextMessage[]) {
@@ -212,7 +227,7 @@ export class ChatPanel {
     this.thinkEl = document.createElement("div");
     this.thinkEl.className = "chat-msg chat-system chat-thinking";
     this.thinkEl.textContent = "…";
-    this.thinkEl.title = "思考中（点击看思维链）";
+    this.thinkEl.title = t("chat.thinking-title");
     this.thinkEl.addEventListener("click", () => this.toggleThinkingModal());
     this.historyEl.append(this.thinkEl);
   }

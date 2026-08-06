@@ -7,6 +7,7 @@ import { motionDef } from "../motions";
 import { contextSize, MAX_FACE_MARGIN, MIN_FACE_W, obstacleSize, windowSize } from "../pet-size";
 import { engine, setupServer } from "../positioning/tauri-server";
 import { Store } from "../store";
+import { wireI18n } from "../i18n";
 import { wireTheme } from "../theme";
 import { View } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
@@ -18,6 +19,7 @@ export async function main() {
   // 前端 store（docs/case-runner.md §前端读取架构）：core 可读状态集中持有，读取走 store
   const store = await Store.create(bridge);
   wireTheme(store); // docs/theme.md：基线即应用 + 切换即全窗口生效
+  wireI18n(store); // docs/i18n.md：UI 语言基线（本页组件各自订阅重渲染）
 
   const mount = document.getElementById("app")!;
   const view = new View(mount);

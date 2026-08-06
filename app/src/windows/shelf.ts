@@ -6,6 +6,7 @@
 
 import { createBridge, type Bridge } from "../bridge";
 import { Store } from "../store";
+import { wireI18n } from "../i18n";
 import { wireTheme } from "../theme";
 import * as actions from "../tauri_runtime_actions";
 import { ShelfPanel } from "./shelf-panel";
@@ -29,6 +30,7 @@ export async function main() {
   // 前端 store（docs/case-runner.md §前端读取架构）：cards 注册表经 store 读
   const store = await Store.create(bridge);
   wireTheme(store); // docs/theme.md：瞬时弹出层同样采用当前主题
+  wireI18n(store, () => void panel.refresh()); // docs/i18n.md：语言切换即重渲染
 
   const panel = new ShelfPanel(document.body, {
     list: async () => store.cards ?? [],

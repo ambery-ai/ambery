@@ -47,6 +47,10 @@ export interface AppConfig {
   theme?: string;
   /** 主题表（docs/theme.md）：主题名 → token 覆写表（token 名去 --ov- 前缀 → CSS 值） */
   themes?: Record<string, Record<string, string>>;
+  /** UI 语言（docs/i18n.md）：zh / en */
+  uiLanguage?: "zh" | "en";
+  /** pet 名称（docs/view.md §名称）：稳定身份值，不参与翻译 */
+  name?: string;
 }
 
 /** docs/components.md：Component 方位（八方位词；引擎内部按 16 方位环解析） */

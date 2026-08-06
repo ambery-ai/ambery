@@ -113,7 +113,7 @@ async fn get_config(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
     let s = wait_state(&state)?;
     let ov = s.overseer().lock().await;
     let cfg = &ov.config;
-    Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale, "badgeStyle": cfg.badge_style, "badgeSide": cfg.badge_side, "theme": cfg.theme, "themes": cfg.themes }))
+    Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale, "badgeStyle": cfg.badge_style, "badgeSide": cfg.badge_side, "theme": cfg.theme, "themes": cfg.themes, "uiLanguage": cfg.ui_language }))
 }
 
 /// 主题导出（docs/theme.md §导出、分享与兼容）：写 `<config_root>/themes/<name>.theme.json`
