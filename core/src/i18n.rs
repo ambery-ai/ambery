@@ -143,6 +143,9 @@ static TABLE: &[(&str, &str, &str)] = &[
     ("msg.saved-restart", "已保存，重启应用后生效", "Saved; takes effect after restart"),
     ("msg.saved-hot", "已生效", "Applied"),
 
+    // ── Context 压缩摘要（context.rs compress）──
+    ("context.summary", "[历史摘要] {summary}", "[History summary] {summary}"),
+
     // ── Memory 工具错误（memory.rs）──
     ("mem.no-index", "index.md 不存在（Memory 尚未初始化）", "index.md does not exist (Memory not initialized yet)"),
     ("mem.bad-name", "名称 '{name}' 不合法：小写字母开头，仅小写字母/数字/_/-，≤ {max} 字符", "invalid name '{name}': starts with a lowercase letter; lowercase letters/digits/_/- only; ≤ {max} chars"),

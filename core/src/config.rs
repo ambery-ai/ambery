@@ -72,6 +72,10 @@ pub struct Config {
     /// 不标 no_llm_visible：本地用户与 LLM 经各自 Config 入口读写
     #[serde(default = "default_pet_name")]
     pub name: String,
+    /// Compression 保留目标（docs/harness.md §Compression）：压缩后保留的原始 message
+    /// 条数目标；切口按完整 turn 边界收口（不拆 tool 序列）。冷字段，重启后生效
+    #[serde(default = "default_keep_recent")]
+    pub context_compression_keep_recent_messages: usize,
     /// LLM 多 profile 配置（docs/agent-loop.md §LLM 抽象）
     #[serde(default)]
     pub llm: LlmConfig,
@@ -229,6 +233,11 @@ fn default_harness_language() -> String {
 /// pet 正式默认名（docs/view.md §名称，用户定案「不改」）：ペット——不按语言区分
 pub fn default_pet_name() -> String {
     "ペット".into()
+}
+
+/// Compression 保留目标默认（docs/harness.md §Compression 字段表）：24
+fn default_keep_recent() -> usize {
+    24
 }
 
 /// pet 名称校验：非空、去空白后 ≤ 64 字符
@@ -457,6 +466,7 @@ impl Default for Config {
             ui_language: default_ui_language(),
             harness_language: default_harness_language(),
             name: default_pet_name(),
+            context_compression_keep_recent_messages: default_keep_recent(),
             llm: LlmConfig::default(),
             read_only: false,
             load_report: Vec::new(),

@@ -84,8 +84,9 @@ impl ContextMessage {
     }
 }
 
-/// shaking 保留最近 N 条原始消息，concepts §10d
-pub const KEEP_RECENT: usize = 8;
+/// shaking 保留条数的最终兜底（配置值见 Config.context_compression_keep_recent_messages，
+/// docs/harness.md §Compression；本常量仅供无配置场景/测试）
+pub const KEEP_RECENT: usize = 24;
 
 pub struct Context {
     messages: Vec<ContextMessage>,
@@ -124,11 +125,30 @@ impl Context {
         self.total_tokens() > self.token_threshold
     }
 
-    /// 总结 + shaking：历史压为一条 system 摘要，保留最近 KEEP_RECENT 条
-    pub fn compress(&mut self, summary: String, ts: i64) {
-        let tail_start = self.messages.len().saturating_sub(KEEP_RECENT);
+    /// 总结 + shaking：历史压为一条 system 摘要，按完整 turn 边界保留最近
+    /// `keep_recent` 条（目标值，docs/harness.md §Compression）：
+    /// - 切口不得落在 tool 序列中间（孤儿 tool result 使下一请求体非法）——切口前进越过；
+    /// - `min_tail_start` 保护当前在飞 turn 不被切断（调用方给本 turn 输入消息的下标）。
+    /// lang：摘要前缀按 Harness 语言（docs/i18n.md）
+    pub fn compress(
+        &mut self,
+        summary: String,
+        keep_recent: usize,
+        min_tail_start: usize,
+        lang: crate::i18n::Lang,
+        ts: i64,
+    ) {
+        let mut tail_start = self.messages.len().saturating_sub(keep_recent);
+        while tail_start < self.messages.len() && self.messages[tail_start].role == Role::Tool {
+            tail_start += 1;
+        }
+        tail_start = tail_start.min(min_tail_start);
         let tail: Vec<ContextMessage> = self.messages[tail_start..].to_vec();
-        self.messages = vec![ContextMessage::new(Role::System, format!("[历史摘要] {summary}"), ts)];
+        self.messages = vec![ContextMessage::new(
+            Role::System,
+            crate::i18n::trf(lang, "context.summary", &[("summary", summary)]),
+            ts,
+        )];
         self.messages.extend(tail);
     }
 
@@ -161,23 +181,59 @@ mod tests {
     #[test]
     fn compress_keeps_summary_and_recent() {
         let mut ctx = ctx();
-        for i in 0..21 {
+        for i in 0..30 {
             ctx.push(ContextMessage::new(Role::User, format!("msg-{i}"), i as i64));
         }
-        assert!(ctx.needs_compression()); // 21 条 × (4 + ~1) > 100
-        ctx.compress("前文提要".into(), 99);
+        assert!(ctx.needs_compression()); // 30 条 > 100 阈值
+        ctx.compress("前文提要".into(), KEEP_RECENT, usize::MAX, crate::i18n::Lang::Zh, 99);
         let msgs = ctx.messages();
         assert_eq!(msgs.len(), 1 + KEEP_RECENT);
         assert_eq!(msgs[0].content.as_deref(), Some("[历史摘要] 前文提要"));
-        assert_eq!(msgs[1].content.as_deref(), Some("msg-13")); // 最近 8 条
-        assert_eq!(msgs.last().unwrap().content.as_deref(), Some("msg-20"));
+        assert_eq!(msgs[1].content.as_deref(), Some("msg-6")); // 最近 24 条
+        assert_eq!(msgs.last().unwrap().content.as_deref(), Some("msg-29"));
+    }
+
+    #[test]
+    fn compress_never_splits_tool_sequence() {
+        // turn 边界（docs/harness.md §Compression）：切口不落在 tool 序列中间
+        let mut ctx = ctx();
+        ctx.push(ContextMessage::new(Role::User, "u", 1));
+        let mut ac = ContextMessage::new(Role::Assistant, "", 2);
+        ac.tool_calls = Some(vec![crate::context::ToolCall {
+            id: "c1".into(),
+            name: "sleep".into(),
+            arguments: "{}".into(),
+        }]);
+        ctx.push(ac);
+        ctx.push(ContextMessage::tool_result("c1", "{}", 3));
+        ctx.push(ContextMessage::tool_result("c2", "{}", 4));
+        ctx.push(ContextMessage::new(Role::Assistant, "done", 5));
+        // keep_recent=2 → 候选切口落在 tool_result 上 → 必须前进越过，不产生孤儿 tool result
+        ctx.compress("s".into(), 2, usize::MAX, crate::i18n::Lang::Zh, 9);
+        let roles: Vec<Role> = ctx.messages().iter().map(|m| m.role).collect();
+        assert_eq!(roles[1], Role::Assistant, "切口越过 tool 段: {roles:?}");
+        assert!(!roles.contains(&Role::Tool) || roles.iter().position(|r| *r == Role::Tool).unwrap() > 1);
+    }
+
+    #[test]
+    fn compress_respects_min_tail_start() {
+        // 在飞 turn 保护：keep 目标再小也不切断当前 turn（min_tail_start 收口）
+        let mut ctx = ctx();
+        for i in 0..10 {
+            ctx.push(ContextMessage::new(Role::User, format!("m{i}"), i as i64));
+        }
+        ctx.compress("s".into(), 2, 8, crate::i18n::Lang::Zh, 99);
+        // tail_start = min(10-2=8 越过后无 tool, 8) = 8 → 保留 m8,m9
+        let msgs = ctx.messages();
+        assert_eq!(msgs.len(), 1 + 2);
+        assert_eq!(msgs[1].content.as_deref(), Some("m8"));
     }
 
     #[test]
     fn compress_short_context_is_noop_like() {
         let mut ctx = ctx();
         ctx.push(ContextMessage::new(Role::User, "only", 1));
-        ctx.compress("s".into(), 2);
+        ctx.compress("s".into(), 2, usize::MAX, crate::i18n::Lang::Zh, 2);
         assert_eq!(ctx.messages().len(), 2); // summary + 原消息
     }
 

@@ -721,6 +721,59 @@ impl<L: Llm> OverseerBackend<L> {
         Ok(effects)
     }
 
+    /// Compression 检查+执行（concepts §10d / #16 真值触发）：轮次开头与 tool 循环内
+    /// 共用（harness.md §触发模型）。判定式 = 最近 usage 真值 + 其后新增消息 est 增量 vs
+    /// window − reserve；无真值 → 全量 est；无窗口事实 → 不压缩。
+    /// turn_start = 当前 turn 输入消息下标——压缩不切断在飞 turn（min_tail_start 收口）。
+    async fn maybe_compress(&mut self, turn_start: usize, ts: i64) -> std::io::Result<()> {
+        let trigger_tokens = match self.harness.last_usage {
+            Some(u) => {
+                u.prompt_tokens as usize
+                    + self
+                        .harness
+                        .context
+                        .est_tokens_since(self.harness.last_usage_msg_len)
+            }
+            None => self.harness.context.total_tokens(),
+        };
+        let compress = self
+            .config
+            .effective_compression_limit()
+            .is_some_and(|limit| trigger_tokens > limit);
+        if !compress {
+            return Ok(());
+        }
+        let pre_tokens = trigger_tokens; // 同尺：触发瞬间的真值锚点+增量（#16 ④）
+        let t0 = std::time::Instant::now();
+        // summarize 返回（摘要, usage 真值）；摘要调用也留真值（#16）
+        let (summary, summary_usage) = self
+            .llm
+            .summarize(self.harness.context.messages())
+            .await
+            .map_err(std::io::Error::other)?;
+        if let Some(u) = summary_usage {
+            self.harness.log_usage(u, ts)?;
+        }
+        let keep = self.config.context_compression_keep_recent_messages;
+        let lang = crate::i18n::Lang::of(&self.config.harness_language);
+        self.harness.context.compress(summary.clone(), keep, turn_start, lang, ts);
+        let post_tokens = self.harness.context.total_tokens(); // 同尺：压缩后 est（真值下轮刷新）
+        self.harness.log_compact_boundary(
+            summary,
+            pre_tokens,
+            post_tokens,
+            t0.elapsed().as_millis() as u64,
+            ts,
+        )?;
+        // 归零（harness.md §Compression）：diff 基准清空 + 全景一条重建 LLM 认知
+        self.filtered_prev.clear();
+        if let Some(p) = crate::panorama(&self.harness.agents) {
+            self.harness
+                .append_context(ContextMessage::new(Role::System, p, ts))?;
+        }
+        Ok(())
+    }
+
     /// 一轮触发（docs/agent-loop.md §一轮触发）
     /// 调用前输入已写 Context、Event Buffer 已在放行点附带（release_one）。
     /// pending_notifications：未决通知数（server 层计数传入，推导 notify key 用）
@@ -737,49 +790,10 @@ impl<L: Llm> OverseerBackend<L> {
         // 2. Autonomy 状态：每轮一条写 context.jsonl，最新一条挂请求末端（concepts §4）
         let autonomy = self.state_key(pending_notifications);
         self.harness.log_autonomy(autonomy.clone(), ts)?;
-        // 3. Compression（auto-compact，concepts §10d / #16 真值触发）：
-        //    判定式 = 最近 usage 真值 + 其后新增消息 est 增量 vs window − reserve；
-        //    无真值（首轮/重启）→ 全量 est；无窗口事实（None）→ 不压缩
-        let trigger_tokens = match self.harness.last_usage {
-            Some(u) => {
-                u.prompt_tokens as usize
-                    + self
-                        .harness
-                        .context
-                        .est_tokens_since(self.harness.last_usage_msg_len)
-            }
-            None => self.harness.context.total_tokens(),
-        };
-        let compress = self
-            .config
-            .effective_compression_limit()
-            .is_some_and(|limit| trigger_tokens > limit);
-        if compress {
-            let pre_tokens = trigger_tokens; // 同尺：触发瞬间的真值锚点+增量（#16 ④）
-            let t0 = std::time::Instant::now();
-            // summarize 返回（摘要, usage 真值）；摘要调用也留真值（#16）
-            let (summary, summary_usage) = self
-                .llm
-                .summarize(self.harness.context.messages())
-                .await
-                .map_err(std::io::Error::other)?;
-            if let Some(u) = summary_usage {
-                self.harness.log_usage(u, ts)?;
-            }
-            self.harness.context.compress(summary.clone(), ts);
-            let post_tokens = self.harness.context.total_tokens(); // 同尺：压缩后 est（真值下轮刷新）
-            self.harness.log_compact_boundary(
-                summary,
-                pre_tokens,
-                post_tokens,
-                t0.elapsed().as_millis() as u64,
-                ts,
-            )?;
-            if let Some(p) = crate::panorama(&self.harness.agents) {
-                self.harness
-                    .append_context(ContextMessage::new(Role::System, p, ts))?;
-            }
-        }
+        // 3. Compression（auto-compact，concepts §10d / #16 真值触发）：轮次开头检查
+        //    （tool 循环内 tool result 追加后再查，harness.md §触发模型）
+        let turn_start = self.harness.context.messages().len().saturating_sub(1);
+        self.maybe_compress(turn_start, ts).await?;
         // 4. tool 循环（请求 = 请求头 + Context 全部消息 + Autonomy 末端）
         //    流式：complete_streaming 边收边经 effect_sink 发 AssistantDelta（docs/streaming.md）
         //    预算（docs/agent-loop.md §工具调用预算）：call 按声明顺序串行执行；
@@ -863,6 +877,9 @@ impl<L: Llm> OverseerBackend<L> {
                 effects.append(&mut eff);
                 self.harness
                     .append_context(ContextMessage::tool_result(&call.id, result.to_string(), ts))?;
+                // tool result 追加后再做 Compression 检查（harness.md §触发模型 loop 语义）；
+                // 在飞 turn 由 turn_start 保护不被切断
+                self.maybe_compress(turn_start, ts).await?;
             }
             if turn_proposed >= self.tool_budget_turn {
                 // 预算耗尽收尾（docs/agent-loop.md）：以空 tools 正常请求一次最终文字
@@ -873,12 +890,23 @@ impl<L: Llm> OverseerBackend<L> {
                 request.extend_from_slice(self.harness.context.messages());
                 request.push(ContextMessage::new(Role::System, autonomy.clone(), ts));
                 let sink = self.effect_sink.clone();
+                let harness = &self.harness;
                 let on_delta = move |d: &crate::llm::Delta| {
+                    let e = Effect::AssistantDelta {
+                        content: d.content.clone(),
+                        reasoning_content: d.reasoning_content.clone(),
+                    };
+                    // 预算收尾的 delta 同样入流（docs/storage.md §effect.jsonl：流式与
+                    // 非流式收尾同记；与主路径同一记录点形态）
+                    let (kind, payload) = e.effect_kind_payload();
+                    let _ = harness.log_effect(
+                        crate::EffectOrigin::Backend,
+                        kind,
+                        payload,
+                        crate::server::now_ms(),
+                    );
                     if let Some(sink) = &sink {
-                        sink(&Effect::AssistantDelta {
-                            content: d.content.clone(),
-                            reasoning_content: d.reasoning_content.clone(),
-                        });
+                        sink(&e);
                     }
                 };
                 let out = self

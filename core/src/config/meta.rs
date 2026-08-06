@@ -103,6 +103,7 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "ui_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false },
     NodeMeta { path: "harness_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false },
     NodeMeta { path: "name", kind: NodeKind::Leaf, validate: &[Validation::Func(pet_name_func)], no_llm_visible: false, cold: false },
+    NodeMeta { path: "context_compression_keep_recent_messages", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true },
     NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false },
     NodeMeta { path: "llm.active", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider }, validate: V, no_llm_visible: false, cold: false },
