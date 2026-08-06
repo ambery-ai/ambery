@@ -123,6 +123,35 @@ it("T4 #26：× 走 intentClose——userClosed + release（非 remove）+ 钩�
   expect(hook).toHaveBeenCalled(); // windowed 副作用钩子（requestRelease+adapter.hide）
 });
 
+it("T3b #25 压测：create→close→update 快速序列下不重复、不复活", async () => {
+  const base = core.base;
+  const spec = { id: "stress", type: "text_card", title: "S", text: "v1" };
+  const emitEffect = (msg: unknown) =>
+    fetch(`${base}/debug/effect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(msg),
+    });
+  // 快速连续 create→close→create→close→create（#25 原始复现形态）
+  for (let round = 0; round < 3; round++) {
+    await emitEffect({ kind: "render_component", spec: { ...spec, text: `v${round}` } });
+    await new Promise((r) => setTimeout(r, 150)); // 等 WS→renderCard→ensure 链落定（close 不得抢在 render 前）
+    await emitEffect({ kind: "close_component", id: "stress" });
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  // 最终再 render 一次（复活路径：已关闭卡不得复活旧内容；同 id 应干净重建）
+  await emitEffect({ kind: "render_component", spec: { ...spec, text: "final" } });
+  await new Promise((r) => setTimeout(r, 600));
+  const creates = windowLog.filter((a) => a.action === "create" && a.label === "card-stress").length;
+  const destroys = windowLog.filter((a) => a.action === "destroy" && a.label === "card-stress").length;
+  expect(creates).toBe(4); // 循环 3 次重建 + 最终干净再建，无一次漏判或重复
+  expect(destroys).toBe(3); // 每次 close 都销毁
+  // 任意时刻同 label 只有一个存活窗口（mock 注册表无重影）
+  const alive = windowLog.filter((a) => a.label === "card-stress");
+  const net = alive.filter((a) => a.action === "create").length - alive.filter((a) => a.action === "destroy").length;
+  expect(net).toBe(1); // 恰好一窗存活
+});
+
 it("T5 #25 根因 A：windowed ComponentManager 不订阅全局 render 流", async () => {
   const bridge = await createBridge();
   const mountWin = document.createElement("div");
