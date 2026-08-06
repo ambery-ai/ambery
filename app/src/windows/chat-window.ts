@@ -6,7 +6,6 @@ import { Store } from "../store";
 import { wireTheme } from "../theme";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
 import { requestPlace, requestRelease, reportMoved } from "../positioning/tauri-server";
-import { Direction } from "../positioning/types";
 
 let chatPanel: ChatPanel | null = null;
 let adapter: WindowAdapter | null = null;
@@ -20,13 +19,16 @@ export async function main() {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const win = getCurrentWindow();
     await listen("pet:moved", () => {}); // 占位，确保事件系统初始化
-    await listen("chat:toggle", () => {
-      if (chatPanel?.isVisible()) {
-        chatPanel.intentClose(); // 用户意图关（统一 API，副作用经 onIntentClose 钩子）
-      } else {
-        chatPanel?.intentOpen();
-        void showChat();
-      }
+    // 唤出/关闭由吸附驱动（docs/chat-panel.md §唤出与关闭 + docs/view.md §状态机）：
+    // view:docked → chat:open（含吸附边，按边向屏幕内侧展开）；view:undocked → chat:close；
+    // × 关闭后左键单击 View → chat:open（重新唤出）
+    await listen<{ edge?: string }>("chat:open", (ev) => {
+      if (chatPanel?.isVisible()) return;
+      chatPanel?.intentOpen();
+      void showChat(ev.payload.edge ?? null);
+    });
+    await listen("chat:close", () => {
+      if (chatPanel?.isVisible()) chatPanel.intentClose(); // 统一 API（onIntentClose 钩子做 release+hide）
     });
     // 系统藏（pet 拖动/托盘）：统一 API，只藏不动 userClosed——占区原地保留，不调 release
     await listen("chat:hide", () => {
@@ -88,10 +90,12 @@ export async function main() {
   await adapter?.hide();
 }
 
-async function showChat() {
+async function showChat(edge?: string | null) {
   if (!chatPanel) return;
   chatPanel.showPanel();
-  const pos = await requestPlace("chat-panel", { id: "chat-panel", width: panelW, height: panelH }, Direction.sse);
+  // 按吸附边向屏幕内侧展开（docs/chat-panel.md §布局）；无吸附信息回落默认方位
+  const dir = ChatPanel.dirFromEdge(edge);
+  const pos = await requestPlace("chat-panel", { id: "chat-panel", width: panelW, height: panelH }, dir);
   await adapter?.setPosition(Math.round(pos.x - panelW / 2), Math.round(pos.y - panelH / 2));
   await adapter?.show();
 }

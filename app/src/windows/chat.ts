@@ -162,35 +162,49 @@ export class ChatPanel {
     this.showPanel();
   }
 
-  /** 右键 toggle：engine.place(Direction.sse) 定位 */
-  toggle() {
-    if (this.visible) {
-      this.intentClose();
-    } else {
-      this.intentOpen();
-      this.el.hidden = false;
-      this.visible = true;
-      if (!this.engine) { console.error("[chat] toggle called without engine"); return; }
-      const pos = this.engine.place(
-        { id: "chat-panel", width: PANEL_W, height: PANEL_H },
-        Direction.sse,
-      );
-      // 不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见）
-      this.el.style.left = `${pos.x - PANEL_W / 2}px`;
-      this.el.style.top = `${pos.y - PANEL_H / 2}px`;
-      // 基线读 store（context_changed 事件保持新鲜）；core 未就绪时明示
-      const msgs = this.store.context;
-      if (msgs) {
-        this.renderHistory(msgs);
-      } else {
-        const warn = document.createElement("div");
-        warn.className = "chat-msg chat-system";
-        warn.style.opacity = "0.7";
-        warn.textContent = t("chat.offline");
-        this.historyEl.replaceChildren(warn);
-      }
-      this.inputEl.focus();
+  /** 吸附边缘 → 面板展开方位（docs/chat-panel.md §布局：吸附在哪条边，面板贴 View
+   *  向屏幕内侧展开：top→正下方、bottom→正上方、left→右侧、right→左侧） */
+  static dirFromEdge(edge?: string | null): Direction {
+    switch (edge) {
+      case "top": return Direction.s;
+      case "bottom": return Direction.n;
+      case "left": return Direction.e;
+      case "right": return Direction.w;
+      default: return Direction.sse;
     }
+  }
+
+  /** 唤出（view:docked / 左键单击重新唤出，docs/chat-panel.md §唤出与关闭）：
+   *  intentOpen 复位 + 按吸附边定位展开 + 渲染历史 + 聚焦输入 */
+  open(edge?: string | null) {
+    this.intentOpen();
+    this.el.hidden = false;
+    this.visible = true;
+    if (!this.engine) { console.error("[chat] open called without engine"); return; }
+    const pos = this.engine.place(
+      { id: "chat-panel", width: PANEL_W, height: PANEL_H },
+      ChatPanel.dirFromEdge(edge),
+    );
+    // 不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见）
+    this.el.style.left = `${pos.x - PANEL_W / 2}px`;
+    this.el.style.top = `${pos.y - PANEL_H / 2}px`;
+    // 基线读 store（context_changed 事件保持新鲜）；core 未就绪时明示
+    const msgs = this.store.context;
+    if (msgs) {
+      this.renderHistory(msgs);
+    } else {
+      const warn = document.createElement("div");
+      warn.className = "chat-msg chat-system";
+      warn.style.opacity = "0.7";
+      warn.textContent = t("chat.offline");
+      this.historyEl.replaceChildren(warn);
+    }
+    this.inputEl.focus();
+  }
+
+  /** 关闭（view:undocked → 面板随之关闭，docs/chat-panel.md §唤出与关闭）：统一 API */
+  close() {
+    this.intentClose();
   }
 
   /** UI 文案（i18n）：标题 = pet 名称（Config 稳定身份值，docs/view.md §名称）；

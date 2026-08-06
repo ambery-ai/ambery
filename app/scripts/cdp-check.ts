@@ -2,7 +2,7 @@
 // 连已启动的 headless Chrome（--remote-debugging-port=9222）里打开的 vite 页面，
 // 经 Runtime.evaluate 驱动 browser mock 链路断言。用法：<url> < assertions 内联在本文件>
 
-const DEBUG_PORT = 9222;
+const DEBUG_PORT = Number(process.env.CDP_PORT ?? 9333);
 
 async function getPageWs(urlSubstr: string): Promise<string> {
   for (let i = 0; i < 30; i++) {
@@ -141,43 +141,90 @@ await check(
   "1",
 );
 
-// chat toggle 打开，历史来自 store.context 基线
+// 吸附状态机（docs/view.md §状态机）：右键 → dock-request → 视口最近边缘吸附 + chat 唤出
 await check(
-  "chat 打开渲染 store.context",
-  `(() => {
-    document.getElementById("view").dispatchEvent(new Event("chat:toggle"));
+  "右键吸附：pet 移到视口边缘 + chat 唤出渲染 store.context",
+  `(async () => {
+    const view = document.getElementById("view");
+    view.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 300));
+    const wrapper = document.getElementById("debug-wrapper");
+    const r = wrapper.getBoundingClientRect();
+    const atEdge = r.y <= 1 || r.x <= 1 || Math.abs(r.bottom - window.innerHeight) <= 1 || Math.abs(r.right - window.innerWidth) <= 1;
     const h = document.querySelector(".chat-history");
-    return h && h.textContent.includes("回复来了");
+    return atEdge && !document.getElementById("chat-panel").hidden && h && h.textContent.includes("回复来了");
   })()`,
 );
-
-// #26 统一关闭：× → userClosed + release 占区（pet 移动的系统恢复不得唤回）
+// 再次右键 → undock → chat 随关（chat-panel.md §唤出与关闭）
 await check(
-  "chat × 统一关闭：pet 移动后不被唤回",
+  "再次右键解除吸附：chat 随关",
+  `(async () => {
+    document.getElementById("view").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    return document.getElementById("chat-panel").hidden;
+  })()`,
+);
+// × 关闭后（重吸附）左键单击重新唤出（chat-panel.md §唤出与关闭）
+await check(
+  "× 关闭后左键单击重新唤出",
+  `(async () => {
+    const view = document.getElementById("view");
+    view.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })); // 重吸附 → 开
+    await new Promise((r) => setTimeout(r, 250));
+    const panel = document.getElementById("chat-panel");
+    if (panel.hidden) return false;
+    panel.querySelector(".chat-close").click(); // × → intentClose（userClosed）
+    if (!panel.hidden) return false;
+    view.dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true })); // 左键单击
+    await new Promise((r) => setTimeout(r, 250));
+    return !panel.hidden;
+  })()`,
+);
+// 吸附态拖拽锁定：pointerdown 不再触发拖拽（view.md：吸附锁定拖拽）
+await check(
+  "吸附态拖拽锁定",
+  `(() => {
+    const view = document.getElementById("view");
+    let dragStarted = false;
+    const h = () => { dragStarted = true; };
+    view.addEventListener("view:drag-start", h, { once: true });
+    view.dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
+    return dragStarted === false;
+  })()`,
+);
+// #26 回归（吸附流）：× 后 pet 移动（undock 拖拽）不被系统恢复唤回
+await check(
+  "× 后 pet 移动不被唤回（#26）",
   `(async () => {
     const view = document.getElementById("view");
     const panel = document.getElementById("chat-panel");
+    // 当前状态：吸附 + chat 打开（上一断言后左键唤出）；先 × 关
     panel.querySelector(".chat-close").click();
     if (!panel.hidden) return false;
-    view.dispatchEvent(new Event("view:drag-start"));
-    view.dispatchEvent(new CustomEvent("view:moved", { detail: { x: 300, y: 300 } }));
+    // 解除吸附 → 拖拽 → 系统恢复判定：userClosed 不得唤回
+    view.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 150));
+    view.dispatchEvent(new CustomEvent("view:moved", { detail: { x: 500, y: 500 } }));
     await new Promise((r) => setTimeout(r, 300));
     return panel.hidden;
   })()`,
 );
+// #26 回归（布局记忆）：重吸附唤出，位置与 × 前一致
 await check(
-  "chat 重开原位恢复（release 布局记忆）",
+  "重吸附唤出原位恢复（release 布局记忆，#26）",
   `(async () => {
     const view = document.getElementById("view");
     const panel = document.getElementById("chat-panel");
-    view.dispatchEvent(new Event("chat:toggle"));
+    view.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    if (panel.hidden) return false;
+    const l1 = panel.style.left, t1 = panel.style.top;
+    panel.querySelector(".chat-close").click();
     await new Promise((r) => setTimeout(r, 100));
-    const left1 = panel.style.left, top1 = panel.style.top;
-    view.dispatchEvent(new Event("chat:toggle"));
-    await new Promise((r) => setTimeout(r, 50));
-    view.dispatchEvent(new Event("chat:toggle"));
-    await new Promise((r) => setTimeout(r, 100));
-    return !panel.hidden && panel.style.left === left1 && panel.style.top === top1;
+    // 左键单击重新唤出
+    view.dispatchEvent(new PointerEvent("pointerdown", { button: 0, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 250));
+    return !panel.hidden && panel.style.left === l1 && panel.style.top === t1;
   })()`,
 );
 
