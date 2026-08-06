@@ -13,6 +13,7 @@ pub mod context;
 pub mod cron;
 pub mod event_buffer;
 pub mod filter;
+pub mod i18n;
 pub mod lifecycle;
 pub mod llm;
 pub mod memory;
@@ -237,6 +238,19 @@ impl Harness {
         token_threshold: usize,
         ts: i64,
     ) -> std::io::Result<Self> {
+        // 测试与默认路径：项目默认语言（docs/i18n.md）
+        Self::load_with_lang(dir, config_dir, token_threshold, ts, i18n::Lang::Zh)
+    }
+
+    /// load + 显式 Harness 语言（docs/i18n.md：bootstrap 默认提示文案以首启时刻的
+    /// harness_language 生成，此后作为已生成内容不被改写）
+    pub fn load_with_lang(
+        dir: &std::path::Path,
+        config_dir: &std::path::Path,
+        token_threshold: usize,
+        ts: i64,
+        lang: i18n::Lang,
+    ) -> std::io::Result<Self> {
         let store = JsonlStore::new(dir)?;
         // context.jsonl 统一信封 replay：head → last_head；其余为历史留痕。
         // content 行（归一全文持久存档）已退役：replay 忽略（现算定案，docs/storage.md）
@@ -256,10 +270,10 @@ impl Harness {
         let agents_md_path = config_dir.join(AGENTS_MD_FILE);
         if !agents_md_path.exists() {
             std::fs::create_dir_all(config_dir)?;
-            std::fs::write(agents_md_path, default_agents_md())?;
+            std::fs::write(agents_md_path, default_agents_md(lang))?;
         }
         // Memory 工作空间 bootstrap（concepts §10f，docs/memory.md：storage/memory/ + notes/ + cards/ + 只读 AGENTS.md/index.md）
-        let memory = memory::Memory::bootstrap(dir)?;
+        let memory = memory::Memory::bootstrap_with_lang(dir, lang)?;
         // Cron 调度器：replay cron.jsonl 折叠计划集（concepts §10g，docs/cron.md）
         let cron = cron::CronScheduler::load(dir)?;
         // Card 注册表：从 memory/cards/*.card.json 恢复（文件即真相，不经 effect replay）
@@ -451,9 +465,28 @@ fn apply_agent(agents: &mut Vec<AgentEntry>, entry: AgentEntry) {
     }
 }
 
-/// 默认 AGENTS.md（ペット身份提示词，concepts §2/§13；用户可直接改，运行时热生效）
-pub fn default_agents_md() -> String {
-    r#"# AGENTS.md — ペット
+/// 默认 AGENTS.md（ペット身份提示词，concepts §2/§13；用户可直接改，运行时热生效）。
+/// 以首启时刻的 Harness 语言生成（docs/i18n.md）；此后作为已生成内容不被改写
+pub fn default_agents_md(lang: i18n::Lang) -> String {
+    match lang {
+        i18n::Lang::En => r#"# AGENTS.md — ペット
+
+## Identity
+You are ペット (pet), the human interface of the Terminal Overseer system. Overseer makes decisions; you express them.
+
+## Responsibilities
+- Watch all Code CLI instances: who finished, who made real progress, who errored (instance register/finish events are injected into the conversation; a panorama sync follows compression or restart).
+- Judge "notify vs stay silent": only bother the user with meaningful output; trivial, uneventful, no-follow-up work means silence — silence is a normal answer.
+- Present information with Component cards instead of walls of text. Kaomoji are your facial expressions in the View window — never write kaomoji/emoji into chat text; emotion is expressed only through the set_autonomy tool.
+
+## Conduct
+- Notifications must be informative: who finished, what the result was, what comes next.
+- When the user asks follow-ups, fetch_terminal for the full text before answering; never fabricate.
+- Your capability boundary is the Tool Set (call_component / fetch_terminal / set_autonomy / edit_config) — you never modify code files.
+- You may be cute (set_autonomy to change face or hop), but never let it affect judgment.
+"#
+        .to_string(),
+        i18n::Lang::Zh => r#"# AGENTS.md — ペット
 
 ## 身份
 你是 ペット（宠物），Terminal Overseer 监工系统的人机界面。Overseer 做决策，你做表达。
@@ -469,7 +502,8 @@ pub fn default_agents_md() -> String {
 - 你的能力边界就是 Tool Set（call_component / fetch_terminal / set_autonomy / edit_config）——不修改任何代码文件。
 - 可以卖萌（set_autonomy 换表情跳一下），但别影响判断。
 "#
-    .to_string()
+        .to_string(),
+    }
 }
 
 #[cfg(test)]

@@ -38,16 +38,21 @@ impl Memory {
     /// bootstrap：创建 Memory 工作空间（根 + notes/ + cards/）+ 默认 AGENTS.md（不存在时）；
     /// 旧扁平根自动迁移（根下普通 .md 移入 notes/，首行 description 注释转 frontmatter）；
     /// index.md 不存在或发生迁移时重生成。
+    /// 默认路径用项目默认语言（测试/工具）；生产经 bootstrap_with_lang 传 harness_language
     pub fn bootstrap(storage_dir: &Path) -> std::io::Result<Self> {
+        Self::bootstrap_with_lang(storage_dir, crate::i18n::Lang::Zh)
+    }
+
+    pub fn bootstrap_with_lang(storage_dir: &Path, lang: crate::i18n::Lang) -> std::io::Result<Self> {
         let root = storage_dir.join(MEMORY_DIR);
         std::fs::create_dir_all(root.join(NOTES_DIR))?;
         std::fs::create_dir_all(root.join(CARDS_DIR))?;
         let agents_md = root.join("AGENTS.md");
         if !agents_md.exists() {
-            std::fs::write(&agents_md, default_agents_md())?;
+            std::fs::write(&agents_md, default_agents_md_lang(lang))?;
         } else if std::fs::read_to_string(&agents_md).ok().as_deref() == Some(OLD_DEFAULT_AGENTS_MD) {
-            // 旧版 bootstrap 生成的默认导航（未改过）随工作空间模型收敛
-            std::fs::write(&agents_md, default_agents_md())?;
+            // 旧版 bootstrap 生成的默认导航（未改过）随工作空间模型收敛（收敛用当前语言）
+            std::fs::write(&agents_md, default_agents_md_lang(lang))?;
         }
         let m = Self { root };
         let migrated = m.migrate_flat_root()?;
@@ -100,17 +105,17 @@ impl Memory {
     }
 
     /// 读记忆（None = index.md 导航）。返回 (name, content)；全文含 frontmatter。
-    pub fn read(&self, name: Option<&str>) -> Result<(String, String), String> {
+    /// 错误反馈按 Harness 语言（docs/i18n.md §Harness 内部语言）
+    pub fn read(&self, lang: crate::i18n::Lang, name: Option<&str>) -> Result<(String, String), String> {
+        use crate::i18n::{tr, trf};
         let name = name.unwrap_or("index");
         if name == "index" {
             let content = std::fs::read_to_string(self.root.join("index.md"))
-                .map_err(|_| "index.md 不存在（Memory 根未初始化）".to_string())?;
+                .map_err(|_| tr(lang, "mem.no-index").to_string())?;
             return Ok(("index".into(), content));
         }
         if !valid_name(name) && name != "AGENTS" {
-            return Err(format!(
-                "名称 '{name}' 不合法：小写字母开头，仅小写字母/数字/_/-，≤ {MAX_NAME_CHARS} 字符"
-            ));
+            return Err(trf(lang, "mem.bad-name", &[("name", name.to_string()), ("max", MAX_NAME_CHARS.to_string())]));
         }
         let path = if name == "AGENTS" {
             self.root.join("AGENTS.md")
@@ -119,41 +124,37 @@ impl Memory {
         };
         std::fs::read_to_string(&path)
             .map(|c| (name.to_string(), c))
-            .map_err(|_| format!("记忆 '{name}' 不存在（先 read_memory() 看 index）"))
+            .map_err(|_| trf(lang, "mem.not-found", &[("name", name.to_string())]))
     }
 
     /// 写记忆：新建或完整替换 + index.md 自动重生成
-    pub fn write(&self, name: &str, content: &str, description: &str) -> Result<(), String> {
+    pub fn write(&self, lang: crate::i18n::Lang, name: &str, content: &str, description: &str) -> Result<(), String> {
+        use crate::i18n::{tr, trf};
         if !valid_name(name) {
-            return Err(format!(
-                "名称 '{name}' 不合法：小写字母开头，仅小写字母/数字/_/-，≤ {MAX_NAME_CHARS} 字符"
-            ));
+            return Err(trf(lang, "mem.bad-name", &[("name", name.to_string()), ("max", MAX_NAME_CHARS.to_string())]));
         }
         if RESERVED.contains(&name) {
-            return Err(format!("'{name}' 是保留名（index/AGENTS 默认只读）"));
+            return Err(trf(lang, "mem.reserved", &[("name", name.to_string())]));
         }
         if content.len() > MAX_CONTENT_BYTES {
-            return Err(format!(
-                "内容 {} 字节超上限 {MAX_CONTENT_BYTES}（碎片化记忆，拆分多条）",
-                content.len()
-            ));
+            return Err(trf(lang, "mem.too-large", &[("size", content.len().to_string()), ("max", MAX_CONTENT_BYTES.to_string())]));
         }
         let desc_chars = description.chars().count();
         if description.trim().is_empty() {
-            return Err("description 必填（非空，进 index.md）".into());
+            return Err(tr(lang, "mem.desc-required").into());
         }
         if description.contains('\n') || description.contains('|') {
-            return Err("description 必须单行且不含 '|'".into());
+            return Err(tr(lang, "mem.desc-oneline").into());
         }
         if desc_chars > MAX_DESC_CHARS {
-            return Err(format!("description {desc_chars} 字符超上限 {MAX_DESC_CHARS}"));
+            return Err(trf(lang, "mem.desc-too-long", &[("len", desc_chars.to_string()), ("max", MAX_DESC_CHARS.to_string())]));
         }
         // description 存于文件开头 YAML frontmatter（与正文同文件不漂移，docs/memory.md）
         let file_content = format!("---\ndescription: {description}\n---\n\n{content}");
         std::fs::write(self.notes_dir().join(format!("{name}.md")), file_content)
-            .map_err(|e| format!("写入失败：{e}"))?;
+            .map_err(|e| trf(lang, "mem.write-failed", &[("e", e.to_string())]))?;
         self.regenerate_index()
-            .map_err(|e| format!("index.md 重生成失败：{e}"))?;
+            .map_err(|e| trf(lang, "mem.index-failed", &[("e", e.to_string())]))?;
         Ok(())
     }
 
@@ -235,15 +236,30 @@ const OLD_DEFAULT_AGENTS_MD: &str = "# Memory（Overseer 持久化理解 buffer�
      必须附 description（进 index.md）。本文件与 index.md 默认只读；无删除 tool——记忆经同名覆盖演进，\n\
      确需删除由用户或后端直接管理本目录文件。详见 docs/memory.md。\n";
 
-fn default_agents_md() -> String {
-    "# Memory Workspace（Overseer 持久工作空间）\n\n\
-     本目录是ペット的持久工作空间（concepts §10f）：`notes/` 放长期理解（短小 .md，frontmatter 必带\n\
-     description）；`cards/` 放持久工作产物（Component / Card 文件，不经 read_memory / write_memory 管理）。\n\
-     `index.md` 自动汇总 notes/ 的名称与描述（请勿手编，会被下一次 write 覆盖）。\n\n\
-     读写规则：`read_memory` 读记忆（省略 name = 读 index.md 导航）；`write_memory` 整篇新建/覆盖 notes/\n\
-     下的普通 note，必须附 description（写入 frontmatter 并进 index.md）。本文件与 index.md 默认只读；\n\
-     无删除 tool——note 经同名覆盖演进，确需删除由用户或后端直接管理 notes/ 文件。详见 docs/memory.md。\n"
-        .into()
+/// Memory 工作空间默认 AGENTS.md（docs/i18n.md：bootstrap 时刻的 Harness 语言生成）
+fn default_agents_md_lang(lang: crate::i18n::Lang) -> String {
+    match lang {
+        crate::i18n::Lang::En => "# Memory Workspace (Overseer persistent workspace)\n\n\
+             This directory is ペット's persistent workspace (concepts §10f): `notes/` holds long-term\n\
+             understanding (small .md files; frontmatter must carry a description); `cards/` holds\n\
+             persistent work products (Component / Card files, not managed via read_memory / write_memory).\n\
+             `index.md` auto-summarizes names and descriptions of notes/ (do not hand-edit; the next write\n\
+             regenerates it).\n\n\
+             Rules: `read_memory` reads a memory (omit name for the index.md navigation); `write_memory`\n\
+             creates/replaces a whole note under notes/ and requires a description (stored in frontmatter\n\
+             and index.md). This file and index.md are read-only by default; there is no delete tool — notes\n\
+             evolve by same-name overwrite; if deletion is truly needed, the user or the backend manages\n\
+             notes/ files directly. See docs/memory.md.\n"
+            .into(),
+        crate::i18n::Lang::Zh => "# Memory Workspace（Overseer 持久工作空间）\n\n\
+             本目录是ペット的持久工作空间（concepts §10f）：`notes/` 放长期理解（短小 .md，frontmatter 必带\n\
+             description）；`cards/` 放持久工作产物（Component / Card 文件，不经 read_memory / write_memory 管理）。\n\
+             `index.md` 自动汇总 notes/ 的名称与描述（请勿手编，会被下一次 write 覆盖）。\n\n\
+             读写规则：`read_memory` 读记忆（省略 name = 读 index.md 导航）；`write_memory` 整篇新建/覆盖 notes/\n\
+             下的普通 note，必须附 description（写入 frontmatter 并进 index.md）。本文件与 index.md 默认只读；\n\
+             无删除 tool——note 经同名覆盖演进，确需删除由用户或后端直接管理 notes/ 文件。详见 docs/memory.md。\n"
+            .into(),
+    }
 }
 
 #[cfg(test)]
@@ -264,7 +280,7 @@ mod tests {
         assert!(dir.join("memory/index.md").exists());
         assert!(dir.join("memory/notes").is_dir());
         assert!(dir.join("memory/cards").is_dir());
-        let (_, idx) = m.read(None).unwrap();
+        let (_, idx) = m.read(crate::i18n::Lang::Zh, None).unwrap();
         assert!(idx.contains("# Memory Index"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -273,19 +289,19 @@ mod tests {
     fn write_then_read_and_index_lists_entry() {
         let dir = tmp("rw");
         let m = Memory::bootstrap(&dir).unwrap();
-        m.write("work-preferences", "# 偏好\n用户喜欢简洁回复", "用户的工作偏好")
+        m.write(crate::i18n::Lang::Zh, "work-preferences", "# 偏好\n用户喜欢简洁回复", "用户的工作偏好")
             .unwrap();
-        let (name, content) = m.read(Some("work-preferences")).unwrap();
+        let (name, content) = m.read(crate::i18n::Lang::Zh, Some("work-preferences")).unwrap();
         assert_eq!(name, "work-preferences");
         assert!(content.contains("用户喜欢简洁回复"));
         // description 写入 frontmatter，read 返回全文含 frontmatter
         assert!(content.starts_with("---\ndescription: 用户的工作偏好\n---\n\n"));
         assert!(dir.join("memory/notes/work-preferences.md").exists());
-        let (_, idx) = m.read(None).unwrap();
+        let (_, idx) = m.read(crate::i18n::Lang::Zh, None).unwrap();
         assert!(idx.contains("[work-preferences](notes/work-preferences.md) | 用户的工作偏好"));
         // 覆盖更新（完整替换语义）
-        m.write("work-preferences", "# 偏好 v2", "用户的工作偏好 v2").unwrap();
-        let (_, idx2) = m.read(None).unwrap();
+        m.write(crate::i18n::Lang::Zh, "work-preferences", "# 偏好 v2", "用户的工作偏好 v2").unwrap();
+        let (_, idx2) = m.read(crate::i18n::Lang::Zh, None).unwrap();
         assert!(idx2.contains("用户的工作偏好 v2"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -295,20 +311,20 @@ mod tests {
         let dir = tmp("valid");
         let m = Memory::bootstrap(&dir).unwrap();
         // 保留名
-        assert!(m.write("index", "x", "d").is_err());
-        assert!(m.write("AGENTS", "x", "d").is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "index", "x", "d").is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "AGENTS", "x", "d").is_err());
         // 非法名
-        assert!(m.write("Bad Name", "x", "d").is_err());
-        assert!(m.write("../escape", "x", "d").is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "Bad Name", "x", "d").is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "../escape", "x", "d").is_err());
         // description 缺/多行/含 |/超长
-        assert!(m.write("ok-name", "x", "  ").is_err());
-        assert!(m.write("ok-name", "x", "两行\n描述").is_err());
-        assert!(m.write("ok-name", "x", "含|竖线").is_err());
-        assert!(m.write("ok-name", "x", &"长".repeat(81)).is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "ok-name", "x", "  ").is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "ok-name", "x", "两行\n描述").is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "ok-name", "x", "含|竖线").is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "ok-name", "x", &"长".repeat(81)).is_err());
         // 内容超长
-        assert!(m.write("ok-name", &"超".repeat(4097), "d").is_err());
+        assert!(m.write(crate::i18n::Lang::Zh, "ok-name", &"超".repeat(4097), "d").is_err());
         // 合法
-        assert!(m.write("ok-name", "正文", "简短描述").is_ok());
+        assert!(m.write(crate::i18n::Lang::Zh, "ok-name", "正文", "简短描述").is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -316,11 +332,11 @@ mod tests {
     fn read_missing_and_invalid() {
         let dir = tmp("miss");
         let m = Memory::bootstrap(&dir).unwrap();
-        let e = m.read(Some("nope")).unwrap_err();
+        let e = m.read(crate::i18n::Lang::Zh, Some("nope")).unwrap_err();
         assert!(e.contains("不存在"), "{e}");
-        assert!(m.read(Some("Bad!")).is_err());
+        assert!(m.read(crate::i18n::Lang::Zh, Some("Bad!")).is_err());
         // 保留名 AGENTS 可读（根下导航文件）
-        let (name, _) = m.read(Some("AGENTS")).unwrap();
+        let (name, _) = m.read(crate::i18n::Lang::Zh, Some("AGENTS")).unwrap();
         assert_eq!(name, "AGENTS");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -329,12 +345,12 @@ mod tests {
     fn external_delete_converges_on_next_write() {
         let dir = tmp("conv");
         let m = Memory::bootstrap(&dir).unwrap();
-        m.write("a-note", "A", "A 描述").unwrap();
-        m.write("b-note", "B", "B 描述").unwrap();
+        m.write(crate::i18n::Lang::Zh, "a-note", "A", "A 描述").unwrap();
+        m.write(crate::i18n::Lang::Zh, "b-note", "B", "B 描述").unwrap();
         // 外部删除 b-note（用户/后端直接管理 notes/），下一次 write 时 index 收敛
         std::fs::remove_file(dir.join("memory/notes/b-note.md")).unwrap();
-        m.write("a-note", "A2", "A 描述").unwrap();
-        let (_, idx) = m.read(None).unwrap();
+        m.write(crate::i18n::Lang::Zh, "a-note", "A2", "A 描述").unwrap();
+        let (_, idx) = m.read(crate::i18n::Lang::Zh, None).unwrap();
         assert!(idx.contains("a-note"));
         assert!(!idx.contains("b-note"), "{idx}");
         let _ = std::fs::remove_dir_all(&dir);
@@ -344,7 +360,7 @@ mod tests {
     fn invalid_frontmatter_excluded_from_index_but_readable() {
         let dir = tmp("fm");
         let m = Memory::bootstrap(&dir).unwrap();
-        m.write("ok-note", "正文", "合法描述").unwrap();
+        m.write(crate::i18n::Lang::Zh, "ok-note", "正文", "合法描述").unwrap();
         // 外部写入：未定义 metadata 字段 / 无 frontmatter 的 note
         std::fs::write(
             dir.join("memory/notes/extra-field.md"),
@@ -352,13 +368,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("memory/notes/no-fm.md"), "没有 frontmatter").unwrap();
-        m.write("ok-note", "正文 v2", "合法描述").unwrap(); // 触发 index 收敛
-        let (_, idx) = m.read(None).unwrap();
+        m.write(crate::i18n::Lang::Zh, "ok-note", "正文 v2", "合法描述").unwrap(); // 触发 index 收敛
+        let (_, idx) = m.read(crate::i18n::Lang::Zh, None).unwrap();
         assert!(idx.contains("ok-note"));
         assert!(!idx.contains("extra-field"), "{idx}");
         assert!(!idx.contains("no-fm"), "{idx}");
         // read 不拦：全文照返
-        let (_, c) = m.read(Some("extra-field")).unwrap();
+        let (_, c) = m.read(crate::i18n::Lang::Zh, Some("extra-field")).unwrap();
         assert!(c.contains("多余字段"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -379,16 +395,16 @@ mod tests {
         let m = Memory::bootstrap(&dir).unwrap();
         // note 移入 notes/ 且注释转 frontmatter
         assert!(!root.join("work-preferences.md").exists());
-        let (_, c) = m.read(Some("work-preferences")).unwrap();
+        let (_, c) = m.read(crate::i18n::Lang::Zh, Some("work-preferences")).unwrap();
         assert!(c.starts_with("---\ndescription: 用户的工作偏好\n---\n\n# 偏好\n正文"));
         // 无描述文件只移动不转换，不进 index 但仍可读
-        let (_, loose) = m.read(Some("loose")).unwrap();
+        let (_, loose) = m.read(crate::i18n::Lang::Zh, Some("loose")).unwrap();
         assert_eq!(loose, "无描述外部文件");
-        let (_, idx) = m.read(None).unwrap();
+        let (_, idx) = m.read(crate::i18n::Lang::Zh, None).unwrap();
         assert!(idx.contains("[work-preferences](notes/work-preferences.md)"));
         assert!(!idx.contains("loose"), "{idx}");
         // 旧默认 AGENTS.md（未改过）收敛为工作空间版导航
-        let (_, agents) = m.read(Some("AGENTS")).unwrap();
+        let (_, agents) = m.read(crate::i18n::Lang::Zh, Some("AGENTS")).unwrap();
         assert!(agents.contains("Memory Workspace"), "{agents}");
         // cards/ 一并创建
         assert!(root.join("cards").is_dir());
@@ -405,9 +421,9 @@ mod tests {
         let m = Memory::bootstrap(&dir).unwrap();
         // 目标已存在：根下旧文件原地保留（不丢数据），index 以 notes/ 为准
         assert!(root.join("dup.md").exists());
-        let (_, c) = m.read(Some("dup")).unwrap();
+        let (_, c) = m.read(crate::i18n::Lang::Zh, Some("dup")).unwrap();
         assert!(c.contains("新版"));
-        let (_, idx) = m.read(None).unwrap();
+        let (_, idx) = m.read(crate::i18n::Lang::Zh, None).unwrap();
         assert!(idx.contains("| [dup](notes/dup.md) | 新 |"));
         let _ = std::fs::remove_dir_all(&dir);
     }

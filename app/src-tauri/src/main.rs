@@ -92,7 +92,9 @@ async fn push_event(state: tauri::State<'_, SharedTauriState>, desc: String, car
     if let Some(cid) = card_id.as_deref() {
         let ts = now_ms();
         if let Some(entry) = ov.harness.cards_remove(cid) {
-            let lc = overseer_core::lifecycle::DefaultLifecycle;
+            let lc = overseer_core::lifecycle::DefaultLifecycle::for_lang(
+                overseer_core::i18n::Lang::of(&ov.config.harness_language),
+            );
             use overseer_core::lifecycle::Lifecycle;
             ov.harness.event_buffer.push(lc.user_close_line(&entry.meta));
             let alive = ov.harness.cards.len();
@@ -416,11 +418,12 @@ fn main() {
 
 async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let config = Config::load_or_default(&overseer_core::paths::config_root());
-    let harness = Harness::load(
+    let harness = Harness::load_with_lang(
         &overseer_core::paths::storage_dir(),
         &overseer_core::paths::config_root(),
         config.effective_compression_limit().unwrap_or(usize::MAX),
         now_ms(),
+        overseer_core::i18n::Lang::of(&config.harness_language),
     ).expect("load harness");
     let backend = LlmBackend::from_config(&config.llm);
     let (timer_tick, timer_batch) = (config.timer.tick_ms, config.timer.batch);

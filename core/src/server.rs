@@ -226,7 +226,7 @@ async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>)
     if let Some(cid) = body.card_id.as_deref() {
         let ts = now_ms();
         if let Some(entry) = ov.harness.cards_remove(cid) {
-            let lc = crate::lifecycle::DefaultLifecycle;
+            let lc = crate::lifecycle::DefaultLifecycle::for_lang(crate::i18n::Lang::of(&ov.config.harness_language));
             ov.harness.event_buffer.push(lc.user_close_line(&entry.meta));
             let alive = ov.harness.cards.len();
             ov.harness.event_buffer.push(lc.closed_line(&entry.meta, alive, ts));

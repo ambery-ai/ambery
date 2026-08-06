@@ -575,7 +575,7 @@ mod tests {
         );
         ov.harness
             .memory
-            .write("work-preferences", "正文", "用户的工作偏好")
+            .write(crate::i18n::Lang::Zh, "work-preferences", "正文", "用户的工作偏好")
             .unwrap();
         ov.harness
             .cron

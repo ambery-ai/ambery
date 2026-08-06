@@ -221,7 +221,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let m = crate::memory::Memory::bootstrap(&dir).unwrap();
         assert!(m.observe().is_empty());
-        m.write("work-preferences", "正文", "用户的工作偏好").unwrap();
+        m.write(crate::i18n::Lang::Zh, "work-preferences", "正文", "用户的工作偏好").unwrap();
         // frontmatter 不合法的外部文件不进摘要
         std::fs::write(m.notes_dir().join("no-fm.md"), "无 frontmatter").unwrap();
         let snap = m.observe();

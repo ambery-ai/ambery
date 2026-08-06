@@ -86,7 +86,7 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(config.timer.tick_ms as u64);
     let timer_batch = config.timer.batch;
-    let harness = Harness::load(&storage_dir, &config_dir, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms())
+    let harness = Harness::load_with_lang(&storage_dir, &config_dir, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms(), overseer_core::i18n::Lang::of(&config.harness_language))
         .expect("load harness");
     let backend = match LlmBackend::from_config(&config.llm) {
         // debug 分支换 CLI 决策源（OpenAi 变体的内部降级仍是沉默 mock）

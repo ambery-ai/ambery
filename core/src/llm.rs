@@ -17,56 +17,59 @@ pub struct ToolDef {
 /// Tool Set（concepts §10a）：ペット的权限边界，仅此九个
 /// （call_component / fetch_terminal / set_autonomy / edit_config /
 ///   read_memory / write_memory / cron_create / cron_delete / sleep）
-pub fn tool_set() -> Vec<ToolDef> {
+/// 说明文案按 Harness 语言现查表（docs/i18n.md：切换从下一次 LLM 交互起生效）；
+/// tool name / 参数名 / 枚举值是机器契约，永不翻译
+pub fn tool_set(lang: crate::i18n::Lang) -> Vec<ToolDef> {
+    use crate::i18n::tr as t;
     vec![
         ToolDef {
             name: "call_component",
-            description: "创建/更新/关闭卡片窗口。同 id 首次创建、后续原地更新；action=\"close\" 关闭（只需 id，忽略其他字段）。id 仅限 A-Z a-z 0-9 _ - . /",
+            description: t(lang, "tool.call_component.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "spec": {
                         "type": "object",
-                        "description": "ComponentSpec——按 type 选择分支填写对应字段",
+                        "description": t(lang, "tool.call_component.spec"),
                         "properties": {
-                            "id": { "type": "string", "description": "唯一标识：仅 A-Z a-z 0-9 _ - . /" },
-                            "action": { "type": "string", "enum": ["close"], "description": "设为 close 关闭卡片（此时只需 id，忽略其余字段）" },
-                            "direction": { "type": "string", "description": "可选方位：auto/n/ne/e/se/s/sw/w/nw" }
+                            "id": { "type": "string", "description": t(lang, "tool.call_component.id") },
+                            "action": { "type": "string", "enum": ["close"], "description": t(lang, "tool.call_component.action") },
+                            "direction": { "type": "string", "description": t(lang, "tool.call_component.direction") }
                         },
                         "required": ["id"],
                         "anyOf": [
                             {
                                 "properties": {
                                     "type": { "enum": ["text_card"] },
-                                    "title": { "type": "string", "description": "卡片标题" },
-                                    "text": { "type": "string", "description": "卡片正文" }
+                                    "title": { "type": "string", "description": t(lang, "tool.field.title") },
+                                    "text": { "type": "string", "description": t(lang, "tool.field.text") }
                                 },
                                 "required": ["type", "title", "text"]
                             },
                             {
                                 "properties": {
                                     "type": { "enum": ["quick_jump"] },
-                                    "label": { "type": "string", "description": "按钮标签" },
-                                    "target": { "type": "string", "description": "跳转目标" }
+                                    "label": { "type": "string", "description": t(lang, "tool.field.label") },
+                                    "target": { "type": "string", "description": t(lang, "tool.field.target") }
                                 },
                                 "required": ["type", "label", "target"]
                             },
                             {
                                 "properties": {
                                     "type": { "enum": ["git_display"] },
-                                    "title": { "type": "string", "description": "卡片标题" },
-                                    "entries": { "type": "array", "description": "提交列表", "items": { "type": "object", "properties": { "hash": { "type": "string" }, "msg": { "type": "string" }, "time": { "type": "string" } } } },
-                                    "diff": { "type": "string", "description": "可选的 diff 内容" }
+                                    "title": { "type": "string", "description": t(lang, "tool.field.title") },
+                                    "entries": { "type": "array", "description": t(lang, "tool.field.entries"), "items": { "type": "object", "properties": { "hash": { "type": "string" }, "msg": { "type": "string" }, "time": { "type": "string" } } } },
+                                    "diff": { "type": "string", "description": t(lang, "tool.field.diff") }
                                 },
                                 "required": ["type", "title", "entries"]
                             },
                             {
                                 "properties": {
                                     "type": { "enum": ["data_chart"] },
-                                    "title": { "type": "string", "description": "卡片标题" },
+                                    "title": { "type": "string", "description": t(lang, "tool.field.title") },
                                     "chart": {
                                         "type": "object",
-                                        "description": "图表定义",
+                                        "description": t(lang, "tool.field.chart"),
                                         "properties": {
                                             "kind": { "enum": ["line", "bar", "pie"] },
                                             "labels": { "type": "array", "items": { "type": "string" } },
@@ -80,8 +83,8 @@ pub fn tool_set() -> Vec<ToolDef> {
                             {
                                 "properties": {
                                     "type": { "enum": ["todobox"] },
-                                    "title": { "type": "string", "description": "卡片标题" },
-                                    "items": { "type": "array", "description": "待办条目", "items": { "type": "object", "properties": { "text": { "type": "string" }, "done": { "type": "boolean" } } } }
+                                    "title": { "type": "string", "description": t(lang, "tool.field.title") },
+                                    "items": { "type": "array", "description": t(lang, "tool.field.items"), "items": { "type": "object", "properties": { "text": { "type": "string" }, "done": { "type": "boolean" } } } }
                                 },
                                 "required": ["type", "title", "items"]
                             }
@@ -93,7 +96,7 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "fetch_terminal",
-            description: "按需读取指定实例的当前 Terminal Content。vd_switch 必填：false=不切桌面（读不到且目标可能在其他虚拟桌面时失败，提示重试）；true=目标在其他虚拟桌面时切过去读（不切回）",
+            description: t(lang, "tool.fetch_terminal.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -105,76 +108,76 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "set_autonomy",
-            description: "覆盖 Autonomy 的表情/移动（ttlMs 后回落默认；全空=立即回落）。key 传状态 key 名（kaomoji 两池并集中的 key，如 idle/notify/processing）。once=true 按动画注册表 MotionDef.durationMs 自动取持续时间（一次播放收束），与 ttlMs 互斥",
+            description: t(lang, "tool.set_autonomy.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "key": { "type": "string" },
                     "motion": { "type": "string", "enum": ["still", "float", "bounce", "shake"] },
                     "ttlMs": { "type": "integer" },
-                    "once": { "type": "boolean", "description": "true=按 motion 的 MotionDef.durationMs 取 TTL；与 ttlMs 不能同时传" }
+                    "once": { "type": "boolean", "description": t(lang, "tool.set_autonomy.once") }
                 }
             }),
         },
         ToolDef {
             name: "edit_config",
-            description: "统一 Config 工具（受限投影，非法值被拒绝并返回错误）。action 必填：grep（pattern 正则搜 path/desc，不返回 value）→ query（精确 path；叶子带 value，容器默认 children 导航，view=object 读完整容器）→ update（path+value 写入，需更早 response 中仍有效的完整 query 快照）。可见顶层：kaomoji 表情状态映射、set_autonomy_default_ttl_ms Autonomy 默认持续时间、timer Timer 调度子树、view_scale/badge_style/badge_side View 外观、theme/themes 主题（当前主题名与主题 token 表）、ui_language/harness_language 语言（UI 与 Harness 内部文本语言）。路径未知先 grep，再 query；优先 view=children，必要时才对已定位的小 object 使用 view=object",
+            description: t(lang, "tool.edit_config.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "action": { "type": "string", "enum": ["grep", "query", "update"] },
-                    "pattern": { "type": "string", "description": "grep 用：Rust regex，匹配 path 与中文 desc" },
-                    "path": { "type": "string", "description": "query/update 用：精确点分路径" },
-                    "view": { "type": "string", "enum": ["children", "object"], "description": "query 容器视图：children 导航（默认）/ object 完整 JSON" },
-                    "value": { "description": "update 用：新值（JSON）" }
+                    "pattern": { "type": "string", "description": t(lang, "tool.edit_config.pattern") },
+                    "path": { "type": "string", "description": t(lang, "tool.edit_config.path") },
+                    "view": { "type": "string", "enum": ["children", "object"], "description": t(lang, "tool.edit_config.view") },
+                    "value": { "description": t(lang, "tool.edit_config.value") }
                 },
                 "required": ["action"]
             }),
         },
         ToolDef {
             name: "read_memory",
-            description: "读取持久化理解（Memory，跨 turn/压缩/重启保留）。name 省略 = 读 index.md 导航首页（全部记忆名称+描述）；index.md 与 AGENTS.md 可读不可写",
+            description: t(lang, "tool.read_memory.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "name": { "type": "string", "description": "记忆名（小写 kebab）；省略读 index.md" }
+                    "name": { "type": "string", "description": t(lang, "tool.read_memory.name") }
                 }
             }),
         },
         ToolDef {
             name: "write_memory",
-            description: "新建或完整替换一条持久化理解（Memory）。碎片化短小内容（≤4KiB）；必须附 description（进 index.md 汇总表）；无局部 patch，无删除（同名覆盖演进）",
+            description: t(lang, "tool.write_memory.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "name": { "type": "string", "description": "记忆名：小写字母开头，仅小写字母/数字/_/-" },
-                    "content": { "type": "string", "description": "完整内容（Markdown，≤4096 字节）" },
-                    "description": { "type": "string", "description": "一句描述（单行、不含 |，≤80 字符；进 index.md）" }
+                    "name": { "type": "string", "description": t(lang, "tool.write_memory.name") },
+                    "content": { "type": "string", "description": t(lang, "tool.write_memory.content") },
+                    "description": { "type": "string", "description": t(lang, "tool.write_memory.description") }
                 },
                 "required": ["name", "content", "description"]
             }),
         },
         ToolDef {
             name: "cron_create",
-            description: "创建 Harness 持久化计划（跨重启保留；到点 message 作 system 输入唤醒你）。schedule 二选一：at=epoch ms 一次性 / every_ms 间隔周期。返回 id（可经 write_memory 记录供日后 cron_delete）",
+            description: t(lang, "tool.cron_create.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "schedule": {
                         "type": "object",
                         "properties": {
-                            "at": { "type": "integer", "description": "epoch ms 一次性（须大于当前时刻）" },
-                            "every_ms": { "type": "integer", "description": "间隔周期 ms（>0，锚定创建时刻）" }
+                            "at": { "type": "integer", "description": t(lang, "tool.cron_create.at") },
+                            "every_ms": { "type": "integer", "description": t(lang, "tool.cron_create.every_ms") }
                         }
                     },
-                    "message": { "type": "string", "description": "到点注入 Queue 的内容（非空）" }
+                    "message": { "type": "string", "description": t(lang, "tool.cron_create.message") }
                 },
                 "required": ["schedule", "message"]
             }),
         },
         ToolDef {
             name: "cron_delete",
-            description: "删除一个 Harness 持久化计划（id 见 cron_create 返回；无 list tool）",
+            description: t(lang, "tool.cron_delete.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -185,11 +188,11 @@ pub fn tool_set() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "sleep",
-            description: "等待后继续既定工具序列（与 Cron 共用 Harness 调度器）：tool result 延迟 ms 返回，期间 Queue 串行点被占用；0 ≤ ms ≤ 300000（5 分钟）；不持久化",
+            description: t(lang, "tool.sleep.desc"),
             parameters: json!({
                 "type": "object",
                 "properties": {
-                    "ms": { "type": "integer", "description": "等待毫秒数（0-300000）" }
+                    "ms": { "type": "integer", "description": t(lang, "tool.sleep.ms") }
                 },
                 "required": ["ms"]
             }),
@@ -888,11 +891,11 @@ mod tests {
         });
         // 脚本怎么写，就怎么返回；耗尽 → 沉默
         let msgs = [ContextMessage::new(Role::User, "任意输入", 0)];
-        let out1 = agent.complete(&msgs, &tool_set()).await.unwrap();
+        let out1 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh)).await.unwrap();
         assert_eq!(out1.content.as_deref(), Some("脚本第一句"));
-        let out2 = agent.complete(&msgs, &tool_set()).await.unwrap();
+        let out2 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh)).await.unwrap();
         assert_eq!(out2.tool_calls.len(), 1);
-        let out3 = agent.complete(&msgs, &tool_set()).await.unwrap();
+        let out3 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh)).await.unwrap();
         assert!(out3.content.is_none() && out3.tool_calls.is_empty());
     }
 
@@ -921,7 +924,7 @@ mod tests {
             ),
             ContextMessage::tool_result("c1", "{\"ok\":true}", 2),
         ];
-        let body = client.build_body(&msgs, &tool_set());
+        let body = client.build_body(&msgs, &tool_set(crate::i18n::Lang::Zh));
         assert_eq!(body["model"], json!("m"));
         assert_eq!(body["messages"][0]["role"], json!("system"));
         assert_eq!(body["messages"][1]["content"], Value::Null);

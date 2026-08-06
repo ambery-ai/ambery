@@ -25,7 +25,23 @@ pub trait Lifecycle {
     fn user_action_line(&self, typ: &str, action: &str, text: &str) -> String;
 }
 
-pub struct DefaultLifecycle;
+/// 默认生命周期生产器。事件文字按 Harness 语言现写（docs/i18n.md：事件发生时刻的
+/// 语言生效，此后成为历史记录不被改写）
+pub struct DefaultLifecycle {
+    lang: crate::i18n::Lang,
+}
+
+impl DefaultLifecycle {
+    pub fn for_lang(lang: crate::i18n::Lang) -> Self {
+        Self { lang }
+    }
+}
+
+impl Default for DefaultLifecycle {
+    fn default() -> Self {
+        Self::for_lang(crate::i18n::Lang::Zh)
+    }
+}
 
 /// 时间格式 `YYMMDD-HH:MM`（UTC，确定性）
 fn fmt_ts(ts: i64) -> String {
@@ -58,34 +74,48 @@ fn fmt_ts(ts: i64) -> String {
 
 impl Lifecycle for DefaultLifecycle {
     fn created_line(&self, meta: &CardMeta, alive: usize) -> String {
-        format!(
-            "card created: {}「{}」({}) @ {}, → 存活 {}",
-            meta.typ,
-            meta.title,
-            meta.id,
-            fmt_ts(meta.created),
-            alive
+        crate::i18n::trf(
+            self.lang,
+            "lifecycle.created",
+            &[
+                ("type", meta.typ.clone()),
+                ("title", meta.title.clone()),
+                ("id", meta.id.clone()),
+                ("ts", fmt_ts(meta.created)),
+                ("n", alive.to_string()),
+            ],
         )
     }
 
     fn closed_line(&self, meta: &CardMeta, alive: usize, end: i64) -> String {
-        format!(
-            "card closed: {}「{}」({}), {} / {}, → 存活 {}",
-            meta.typ,
-            meta.title,
-            meta.id,
-            fmt_ts(meta.created),
-            fmt_ts(end),
-            alive
+        crate::i18n::trf(
+            self.lang,
+            "lifecycle.closed",
+            &[
+                ("type", meta.typ.clone()),
+                ("title", meta.title.clone()),
+                ("id", meta.id.clone()),
+                ("start", fmt_ts(meta.created)),
+                ("end", fmt_ts(end)),
+                ("n", alive.to_string()),
+            ],
         )
     }
 
     fn user_close_line(&self, meta: &CardMeta) -> String {
-        format!("用户关闭了 {}「{}」({})", meta.typ, meta.title, meta.id)
+        crate::i18n::trf(
+            self.lang,
+            "lifecycle.user-close",
+            &[("type", meta.typ.clone()), ("title", meta.title.clone()), ("id", meta.id.clone())],
+        )
     }
 
     fn user_action_line(&self, typ: &str, action: &str, text: &str) -> String {
-        format!("用户{action} {typ} 条目「{text}」")
+        crate::i18n::trf(
+            self.lang,
+            "lifecycle.user-action",
+            &[("action", action.to_string()), ("type", typ.to_string()), ("text", text.to_string())],
+        )
     }
 }
 
@@ -104,7 +134,7 @@ mod tests {
 
     #[test]
     fn lines_match_protocol_format() {
-        let lc = DefaultLifecycle;
+        let lc = DefaultLifecycle::default();
         let c = lc.created_line(&meta(), 3);
         assert!(c.starts_with("card created: todobox「发布清单」(todo-1) @ "));
         assert!(c.ends_with(", → 存活 3"));

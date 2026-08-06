@@ -298,15 +298,17 @@ impl<L: Llm> OverseerBackend<L> {
 
     /// 响应体积护栏（docs/config.md §响应体积护栏）：聚合结果 UTF-8 JSON ≤ 1 KiB；
     /// 不截断、不自动缩小，错误说明实际大小、上限与收窄方向。single_leaf 例外直返。
-    fn guard_1k(&self, out: Value, single_leaf: bool, hint: &str) -> Value {
+    /// hint 传 i18n 表 key（docs/i18n.md：错误反馈按 Harness 语言现查）
+    fn guard_1k(&self, out: Value, single_leaf: bool, hint_key: &str) -> Value {
         if single_leaf {
             return out;
         }
         let size = out.to_string().len();
         if size > 1024 {
+            let lang = crate::i18n::Lang::of(&self.config.harness_language);
             json!({
                 "ok": false,
-                "error": format!("结果 {size} 字节超上限 1 KiB：{hint}")
+                "error": crate::i18n::trf(lang, "err.size-limit", &[("size", size.to_string()), ("hint", crate::i18n::tr(lang, hint_key).to_string())])
             })
         } else {
             out
@@ -329,12 +331,13 @@ impl<L: Llm> OverseerBackend<L> {
     /// grep：Rust regex 搜 LLM 可见节点的 path 与中文 desc；返回 path+type+desc
     /// （不返回 value），按 path 字典序；合法 regex 无匹配 = 成功空数组
     fn edit_config_grep(&self, args: &Value) -> (Value, Vec<Effect>) {
+        let lang = crate::i18n::Lang::of(&self.config.harness_language);
         let Some(pattern) = args.get("pattern").and_then(Value::as_str) else {
-            return (json!({ "ok": false, "error": "grep 需要 pattern（string）" }), vec![]);
+            return (json!({ "ok": false, "error": crate::i18n::tr(lang, "err.grep-pattern") }), vec![]);
         };
         let re = match regex::Regex::new(pattern) {
             Ok(r) => r,
-            Err(e) => return (json!({ "ok": false, "error": format!("regex 非法：{e}") }), vec![]),
+            Err(e) => return (json!({ "ok": false, "error": crate::i18n::trf(lang, "err.regex", &[("e", e.to_string())]) }), vec![]),
         };
         let nodes = crate::config::reflect::config_nodes_llm(&self.config);
         let matches: Vec<Value> = nodes
@@ -351,7 +354,7 @@ impl<L: Llm> OverseerBackend<L> {
         let out = self.guard_1k(
             json!({ "ok": true, "matches": matches }),
             false,
-            "收窄 pattern（更具体的关键词或内联 flag，如 (?i)timer）",
+            "hint.grep-narrow",
         );
         (out, vec![])
     }
@@ -359,19 +362,20 @@ impl<L: Llm> OverseerBackend<L> {
     /// query：精确 path 查一个节点，统一 node + children；叶子直查与容器
     /// view=object 携带完整当前值 → 留快照（关联 tool_call_id 与 response 序号）
     fn edit_config_query(&mut self, args: &Value, call_id: &str) -> (Value, Vec<Effect>) {
+        let lang = crate::i18n::Lang::of(&self.config.harness_language);
         let Some(path) = args.get("path").and_then(Value::as_str) else {
-            return (json!({ "ok": false, "error": "query 需要 path（精确点分路径）" }), vec![]);
+            return (json!({ "ok": false, "error": crate::i18n::tr(lang, "err.query-path") }), vec![]);
         };
         if !crate::config::meta::llm_visible(path) {
             return (
-                json!({ "ok": false, "error": format!("路径 '{path}' 不可访问（no_llm_visible 子树）") }),
+                json!({ "ok": false, "error": crate::i18n::trf(lang, "err.no-access", &[("path", path.to_string())]) }),
                 vec![],
             );
         }
         let nodes = crate::config::reflect::config_nodes_llm(&self.config);
         let Some(node) = nodes.iter().find(|n| n.path == path) else {
             return (
-                json!({ "ok": false, "error": format!("未知 path：'{path}'（先 grep 定位，再精确 query）") }),
+                json!({ "ok": false, "error": crate::i18n::trf(lang, "err.unknown-path", &[("path", path.to_string())]) }),
                 vec![],
             );
         };
@@ -389,7 +393,7 @@ impl<L: Llm> OverseerBackend<L> {
             Some("object") => QView::Object,
             Some(other) => {
                 return (
-                    json!({ "ok": false, "error": format!("非法 view：'{other}'（合法：children/object）") }),
+                    json!({ "ok": false, "error": crate::i18n::trf(lang, "err.bad-view", &[("other", other.to_string())]) }),
                     vec![],
                 );
             }
@@ -397,7 +401,7 @@ impl<L: Llm> OverseerBackend<L> {
         // 待重启 msg（docs/config.md §热/冷语义：query 到待重启变更的具体值时如实说明）
         let pending_msg = |p: &str| {
             if self.restart_required().iter().any(|r| paths_intersect(r, p)) {
-                Some("已保存，重启应用后生效")
+                Some(crate::i18n::tr(lang, "msg.saved-restart"))
             } else {
                 None
             }
@@ -411,7 +415,7 @@ impl<L: Llm> OverseerBackend<L> {
         };
         match (is_container, qview) {
             (false, QView::Object) => (
-                json!({ "ok": false, "error": "view=object 仅适用于容器；叶子直接 query 即完整值" }),
+                json!({ "ok": false, "error": crate::i18n::tr(lang, "err.object-view-leaf") }),
                 vec![],
             ),
             (false, QView::Children) => {
@@ -457,7 +461,7 @@ impl<L: Llm> OverseerBackend<L> {
                         "children": children,
                     }),
                     false,
-                    "children 过多：对已定位的小 object 改用 view=object，或先 grep 收窄",
+                    "hint.children",
                 );
                 (with_msg(out), vec![])
             }
@@ -469,7 +473,7 @@ impl<L: Llm> OverseerBackend<L> {
                         "node": { "path": path, "type": node_type_name(&node.ty), "desc": node.desc, "value": node.value },
                     }),
                     false,
-                    "object 过大：改 view=children 逐层导航，或对具体叶子精确 query",
+                    "hint.object",
                 );
                 // 快照只在完整值真正交付时入册（guard 拒了 = LLM 没拿到当前值，
                 // 不能让 update 门禁凭错误 result 放行）
@@ -483,17 +487,18 @@ impl<L: Llm> OverseerBackend<L> {
 
     /// update：需更早 response 中仍有效的完整 query 快照；走统一修改管道
     fn edit_config_update(&mut self, args: &Value) -> (Value, Vec<Effect>) {
+        let lang = crate::i18n::Lang::of(&self.config.harness_language);
         let Some(path) = args.get("path").and_then(Value::as_str) else {
-            return (json!({ "ok": false, "error": "update 需要 path（精确点分路径）" }), vec![]);
+            return (json!({ "ok": false, "error": crate::i18n::tr(lang, "err.update-path") }), vec![]);
         };
         if !crate::config::meta::llm_visible(path) {
             return (
-                json!({ "ok": false, "error": format!("路径 '{path}' 不可访问（no_llm_visible 子树）") }),
+                json!({ "ok": false, "error": crate::i18n::trf(lang, "err.no-access", &[("path", path.to_string())]) }),
                 vec![],
             );
         }
         let Some(value) = args.get("value").cloned() else {
-            return (json!({ "ok": false, "error": "update 需要 value（JSON）" }), vec![]);
+            return (json!({ "ok": false, "error": crate::i18n::tr(lang, "err.update-value") }), vec![]);
         };
         // path 存在性：静态注册节点，或可见 map 的已有 entry（新建 entry = 不存在 →
         // 走完整 map update 协议，docs/config.md：不提供 add/delete action）
@@ -503,7 +508,7 @@ impl<L: Llm> OverseerBackend<L> {
                 .any(|n| n.path == path);
         if !exists {
             return (
-                json!({ "ok": false, "error": format!("未知 path：'{path}'（新增 map entry 请 query(view=object) 读整池后 update 完整 map）") }),
+                json!({ "ok": false, "error": crate::i18n::trf(lang, "err.unknown-path-map", &[("path", path.to_string())]) }),
                 vec![],
             );
         }
@@ -519,7 +524,7 @@ impl<L: Llm> OverseerBackend<L> {
         });
         if !valid {
             return (
-                json!({ "ok": false, "error": "配置已变更或未读取完整当前值；请先 query" }),
+                json!({ "ok": false, "error": crate::i18n::tr(lang, "err.no-snapshot") }),
                 vec![],
             );
         }
@@ -538,9 +543,9 @@ impl<L: Llm> OverseerBackend<L> {
                 let mut r = json!({ "ok": true, "path": path });
                 if !restart.is_empty() {
                     r["restartRequired"] = json!(restart);
-                    r["msg"] = json!("已保存，重启应用后生效");
+                    r["msg"] = json!(crate::i18n::tr(lang, "msg.saved-restart"));
                 } else {
-                    r["msg"] = json!("已生效");
+                    r["msg"] = json!(crate::i18n::tr(lang, "msg.saved-hot"));
                 }
                 (r, outcome.effects)
             }
@@ -588,7 +593,9 @@ impl<L: Llm> OverseerBackend<L> {
         // ② 段头用途说明与组装表共位（贴着表解释「这是什么」），且作为不变量护栏——
         //    AGENTS.md 是用户可编辑文件，说明写在那里可能被无意删改。
         //    AGENTS.md 行为准则里已有禁令散文，此处是贴着表的强化，故意重复。
-        s.push_str("\n\n## 颜文字映射（你的面部表情词汇表：仅用于 set_autonomy 工具，严禁写进对话文本）\n");
+        s.push_str("\n\n");
+        s.push_str(crate::i18n::tr(crate::i18n::Lang::of(&self.config.harness_language), "prompt.kaomoji-header"));
+        s.push('\n');
         // 请求头只带系统池（concepts §10b：用户表情池按需经 edit_config 查询，不自动注入）
         let mut keys: Vec<_> = self.config.kaomoji.system.keys().collect();
         keys.sort();
@@ -600,9 +607,10 @@ impl<L: Llm> OverseerBackend<L> {
     }
 
     /// AGENTS.md 每轮现读（热生效：改完下一个触发就用）；读不到回退内置默认
+    /// （fallback 按当前 Harness 语言，docs/i18n.md）
     fn read_agents_md(&self) -> String {
         std::fs::read_to_string(self.harness.config_dir().join(AGENTS_MD_FILE))
-            .unwrap_or_else(|_| default_agents_md())
+            .unwrap_or_else(|_| default_agents_md(crate::i18n::Lang::of(&self.config.harness_language)))
     }
 
     /// 存活实例数（投影口径：status ≠ Closed）——生命周期簿记的 post-count（#16 ①）
@@ -772,7 +780,9 @@ impl<L: Llm> OverseerBackend<L> {
         //    预算（docs/agent-loop.md §工具调用预算）：call 按声明顺序串行执行；
         //    已提出 calls（含未执行者）都计入 turn 预算；超出任一预算的 call 不执行，
         //    但仍写入对应的失败 tool result
-        let tools = tool_set();
+        // 工具说明按 Harness 语言现查表（docs/i18n.md：切换从下一次 LLM 交互起生效）
+        let lang = crate::i18n::Lang::of(&self.config.harness_language);
+        let tools = tool_set(lang);
         let mut effects = vec![];
         let mut turn_proposed = 0usize; // 本 turn 已提出 calls（执行 + 未执行）
         loop {
@@ -832,9 +842,9 @@ impl<L: Llm> OverseerBackend<L> {
                 if over_response || over_turn {
                     // 超预算的 call 不执行，但仍写入对应的失败 tool result
                     let reason = if over_turn {
-                        format!("超本 turn 工具调用预算（{} 次/turn）", self.tool_budget_turn)
+                        crate::i18n::trf(lang, "err.tool-budget-turn", &[("n", self.tool_budget_turn.to_string())])
                     } else {
-                        format!("超单 response 工具调用预算（{} 次/response）", self.tool_budget_response)
+                        crate::i18n::trf(lang, "err.tool-budget-response", &[("n", self.tool_budget_response.to_string())])
                     };
                     self.harness.append_context(ContextMessage::tool_result(
                         &call.id,
@@ -966,11 +976,20 @@ impl<L: Llm> OverseerBackend<L> {
         let n = call(&json!({ "cmd": "count_processes", "name": "claude" }))
             .and_then(|r| r["count"].as_i64())
             .unwrap_or(0);
-        let mut line = format!(
-            "启动扫描: {located} tab 已定位（{marked} marker / {placeholder} 占位），claude.exe 进程 {n}，cloaked 窗口 {cloaked_n}"
+        let lang = crate::i18n::Lang::of(&self.config.harness_language);
+        let mut line = crate::i18n::trf(
+            lang,
+            "hook.sweep-line",
+            &[
+                ("located", located.to_string()),
+                ("marked", marked.to_string()),
+                ("placeholder", placeholder.to_string()),
+                ("n", n.to_string()),
+                ("cloaked_n", cloaked_n.to_string()),
+            ],
         );
         if cloaked_n > 0 {
-            line.push_str("（有窗口对其他桌面不可读，可开 WT「全桌面显示」）");
+            line.push_str(crate::i18n::tr(lang, "hook.sweep-cloaked"));
         }
         self.harness.event_buffer.push(line);
         Ok(())
@@ -1039,6 +1058,8 @@ impl<L: Llm> OverseerBackend<L> {
             .unwrap_or("unknown");
         let hash = crate::sid8(session_id);
         let name = crate::instance_name(project, &hash);
+        // 事件文字按 Harness 语言现写（docs/i18n.md：事件发生时刻的语言生效，此后成历史不改写）
+        let lang = crate::i18n::Lang::of(&self.config.harness_language);
         // register-on-first-sight：未知 session_id 先落注册（first_seen = 后端初见时刻），
         // 已有条目沿用 first_seen / tab / kind（快照字段不被事件覆盖）
         let prev = self.harness.agents.iter().rev().find(|a| a.hash == hash);
@@ -1065,27 +1086,27 @@ impl<L: Llm> OverseerBackend<L> {
             // 静默簿记（EventBuffer，pet 不醒）；post-count 标注（#16：LLM 免对账）
             "session_start" => {
                 upsert(AgentStatus::Idle)?;
-                let alive = self.alive_count();
+                let alive = self.alive_count().to_string();
                 self.harness
                     .event_buffer
-                    .push(format!("+ {name} 注册 → 存活 {alive}"));
+                    .push(crate::i18n::trf(lang, "hook.register", &[("name", name.clone()), ("alive", alive)]));
             }
             "session_end" => {
                 upsert(AgentStatus::Closed)?;
-                let alive = self.alive_count();
+                let alive = self.alive_count().to_string();
                 self.harness
                     .event_buffer
-                    .push(format!("− {name} 关闭 → 存活 {alive}"));
+                    .push(crate::i18n::trf(lang, "hook.closed", &[("name", name.clone()), ("alive", alive)]));
             }
             // Queue 注入（放行后触发）
             "user_prompt" => {
                 upsert(AgentStatus::Processing)?;
-                let p = prompt.unwrap_or("").trim();
-                self.enqueue(Role::System, format!("[观察] 用户在 {name} 输入：{p}"), ts)?;
+                let p = prompt.unwrap_or("").trim().to_string();
+                self.enqueue(Role::System, crate::i18n::trf(lang, "hook.user-prompt", &[("name", name.clone()), ("p", p)]), ts)?;
             }
             "notification" => {
-                let m = message.unwrap_or("").trim();
-                self.enqueue(Role::System, format!("[{name}] 请求注意：{m}"), ts)?;
+                let m = message.unwrap_or("").trim().to_string();
+                self.enqueue(Role::System, crate::i18n::trf(lang, "hook.notification", &[("name", name.clone()), ("m", m)]), ts)?;
             }
             "stop" => {
                 upsert(AgentStatus::Idle)?;
@@ -1113,28 +1134,26 @@ impl<L: Llm> OverseerBackend<L> {
                             });
                         match content {
                             Some(filtered) => {
-                                let len = filtered.chars().count();
-                                format!(
-                                    "{name} 完成，Context 已更新（{len} 字）。评估是否通知。"
-                                )
+                                let len = filtered.chars().count().to_string();
+                                crate::i18n::trf(lang, "hook.stop.updated", &[("name", name.clone()), ("len", len)])
                             }
-                            None => format!("{name} 完成：{hint}。评估是否通知。"),
+                            None => crate::i18n::trf(lang, "hook.stop.hint", &[("name", name.clone()), ("hint", hint.to_string())]),
                         }
                     }
                     // C：汇报原文直达（零 UIA）
                     "message" => {
                         if hint.is_empty() {
-                            format!("{name} 完成，无汇报内容。评估是否通知。")
+                            crate::i18n::trf(lang, "hook.stop.empty", &[("name", name.clone())])
                         } else {
-                            format!("[汇报] {name} 完成：{hint}")
+                            crate::i18n::trf(lang, "hook.stop.report", &[("name", name.clone()), ("hint", hint.to_string())])
                         }
                     }
                     // B（默认）：hint 注入，宠物按需 fetch
                     _ => {
                         if hint.is_empty() {
-                            format!("{name} 完成，无汇报内容。评估是否通知。")
+                            crate::i18n::trf(lang, "hook.stop.empty", &[("name", name.clone())])
                         } else {
-                            format!("{name} 完成：{hint}。评估是否通知。")
+                            crate::i18n::trf(lang, "hook.stop.hint", &[("name", name.clone()), ("hint", hint.to_string())])
                         }
                     }
                 };
@@ -1179,10 +1198,14 @@ impl<L: Llm> OverseerBackend<L> {
                     last_seen: ts,
                 })?;
                 self.note_filtered(instance, filtered);
-                let alive = self.alive_count();
+                let alive = self.alive_count().to_string();
                 self.harness
                     .event_buffer
-                    .push(format!("+ {instance} 注册 → 存活 {alive}"));
+                    .push(crate::i18n::trf(
+                        crate::i18n::Lang::of(&self.config.harness_language),
+                        "hook.register",
+                        &[("name", instance.to_string()), ("alive", alive)],
+                    ));
             }
             "stop" => {
                 // 同名不同命：沿用该名字最近一条未 closed 的生命周期（hash/first_seen）
@@ -1205,10 +1228,14 @@ impl<L: Llm> OverseerBackend<L> {
                     last_seen: ts,
                 })?;
                 self.note_filtered(instance, filtered.clone());
-                let len = filtered.chars().count();
+                let len = filtered.chars().count().to_string();
                 self.enqueue(
                     Role::System,
-                    format!("{instance} 完成，Context 已更新（{len} 字）。评估是否通知。"),
+                    crate::i18n::trf(
+                        crate::i18n::Lang::of(&self.config.harness_language),
+                        "hook.stop.updated",
+                        &[("name", instance.to_string()), ("len", len)],
+                    ),
                     ts,
                 )?;
             }
@@ -1322,10 +1349,14 @@ impl<L: Llm> OverseerBackend<L> {
             })?;
             // 判死 diff 事件化 + post-count（#16 ①：每条 hash 一条，post-count 逐条现算，
             // 同名连坐自然形成递减序列；LLM 直接读数免对账）
-            let alive = self.alive_count();
+            let alive = self.alive_count().to_string();
             self.harness
                 .event_buffer
-                .push(format!("− {name} 关闭（Timer 判死）→ 存活 {alive}"));
+                .push(crate::i18n::trf(
+                    crate::i18n::Lang::of(&self.config.harness_language),
+                    "hook.closed-timer",
+                    &[("name", name.clone()), ("alive", alive)],
+                ));
         }
         Ok(())
     }
@@ -1351,6 +1382,8 @@ impl<L: Llm> OverseerBackend<L> {
 
     async fn execute_tool_inner(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(Value::Null);
+        // 错误反馈按 Harness 语言现查（docs/i18n.md §Harness 内部语言）
+        let lang = crate::i18n::Lang::of(&self.config.harness_language);
         match call.name.as_str() {
             "call_component" => {
                 let spec = args.get("spec").cloned().unwrap_or(Value::Null);
@@ -1366,7 +1399,7 @@ impl<L: Llm> OverseerBackend<L> {
                     || id.split('/').any(|seg| seg.is_empty() || seg == "..")
                 {
                     return (
-                        json!({ "ok": false, "error": format!("spec.id '{id}' 不合法：窗口名只允许 A-Z a-z 0-9 _ - . /，不含空格、中文或特殊字符；路径段不得为空或 '..'") }),
+                        json!({ "ok": false, "error": crate::i18n::trf(lang, "err.component-id", &[("id", id.clone())]) }),
                         vec![],
                     );
                 }
@@ -1384,7 +1417,7 @@ impl<L: Llm> OverseerBackend<L> {
                     if let Some(entry) = self.harness.cards_remove(&id) {
                         // closed_by_agent 生命周期事件（一行，进 EventBuffer 静默簿记）
                         let alive = self.harness.cards.len();
-                        let line = crate::lifecycle::DefaultLifecycle.closed_line(&entry.meta, alive, ts);
+                        let line = crate::lifecycle::DefaultLifecycle::for_lang(lang).closed_line(&entry.meta, alive, ts);
                         self.harness.event_buffer.push(line);
                     }
                     return (
@@ -1397,30 +1430,30 @@ impl<L: Llm> OverseerBackend<L> {
                 if let Some(typ) = spec.get("type").and_then(Value::as_str) {
                     if !VALID_TYPES.contains(&typ) {
                         return (
-                            json!({ "ok": false, "error": format!("未知 Component type：'{typ}'，合法值：{}", VALID_TYPES.join("/")) }),
+                            json!({ "ok": false, "error": crate::i18n::trf(lang, "err.component-type", &[("typ", typ.to_string()), ("valid", VALID_TYPES.join("/"))]) }),
                             vec![],
                         );
                     }
-                    let required: &[(&str, &str)] = match typ {
-                        "text_card" => &[("title", "text_card 缺 title"), ("text", "text_card 缺 text")],
-                        "quick_jump" => &[("label", "quick_jump 缺 label"), ("target", "quick_jump 缺 target")],
-                        "git_display" => &[("title", "git_display 缺 title"), ("entries", "git_display 缺 entries")],
-                        "data_chart" => &[("title", "data_chart 缺 title"), ("chart", "data_chart 缺 chart")],
-                        "todobox" => &[("title", "todobox 缺 title"), ("items", "todobox 缺 items")],
+                    let required: &[&str] = match typ {
+                        "text_card" => &["title", "text"],
+                        "quick_jump" => &["label", "target"],
+                        "git_display" => &["title", "entries"],
+                        "data_chart" => &["title", "chart"],
+                        "todobox" => &["title", "items"],
                         _ => &[],
                     };
                     let missing: Vec<&str> = required.iter()
-                        .filter(|(f, _)| spec.get(f).map_or(true, |v| match v {
+                        .filter(|f| spec.get(f).map_or(true, |v| match v {
                             Value::String(s) => s.is_empty(),
                             Value::Array(a) => a.is_empty(),
                             Value::Object(o) => o.is_empty(),
                             _ => true,
                         }))
-                        .map(|(_, msg)| *msg)
+                        .copied()
                         .collect();
                     if !missing.is_empty() {
                         return (
-                            json!({ "ok": false, "error": format!("type={typ} 缺少必填字段：{}。字段在 spec 顶层，不要包在 props 里", missing.join("、")) }),
+                            json!({ "ok": false, "error": crate::i18n::trf(lang, "err.component-missing", &[("typ", typ.to_string()), ("missing", missing.join(", "))]) }),
                             vec![],
                         );
                     }
@@ -1431,7 +1464,7 @@ impl<L: Llm> OverseerBackend<L> {
                         })).unwrap_or(true);
                         if bad {
                             return (
-                                json!({ "ok": false, "error": "todobox items 结构不合法：需 [{text: string, done: boolean}]" }),
+                                json!({ "ok": false, "error": crate::i18n::tr(lang, "err.todobox-items") }),
                                 vec![],
                             );
                         }
@@ -1445,7 +1478,7 @@ impl<L: Llm> OverseerBackend<L> {
                     Ok((meta, created)) => {
                         if created {
                             // created 生命周期事件（进 EventBuffer 静默簿记；agent 更新不产事件）
-                            let line = crate::lifecycle::DefaultLifecycle.created_line(&meta, self.harness.cards.len());
+                            let line = crate::lifecycle::DefaultLifecycle::for_lang(lang).created_line(&meta, self.harness.cards.len());
                             self.harness.event_buffer.push(line);
                             return (json!({ "ok": true, "rendered": id }), vec![Effect::RenderComponent(spec)]);
                         }
@@ -1562,7 +1595,7 @@ impl<L: Llm> OverseerBackend<L> {
                         return (r, e);
                     }
                     _ => (
-                        json!({ "ok": false, "error": format!("非法 action：'{action}'（合法：grep/query/update）") }),
+                        json!({ "ok": false, "error": crate::i18n::trf(lang, "err.bad-action", &[("action", action.to_string())]) }),
                         vec![],
                     ),
                 }
@@ -1570,7 +1603,7 @@ impl<L: Llm> OverseerBackend<L> {
             "read_memory" => {
                 // docs/memory.md：name 省略 = 读 index.md 导航首页
                 let name = args.get("name").and_then(Value::as_str);
-                match self.harness.memory.read(name) {
+                match self.harness.memory.read(lang, name) {
                     Ok((name, content)) => (json!({ "ok": true, "name": name, "content": content }), vec![]),
                     Err(e) => (json!({ "ok": false, "error": e }), vec![]),
                 }
@@ -1579,12 +1612,12 @@ impl<L: Llm> OverseerBackend<L> {
                 // docs/memory.md：新建或完整替换；必须附 description；index.md 自动重生成
                 let name = args.get("name").and_then(Value::as_str).unwrap_or("");
                 let Some(content) = args.get("content").and_then(Value::as_str) else {
-                    return (json!({ "ok": false, "error": "content 必填（完整替换，无局部 patch）" }), vec![]);
+                    return (json!({ "ok": false, "error": crate::i18n::tr(lang, "mem.content-required") }), vec![]);
                 };
                 let Some(desc) = args.get("description").and_then(Value::as_str) else {
-                    return (json!({ "ok": false, "error": "description 必填（进 index.md）" }), vec![]);
+                    return (json!({ "ok": false, "error": crate::i18n::tr(lang, "mem.desc-required") }), vec![]);
                 };
-                match self.harness.memory.write(name, content, desc) {
+                match self.harness.memory.write(lang, name, content, desc) {
                     Ok(()) => (json!({ "ok": true, "name": name }), vec![]),
                     Err(e) => (json!({ "ok": false, "error": e }), vec![]),
                 }
@@ -1597,7 +1630,7 @@ impl<L: Llm> OverseerBackend<L> {
                 let every = schedule.get("every_ms").and_then(Value::as_u64);
                 if at.is_some() && every.is_some() {
                     return (
-                        json!({ "ok": false, "error": "schedule 二选一：at 与 every_ms 不能同时传" }),
+                        json!({ "ok": false, "error": crate::i18n::tr(lang, "cron.schedule-conflict") }),
                         vec![],
                     );
                 }
@@ -1606,7 +1639,7 @@ impl<L: Llm> OverseerBackend<L> {
                     .or(every.map(crate::cron::Schedule::EveryMs));
                 let Some(schedule) = parsed else {
                     return (
-                        json!({ "ok": false, "error": "schedule 二选一：{at: epoch_ms} 或 {every_ms: N}" }),
+                        json!({ "ok": false, "error": crate::i18n::tr(lang, "cron.schedule-missing") }),
                         vec![],
                     );
                 };
@@ -1630,11 +1663,11 @@ impl<L: Llm> OverseerBackend<L> {
                 // docs/cron.md §sleep：tool result 延迟返回，等待后继续既定工具序列；
                 // waiters 经共享句柄注册（调度任务在锁外到点唤醒，无死锁）
                 let Some(ms) = args.get("ms").and_then(Value::as_u64) else {
-                    return (json!({ "ok": false, "error": "ms 必填（0 ≤ ms ≤ 300000）" }), vec![]);
+                    return (json!({ "ok": false, "error": crate::i18n::tr(lang, "sleep.ms-required") }), vec![]);
                 };
                 if ms > crate::cron::MAX_SLEEP_MS {
                     return (
-                        json!({ "ok": false, "error": format!("ms {ms} 超上限 {}（5 分钟，设计常量）", crate::cron::MAX_SLEEP_MS) }),
+                        json!({ "ok": false, "error": crate::i18n::trf(lang, "sleep.ms-over", &[("ms", ms.to_string()), ("max", crate::cron::MAX_SLEEP_MS.to_string())]) }),
                         vec![],
                     );
                 }
@@ -1644,7 +1677,7 @@ impl<L: Llm> OverseerBackend<L> {
                 (json!({ "ok": true, "slept_ms": ms }), vec![])
             }
             other => (
-                json!({ "ok": false, "error": format!("unknown tool: {other}") }),
+                json!({ "ok": false, "error": crate::i18n::trf(lang, "err.unknown-tool", &[("name", other.to_string())]) }),
                 vec![],
             ),
         }
@@ -1684,6 +1717,50 @@ mod tests {
     fn scripted(outputs: Vec<LlmOutput>) -> DebugAgent {
         let rest = std::sync::Mutex::new(std::collections::VecDeque::from(outputs));
         DebugAgent::new(move |_| rest.lock().unwrap().pop_front().unwrap_or_else(silence))
+    }
+
+    #[tokio::test]
+    async fn harness_language_switches_tool_and_event_texts() {
+        // harness_language=en：工具说明英文（机器契约不译）+ hook 事件文字英文（docs/i18n.md）
+        let dir = tmp_dir("i18n-en");
+        let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let mut config = Config::default();
+        config.harness_language = "en".into();
+        let mut ov = OverseerBackend::new(harness, config, DebugAgent::silent());
+        // 工具说明：下一次交互的请求构建现查表
+        let tools = crate::llm::tool_set(crate::i18n::Lang::of(&ov.config.harness_language));
+        let sleep = tools.iter().find(|t| t.name == "sleep").unwrap();
+        assert!(sleep.description.contains("Wait"), "{}", sleep.description);
+        assert_eq!(sleep.name, "sleep"); // tool name 机器契约不译
+        // hook 事件文字：事件发生时刻的语言
+        ov.handle_real_hook("session_start", "sid-0000-1111", "/tmp/demo", None, None, None, None, 1000)
+            .await
+            .unwrap();
+        ov.handle_real_hook("notification", "sid-0000-1111", "/tmp/demo", None, None, Some("need eyes"), None, 1001)
+            .await
+            .unwrap();
+        let msgs = ov.harness.context.messages();
+        assert!(msgs.is_empty(), "静默簿记不进 Context（notification 进 Queue 未放行）");
+        // Event Buffer 簿记（注册行英文）
+        let buf = ov.harness.event_buffer.events().join("\n");
+        assert!(buf.contains("registered"), "{buf}");
+        // 放行前 Queue 中的 notification 文本（英文）
+        let q = ov
+            .harness
+            .queue
+            .iter()
+            .map(|i| i.content.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(q.contains("requests attention: need eyes"), "{q}");
+        // zh 对照：默认语言事件文字中文
+        let mut ov2 = make_overseer("i18n-zh");
+        ov2.handle_real_hook("session_start", "sid-0000-2222", "/tmp/demo", None, None, None, None, 1000)
+            .await
+            .unwrap();
+        let buf2 = ov2.harness.event_buffer.events().join("\n");
+        assert!(buf2.contains("注册"), "{buf2}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn say(text: &str) -> LlmOutput {
