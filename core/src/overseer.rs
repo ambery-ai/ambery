@@ -343,9 +343,14 @@ impl<L: Llm> OverseerBackend<L> {
             Err(e) => return (json!({ "ok": false, "error": crate::i18n::trf(lang, "err.regex", &[("e", e.to_string())]) }), vec![]),
         };
         let nodes = crate::config::reflect::config_nodes_llm(&self.config);
-        let matches: Vec<Value> = nodes
+        let mut hits: Vec<_> = nodes
             .iter()
             .filter(|n| re.is_match(&n.path) || n.desc.as_deref().is_some_and(|d| re.is_match(d)))
+            .collect();
+        // 按完整 path 字典序稳定排列（docs/config.md §grep）
+        hits.sort_by(|a, b| a.path.cmp(&b.path));
+        let matches: Vec<Value> = hits
+            .iter()
             .map(|n| {
                 json!({
                     "path": n.path,
@@ -3441,6 +3446,10 @@ mod tests {
         let paths: Vec<&str> = g["matches"].as_array().unwrap().iter()
             .map(|m| m["path"].as_str().unwrap()).collect();
         assert!(paths.contains(&"badge_style") && paths.contains(&"badge_side") && paths.contains(&"view_scale"), "{paths:?}");
+        // 按完整 path 字典序稳定排列（docs/config.md §grep）
+        let mut sorted = paths.clone();
+        sorted.sort_unstable();
+        assert_eq!(paths, sorted, "grep 结果须按 path 字典序: {paths:?}");
         assert!(g["matches"][0].get("value").is_none(), "grep 不返回 value");
         // 不可见子树不进 grep 结果
         assert!(!paths.iter().any(|p| p.starts_with("llm")), "{paths:?}");
