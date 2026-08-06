@@ -450,6 +450,18 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
                 .or_else(|| mock.lock().unwrap().get(inst).cloned())
         }));
     }
+    // tab 定位服务（docs/hook.md §定位缓存）：session_start 探测 / 读路径回写 / 结束清缓存
+    let sidecar_for_locate = sidecar.clone();
+    overseer.tab_locator = Some(Arc::new(move |inst: &str| {
+        sidecar_for_locate.as_ref().and_then(|sc| sc.call(&json!({ "cmd": "find_tab", "name": inst })))
+            .and_then(|r| Some(overseer_core::TabRef { hwnd: r["hwnd"].as_i64()?, index: r["index"].as_i64()? }))
+    }));
+    let sidecar_for_forget = sidecar.clone();
+    overseer.tab_forgetter = Some(Arc::new(move |inst: &str| {
+        if let Some(sc) = sidecar_for_forget.as_ref() {
+            sc.evict(inst);
+        }
+    }));
     {
         let sc = sidecar_for_vd.clone();
         overseer.vd_switcher = Some(Arc::new(move |inst: &str| {

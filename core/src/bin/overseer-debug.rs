@@ -113,13 +113,26 @@ async fn main() {
     let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
     {
         let mock = mock.clone();
+        let sidecar_for_read = sidecar.clone();
         overseer.terminal_reader = Some(Arc::new(move |inst: &str| {
-            sidecar
+            sidecar_for_read
                 .as_ref()
                 .and_then(|s| s.read_instance(inst))
                 .or_else(|| mock.lock().unwrap().get(inst).cloned())
         }));
     }
+    // tab 定位服务（docs/hook.md §定位缓存，main.rs 同款接线）
+    let sidecar_for_locate = sidecar.clone();
+    overseer.tab_locator = Some(Arc::new(move |inst: &str| {
+        sidecar_for_locate.as_ref().and_then(|sc| sc.call(&serde_json::json!({ "cmd": "find_tab", "name": inst })))
+            .and_then(|r| Some(overseer_core::TabRef { hwnd: r["hwnd"].as_i64()?, index: r["index"].as_i64()? }))
+    }));
+    let sidecar_for_forget = sidecar.clone();
+    overseer.tab_forgetter = Some(Arc::new(move |inst: &str| {
+        if let Some(sc) = sidecar_for_forget.as_ref() {
+            sc.evict(inst);
+        }
+    }));
     let (tx, _) = broadcast::channel(64);
     let state = Arc::new(AppState::new(overseer, mock));
     let tx_for_ws = tx.clone();

@@ -88,6 +88,10 @@ pub struct OverseerBackend<L: Llm> {
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
     /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
     pub sidecar_enabled: bool,
+    /// tab 定位服务（docs/hook.md §定位缓存）：session_start 定位探测、读路径重找回写
+    pub tab_locator: Option<Arc<dyn Fn(&str) -> Option<crate::TabRef> + Send + Sync>>,
+    /// 定位缓存清除（docs/hook.md §事件分层：session_end / Timer 判死清定位缓存）
+    pub tab_forgetter: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     /// 流式 delta 旁路（docs/streaming.md）：run_trigger 每收到 delta 即发——
     /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播
     pub effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>,
@@ -187,6 +191,8 @@ impl<L: Llm> OverseerBackend<L> {
             terminal_reader: None,
             vd_switcher: None,
             sidecar_enabled: false,
+            tab_locator: None,
+            tab_forgetter: None,
             effect_sink: None,
             config_cold_snapshot,
             query_snapshots: Vec::new(),
@@ -1103,7 +1109,7 @@ impl<L: Llm> OverseerBackend<L> {
             .or_else(|| prev.and_then(|a| a.kind.clone()));
         // Hook 到达 → Timer 重排（docs/timer.md）
         self.timers.reset(&name, ts);
-        let mut upsert = |status: AgentStatus| {
+        let mut upsert = |status: AgentStatus, tab: Option<crate::TabRef>| {
             self.harness.upsert_agent(AgentEntry {
                 hash: hash.clone(),
                 name: name.clone(),
@@ -1118,14 +1124,20 @@ impl<L: Llm> OverseerBackend<L> {
         match event {
             // 静默簿记（EventBuffer，pet 不醒）；post-count 标注（#16：LLM 免对账）
             "session_start" => {
-                upsert(AgentStatus::Idle)?;
+                // 定位探测（docs/hook.md §事件分层）：无 tab 快照时按 marker 现找并回写
+                let located = tab.or_else(|| self.tab_locator.as_ref().and_then(|l| l(&name)));
+                upsert(AgentStatus::Idle, located)?;
                 let alive = self.alive_count().to_string();
                 self.harness
                     .event_buffer
                     .push(crate::i18n::trf(lang, "hook.register", &[("name", name.clone()), ("alive", alive)]));
             }
             "session_end" => {
-                upsert(AgentStatus::Closed)?;
+                // closed 快照 tab=null（docs/storage.md）+ 清定位缓存（docs/hook.md §事件分层）
+                upsert(AgentStatus::Closed, None)?;
+                if let Some(forget) = self.tab_forgetter.as_ref() {
+                    forget(&name);
+                }
                 let alive = self.alive_count().to_string();
                 self.harness
                     .event_buffer
@@ -1133,7 +1145,7 @@ impl<L: Llm> OverseerBackend<L> {
             }
             // Queue 注入（放行后触发）
             "user_prompt" => {
-                upsert(AgentStatus::Processing)?;
+                upsert(AgentStatus::Processing, tab)?;
                 let p = prompt.unwrap_or("").trim().to_string();
                 self.enqueue(Role::System, crate::i18n::trf(lang, "hook.user-prompt", &[("name", name.clone()), ("p", p)]), ts)?;
             }
@@ -1142,7 +1154,7 @@ impl<L: Llm> OverseerBackend<L> {
                 self.enqueue(Role::System, crate::i18n::trf(lang, "hook.notification", &[("name", name.clone()), ("m", m)]), ts)?;
             }
             "stop" => {
-                upsert(AgentStatus::Idle)?;
+                upsert(AgentStatus::Idle, tab)?;
                 let hint = last_assistant_message.unwrap_or("").trim();
                 // stop_hook_mode 三模式（docs/hook.md，Config 热生效）
                 let text = match self.config.stop_hook_mode.as_str() {
@@ -1319,9 +1331,38 @@ impl<L: Llm> OverseerBackend<L> {
             })
     }
 
-    /// 变化检测 prev 登记（每实例最新已知归一全文；内存态，重启丢）
+    /// 变化检测 prev 登记（每实例最新已知归一全文；内存态，重启丢）；
+    /// 读路径顺带定位回写（docs/hook.md §定位缓存：未命中再按 marker 找，找到回写注册表快照）
     fn note_filtered(&mut self, instance: &str, filtered: String) {
         self.filtered_prev.insert(instance.to_string(), filtered);
+        let needs_locate = self
+            .harness
+            .agents
+            .iter()
+            .rev()
+            .find(|a| a.name == instance && a.status != AgentStatus::Closed)
+            .map(|a| a.tab.is_none())
+            .unwrap_or(false);
+        if !needs_locate {
+            return;
+        }
+        let located = self.tab_locator.as_ref().and_then(|l| l(instance));
+        if let Some(tabref) = located {
+            if let Some(a) = self
+                .harness
+                .agents
+                .iter()
+                .rev()
+                .find(|a| a.name == instance && a.status != AgentStatus::Closed)
+                .cloned()
+            {
+                let _ = self.harness.upsert_agent(AgentEntry {
+                    tab: Some(tabref),
+                    last_seen: crate::server::now_ms(),
+                    ..a
+                });
+            }
+        }
     }
 
     /// Timer 兜底扫描处理（docs/timer.md §扫描处理流程）：
@@ -1380,6 +1421,10 @@ impl<L: Llm> OverseerBackend<L> {
                 last_seen: ts,
                 ..a
             })?;
+            // Timer 判死同样清定位缓存（docs/hook.md §事件分层）
+            if let Some(forget) = self.tab_forgetter.as_ref() {
+                forget(&name);
+            }
             // 判死 diff 事件化 + post-count（#16 ①：每条 hash 一条，post-count 逐条现算，
             // 同名连坐自然形成递减序列；LLM 直接读数免对账）
             let alive = self.alive_count().to_string();
@@ -1789,6 +1834,38 @@ mod tests {
     fn scripted(outputs: Vec<LlmOutput>) -> DebugAgent {
         let rest = std::sync::Mutex::new(std::collections::VecDeque::from(outputs));
         DebugAgent::new(move |_| rest.lock().unwrap().pop_front().unwrap_or_else(silence))
+    }
+
+    #[tokio::test]
+    async fn tab_lifecycle_locate_writeback_and_forget() {
+        // docs/hook.md §定位缓存 + §事件分层：session_start 定位探测回写、
+        // session_end closed 快照 tab=null + 清定位缓存
+        let mut ov = make_overseer("tab-lifecycle");
+        ov.tab_locator = Some(std::sync::Arc::new(|_| Some(crate::TabRef { hwnd: 100, index: 2 })));
+        let forgotten = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let f2 = forgotten.clone();
+        ov.tab_forgetter = Some(std::sync::Arc::new(move |name: &str| f2.lock().unwrap().push(name.to_string())));
+        // session_start：注册 + 定位探测回写 tab 快照
+        ov.handle_real_hook("session_start", "sess-1234-abc", "/tmp/demo", None, None, None, None, 1000)
+            .await
+            .unwrap();
+        let a = ov
+            .harness
+            .agents
+            .iter()
+            .rev()
+            .find(|a| a.status != crate::AgentStatus::Closed)
+            .unwrap()
+            .clone();
+        assert_eq!(a.tab, Some(crate::TabRef { hwnd: 100, index: 2 }), "定位探测回写");
+        // session_end：tab=null + forgetter 调用
+        ov.handle_real_hook("session_end", "sess-1234-abc", "/tmp/demo", None, None, None, None, 1001)
+            .await
+            .unwrap();
+        let last = ov.harness.agents.last().unwrap();
+        assert_eq!(last.status, crate::AgentStatus::Closed);
+        assert_eq!(last.tab, None, "closed 快照 tab 为 null（docs/storage.md）");
+        assert!(forgotten.lock().unwrap().contains(&a.name), "清定位缓存");
     }
 
     #[tokio::test]

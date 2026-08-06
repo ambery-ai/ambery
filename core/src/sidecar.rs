@@ -68,6 +68,13 @@ impl SidecarClient {
         Some(resp["text"].as_str()?.to_string())
     }
 
+    /// 定位缓存驱逐（docs/hook.md §事件分层：session_end / Timer 判死清定位缓存）
+    pub fn evict(&self, instance: &str) {
+        if let Ok(mut c) = self.cache.lock() {
+            c.remove(instance);
+        }
+    }
+
     /// terminal_reader 入口（docs/sidecar.md §读通道接线）：
     /// 缓存定位直读 → 失败驱逐 → find_tab 重找并刷新缓存；任一步失败返回 None（回退 Context）
     pub fn read_instance(&self, instance: &str) -> Option<String> {
