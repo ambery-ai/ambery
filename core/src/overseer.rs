@@ -1474,6 +1474,44 @@ impl<L: Llm> OverseerBackend<L> {
                             );
                         }
                     }
+                    // git_display entries / data_chart chart 结构校验（toolset.md §call_component 校验列）
+                    if typ == "git_display" {
+                        let bad = spec["entries"].as_array().map(|arr| arr.iter().any(|e| {
+                            e["hash"].as_str().is_none() || e["msg"].as_str().is_none() || e["time"].as_str().is_none()
+                        })).unwrap_or(true);
+                        if bad {
+                            return (
+                                json!({ "ok": false, "error": crate::i18n::tr(lang, "err.git-entries") }),
+                                vec![],
+                            );
+                        }
+                    }
+                    if typ == "data_chart" {
+                        let c = &spec["chart"];
+                        let kind_ok = c["kind"].as_str().map_or(false, |k| ["line", "bar", "pie"].contains(&k));
+                        let series_ok = c["series"].as_array().map_or(false, |arr| {
+                            !arr.is_empty() && arr.iter().all(|s| {
+                                s["name"].as_str().is_some()
+                                    && s["data"].as_array().map_or(false, |d| d.iter().all(|v| v.is_number()))
+                            })
+                        });
+                        let labels_ok = c["labels"].as_array().map_or(false, |l| l.iter().all(|v| v.is_string()));
+                        if !(kind_ok && series_ok && labels_ok) {
+                            return (
+                                json!({ "ok": false, "error": crate::i18n::tr(lang, "err.chart") }),
+                                vec![],
+                            );
+                        }
+                    }
+                }
+                // direction 合法性（toolset.md §call_component 校验列；auto/八方位）
+                if let Some(dir) = spec.get("direction").and_then(Value::as_str) {
+                    if !["auto", "n", "ne", "e", "se", "s", "sw", "w", "nw"].contains(&dir) {
+                        return (
+                            json!({ "ok": false, "error": crate::i18n::trf(lang, "err.direction", &[("dir", dir.to_string())]) }),
+                            vec![],
+                        );
+                    }
                 }
                 // 创建 / 原地更新（同 id 不再 toggle 关闭）：先落 .card.json 文件再改注册表；
                 // 更新只换 component，_meta（显示选择/布局）保留——Agent 不能借更新覆盖用户选择
@@ -1494,12 +1532,12 @@ impl<L: Llm> OverseerBackend<L> {
             "fetch_terminal" => {
                 let inst = args.get("instance").and_then(Value::as_str).unwrap_or("");
                 if inst.is_empty() {
-                    return (json!({ "ok": false, "error": "instance 必填" }), vec![]);
+                    return (json!({ "ok": false, "error": crate::i18n::tr(lang, "err.instance-required") }), vec![]);
                 }
                 // vd_switch 必填（docs/hook.md §VD 切换能力）：打断性决策每次显式面对
                 let Some(vd_switch) = args.get("vd_switch").and_then(Value::as_bool) else {
                     return (
-                        json!({ "ok": false, "error": "vd_switch 必填（false=不切桌面；true=目标在其他虚拟桌面时切过去读，不切回）" }),
+                        json!({ "ok": false, "error": crate::i18n::tr(lang, "err.vd-switch-required") }),
                         vec![],
                     );
                 };
@@ -1521,29 +1559,30 @@ impl<L: Llm> OverseerBackend<L> {
                         })
                 };
                 if let Some(content) = read_fresh(self) {
-                    return (json!({ "instance": inst, "content": content }), vec![]);
+                    // toolset.md §fetch_terminal：成功返回携带 ok:true（成败形态自洽）
+                    return (json!({ "ok": true, "instance": inst, "content": content }), vec![]);
                 }
                 // 新鲜读失败 → 最新归一全文回退（有历史给历史；从原文现算，docs/storage.md）
                 if let Some(rec) = self.filtered_content_latest(inst) {
-                    return (json!({ "instance": inst, "content": rec.filtered_content }), vec![]);
+                    return (json!({ "ok": true, "instance": inst, "content": rec.filtered_content }), vec![]);
                 }
                 // 什么都没有：vd_switch=false → 失败教学；true → 切桌面重试
                 if !vd_switch {
                     return (
-                        json!({ "ok": false, "error": format!("读不到 {inst}：可能不存在，也可能在另一个虚拟桌面；确认存在的话用 vd_switch=true 重试") }),
+                        json!({ "ok": false, "error": crate::i18n::trf(lang, "err.fetch-unreadable", &[("inst", inst.to_string())]) }),
                         vec![],
                     );
                 }
                 let switched = self.vd_switcher.as_ref().map(|f| f(inst)).unwrap_or(false);
                 if !switched {
                     return (
-                        json!({ "ok": false, "error": format!("切换失败：全 VD 窗口标题无 {inst} 匹配（可能不存在，或它是 cloaked 窗口的背景 tab）") }),
+                        json!({ "ok": false, "error": crate::i18n::trf(lang, "err.vd-switch-failed", &[("inst", inst.to_string())]) }),
                         vec![],
                     );
                 }
                 let content = read_fresh(self)
-                    .unwrap_or_else(|| "（已切换到目标桌面，但仍读不到内容）".into());
-                (json!({ "instance": inst, "content": content }), vec![])
+                    .unwrap_or_else(|| crate::i18n::tr(lang, "fetch.switched-empty").to_string());
+                (json!({ "ok": true, "instance": inst, "content": content }), vec![])
             }
             "set_autonomy" => {
                 let mut face = args.get("key").and_then(Value::as_str).map(String::from);
@@ -1555,7 +1594,7 @@ impl<L: Llm> OverseerBackend<L> {
                         face = Some(entry.face.clone());
                     } else {
                         return (
-                            json!({ "ok": false, "error": format!("无效 key：'{f}'") }),
+                            json!({ "ok": false, "error": crate::i18n::trf(lang, "err.autonomy-key", &[("key", f.to_string())]) }),
                             vec![],
                         );
                     }
@@ -1564,7 +1603,7 @@ impl<L: Llm> OverseerBackend<L> {
                     let valid = ["still", "float", "bounce", "shake"];
                     if !valid.contains(&m.as_str()) {
                         return (
-                            json!({ "ok": false, "error": format!("motion '{m}' 不合法，合法值：{}", valid.join("/")) }),
+                            json!({ "ok": false, "error": crate::i18n::trf(lang, "err.autonomy-motion", &[("motion", m.to_string()), ("valid", valid.join("/"))]) }),
                             vec![],
                         );
                     }
@@ -1574,7 +1613,7 @@ impl<L: Llm> OverseerBackend<L> {
                 let ttl_ms = args.get("ttlMs").and_then(Value::as_u64);
                 if once && ttl_ms.is_some() {
                     return (
-                        json!({ "ok": false, "error": "once 与 ttlMs 不能同时传（once 按 MotionDef.durationMs 自动取持续时间）" }),
+                        json!({ "ok": false, "error": crate::i18n::tr(lang, "err.autonomy-once-ttl") }),
                         vec![],
                     );
                 }
@@ -1722,6 +1761,37 @@ mod tests {
     fn scripted(outputs: Vec<LlmOutput>) -> DebugAgent {
         let rest = std::sync::Mutex::new(std::collections::VecDeque::from(outputs));
         DebugAgent::new(move |_| rest.lock().unwrap().pop_front().unwrap_or_else(silence))
+    }
+
+    #[tokio::test]
+    async fn call_component_validates_direction_entries_chart() {
+        // toolset.md §call_component 校验列：direction 方位集 + entries/chart 结构
+        let mut ov = make_overseer("cmp-validate");
+        let call = |id: &str, args: serde_json::Value| ToolCall { id: id.into(), name: "call_component".into(), arguments: args.to_string() };
+        let (r, _) = ov.execute_tool(&call("t1", json!({"spec":{"id":"a","type":"text_card","title":"t","text":"x","direction":"up"}}))).await;
+        assert_eq!(r["ok"], json!(false), "{r}");
+        let (r, _) = ov.execute_tool(&call("t2", json!({"spec":{"id":"a","type":"text_card","title":"t","text":"x","direction":"ne"}}))).await;
+        assert_eq!(r["ok"], json!(true), "{r}");
+        let (r, _) = ov.execute_tool(&call("t3", json!({"spec":{"id":"g","type":"git_display","title":"g","entries":[{"hash":"h"}]}}))).await;
+        assert_eq!(r["ok"], json!(false), "{r}");
+        let (r, _) = ov.execute_tool(&call("t4", json!({"spec":{"id":"g","type":"git_display","title":"g","entries":[{"hash":"h","msg":"m","time":"t"}]}}))).await;
+        assert_eq!(r["ok"], json!(true), "{r}");
+        let (r, _) = ov.execute_tool(&call("t5", json!({"spec":{"id":"c","type":"data_chart","title":"c","chart":{"kind":"donut","labels":[],"series":[]}}}))).await;
+        assert_eq!(r["ok"], json!(false), "{r}");
+        let (r, _) = ov.execute_tool(&call("t6", json!({"spec":{"id":"c","type":"data_chart","title":"c","chart":{"kind":"line","labels":["a"],"series":[{"name":"s","data":[1.0]}]}}}))).await;
+        assert_eq!(r["ok"], json!(true), "{r}");
+    }
+
+    #[tokio::test]
+    async fn fetch_terminal_ok_flag_consistent() {
+        // toolset.md §fetch_terminal：成功与失败形态自洽（ok 字段恒在）
+        let mut ov = make_overseer("fetch-ok");
+        let call = ToolCall { id: "f".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost","vd_switch":false}).to_string() };
+        let (r, _) = ov.execute_tool(&call).await;
+        assert_eq!(r["ok"], json!(false), "{r}");
+        ov.terminal_reader = Some(std::sync::Arc::new(|_| Some("内容".to_string())));
+        let (r, _) = ov.execute_tool(&ToolCall { id: "f2".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost","vd_switch":false}).to_string() }).await;
+        assert_eq!(r["ok"], json!(true), "{r}");
     }
 
     #[test]
