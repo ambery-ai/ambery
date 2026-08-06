@@ -83,6 +83,22 @@ fn migrate_kaomoji_pools(mut value: Value) -> Value {
 }
 
 /// 加载入口（Config::load_or_default 的实现体）
+/// 旧版内置 base_prompt 原文（你改过的不会被碰）：随 {name} 占位收敛一次性升级
+/// （docs/view.md §名称——身份文案读取当前名称；同 memory.rs OLD_DEFAULT 收敛先例）
+const OLD_DEFAULT_BASE_PROMPT: &str =
+    "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。";
+
+fn upgrade_base_prompt_default(cfg: &mut Config) -> bool {
+    if cfg.base_prompt == OLD_DEFAULT_BASE_PROMPT {
+        cfg.base_prompt = Config::default().base_prompt;
+        cfg.load_report
+            .push("base_prompt 旧内置默认 → {name} 占位版本（用户未改过，自动升级）".into());
+        true
+    } else {
+        false
+    }
+}
+
 pub fn load(dir: &Path) -> Config {
     let file = dir.join(CONFIG_FILE);
     let raw = match std::fs::read_to_string(&file) {
@@ -121,14 +137,20 @@ pub fn load(dir: &Path) -> Config {
     let mut report = Vec::new();
     match version.cmp(&CURRENT_VERSION) {
         std::cmp::Ordering::Equal => {
-            let cfg = validate_and_repair(reconcile(value, &mut report));
-            flush_report(&cfg.load_report);
+            let mut cfg = validate_and_repair(reconcile(value, &mut report));
+            if upgrade_base_prompt_default(&mut cfg) {
+                flush_report(&cfg.load_report);
+                let _ = cfg.save(dir); // 收敛落盘（占位版本成为新基线）
+            } else {
+                flush_report(&cfg.load_report);
+            }
             cfg
         }
         std::cmp::Ordering::Less => {
             report.push(format!("config v{version} → v{CURRENT_VERSION} 迁移（累计步进）"));
             value = migrate_steps(value, version);
             let mut cfg = validate_and_repair(reconcile(value, &mut report));
+            upgrade_base_prompt_default(&mut cfg);
             let bak = backup_bytes(dir, &format!("v{version:04}"), raw.as_bytes());
             cfg.load_report
                 .push(format!("原文件备份于 {}", bak.display()));
@@ -532,6 +554,24 @@ mod tests {
         assert_eq!(written["version"], 3);
         assert!(written.get("timer_interval_ms").is_none());
         assert_eq!(written["timer"]["interval_ms"], 5000);
+    }
+
+    #[test]
+    fn old_default_base_prompt_upgrades_to_name_placeholder() {
+        let dir = tmp();
+        // 旧版内置 base_prompt（未改过）→ 自动升级为 {name} 占位版本
+        let mut v = serde_json::to_value(crate::config::Config::default()).unwrap();
+        v["base_prompt"] = serde_json::json!(OLD_DEFAULT_BASE_PROMPT);
+        v["version"] = serde_json::json!(CURRENT_VERSION);
+        std::fs::write(dir.join(CONFIG_FILE), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        let cfg = load(&dir);
+        assert!(cfg.base_prompt.contains("{name}"), "{}", cfg.base_prompt);
+        // 用户改过的 base_prompt 原样保留（不自动升级）
+        let dir2 = tmp();
+        v["base_prompt"] = serde_json::json!("自定义 prompt");
+        std::fs::write(dir2.join(CONFIG_FILE), serde_json::to_string_pretty(&v).unwrap()).unwrap();
+        let cfg2 = load(&dir2);
+        assert_eq!(cfg2.base_prompt, "自定义 prompt");
     }
 
     #[test]

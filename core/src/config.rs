@@ -67,6 +67,11 @@ pub struct Config {
     /// 语言），切换从下一次新的 LLM 交互起生效，不改写既有 Context/历史
     #[serde(default = "default_harness_language")]
     pub harness_language: String,
+    /// pet 名称（docs/view.md §名称）：稳定身份值。首次初始化写入正式默认名（ペット，
+    /// 用户定案不改、不按语言区分）；此后与语言独立，不自动改名、不参与翻译。
+    /// 不标 no_llm_visible：本地用户与 LLM 经各自 Config 入口读写
+    #[serde(default = "default_pet_name")]
+    pub name: String,
     /// LLM 多 profile 配置（docs/agent-loop.md §LLM 抽象）
     #[serde(default)]
     pub llm: LlmConfig,
@@ -219,6 +224,23 @@ fn default_ui_language() -> String {
 /// Harness 语言 default（docs/i18n.md）：项目明确默认，不随系统语言自动改变
 fn default_harness_language() -> String {
     PROJECT_DEFAULT_LANGUAGE.into()
+}
+
+/// pet 正式默认名（docs/view.md §名称，用户定案「不改」）：ペット——不按语言区分
+pub fn default_pet_name() -> String {
+    "ペット".into()
+}
+
+/// pet 名称校验：非空、去空白后 ≤ 64 字符
+pub fn validate_pet_name(name: &str) -> Vec<String> {
+    let t = name.trim();
+    if t.is_empty() {
+        return vec!["pet 名称不能为空".into()];
+    }
+    if t.chars().count() > 64 {
+        return vec!["pet 名称过长（≤ 64 字符）".into()];
+    }
+    vec![]
 }
 
 /// 主题 token 校验（docs/theme.md）：token 名去 --ov- 前缀后须 `^[a-z][a-z0-9-]*$`；
@@ -422,8 +444,10 @@ impl Default for Config {
             stop_hook_mode: default_stop_hook_mode(),
             max_tool_calls_in_one_response: default_max_tool_calls_in_one_response(),
             max_tool_calls_per_turn: default_max_tool_calls_per_turn(),
+            // {name} 占位：拼装 system prompt 时替换为当前 pet 名称（docs/view.md §名称——
+            // 身份文案读取当前名称；改名不回写历史/已生成内容，但请求头拼装跟当前名）
             base_prompt:
-                "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
+                "你是 {name}，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
                     .into(),
             view_scale: default_view_scale(),
             badge_style: default_badge_style(),
@@ -432,6 +456,7 @@ impl Default for Config {
             themes: default_themes(),
             ui_language: default_ui_language(),
             harness_language: default_harness_language(),
+            name: default_pet_name(),
             llm: LlmConfig::default(),
             read_only: false,
             load_report: Vec::new(),

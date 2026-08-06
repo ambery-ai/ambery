@@ -584,7 +584,11 @@ impl<L: Llm> OverseerBackend<L> {
     /// = base_prompt（Config）+ AGENTS.md（Storage，热生效）+ kaomoji 表。
     /// 内容稳定、天然 cache 友好，不落 Queue（docs/storage.md）。
     fn assemble_system_prompt(&self) -> String {
-        let mut s = self.config.base_prompt.clone();
+        // {name} 占位替换为当前 pet 名称（docs/view.md §名称：Harness 身份文案读取当前名称）
+        let mut s = self
+            .config
+            .base_prompt
+            .replace("{name}", &self.config.name);
         s.push_str("\n\n");
         s.push_str(&self.read_agents_md());
         // kaomoji 表为什么不放进 AGENTS.md：
@@ -607,10 +611,11 @@ impl<L: Llm> OverseerBackend<L> {
     }
 
     /// AGENTS.md 每轮现读（热生效：改完下一个触发就用）；读不到回退内置默认
-    /// （fallback 按当前 Harness 语言，docs/i18n.md）
+    /// （fallback 按当前 Harness 语言，docs/i18n.md）；{name} 占位替换为当前 pet 名称
     fn read_agents_md(&self) -> String {
         std::fs::read_to_string(self.harness.config_dir().join(AGENTS_MD_FILE))
             .unwrap_or_else(|_| default_agents_md(crate::i18n::Lang::of(&self.config.harness_language)))
+            .replace("{name}", &self.config.name)
     }
 
     /// 存活实例数（投影口径：status ≠ Closed）——生命周期簿记的 post-count（#16 ①）
@@ -1717,6 +1722,25 @@ mod tests {
     fn scripted(outputs: Vec<LlmOutput>) -> DebugAgent {
         let rest = std::sync::Mutex::new(std::collections::VecDeque::from(outputs));
         DebugAgent::new(move |_| rest.lock().unwrap().pop_front().unwrap_or_else(silence))
+    }
+
+    #[test]
+    fn pet_name_flows_into_system_prompt_and_validates() {
+        // 默认名（用户定案不改）：ペット
+        let ov = make_overseer("petname");
+        assert_eq!(ov.config.name, "ペット");
+        // 拼装请求头读取当前名称（{name} 占位替换）
+        let head = ov.assemble_system_prompt();
+        assert!(head.contains("你是 ペット"), "{head}");
+        assert!(!head.contains("{name}"), "{head}");
+        // 改名 → 下一次拼装即当前名称（身份文案热读取）；空名/超长名原子拒绝
+        let mut ov = ov;
+        let r = ov.apply_config_by_path("name", serde_json::json!("監督ちゃん"));
+        assert!(r.is_ok());
+        let head = ov.assemble_system_prompt();
+        assert!(head.contains("你是 監督ちゃん"), "{head}");
+        assert!(ov.apply_config_by_path("name", serde_json::json!("  ")).is_err());
+        assert!(ov.apply_config_by_path("name", serde_json::json!("x".repeat(65))).is_err());
     }
 
     #[tokio::test]

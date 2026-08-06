@@ -81,3 +81,23 @@ it("切换 ui_language 即重渲染：chat placeholder 与 card chrome 跟随", 
 it("缺失 key 回退 zh；插值工作", async () => {
   expect(t("chat.placeholder", { name: "X" })).toContain("X");
 });
+
+it("pet 名称：Config name 流入 chat 标题/placeholder，改名即重贴（view.md §名称）", async () => {
+  const bridge = await createBridge();
+  const store = await Store.create(bridge);
+  const mount = document.createElement("div");
+  document.body.appendChild(mount);
+  new ChatPanel(mount, bridge, store);
+  const title = mount.querySelector(".chat-header span")!;
+  const input = mount.querySelector(".chat-input") as HTMLInputElement;
+  // 默认名（用户定案不改）：ペット
+  expect(title.textContent).toBe("ペット");
+  // 改名 → 标题与 placeholder 即当前名称
+  expect((await postConfig("name", "監督ちゃん")).ok).toBe(true);
+  await vi.waitFor(() => expect(title.textContent).toBe("監督ちゃん"));
+  expect(input.placeholder).toContain("監督ちゃん");
+  // 校验：空名原子拒绝；名称不参与翻译（en UI 下同值）
+  expect((await postConfig("name", " ")).ok).toBe(false);
+  expect((await postConfig("ui_language", "en")).ok).toBe(true);
+  await vi.waitFor(() => expect(input.placeholder).toBe("Talk to 監督ちゃん…"));
+});

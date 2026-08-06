@@ -466,13 +466,14 @@ fn apply_agent(agents: &mut Vec<AgentEntry>, entry: AgentEntry) {
 }
 
 /// 默认 AGENTS.md（ペット身份提示词，concepts §2/§13；用户可直接改，运行时热生效）。
-/// 以首启时刻的 Harness 语言生成（docs/i18n.md）；此后作为已生成内容不被改写
+/// 以首启时刻的 Harness 语言生成（docs/i18n.md）；此后作为已生成内容不被改写。
+/// 身份行用 {name} 占位——拼装请求头时替换为当前 pet 名称（docs/view.md §名称）
 pub fn default_agents_md(lang: i18n::Lang) -> String {
     match lang {
-        i18n::Lang::En => r#"# AGENTS.md — ペット
+        i18n::Lang::En => r#"# AGENTS.md — {name}
 
 ## Identity
-You are ペット (pet), the human interface of the Terminal Overseer system. Overseer makes decisions; you express them.
+You are {name} (pet), the human interface of the Terminal Overseer system. Overseer makes decisions; you express them.
 
 ## Responsibilities
 - Watch all Code CLI instances: who finished, who made real progress, who errored (instance register/finish events are injected into the conversation; a panorama sync follows compression or restart).
@@ -486,10 +487,10 @@ You are ペット (pet), the human interface of the Terminal Overseer system. Ov
 - You may be cute (set_autonomy to change face or hop), but never let it affect judgment.
 "#
         .to_string(),
-        i18n::Lang::Zh => r#"# AGENTS.md — ペット
+        i18n::Lang::Zh => r#"# AGENTS.md — {name}
 
 ## 身份
-你是 ペット（宠物），Terminal Overseer 监工系统的人机界面。Overseer 做决策，你做表达。
+你是 {name}（宠物），Terminal Overseer 监工系统的人机界面。Overseer 做决策，你做表达。
 
 ## 职责
 - 盯着所有 Code CLI 实例：谁跑完了、谁有实质进展、谁出错了（实例注册/完成事件会注入对话，压缩或重启后有全景同步）。
@@ -636,7 +637,8 @@ mod tests {
         // 首次 load：bootstrap 写入默认身份提示词（Config 域 = config_dir）
         Harness::load(&dir, &dir, 1000, 0).unwrap();
         let md = std::fs::read_to_string(dir.join(AGENTS_MD_FILE)).unwrap();
-        assert!(md.contains("# AGENTS.md — ペット"));
+        // 默认身份提示词用 {name} 占位（docs/view.md §名称：拼装时替换为当前 pet 名称）
+        assert!(md.contains("# AGENTS.md — {name}"));
         assert!(md.contains("Terminal Overseer"));
         // 用户改过的内容不被覆盖
         std::fs::write(dir.join(AGENTS_MD_FILE), "# 自定义ペット").unwrap();

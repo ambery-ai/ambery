@@ -55,8 +55,10 @@ export class ChatPanel {
     this.inputEl = document.createElement("input");
     this.inputEl.className = "chat-input";
     this.relabel();
-    // UI 语言切换即重渲染文案（docs/i18n.md；历史内容不翻译）
+    // UI 语言切换即重渲染文案（docs/i18n.md；历史内容不翻译）；
+    // pet 名称变化同样即时重贴（docs/view.md §名称：UI 读取当前名称）
     wireI18n(store, () => this.relabel());
+    store.onConfig(() => this.relabel());
     this.inputEl.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && this.inputEl.value.trim()) {
         const text = this.inputEl.value.trim();

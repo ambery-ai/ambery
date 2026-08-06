@@ -71,6 +71,13 @@ fn themes_func(v: &Value) -> Vec<String> {
     }
 }
 
+fn pet_name_func(v: &Value) -> Vec<String> {
+    match v.as_str() {
+        Some(s) => super::validate_pet_name(s),
+        None => vec!["pet 名称应为字符串".into()],
+    }
+}
+
 /// descriptor tree 行为元数据（单源）。desc/类型见 config.rs 结构体 doc comment + schemars。
 pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "kaomoji", kind: NodeKind::Object, validate: &[Validation::Func(kaomoji_pools_func)], no_llm_visible: false, cold: false },
@@ -95,6 +102,7 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "themes", kind: NodeKind::Map { entry_probe: probe_theme_value }, validate: &[Validation::Func(themes_func)], no_llm_visible: false, cold: false },
     NodeMeta { path: "ui_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false },
     NodeMeta { path: "harness_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false },
+    NodeMeta { path: "name", kind: NodeKind::Leaf, validate: &[Validation::Func(pet_name_func)], no_llm_visible: false, cold: false },
     NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false },
     NodeMeta { path: "llm.active", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false },
     NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider }, validate: V, no_llm_visible: false, cold: false },
