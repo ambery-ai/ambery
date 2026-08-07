@@ -1,4 +1,4 @@
-//! step 执行器（docs/case-runner.md §steps）：batch runner 与 REPL 共用。
+//! step 执行器（docs/case-runner.md §steps）。
 
 use overseer_core::case::CaseObserve;
 use overseer_core::context::{Role, ToolCall};
