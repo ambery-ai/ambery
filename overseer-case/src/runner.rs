@@ -86,7 +86,7 @@ pub async fn exec_timer_scan<L: Llm>(ov: &mut OverseerBackend<L>, _ts: i64) -> (
     let total = due.len();
     let mut closed = 0;
     for inst in due {
-        let content = ov.terminal_reader.as_ref().and_then(|r| r(&inst));
+        let content = ov.read_terminal(&inst);
         let ts = overseer_core::server::now_ms();
         match content {
             Some(c) => ov

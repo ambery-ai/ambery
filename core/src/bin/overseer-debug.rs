@@ -102,7 +102,8 @@ async fn main() {
         }
     );
     let mut overseer = OverseerBackend::new(harness, config, backend);
-    // 读通道链（docs/sidecar.md）：sidecar（路径自动发现，env 可覆盖）→ MockTerminals → Context
+    // Terminal Adapter 装配（docs/terminal-adapter.md）：WtAdapter（sidecar 自动发现）
+    // + MapAdapter 兜底（/debug/terminal 注入）→ Composite 分发
     let sidecar = overseer_core::paths::sidecar_exe()
         .map(overseer_core::sidecar::SidecarClient::new)
         .map(Arc::new);
@@ -112,27 +113,17 @@ async fn main() {
     }
     let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
     {
-        let mock = mock.clone();
-        let sidecar_for_read = sidecar.clone();
-        overseer.terminal_reader = Some(Arc::new(move |inst: &str| {
-            sidecar_for_read
-                .as_ref()
-                .and_then(|s| s.read_instance(inst))
-                .or_else(|| mock.lock().unwrap().get(inst).cloned())
-        }));
-    }
-    // tab 定位服务（docs/hook.md §定位缓存，main.rs 同款接线）
-    let sidecar_for_locate = sidecar.clone();
-    overseer.tab_locator = Some(Arc::new(move |inst: &str| {
-        sidecar_for_locate.as_ref().and_then(|sc| sc.call(&serde_json::json!({ "cmd": "find_tab", "name": inst })))
-            .and_then(|r| Some(overseer_core::TabRef { hwnd: r["hwnd"].as_i64()?, index: r["index"].as_i64()? }))
-    }));
-    let sidecar_for_forget = sidecar.clone();
-    overseer.tab_forgetter = Some(Arc::new(move |inst: &str| {
-        if let Some(sc) = sidecar_for_forget.as_ref() {
-            sc.evict(inst);
+        use overseer_core::terminal::{Composite, MapAdapter, SidecarPlatformPrimitives, WtAdapter};
+        let mut adapters: Vec<Arc<dyn overseer_core::terminal::TerminalAdapter>> = vec![];
+        if let Some(sc) = &sidecar {
+            adapters.push(Arc::new(WtAdapter::new(sc.clone())));
         }
-    }));
+        adapters.push(Arc::new(MapAdapter::new(mock.clone())));
+        overseer.terminal = Some(Arc::new(Composite::new(adapters)));
+        if let Some(sc) = &sidecar {
+            overseer.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
+        }
+    }
     let (tx, _) = broadcast::channel(64);
     let state = Arc::new(AppState::new(overseer, mock));
     let tx_for_ws = tx.clone();

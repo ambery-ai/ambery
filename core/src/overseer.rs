@@ -82,17 +82,15 @@ pub struct OverseerBackend<L: Llm> {
     filter_cache: std::collections::HashMap<String, Arc<dyn Filter + Send + Sync>>,
     /// Timer（concepts §1a）：每实例兜底扫描调度
     pub timers: TimerWheel,
-    /// 读通道（docs/timer.md §Scanner）：sidecar 或 MockTerminals；fetch_terminal 优先于 Context
-    pub terminal_reader: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
-    /// VD 切换器（docs/hook.md §VD 切换能力）：instance → 切到目标窗口所在桌面（不切回）
-    pub vd_switcher: Option<Arc<dyn Fn(&str) -> bool + Send + Sync>>,
+    /// Terminal Adapter（concepts §14，docs/terminal-adapter.md）：定位/读取/遗忘
+    /// 统一接口；None = 无终端访问（Hook 驱动核心体验仍可用）
+    pub terminal: Option<Arc<dyn crate::terminal::TerminalAdapter>>,
+    /// Platform Primitives（concepts §15，docs/platform-primitives.md）：虚拟桌面切换
+    /// 等 OS 层能力；None = 无（fetch_terminal 的 vd_switch=true 路径报切换失败）
+    pub primitives: Option<Arc<dyn crate::terminal::PlatformPrimitives>>,
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
     /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
     pub sidecar_enabled: bool,
-    /// tab 定位服务（docs/hook.md §定位缓存）：session_start 定位探测、读路径重找回写
-    pub tab_locator: Option<Arc<dyn Fn(&str) -> Option<crate::TabRef> + Send + Sync>>,
-    /// 定位缓存清除（docs/hook.md §事件分层：session_end / Timer 判死清定位缓存）
-    pub tab_forgetter: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     /// 流式 delta 旁路（docs/streaming.md）：run_trigger 每收到 delta 即发——
     /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播
     pub effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>,
@@ -188,11 +186,9 @@ impl<L: Llm> OverseerBackend<L> {
             llm,
             filter_cache: std::collections::HashMap::new(),
             timers,
-            terminal_reader: None,
-            vd_switcher: None,
+            terminal: None,
+            primitives: None,
             sidecar_enabled: false,
-            tab_locator: None,
-            tab_forgetter: None,
             effect_sink: None,
             config_cold_snapshot,
             query_snapshots: Vec::new(),
@@ -629,6 +625,15 @@ impl<L: Llm> OverseerBackend<L> {
             .iter()
             .filter(|a| a.status != AgentStatus::Closed)
             .count()
+    }
+
+    /// 经 Terminal Adapter 读实例终端（docs/terminal-adapter.md）：
+    /// locate → read 配对（同 adapter 内完成）；无 adapter / 定不到 / 读不到 = None
+    /// （pub：server timer 任务与 case-runner timer_scan step 共用此入口）
+    pub fn read_terminal(&self, inst: &str) -> Option<String> {
+        let t = self.terminal.as_ref()?;
+        let tab = t.locate(inst)?;
+        t.read(&tab)
     }
 
     /// 状态 key 推导（concepts §4：key 切换由后端根据 Hook/Timer 驱动）：
@@ -1129,7 +1134,7 @@ impl<L: Llm> OverseerBackend<L> {
             // 静默簿记（EventBuffer，pet 不醒）；post-count 标注（#16：LLM 免对账）
             "session_start" => {
                 // 定位探测（docs/hook.md §事件分层）：无 tab 快照时按 marker 现找并回写
-                let located = tab.or_else(|| self.tab_locator.as_ref().and_then(|l| l(&name)));
+                let located = tab.or_else(|| self.terminal.as_ref().and_then(|t| t.locate(&name)));
                 upsert(AgentStatus::Idle, located)?;
                 let alive = self.alive_count().to_string();
                 self.harness
@@ -1139,8 +1144,8 @@ impl<L: Llm> OverseerBackend<L> {
             "session_end" => {
                 // closed 快照 tab=null（docs/storage.md）+ 清定位缓存（docs/hook.md §事件分层）
                 upsert(AgentStatus::Closed, None)?;
-                if let Some(forget) = self.tab_forgetter.as_ref() {
-                    forget(&name);
+                if let Some(t) = self.terminal.as_ref() {
+                    t.forget(&name);
                 }
                 let alive = self.alive_count().to_string();
                 self.harness
@@ -1165,9 +1170,7 @@ impl<L: Llm> OverseerBackend<L> {
                     // A：stop 到达即读通道全量（tab 切换限流见 timer，此处只读）
                     "auto_read" => {
                         let content = self
-                            .terminal_reader
-                            .as_ref()
-                            .and_then(|r| r(&name))
+                            .read_terminal(&name)
                             .and_then(|raw| {
                                 let _ = self.harness.append_terminal_content(
                                     TerminalContentRecord {
@@ -1399,7 +1402,7 @@ impl<L: Llm> OverseerBackend<L> {
         if !needs_locate {
             return;
         }
-        let located = self.tab_locator.as_ref().and_then(|l| l(instance));
+        let located = self.terminal.as_ref().and_then(|t| t.locate(instance));
         if let Some(tabref) = located {
             if let Some(a) = self
                 .harness
@@ -1485,8 +1488,8 @@ impl<L: Llm> OverseerBackend<L> {
                 ..a
             })?;
             // Timer 判死同样清定位缓存（docs/hook.md §事件分层）
-            if let Some(forget) = self.tab_forgetter.as_ref() {
-                forget(&name);
+            if let Some(t) = self.terminal.as_ref() {
+                t.forget(&name);
             }
             // 判死 diff 事件化 + post-count（#16 ①：每条 hash 一条，post-count 逐条现算，
             // 同名连坐自然形成递减序列；LLM 直接读数免对账）
@@ -1677,11 +1680,9 @@ impl<L: Llm> OverseerBackend<L> {
                         vec![],
                     );
                 };
-                // 读通道优先（sidecar/MockTerminals）：读到原文先存档再过滤（docs/storage.md 读取链）
+                // 读通道优先（Terminal Adapter）：读到原文先存档再过滤（docs/storage.md 读取链）
                 let read_fresh = |ov: &mut Self| {
-                    ov.terminal_reader
-                        .as_ref()
-                        .and_then(|r| r(inst))
+                    ov.read_terminal(inst)
                         .and_then(|raw| {
                             let _ = ov.harness.append_terminal_content(TerminalContentRecord {
                                 instance: inst.into(),
@@ -1711,7 +1712,14 @@ impl<L: Llm> OverseerBackend<L> {
                         vec![],
                     );
                 }
-                let switched = self.vd_switcher.as_ref().map(|f| f(inst)).unwrap_or(false);
+                // 切桌面（concepts §15 Example F）：adapter 定位拿 hwnd → primitives 切换
+                let switched = self
+                    .terminal
+                    .as_ref()
+                    .and_then(|t| t.locate(inst))
+                    .map(|tab| tab.hwnd)
+                    .and_then(|hwnd| self.primitives.as_ref().map(|p| p.switch_vd(hwnd)))
+                    .unwrap_or(false);
                 if !switched {
                     return (
                         json!({ "ok": false, "error": crate::i18n::trf(lang, "err.vd-switch-failed", &[("inst", inst.to_string())]) }),
@@ -1901,15 +1909,50 @@ mod tests {
         DebugAgent::new(move |_| rest.lock().unwrap().pop_front().unwrap_or_else(silence))
     }
 
+    /// 测试用 TerminalAdapter：固定定位/内容，记录 forget
+    struct StubAdapter {
+        tab: Option<crate::TabRef>,
+        content: Option<String>,
+        forgotten: std::sync::Mutex<Vec<String>>,
+    }
+    impl crate::terminal::TerminalAdapter for StubAdapter {
+        fn locate(&self, _inst: &str) -> Option<crate::TabRef> {
+            self.tab
+        }
+        fn read(&self, _tab: &crate::TabRef) -> Option<String> {
+            self.content.clone()
+        }
+        fn forget(&self, inst: &str) {
+            self.forgotten.lock().unwrap().push(inst.to_string());
+        }
+    }
+    fn stub_adapter(tab: Option<crate::TabRef>, content: Option<&str>) -> std::sync::Arc<StubAdapter> {
+        std::sync::Arc::new(StubAdapter {
+            tab,
+            content: content.map(String::from),
+            forgotten: std::sync::Mutex::new(Vec::new()),
+        })
+    }
+
+    /// 测试用 PlatformPrimitives：固定切换结果 + 记录 hwnd
+    struct StubPrimitives {
+        result: bool,
+        pub switched: std::sync::Mutex<Vec<i64>>,
+    }
+    impl crate::terminal::PlatformPrimitives for StubPrimitives {
+        fn switch_vd(&self, hwnd: i64) -> bool {
+            self.switched.lock().unwrap().push(hwnd);
+            self.result
+        }
+    }
+
     #[tokio::test]
     async fn tab_lifecycle_locate_writeback_and_forget() {
         // docs/hook.md §定位缓存 + §事件分层：session_start 定位探测回写、
         // session_end closed 快照 tab=null + 清定位缓存
         let mut ov = make_overseer("tab-lifecycle");
-        ov.tab_locator = Some(std::sync::Arc::new(|_| Some(crate::TabRef { hwnd: 100, index: 2 })));
-        let forgotten = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-        let f2 = forgotten.clone();
-        ov.tab_forgetter = Some(std::sync::Arc::new(move |name: &str| f2.lock().unwrap().push(name.to_string())));
+        let adapter = stub_adapter(Some(crate::TabRef { hwnd: 100, index: 2 }), None);
+        ov.terminal = Some(adapter.clone());
         // session_start：注册 + 定位探测回写 tab 快照
         ov.handle_real_hook("session_start", "sess-1234-abc", "/tmp/demo", Some("claude"), None, None, None, 1000)
             .await
@@ -1930,7 +1973,7 @@ mod tests {
         let last = ov.harness.agents.last().unwrap();
         assert_eq!(last.status, crate::AgentStatus::Closed);
         assert_eq!(last.tab, None, "closed 快照 tab 为 null（docs/storage.md）");
-        assert!(forgotten.lock().unwrap().contains(&a.name), "清定位缓存");
+        assert!(adapter.forgotten.lock().unwrap().contains(&a.name), "清定位缓存");
     }
 
     #[tokio::test]
@@ -1964,7 +2007,7 @@ mod tests {
         ov.handle_real_hook("session_start", "sess0000-1111", "/tmp/ghost", Some("claude"), None, None, None, 1)
             .await
             .unwrap();
-        ov.terminal_reader = Some(std::sync::Arc::new(|_| Some("内容".to_string())));
+        ov.terminal = Some(stub_adapter(Some(crate::TabRef { hwnd: 1, index: 0 }), Some("内容")));
         let (r, _) = ov.execute_tool(&ToolCall { id: "f2".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost·sess0000","vd_switch":false}).to_string() }).await;
         assert_eq!(r["ok"], json!(true), "{r}");
     }
@@ -2916,10 +2959,12 @@ mod tests {
         // A（auto_read）：读通道全量,Context 更新
         let mut ov = make_overseer("rh7");
         ov.config.stop_hook_mode = "auto_read".into();
-        ov.terminal_reader = Some(std::sync::Arc::new(|inst: &str| {
-            assert_eq!(inst, "p·dddd3333");
-            Some("● 完成。hooks 已配置".to_string())
-        }));
+        // MapAdapter：只有正确实例名可定位可读（等价原闭包的 inst 断言）
+        let map = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::from([(
+            "p·dddd3333".to_string(),
+            "● 完成。hooks 已配置".to_string(),
+        )])));
+        ov.terminal = Some(std::sync::Arc::new(crate::terminal::MapAdapter::new(map)));
         let _ = ov
             .handle_real_hook("stop", sid, r"/tmp/p", Some("claude"), None, None, None, 1000)
             .await
@@ -3025,17 +3070,36 @@ mod tests {
             .await
             .unwrap();
         let inst_name = ov.harness.agents[0].name.clone();
-        ov.terminal_reader = Some(std::sync::Arc::new(|inst: &str| {
-            if std::env::var("VD_TEST_READY").is_ok() { Some(format!("内容:{inst}")) } else { None }
+        // cloaked 语义：可定位（拿 hwnd）但读不到；切换后读命中
+        struct CloakedAdapter {
+            readable: std::sync::Arc<std::sync::Mutex<bool>>,
+            tab: crate::TabRef,
+        }
+        impl crate::terminal::TerminalAdapter for CloakedAdapter {
+            fn locate(&self, _inst: &str) -> Option<crate::TabRef> {
+                Some(self.tab)
+            }
+            fn read(&self, _tab: &crate::TabRef) -> Option<String> {
+                self.readable.lock().unwrap().then(|| "内容".to_string())
+            }
+            fn forget(&self, _inst: &str) {}
+        }
+        struct SwitchUnlocks(std::sync::Arc<std::sync::Mutex<bool>>);
+        impl crate::terminal::PlatformPrimitives for SwitchUnlocks {
+            fn switch_vd(&self, _hwnd: i64) -> bool {
+                *self.0.lock().unwrap() = true;
+                true
+            }
+        }
+        let readable = std::sync::Arc::new(std::sync::Mutex::new(false));
+        ov.terminal = Some(std::sync::Arc::new(CloakedAdapter {
+            readable: readable.clone(),
+            tab: crate::TabRef { hwnd: 7, index: 0 },
         }));
-        ov.vd_switcher = Some(std::sync::Arc::new(|_: &str| {
-            std::env::set_var("VD_TEST_READY", "1");
-            true
-        }));
+        ov.primitives = Some(std::sync::Arc::new(SwitchUnlocks(readable)));
         let call3 = ToolCall { id: "c3".into(), name: "fetch_terminal".into(), arguments: json!({"instance":inst_name,"vd_switch":true}).to_string() };
         let (r3, _) = ov.execute_tool(&call3).await;
-        std::env::remove_var("VD_TEST_READY");
-        assert_eq!(r3["content"].as_str().unwrap_or(""), format!("内容:{inst_name}"));
+        assert_eq!(r3["content"].as_str().unwrap_or(""), "内容");
         let _ = std::fs::remove_dir_all(tmp_dir("vd2"));
     }
 

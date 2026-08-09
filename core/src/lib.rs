@@ -31,10 +31,12 @@ pub mod queue;
 pub mod server;
 pub mod sidecar;
 pub mod storage;
+pub mod terminal;
 pub mod timer;
 
 pub use config::{Config, KaomojiEntry, LlmConfig, LlmProvider, CONFIG_FILE};
 pub use content::{FilteredContent, RecordSource, TerminalContentRecord};
+pub use terminal::TabRef;
 use context::{Context, ContextMessage};
 use event_buffer::EventBuffer;
 use queue::{Queue, QueueInput};
@@ -150,13 +152,6 @@ pub struct AgentEntry {
     pub tab: Option<TabRef>,
     pub first_seen: i64,
     pub last_seen: i64,
-}
-
-/// tab 定位（docs/hook.md §定位缓存）
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct TabRef {
-    pub hwnd: i64,
-    pub index: i64,
 }
 
 /// 实例身份 = session_id 前 8 位（docs/hook.md §marker 定位）

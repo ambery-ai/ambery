@@ -465,44 +465,26 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let (timer_tick, timer_batch) = (config.timer.tick_ms, config.timer.batch);
     let mut overseer = OverseerBackend::new(harness, config, backend);
 
+    // Terminal Adapter 装配（docs/terminal-adapter.md）：WtAdapter（sidecar 自动发现）
+    // + MapAdapter 兜底（/debug/terminal 注入）→ Composite 分发；平台原语经 sidecar 交付
     let sidecar = overseer_core::paths::sidecar_exe()
         .map(overseer_core::sidecar::SidecarClient::new)
         .map(Arc::new);
     let sidecar_for_sweep = sidecar.clone();
-    let sidecar_for_vd = sidecar.clone();
     overseer.sidecar_enabled = sidecar.is_some();
 
     let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
     {
-        let mock = mock.clone();
-        let sidecar_for_read = sidecar.clone();
-        overseer.terminal_reader = Some(Arc::new(move |inst: &str| {
-            sidecar_for_read.as_ref().and_then(|s| s.read_instance(inst))
-                .or_else(|| mock.lock().unwrap().get(inst).cloned())
-        }));
-    }
-    // tab 定位服务（docs/hook.md §定位缓存）：session_start 探测 / 读路径回写 / 结束清缓存
-    let sidecar_for_locate = sidecar.clone();
-    overseer.tab_locator = Some(Arc::new(move |inst: &str| {
-        sidecar_for_locate.as_ref().and_then(|sc| sc.call(&json!({ "cmd": "find_tab", "name": inst })))
-            .and_then(|r| Some(overseer_core::TabRef { hwnd: r["hwnd"].as_i64()?, index: r["index"].as_i64()? }))
-    }));
-    let sidecar_for_forget = sidecar.clone();
-    overseer.tab_forgetter = Some(Arc::new(move |inst: &str| {
-        if let Some(sc) = sidecar_for_forget.as_ref() {
-            sc.evict(inst);
+        use overseer_core::terminal::{Composite, MapAdapter, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
+        let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
+        if let Some(sc) = &sidecar {
+            adapters.push(Arc::new(WtAdapter::new(sc.clone())));
         }
-    }));
-    {
-        let sc = sidecar_for_vd.clone();
-        overseer.vd_switcher = Some(Arc::new(move |inst: &str| {
-            let Some(sc) = sc.as_ref() else { return false };
-            let Some(resp) = sc.call(&json!({ "cmd": "list_windows" })) else { return false };
-            let win = resp["windows"].as_array().and_then(|ws| ws.iter().find(|w| w["title"].as_str().map(|t| t.contains(inst)).unwrap_or(false)));
-            let Some(hwnd) = win.and_then(|w| w["hwnd"].as_i64()) else { return false };
-            sc.call(&json!({ "cmd": "switch_to_window_desktop", "hwnd": hwnd }))
-                .and_then(|r| r["switched"].as_bool()).unwrap_or(false)
-        }));
+        adapters.push(Arc::new(MapAdapter::new(mock.clone())));
+        overseer.terminal = Some(Arc::new(Composite::new(adapters)));
+        if let Some(sc) = &sidecar {
+            overseer.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
+        }
     }
 
     let state = Arc::new(AppState::new(overseer, mock));

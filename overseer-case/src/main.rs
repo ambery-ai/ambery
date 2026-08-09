@@ -170,12 +170,9 @@ fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
     let backend = LlmBackend::from_config(&config.llm);
     let mut ov = OverseerBackend::new(harness, config, backend);
 
-    // 读通道：空 map 起步（默认全 None = tab 不复存在），terminal/terminal_gone step 写剧情
+    // 读通道：MapAdapter（空 map 起步 = tab 不复存在），terminal/terminal_gone step 写剧情
     let terminals: SharedTerminals = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
-    let reader = terminals.clone();
-    ov.terminal_reader = Some(Arc::new(move |inst: &str| {
-        reader.lock().unwrap().get(inst).cloned()
-    }));
+    ov.terminal = Some(Arc::new(overseer_core::terminal::MapAdapter::new(terminals.clone())));
     (ov, terminals)
 }
 

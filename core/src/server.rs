@@ -476,7 +476,7 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
             interval.tick().await;
             let due = { s.overseer.lock().await.due_timer_scans(now_ms(), batch) };
             for inst in due {
-                let content = { let ov = s.overseer.lock().await; ov.terminal_reader.as_ref().and_then(|r| r(&inst)) };
+                let content = { let ov = s.overseer.lock().await; ov.read_terminal(&inst) };
                 if let Some(content) = content {
                     let result = { s.overseer.lock().await.handle_timer_scan(&inst, &content, now_ms()).await };
                     match result {
