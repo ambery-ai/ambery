@@ -1,253 +1,185 @@
 #!/usr/bin/env python3
-"""debug_brain.py — overseer-debug 的外部 LLM 大脑（纯 mock 的决策源）。
+"""debug_brain.py — HTTP LLM 替换示例（docs/debug-agent.md §scripts/debug_brain.py）
 
-复刻旧 Rust DebugAgent 的全部规则，证明 debug CLI 协议（@@@ 帧 + c/t/空行）
-表达力完备：core 零逻辑，决策全在这个脚本里。
+本地 OpenAI 兼容 /chat/completions HTTP 服务器，「LLM 替换」的最小示例：
+决策源逻辑内置在本脚本里，case-runner 以 debug 模式 `--brain-addr` 连它当 LLM 用
+（docs/case-runner.md §用例）。
 
 用法：
-  python scripts/debug_brain.py            # 启动 overseer-debug 并接管其 stdin/stdout
-另开终端打事件：
-  curl -X POST http://127.0.0.1:47600/hook -H 'Content-Type: application/json' `
-    -d '{"event":"session_start","instance":"ft","project":"p","content":"启动"}'
+  python scripts/debug_brain.py --port 47777   # --port 可选，默认 47777
 
-协议：
-  core → brain: @@@QUEUE_BEGIN / 每行一条消息 JSON / @@@QUEUE_END / @@@PROMPT ...
-  brain → core: `c <文本>` | `t <tool名> <json参数>`（可多行）| 空行提交
-  非帧行（server 日志）原样透传到本脚本 stdout。
+  # 另开终端（debug 模式 case 回放）：
+  overseer-case <case> --brain-addr http://127.0.0.1:47777
+  # 或 serve 宿主：
+  overseer-case serve --brain-addr http://127.0.0.1:47777
 
-  帧 = 完整请求（docs/storage.md）：[现拼请求头] + Queue 全部消息 + [Autonomy 状态末端]。
-  请求头无实例清单（diff 事件化）——roster 由本脚本从 Queue 事件流重建。
+内置最小阈值决策源：请求最后一条消息匹配「{name} 完成，Context 已更新（N 字）」
+（hook_stop_content，i18n hook.stop.updated）且 N ≥ 80 → 回通知 tool（call_component
+文本卡）；否则沉默（空 content 无 tool_calls，concepts §9b）。
 
-环境变量（脚本自动设置，指向隔离临时目录，避免吃到真实配置）：
-  OVERSEER_CONFIG_DIR / OVERSEER_STORAGE_DIR — 默认 %TEMP%/overseer-brain-{config,storage}
+wire 形态：core 的 OpenAiClient 只讲 SSE 流式（docs/streaming.md）——stream:true
+请求以 SSE 应答（单 chunk + usage 帧 + [DONE]）；非流式请求（如 Compression 摘要
+调用）以普通 JSON 应答。仅标准库，无第三方依赖。
 """
 
+import argparse
 import json
-import os
-import subprocess
+import re
 import sys
-import tempfile
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-NOTIFY_THRESHOLD = 80  # 旧 fixture：hook 内容 ≥ 80 字才通知（真实判断由 LLM 做）
+NOTIFY_THRESHOLD = 80  # 最小阈值决策源：hook 内容 ≥ 80 字才通知（真实判断由 LLM 做）
 
-EXE = os.path.join(os.path.dirname(__file__), "..", "target", "debug", "overseer-debug.exe")
-
-
-# ── 旧 Rust DebugAgent 规则的 Python 复刻 ──
-
-def parse_hook_msg(content: str):
-    """解析「{instance} 完成，Context 已更新（{len} 字）。…」及兜底扫描同构消息"""
-    if "，Context 已更新（" not in content:
-        return None
-    head, rest = content.split("，Context 已更新（", 1)
-    for suffix in (" 兜底扫描发现变化", " 完成"):
-        if head.endswith(suffix):
-            head = head[: -len(suffix)]
-            break
-    if " 字" not in rest:
-        return None
-    len_str = rest.split(" 字", 1)[0]
-    try:
-        return head, int(len_str)
-    except ValueError:
-        return None
-
-
-def is_head(m) -> bool:
-    """现拼请求头（帧首条）：含 kaomoji 表段，不落 Queue"""
-    return m.get("role") == "system" and "## 颜文字映射" in (m.get("content") or "")
-
-
-def is_autonomy(m) -> bool:
-    """Autonomy 状态末端（帧末条）：[face: key, motion: key]，不落 Queue"""
-    c = m.get("content") or ""
-    return m.get("role") == "system" and c.startswith("[face: ") and c.endswith("]")
-
-
-def strip_frame(messages):
-    """帧 = [请求头] + Queue + [Autonomy 末端] → 纯 Queue 部分"""
-    body = messages[1:] if messages and is_head(messages[0]) else list(messages)
-    if body and is_autonomy(body[-1]):
-        body = body[:-1]
-    return body
-
-
-def tool_name_of(messages, tool_call_id):
-    """由 tool_call_id 反查 tool 名（向前找发起它的 assistant tool_calls 消息）"""
-    for m in reversed(messages):
-        for c in m.get("tool_calls") or []:
-            if c.get("id") == tool_call_id:
-                return c.get("name")
-    return None
-
-
-def instance_overview(messages):
-    """从 Queue 事件流重建实例清单（diff 事件化，docs/harness.md 规则 3）：
-    注册 = Processing；完成 = Idle；归零重 diff 的全景消息直接解析 - 行"""
-    roster = {}
-    for m in messages:
-        if m.get("role") != "system":
-            continue
-        c = m.get("content") or ""
-        if c.startswith("新实例 ") and c.endswith(" 已注册"):
-            roster[c[len("新实例 "):-len(" 已注册")]] = "Processing"
-        elif c.startswith("实例全景同步"):
-            for line in c.splitlines()[1:]:
-                # 「- {name} [{Status}] project={...}」
-                if line.startswith("- ") and " [" in line:
-                    name = line[2:].split(" [", 1)[0]
-                    status = line.split(" [", 1)[1].split("]", 1)[0]
-                    roster[name] = status
-        elif "完成，Context 已更新" in c:
-            parsed = parse_hook_msg(c)
-            if parsed:
-                roster[parsed[0]] = "Idle"
-    if not roster:
-        return "（无实例）"
-    return "\n".join(f"- {name} [{status}]" for name, status in roster.items())
-
-
-def last_noteworthy_instance(messages):
-    """user 追问时定位 fetch_terminal 目标：优先最近一个触发通知的完成实例，无则最近完成"""
-    latest = None
-    for m in reversed(messages):
-        if m.get("role") != "system" or not m.get("content"):
-            continue
-        parsed = parse_hook_msg(m["content"])
-        if not parsed:
-            continue
-        inst, length = parsed
-        if length >= NOTIFY_THRESHOLD:
-            return inst
-        if latest is None:
-            latest = inst
-    return latest
-
-
-def truncate(s: str, n: int) -> str:
-    return s[:n] + "…" if len(s) > n else s
+# i18n hook.stop.updated（zh）："{name} 完成，Context 已更新（{len} 字）。评估是否通知。"
+STOP_UPDATED = re.compile(r"^(.*?) 完成，Context 已更新（(\d+) 字）")
 
 
 def decide(messages):
-    """旧 decide() 全规则复刻（适配新帧：先剥请求头/Autonomy 末端）。返回响应行列表（空 = 沉默）。"""
-    body = strip_frame(messages)
-    if not body:
-        return []
-    tail = body[-1]
-    role = tail.get("role")
-    content = tail.get("content") or ""
+    """最小阈值决策源。返回 (content, tool_calls)；沉默 = ("", [])。
 
-    if role == "tool":
-        # fetch_terminal → 汇总回复；通知类动作已通过 Component 表达 → 沉默
-        if tool_name_of(body, tail.get("tool_call_id")) == "fetch_terminal":
-            return [f"c [debug] 查到：{truncate(content, 120)}"]
-        return []
+    请求 = [现拼请求头] + Context 全部消息 + [Autonomy 状态末端]（docs/storage.md），
+    末尾几帧不一定是触发消息——自尾向前找最近一条 stop auto_read 消息判定。
+    """
+    for m in reversed(messages or []):
+        if m.get("role") != "system":
+            continue
+        hit = STOP_UPDATED.match(m.get("content") or "")
+        if not hit:
+            continue
+        if int(hit.group(2)) < NOTIFY_THRESHOLD:
+            return "", []
+        inst = hit.group(1)
+        break
+    else:
+        return "", []
+    # card id 语法（docs/components.md）：仅 A-Z a-z 0-9 _ - . /——实例名的间隔号等须清洗
+    safe_id = re.sub(r"[^A-Za-z0-9_\-./]", "_", inst)
+    spec = {
+        "id": f"notify-{safe_id}",
+        "type": "text_card",
+        "title": f"{inst} 完成",
+        "text": f"[brain] {inst} 完成了（{hit.group(2)} 字），去看看吧",
+        "direction": "auto",
+    }
+    return "", [
+        {
+            "index": 0,
+            "id": "brain-1",
+            "type": "function",
+            "function": {
+                "name": "call_component",
+                "arguments": json.dumps({"spec": spec}, ensure_ascii=False),
+            },
+        }
+    ]
 
-    if role == "user":
-        if "具体" in content or "怎么回事" in content:
-            inst = last_noteworthy_instance(body)
-            if inst:
-                return [f't fetch_terminal {json.dumps({"instance": inst}, ensure_ascii=False)}']
-            return ["c [debug] 没有可查的实例记录"]
-        return [f"c [debug] 收到：{content}（Queue 共 {len(body)} 条）"]
 
-    if role == "system":
-        # 新实例注册（Example A）：问候 (・ω・)ノ + 展示实例一览
-        if content.startswith("新实例 ") and content.endswith(" 已注册"):
-            overview = instance_overview(body)
-            return [
-                f't set_autonomy {json.dumps({"face": "(・ω・)ノ", "ttlMs": 3000}, ensure_ascii=False)}',
-                "t call_component " + json.dumps({
-                    "spec": {
-                        "id": "roster",
-                        "type": "text_card",
-                        "title": "实例一览",
-                        "text": overview,
-                        "direction": "auto",
-                    }
-                }, ensure_ascii=False),
-            ]
-        parsed = parse_hook_msg(content)
-        if parsed:
-            inst, length = parsed
-            if length >= NOTIFY_THRESHOLD:
-                return [
-                    "t set_autonomy " + json.dumps({
-                        "face": "✧*｡٩(ˊᗜˋ*)و✧*｡", "motion": "bounce", "ttlMs": 5000,
-                    }, ensure_ascii=False),
-                    "t call_component " + json.dumps({
-                        "spec": {
-                            "id": f"notify-{inst}",
-                            "type": "text_card",
-                            "title": f"{inst} 完成",
-                            "text": f"[debug] {inst} 干完了（{length} 字），去看看吧",
-                            "direction": "auto",
-                        }
-                    }, ensure_ascii=False),
+def chunk(cid, delta, finish=None, usage=None):
+    """OpenAI chat.completion.chunk 帧"""
+    v = {
+        "id": cid,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": "brain",
+        "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+    }
+    if usage:
+        v["usage"] = usage
+    return v
+
+
+class BrainHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):  # 静默默认访问日志，决策打印走 stdout
+        pass
+
+    def do_POST(self):
+        if self.path.rstrip("/") != "/chat/completions":
+            self.send_error(404, "only /chat/completions")
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length) or b"{}")
+        except Exception as e:
+            self.send_error(400, f"bad json: {e}")
+            return
+
+        content, tool_calls = decide(body.get("messages") or [])
+        # 粗粒度 usage 真值（#16：usage 帧供压缩基准；按字符数估算）
+        prompt_chars = sum(len(m.get("content") or "") for m in body.get("messages") or [])
+        usage = {
+            "prompt_tokens": max(1, prompt_chars // 2),
+            "completion_tokens": max(1, len(content) // 2 + len(tool_calls) * 20),
+        }
+        cid = "chatcmpl-brain"
+
+        if body.get("stream"):
+            frames = []
+            if tool_calls:
+                frames.append(chunk(cid, {"role": "assistant", "tool_calls": tool_calls}))
+                frames.append(chunk(cid, {}, finish="tool_calls", usage=usage))
+            else:
+                # 沉默或纯文本：单 chunk 全量给出（content 空 = 沉默）
+                delta = {"role": "assistant"}
+                if content:
+                    delta["content"] = content
+                frames.append(chunk(cid, delta, finish="stop", usage=usage))
+            payload = "".join(
+                f"data: {json.dumps(f, ensure_ascii=False)}\n\n" for f in frames
+            ) + "data: [DONE]\n\n"
+            raw = payload.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+        else:
+            message = {"role": "assistant", "content": content or None}
+            if tool_calls:
+                message["tool_calls"] = [
+                    {"id": tc["id"], "type": "function", "function": tc["function"]}
+                    for tc in tool_calls
                 ]
-        return []  # 沉默（len < 阈值 / 其他 system 消息）
+            resp = {
+                "id": cid,
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": "brain",
+                "choices": [
+                    {"index": 0, "message": message, "finish_reason": "tool_calls" if tool_calls else "stop"}
+                ],
+                "usage": usage,
+            }
+            raw = json.dumps(resp, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
 
-    return []
+        if tool_calls:
+            print(f"[brain] → {tool_calls[0]['function']['name']}", flush=True)
+        else:
+            print("[brain] → 沉默", flush=True)
 
-
-# ── 进程包装：spawn overseer-debug，接管 stdin/stdout ──
 
 def main() -> int:
-    # Windows GBK 控制台打不了颜文字：决策行含 kaomoji，stdout 强制 UTF-8
+    # Windows GBK 控制台防乱码：stdout 强制 UTF-8
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if not os.path.exists(EXE):
-        print(f"[brain] 找不到 {EXE}，先 cargo build --bin overseer-debug", flush=True)
-        return 1
-
-    env = dict(os.environ)
-    tmp = tempfile.gettempdir()
-    env.setdefault("OVERSEER_CONFIG_DIR", os.path.join(tmp, "overseer-brain-config"))
-    env.setdefault("OVERSEER_STORAGE_DIR", os.path.join(tmp, "overseer-brain-storage"))
-
-    print(f"[brain] 启动 {EXE}", flush=True)
-    print(f"[brain] config={env['OVERSEER_CONFIG_DIR']} storage={env['OVERSEER_STORAGE_DIR']}", flush=True)
-    proc = subprocess.Popen(
-        [EXE],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,  # 行缓冲
-        env=env,
-    )
-
-    def respond(lines):
-        for line in lines:
-            print(f"[brain] → {line}", flush=True)
-            proc.stdin.write(line + "\n")
-        proc.stdin.write("\n")  # 空行提交
-        proc.stdin.flush()
-
-    in_frame = False
-    messages = []
+    ap = argparse.ArgumentParser(description="debug_brain — OpenAI 兼容 HTTP LLM 替换示例")
+    ap.add_argument("--port", type=int, default=47777)
+    args = ap.parse_args()
+    srv = ThreadingHTTPServer(("127.0.0.1", args.port), BrainHandler)
+    print(f"[brain] listening on http://127.0.0.1:{args.port}/chat/completions", flush=True)
+    print(f"[brain] 阈值决策源：stop auto_read 内容 ≥ {NOTIFY_THRESHOLD} 字 → 通知，否则沉默", flush=True)
     try:
-        for line in proc.stdout:
-            line = line.rstrip("\n")
-            if line == "@@@QUEUE_BEGIN":
-                in_frame, messages = True, []
-            elif line == "@@@QUEUE_END":
-                in_frame = False
-                respond(decide(messages))
-            elif in_frame:
-                try:
-                    messages.append(json.loads(line))
-                except json.JSONDecodeError:
-                    print(f"[brain] 帧内无法解析：{line}", flush=True)
-            else:
-                print(line, flush=True)  # server 日志透传（含 @@@PROMPT / @@@ERR）
+        srv.serve_forever()
     except KeyboardInterrupt:
         pass
-    finally:
-        proc.terminate()
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())
