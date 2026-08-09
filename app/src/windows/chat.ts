@@ -383,28 +383,17 @@ export class ChatPanel {
     this.showPanel();
   }
 
-  /** 吸附边缘 → 面板展开方位（docs/chat-panel.md §布局：吸附在哪条边，面板贴 View
-   *  向屏幕内侧展开：top→正下方、bottom→正上方、left→右侧、right→左侧） */
-  static dirFromEdge(edge?: string | null): Direction {
-    switch (edge) {
-      case "top": return Direction.s;
-      case "bottom": return Direction.n;
-      case "left": return Direction.e;
-      case "right": return Direction.w;
-      default: return Direction.sse;
-    }
-  }
-
-  /** 唤出（view:docked / 左键单击重新唤出，docs/chat-panel.md §唤出与关闭）：
-   *  intentOpen 复位 + 按吸附边定位展开 + 渲染历史 + 初次打开定位历史底部（跟随最新） */
-  open(edge?: string | null) {
+  /** 唤出（右键 toggle，docs/chat-panel.md §唤出与关闭）：
+   *  intentOpen 复位 + engine.place 固定 sse 方位展开（自己的定位引擎） +
+   *  渲染历史 + 初次打开定位历史底部（跟随最新） */
+  open() {
     this.intentOpen();
     this.el.hidden = false;
     this.visible = true;
     if (!this.engine) { console.error("[chat] open called without engine"); return; }
     const pos = this.engine.place(
       { id: "chat-panel", width: PANEL_W, height: PANEL_H },
-      ChatPanel.dirFromEdge(edge),
+      Direction.sse,
     );
     // 不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见）
     this.el.style.left = `${pos.x - PANEL_W / 2}px`;
@@ -428,9 +417,18 @@ export class ChatPanel {
     this.inputEl.focus();
   }
 
-  /** 关闭（view:undocked → 面板随之关闭，docs/chat-panel.md §唤出与关闭）：统一 API */
+  /** 关闭（右键 toggle / × 同一收口，docs/chat-panel.md §唤出与关闭）：统一 API */
   close() {
     this.intentClose();
+  }
+
+  /** 右键 toggle（docs/view.md §手势与 Chat 唤出）：可见则关、不可见则开 */
+  toggle() {
+    if (this.visible) {
+      this.close();
+    } else {
+      this.open();
+    }
   }
 
   /** UI 文案（i18n）：标题 = pet 名称（Config 稳定身份值，docs/view.md §名称）；

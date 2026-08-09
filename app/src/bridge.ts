@@ -225,7 +225,6 @@ export interface DebugApi {
   clearNotifications(): void;
   setAutonomy(args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }): void;
   viewState(): {
-    docked: boolean;
     center: { x: number; y: number };
     face: string | null;
     motion: string;

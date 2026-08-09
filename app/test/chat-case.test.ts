@@ -39,7 +39,7 @@ async function makePanel(): Promise<{ panel: ChatPanel; mount: HTMLElement; brid
   const mount = document.createElement("div");
   document.body.appendChild(mount);
   const panel = new ChatPanel(mount, bridge, store, fakeEngine);
-  panel.open(null);
+  panel.open();
   return { panel, mount, bridge, store };
 }
 
@@ -80,7 +80,7 @@ it("发送失败：文字退回输入框 + 错误行 + 重试路径", async () =
   bridge.appendUserMessage = async () => false;
   const mount = document.createElement("div");
   document.body.appendChild(mount);
-  new ChatPanel(mount, bridge, store, fakeEngine).open(null);
+  new ChatPanel(mount, bridge, store, fakeEngine).open();
   const input = mount.querySelector<HTMLTextAreaElement>(".chat-input")!;
   input.value = "会失败的消息";
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));

@@ -113,7 +113,7 @@ it("T4 #26：× 走 intentClose——userClosed + release（非 remove）+ 钩�
   const hook = vi.fn();
   panel.onIntentClose = hook;
 
-  panel.open(null); // 唤出（无吸附信息回落默认方位）
+  panel.open(); // 唤出（engine.place 固定 sse）
   expect(panel.isVisible()).toBe(true);
   (mount.querySelector(".chat-close") as HTMLButtonElement).click(); // ×
   expect(panel.userClosed).toBe(true);

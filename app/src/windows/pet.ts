@@ -9,7 +9,7 @@ import { engine, setupServer } from "../positioning/tauri-server";
 import { Store } from "../store";
 import { wireI18n } from "../i18n";
 import { wireTheme } from "../theme";
-import { View, type DockEdge } from "../view";
+import { View } from "../view";
 import { createBrowserAdapter, createTauriAdapter, type WindowAdapter } from "../window-adapter";
 
 export async function main() {
@@ -328,50 +328,10 @@ export async function main() {
       engine.remove(`card-${id}`);
     });
 
-    // 吸附状态机（docs/view.md §状态机）：右键 → 最近屏幕边缘吸附/解除；
-    // chat 唤出随 view:docked、关闭随 view:undocked；× 后左键单击重新唤出
-    // （docs/chat-panel.md §唤出与关闭）。吸附锁定拖拽（tauriDragRegion 摘除）
-    async function dockToNearestEdge() {
-      const { currentMonitor } = await import("@tauri-apps/api/window");
-      const mon = await currentMonitor();
-      if (!mon || !petCenter) return;
-      const wa = mon.workArea;
-      const c = petCenter; // 物理坐标（engine 帧）
-      const dists: [DockEdge, number][] = [
-        ["top", c.y - wa.position.y],
-        ["bottom", wa.position.y + wa.size.height - c.y],
-        ["left", c.x - wa.position.x],
-        ["right", wa.position.x + wa.size.width - c.x],
-      ];
-      dists.sort((a, b) => a[1] - b[1]);
-      const edge = dists[0][0];
-      const off = centerOffset(); // CSS px
-      const size = await win.outerSize(); // 物理
-      // 吸附位置：水平边缘保持当前 x，垂直边缘保持当前 y（避免窗口跳动）
-      let x = c.x - off.x * dpr();
-      let y = c.y - off.y * dpr();
-      if (edge === "top") y = wa.position.y;
-      else if (edge === "bottom") y = wa.position.y + wa.size.height - size.height;
-      else if (edge === "left") x = wa.position.x;
-      else x = wa.position.x + wa.size.width - size.width;
-      await setPositionQuiet(Math.round(x), Math.round(y));
-      petCenter = await derivePetCenter();
-      syncObstacle();
-      view.setDock(edge);
-    }
-    view.el.addEventListener("view:dock-request", () => { void dockToNearestEdge(); });
-    view.el.addEventListener("view:docked", (e) => {
-      const edge = (e as CustomEvent).detail.edge as string;
-      delete view.el.dataset.tauriDragRegion;
-      emitToR("chat", "chat:open", { edge });
-    });
-    view.el.addEventListener("view:undocked", () => {
-      view.el.dataset.tauriDragRegion = "";
-      emitToR("chat", "chat:close");
-    });
-    view.el.addEventListener("view:summon", (e) => {
-      const edge = (e as CustomEvent).detail.edge as string;
-      emitToR("chat", "chat:open", { edge });
+    // 手势（docs/view.md §手势与 Chat 唤出）：右键 = 唤出/关闭 Chat（chat:toggle，
+    // pet 原地不动——无吸附态）；chat 窗口位置经 engine.place 自定位（chat-window.ts）
+    view.el.addEventListener("chat:toggle", () => {
+      emitToR("chat", "chat:toggle");
     });
 
     broadcastPosition();
@@ -393,31 +353,9 @@ export async function main() {
     const { ComponentManager } = await import("../components/component-manager");
     const mgr = new ComponentManager(mount, bridge, () => view.center(), false, engine);
     const chatPanel = new ChatPanel(mount, bridge, store, engine);
-    // 吸附状态机（docs/view.md §状态机，browser 与 Tauri 同一语义）：右键 → 视口边缘吸附，
-    // chat 唤出随 docked / 关闭随 undocked / × 后左键单击重新唤出
-    view.el.addEventListener("view:dock-request", () => {
-      const wr = view.el.parentElement!.getBoundingClientRect();
-      const c = { x: wr.x + wr.width / 2, y: wr.y + wr.height / 2 };
-      const dists: [DockEdge, number][] = [
-        ["top", c.y],
-        ["bottom", window.innerHeight - c.y],
-        ["left", c.x],
-        ["right", window.innerWidth - c.x],
-      ];
-      dists.sort((a, b) => a[1] - b[1]);
-      const edge = dists[0][0];
-      const left = edge === "left" ? 0 : edge === "right" ? window.innerWidth - wr.width : wr.x;
-      const top = edge === "top" ? 0 : edge === "bottom" ? window.innerHeight - wr.height : wr.y;
-      void adapter.setPosition(Math.round(left), Math.round(top)).then(() => {
-        view.setDock(edge);
-        syncPanel();
-      });
-    });
-    view.el.addEventListener("view:docked", (e) => chatPanel.open((e as CustomEvent).detail.edge));
-    view.el.addEventListener("view:undocked", () => chatPanel.close());
-    view.el.addEventListener("view:summon", (e) => {
-      if (chatPanel.userClosed) chatPanel.open((e as CustomEvent).detail.edge);
-    });
+    // 手势（docs/view.md §手势与 Chat 唤出，browser 与 Tauri 同一语义）：
+    // 右键 = 唤出/关闭 Chat（chat:toggle；pet 原地不动，无吸附态）
+    view.el.addEventListener("chat:toggle", () => chatPanel.toggle());
 
     // debug：positioning 面板（α/β 滑块 + 窗口注册）
     const { DebugPositioningPanel } = await import("../positioning/debug-vite-panel");
@@ -567,8 +505,6 @@ export async function main() {
     faceW = measureFaceW();
     void applySize(true).then(() => syncObstacle());
   });
-
-  // （chat:toggle 已由吸附状态机的 chat:open/chat:close 取代，见 Tauri 分支 view:docked 接线）
 
   await autonomy.init();
 
