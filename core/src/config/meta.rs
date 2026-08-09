@@ -179,6 +179,10 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "timer.stagger_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_stagger_ms" })] },
     NodeMeta { path: "timer.tick_ms", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(100.0), max: None }], no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_tick_ms" })] },
     NodeMeta { path: "timer.batch", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_batch" })] },
+    // terminal.adapter_*（docs/terminal-adapter.md §Config 字段）：装配期生效 = 冷字段
+    NodeMeta { path: "terminal", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "terminal.adapter_wt", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: M },
+    NodeMeta { path: "terminal.adapter_zellij", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: M },
     NodeMeta { path: "stop_hook_mode", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false, migrate: M },
     NodeMeta { path: "max_tool_calls_in_one_response", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: true, cold: true, migrate: M },
     NodeMeta { path: "max_tool_calls_per_turn", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: true, cold: true, migrate: M },

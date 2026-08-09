@@ -465,11 +465,16 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let (timer_tick, timer_batch) = (config.timer.tick_ms, config.timer.batch);
     let mut overseer = OverseerBackend::new(harness, config, backend);
 
-    // Terminal Adapter 装配（docs/terminal-adapter.md）：WtAdapter（sidecar 自动发现）
-    // + MapAdapter 兜底（/debug/terminal 注入）→ Composite 分发；平台原语经 sidecar 交付
-    let sidecar = overseer_core::paths::sidecar_exe()
-        .map(overseer_core::sidecar::SidecarClient::new)
-        .map(Arc::new);
+    // Terminal Adapter 装配（docs/terminal-adapter.md）：adapter_wt 开关门控（冷字段，
+    // 装配期生效）——false = wt sidecar 完全不接入（无定位/读取/原语/启动扫描），
+    // Hook 驱动核心体验仍可用；MapAdapter 兜底（/debug/terminal 注入）恒在
+    let sidecar = if overseer.config.terminal.adapter_wt {
+        overseer_core::paths::sidecar_exe()
+            .map(overseer_core::sidecar::SidecarClient::new)
+            .map(Arc::new)
+    } else {
+        None
+    };
     let sidecar_for_sweep = sidecar.clone();
     overseer.sidecar_enabled = sidecar.is_some();
 

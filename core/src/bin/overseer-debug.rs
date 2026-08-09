@@ -102,11 +102,15 @@ async fn main() {
         }
     );
     let mut overseer = OverseerBackend::new(harness, config, backend);
-    // Terminal Adapter 装配（docs/terminal-adapter.md）：WtAdapter（sidecar 自动发现）
-    // + MapAdapter 兜底（/debug/terminal 注入）→ Composite 分发
-    let sidecar = overseer_core::paths::sidecar_exe()
-        .map(overseer_core::sidecar::SidecarClient::new)
-        .map(Arc::new);
+    // Terminal Adapter 装配（docs/terminal-adapter.md）：adapter_wt 开关门控（冷字段）；
+    // WtAdapter（sidecar 自动发现）+ MapAdapter 兜底（/debug/terminal 注入）→ Composite 分发
+    let sidecar = if overseer.config.terminal.adapter_wt {
+        overseer_core::paths::sidecar_exe()
+            .map(overseer_core::sidecar::SidecarClient::new)
+            .map(Arc::new)
+    } else {
+        None
+    };
     overseer.sidecar_enabled = sidecar.is_some();
     if let Some(p) = overseer_core::paths::sidecar_exe() {
         println!("sidecar enabled: {}", p.display());

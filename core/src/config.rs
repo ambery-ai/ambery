@@ -30,6 +30,10 @@ pub struct Config {
     /// Timer 兜底扫描调度（concepts §1a，docs/timer.md；全部冷字段，重启生效）
     #[serde(default)]
     pub timer: TimerConfig,
+    /// Terminal Adapter 开关（concepts §14，docs/terminal-adapter.md §Config 字段）：
+    /// 每 adapter 一个布尔；全 false = 无终端访问（Hook 驱动核心体验仍可用）。冷字段（装配期生效）
+    #[serde(default)]
+    pub terminal: TerminalConfig,
     /// stop hook 模式（docs/hook.md §stop 三模式）：queue_only（默认，hint 按需读）/ auto_read / message
     #[serde(default = "default_stop_hook_mode")]
     pub stop_hook_mode: String,
@@ -112,6 +116,31 @@ impl Default for TimerConfig {
             stagger_ms: default_timer_stagger(),
             tick_ms: default_timer_tick(),
             batch: default_timer_batch(),
+        }
+    }
+}
+
+/// Terminal Adapter 配置（docs/terminal-adapter.md §Config 字段）
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TerminalConfig {
+    /// 启用 wt 适配器（WtAdapter，独立 C# sidecar 进程）。默认 true——保持既有
+    /// sidecar 自动发现行为（用户裁决）；「未列出的 adapter 默认 false」指未入 schema 者
+    #[serde(default = "default_adapter_wt")]
+    pub adapter_wt: bool,
+    /// 启用 zellij 适配器（ZellijAdapter，Rust 直调 zellij CLI）。默认 false
+    #[serde(default)]
+    pub adapter_zellij: bool,
+}
+
+fn default_adapter_wt() -> bool {
+    true
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            adapter_wt: default_adapter_wt(),
+            adapter_zellij: false,
         }
     }
 }
@@ -443,6 +472,7 @@ impl Default for Config {
             compression_reserve_default: default_compression_reserve(),
             set_autonomy_default_ttl_ms: default_ttl_ms(),
             timer: TimerConfig::default(),
+            terminal: TerminalConfig::default(),
             stop_hook_mode: default_stop_hook_mode(),
             max_tool_calls_in_one_response: default_max_tool_calls_in_one_response(),
             max_tool_calls_per_turn: default_max_tool_calls_per_turn(),
@@ -470,6 +500,18 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_adapter_defaults_and_compat() {
+        let cfg = Config::default();
+        assert!(cfg.terminal.adapter_wt, "wt 默认启用（保持既有自动发现行为）");
+        assert!(!cfg.terminal.adapter_zellij, "zellij 默认关闭");
+        // 旧 config.json 无 terminal 段 → serde default 补齐（无需迁移）
+        let mut v = serde_json::to_value(&cfg).unwrap();
+        v.as_object_mut().unwrap().remove("terminal");
+        let cfg2: Config = serde_json::from_value(v).unwrap();
+        assert_eq!(cfg2.terminal, cfg.terminal);
+    }
 
     #[test]
     fn effective_limit_window_minus_reserve() {
