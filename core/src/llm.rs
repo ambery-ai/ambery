@@ -344,17 +344,23 @@ use crate::LlmProvider;
 pub struct OpenAiClient {
     base_url: String,
     model: String,
-    api_key: String,
+    /// None = 端点无需鉴权（本地服务如 debug brain / ollama）：不带 Authorization 头
+    api_key: Option<String>,
     temperature: Option<f64>,
     http: reqwest::Client,
 }
 
 impl OpenAiClient {
-    /// 从 provider profile 构造；key 从 api_key_env 指向的环境变量读（本体不落盘）
+    /// 从 provider profile 构造；key 从 api_key_env 指向的环境变量读（本体不落盘）。
+    /// api_key_env 缺省 = 无需鉴权端点（None）；显式给了变量名但环境变量未设 = 错误
     pub fn from_provider(p: &LlmProvider) -> Result<Self, String> {
-        let key_env = p.api_key_env.as_deref().unwrap_or("");
-        let api_key = std::env::var(key_env)
-            .map_err(|_| format!("环境变量 {key_env} 未设置"))?;
+        let api_key = match p.api_key_env.as_deref() {
+            Some(key_env) => Some(
+                std::env::var(key_env)
+                    .map_err(|_| format!("环境变量 {key_env} 未设置"))?,
+            ),
+            None => None,
+        };
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()
@@ -434,14 +440,15 @@ impl OpenAiClient {
         messages: &[ContextMessage],
         tools: &[ToolDef],
     ) -> Result<LlmOutput, String> {
-        let resp = self
+        let req = self
             .http
             .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(&self.api_key)
-            .json(&self.build_body(messages, tools))
-            .send()
-            .await
-            .map_err(|e| format!("http: {e}"))?;
+            .json(&self.build_body(messages, tools));
+        let req = match &self.api_key {
+            Some(k) => req.bearer_auth(k),
+            None => req,
+        };
+        let resp = req.send().await.map_err(|e| format!("http: {e}"))?;
         let status = resp.status();
         let text = resp.text().await.map_err(|e| format!("read: {e}"))?;
         if !status.is_success() {
@@ -463,14 +470,15 @@ impl OpenAiClient {
         let mut body = self.build_body(messages, tools);
         body["stream"] = serde_json::json!(true);
         body["stream_options"] = serde_json::json!({ "include_usage": true });
-        let resp = self
+        let req = self
             .http
             .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("http: {e}"))?;
+            .json(&body);
+        let req = match &self.api_key {
+            Some(k) => req.bearer_auth(k),
+            None => req,
+        };
+        let resp = req.send().await.map_err(|e| format!("http: {e}"))?;
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.map_err(|e| format!("read: {e}"))?;
@@ -903,10 +911,31 @@ mod tests {
         OpenAiClient {
             base_url: "http://x/v1".into(),
             model: "m".into(),
-            api_key: "k".into(),
+            api_key: Some("k".into()),
             temperature: Some(0.3),
             http: reqwest::Client::new(),
         }
+    }
+
+    #[test]
+    fn provider_without_key_env_constructs_without_auth() {
+        // api_key_env 缺省 = 无需鉴权端点（本地 brain / ollama）：构造成功、不带 key
+        let p = LlmProvider {
+            base_url: "http://127.0.0.1:47777".into(),
+            model: "brain".into(),
+            api_key_env: None,
+            temperature: None,
+            context_window: None,
+            compression_reserve: None,
+        };
+        let client = OpenAiClient::from_provider(&p).expect("无 key 端点构造成功");
+        assert!(client.api_key.is_none());
+        // 显式给了变量名但未设 = 错误（防手滑配错静默无鉴权）
+        let p2 = LlmProvider {
+            api_key_env: Some("DEFINITELY_NOT_SET_ENV_VAR".into()),
+            ..p
+        };
+        assert!(OpenAiClient::from_provider(&p2).is_err());
     }
 
     #[test]
