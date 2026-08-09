@@ -66,13 +66,16 @@ fn cli_decide(messages: &[ContextMessage]) -> LlmOutput {
 #[tokio::main]
 async fn main() {
     // debug 分支换 CLI 决策源（OpenAi 变体的内部降级仍是沉默 mock）
-    let parts = overseer_core::host::assemble_host(|backend| match backend {
-        LlmBackend::Debug(_) => {
-            println!("debug 决策源：CLI（@@@ 帧）");
-            LlmBackend::Debug(DebugAgent::new(cli_decide))
-        }
-        b => b,
-    });
+    let parts = overseer_core::host::assemble_host(
+        |_| {},
+        |backend| match backend {
+            LlmBackend::Debug(_) => {
+                println!("debug 决策源：CLI（@@@ 帧）");
+                LlmBackend::Debug(DebugAgent::new(cli_decide))
+            }
+            b => b,
+        },
+    );
     let port: u16 = std::env::var("OVERSEER_PORT")
         .ok()
         .and_then(|v| v.parse().ok())

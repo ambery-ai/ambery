@@ -4,7 +4,7 @@ use overseer_core::case::CaseFile;
 use overseer_core::llm::LlmBackend;
 use overseer_core::overseer::OverseerBackend;
 use overseer_core::server::now_ms;
-use overseer_core::Config;
+use overseer_core::{Config, LlmProvider};
 use std::sync::Arc;
 
 mod export;
@@ -12,11 +12,53 @@ mod runner;
 
 type SharedTerminals = Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>;
 
+fn opt_val(args: &[String], flag: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+}
+
+/// debug 决策源参数（docs/debug-agent.md §HTTP brain / docs/case-runner.md §用例）：
+/// `--brain-addr <url>` = HTTP brain（注入 provider，走 OpenAiClient 通用路径）；
+/// `--silent` = 沉默 DebugAgent。两者互斥；debug 模式必须显式给一个
+fn parse_decision(args: &[String]) -> (Option<String>, bool) {
+    let brain = opt_val(args, "--brain-addr");
+    let silent = args.iter().any(|a| a == "--silent");
+    if brain.is_some() && silent {
+        eprintln!("USAGE: --brain-addr 与 --silent 互斥");
+        std::process::exit(2);
+    }
+    (brain, silent)
+}
+
+fn apply_decision(config: &mut Config, brain_addr: Option<&str>, silent: bool) {
+    if let Some(addr) = brain_addr {
+        config.llm.providers.insert(
+            "brain".into(),
+            LlmProvider {
+                base_url: addr.trim_end_matches('/').into(),
+                model: "brain".into(),
+                api_key_env: None,
+                temperature: None,
+                context_window: None,
+                compression_reserve: None,
+            },
+        );
+        config.llm.active = "brain".into();
+        eprintln!("[case] debug 决策源：HTTP brain @ {addr}（OpenAiClient 通用路径）");
+    } else if silent {
+        config.llm.active = "debug".into();
+        eprintln!("[case] debug 决策源：沉默");
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: overseer-case <case.case> [--step-num N] [--health]");
+        eprintln!("usage: overseer-case <case.case> [--step-num N] [--health] [--brain-addr <url> | --silent]");
+        eprintln!("       overseer-case serve [--brain-addr <url> | --silent]   # 完整 router 宿主（docs/case-runner.md §壳类比）");
         eprintln!("       overseer-case export [--storage DIR] [--instances a,b] [--window 30m]");
         eprintln!("              [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] [--dedup] [--dry-run] [--case-id ID]");
         eprintln!("              [--keep-memory --memory name-a,AGENTS] [--keep-cron --cron-ids id-a,id-b]");
@@ -26,6 +68,26 @@ async fn main() {
         run_export(&args[2..]);
         return;
     }
+    // serve：完整 router 宿主（浏览器调试 RemoteBridge / 前端进 case 的内嵌 core）
+    if args[1] == "serve" {
+        let (brain, silent) = parse_decision(&args[2..]);
+        let needs_decision =
+            Config::load_or_default(&overseer_core::paths::config_root()).llm.active == "debug";
+        if needs_decision && brain.is_none() && !silent {
+            eprintln!("USAGE: llm active=debug 的 serve 必须显式 --brain-addr <url> 或 --silent（docs/debug-agent.md）");
+            std::process::exit(2);
+        }
+        let parts = overseer_core::host::assemble_host(
+            |c| apply_decision(c, brain.as_deref(), silent),
+            |b| b,
+        );
+        let port: u16 = std::env::var("OVERSEER_PORT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(47600);
+        overseer_core::host::serve_host(parts, port).await;
+        return;
+    }
     let case_path = &args[1];
     let health_mode = args.iter().any(|a| a == "--health");
     let max_step = args
@@ -33,6 +95,7 @@ async fn main() {
         .position(|a| a == "--step-num")
         .and_then(|i| args.get(i + 1))
         .and_then(|n| n.parse::<usize>().ok());
+    let (brain_addr, silent) = parse_decision(&args[2..]);
 
     let text = std::fs::read_to_string(case_path).expect("read case file");
     let case = match overseer_core::case::parse(&text) {
@@ -44,12 +107,28 @@ async fn main() {
         }
     };
 
+    // debug 决策源规则（docs/case-runner.md §用例）：debug 模式必须显式 --brain-addr
+    // 或 --silent；real 模式禁止携带（brain 是 debug 专用决策源）。health 静态检查豁免
+    if !health_mode {
+        match case.meta.llm_mode {
+            overseer_core::case::LlmMode::Debug if brain_addr.is_none() && !silent => {
+                eprintln!("USAGE: debug 模式必须显式给 --brain-addr <url> 或 --silent（docs/case-runner.md §用例）");
+                std::process::exit(2);
+            }
+            overseer_core::case::LlmMode::Real if brain_addr.is_some() || silent => {
+                eprintln!("USAGE: real LLM 模式不接受 --brain-addr/--silent");
+                std::process::exit(2);
+            }
+            _ => {}
+        }
+    }
+
     if health_mode {
         health(&text, &case);
         return;
     }
 
-    let (mut ov, terminals) = setup(&case);
+    let (mut ov, terminals) = setup(&case, brain_addr.as_deref(), silent);
 
     // 合成 ts：steps 未带 ts 时按序递增（回放确定性）
     let mut seq_ts: i64 = 1_000;
@@ -113,7 +192,11 @@ async fn main() {
 }
 
 /// case → 可执行 OverseerBackend（tmp storage 快照 + debug/real LLM + 可变读通道）
-fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
+fn setup(
+    case: &CaseFile,
+    brain_addr: Option<&str>,
+    silent: bool,
+) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
     let tmp = std::env::temp_dir().join(format!("overseer-case-{}", case.meta.case_id));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).expect("create tmp dir");
@@ -144,7 +227,11 @@ fn setup(case: &CaseFile) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
     // debug 强制沉默（确定性）；real 合并生产 providers（子集校验）+ env key 现成
     match case.meta.llm_mode {
         overseer_core::case::LlmMode::Debug => {
-            config.llm.active = "debug".into();
+            if brain_addr.is_none() && !silent {
+                // health 烟测路径（不经 LLM 调用）：沉默即可
+                config.llm.active = "debug".into();
+            }
+            apply_decision(&mut config, brain_addr, silent);
         }
         overseer_core::case::LlmMode::Real => {
             let prod = Config::load_or_default(&overseer_core::paths::config_root());
@@ -246,8 +333,8 @@ fn health(text: &str, case: &CaseFile) {
             }
         }
     }
-    // 4. replay 烟测：Harness::load 不 panic + observe 可执行
-    let (ov, _t) = setup(case);
+    // 4. replay 烟测：Harness::load 不 panic + observe 可执行（health 不经 LLM，沉默装配）
+    let (ov, _t) = setup(case, None, false);
     let _ = overseer_core::case::observe(&ov);
     // 5. pre-parse 预检（docs/case-eval-system.md §checkhealth，静态不执行）：
     //    表达式 try_parse / 变量引用有效 / store 类型合法 / 类型可落 / observe target 合法

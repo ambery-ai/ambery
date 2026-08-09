@@ -25,14 +25,19 @@ pub struct HostParts {
 }
 
 /// 装配宿主（docs/case-runner.md §壳类比「进程主体内嵌 core」）：
-/// Config（OVERSEER_CONFIG_DIR 可覆盖）→ Harness（OVERSEER_STORAGE_DIR）→
+/// Config（OVERSEER_CONFIG_DIR 可覆盖，`adjust_config` 给调用方一次注入机会，
+/// 如 serve 的 brain provider）→ Harness（OVERSEER_STORAGE_DIR）→
 /// LLM（`wrap_backend` 给调用方一次换入决策源的机会，如 overseer-debug 的 CLI
 /// 决策源；serve 传恒等）→ Terminal Adapter（WtAdapter 受 adapter_wt 门控 +
 /// MapAdapter 兜底 → Composite；primitives 经 sidecar 交付）。
-pub fn assemble_host(wrap_backend: impl FnOnce(LlmBackend) -> LlmBackend) -> HostParts {
+pub fn assemble_host(
+    adjust_config: impl FnOnce(&mut Config),
+    wrap_backend: impl FnOnce(LlmBackend) -> LlmBackend,
+) -> HostParts {
     let config_dir = crate::paths::config_root();
     let storage_dir = crate::paths::storage_dir();
     let mut config = Config::load_or_default(&config_dir);
+    adjust_config(&mut config);
     // debug 宿主可用环境变量缩短 Timer 参数便于观察（真实值由 Config 定义）
     if let Some(n) = std::env::var("OVERSEER_TIMER_INTERVAL_MS").ok().and_then(|v| v.parse().ok()) {
         config.timer.interval_ms = n;
