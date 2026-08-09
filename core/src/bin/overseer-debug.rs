@@ -1,14 +1,9 @@
 //! debug 模式入口：overseer-core + DebugAgent + HTTP/WS server。
-//! 用法：`cargo run --bin overseer-debug`（storage 目录默认 ../storage，OVERSEER_STORAGE 可覆盖）
+//! 用法：`cargo run --bin overseer-debug`（storage/config 目录见 core/paths.rs env 覆盖）
+//! 装配骨架与 overseer-case serve 共用 core::host（docs/case-runner.md §壳类比）。
 
-use overseer_core::llm::{DebugAgent, LlmBackend, LlmOutput};
-use overseer_core::overseer::OverseerBackend;
 use overseer_core::context::{ContextMessage, ToolCall};
-use overseer_core::server::{now_ms, router, spawn_queue_consumer, spawn_timer_task, AppState};
-use overseer_core::{Config, Harness};
-use serde_json::Value;
-use std::sync::Arc;
-use tokio::sync::broadcast;
+use overseer_core::llm::{DebugAgent, LlmBackend, LlmOutput};
 
 /// debug CLI 决策源：人/外部脚本当 LLM（mock 零逻辑，决策全来自 stdin）。
 /// 每次调用把全量 Queue 以机读帧打到 stdout（@@@ 前缀与 server 日志区分），
@@ -64,95 +59,23 @@ fn cli_decide(messages: &[ContextMessage]) -> LlmOutput {
         content,
         tool_calls,
         reasoning_content: None,
-    usage: None,
+        usage: None,
     }
 }
 
 #[tokio::main]
 async fn main() {
-    // Config / Storage 分离（concepts §12/§13，core/paths.rs）
-    let config_dir = overseer_core::paths::config_root();
-    let storage_dir = overseer_core::paths::storage_dir();
-    let mut config = Config::load_or_default(&config_dir);
-    // debug 模式可用环境变量缩短 Timer 参数便于观察（真实值由 Config 定义：5min/30s）
-    if let Some(n) = std::env::var("OVERSEER_TIMER_INTERVAL_MS").ok().and_then(|v| v.parse().ok()) {
-        config.timer.interval_ms = n;
-    }
-    if let Some(n) = std::env::var("OVERSEER_TIMER_STAGGER_MS").ok().and_then(|v| v.parse().ok()) {
-        config.timer.stagger_ms = n;
-    }
-    let tick_ms: u64 = std::env::var("OVERSEER_TIMER_TICK_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(config.timer.tick_ms as u64);
-    let timer_batch = config.timer.batch;
-    let harness = Harness::load_with_lang(&storage_dir, &config_dir, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms(), overseer_core::i18n::Lang::of(&config.harness_language))
-        .expect("load harness");
-    let backend = match LlmBackend::from_config(&config.llm) {
-        // debug 分支换 CLI 决策源（OpenAi 变体的内部降级仍是沉默 mock）
-        LlmBackend::Debug(_) => LlmBackend::Debug(DebugAgent::new(cli_decide)),
+    // debug 分支换 CLI 决策源（OpenAi 变体的内部降级仍是沉默 mock）
+    let parts = overseer_core::host::assemble_host(|backend| match backend {
+        LlmBackend::Debug(_) => {
+            println!("debug 决策源：CLI（@@@ 帧）");
+            LlmBackend::Debug(DebugAgent::new(cli_decide))
+        }
         b => b,
-    };
-    println!(
-        "llm: active=「{}」→ {}",
-        config.llm.active,
-        match &backend {
-            LlmBackend::Debug(_) => "DebugAgent（CLI 决策源）",
-            LlmBackend::OpenAi { .. } => "OpenAiClient（失败降级 DebugAgent）",
-        }
-    );
-    let mut overseer = OverseerBackend::new(harness, config, backend);
-    // Terminal Adapter 装配（docs/terminal-adapter.md）：adapter_wt 开关门控（冷字段）；
-    // WtAdapter（sidecar 自动发现）+ MapAdapter 兜底（/debug/terminal 注入）→ Composite 分发
-    let sidecar = if overseer.config.terminal.adapter_wt {
-        overseer_core::paths::sidecar_exe()
-            .map(overseer_core::sidecar::SidecarClient::new)
-            .map(Arc::new)
-    } else {
-        None
-    };
-    overseer.sidecar_enabled = sidecar.is_some();
-    if let Some(p) = overseer_core::paths::sidecar_exe() {
-        println!("sidecar enabled: {}", p.display());
-    }
-    let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
-    {
-        use overseer_core::terminal::{Composite, MapAdapter, SidecarPlatformPrimitives, WtAdapter};
-        let mut adapters: Vec<Arc<dyn overseer_core::terminal::TerminalAdapter>> = vec![];
-        if let Some(sc) = &sidecar {
-            adapters.push(Arc::new(WtAdapter::new(sc.clone())));
-        }
-        adapters.push(Arc::new(MapAdapter::new(mock.clone())));
-        overseer.terminal = Some(Arc::new(Composite::new(adapters)));
-        if let Some(sc) = &sidecar {
-            overseer.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
-        }
-    }
-    let (tx, _) = broadcast::channel(64);
-    let state = Arc::new(AppState::new(overseer, mock));
-    let tx_for_ws = tx.clone();
-    state.set_sender(Box::new(move |msg: Value| { let _ = tx.send(msg.to_string()); })).await;
-    state.wire_effect_sink().await;
-    spawn_timer_task(state.clone(), tick_ms, timer_batch);
-    spawn_queue_consumer(state.clone());
-    // 外部文件自动载入（docs/config.md §外部文件自动载入）
-    overseer_core::server::spawn_config_watcher(state.clone(), config_dir.clone());
-    // Cron 调度任务（concepts §10g，docs/cron.md）
-    overseer_core::server::spawn_cron_task(state.clone());
-    let app = router(state, tx_for_ws);
-
+    });
     let port: u16 = std::env::var("OVERSEER_PORT")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(47600);
-    let addr = format!("127.0.0.1:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .unwrap_or_else(|e| panic!("bind {addr}: {e}"));
-    println!(
-        "overseer-core debug listening on http://{addr}\n  config:  {}\n  storage: {}\n  timer tick: {tick_ms}ms",
-        config_dir.display(),
-        storage_dir.display()
-    );
-    axum::serve(listener, app).await.expect("serve");
+    overseer_core::host::serve_host(parts, port).await;
 }
