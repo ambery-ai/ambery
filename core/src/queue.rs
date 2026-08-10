@@ -2,6 +2,8 @@
 //! （hook 内容 = system 输入；user 消息 = user 输入），串行放行一轮一条：
 //! 放行 → Context 写输入 → LLM → 输出写 Context → 放行下一条。
 //! assistant/tool 输出不走 Queue，直接入 Context。
+//! 双队列（docs/harness.md §Queue 规则 3）：high_q 装 user_chat（用户直接问 pet），
+//! normal_q 装其余全部；放行时 high_q 非空先放 high_q（FIFO），空则放 normal_q（FIFO）。
 //! queue.jsonl 留痕（排队轨迹非对话本体；崩溃丢失未放行输入可接受，docs/storage.md）。
 
 use crate::context::Role;
@@ -52,33 +54,38 @@ pub struct QueueInput {
     pub ts: i64,
 }
 
+/// 双队列（docs/harness.md §Queue 规则 3）：high_q = user_chat 优先放行；两队各自 FIFO
 #[derive(Default)]
 pub struct Queue {
-    pending: VecDeque<QueueInput>,
+    high_q: VecDeque<QueueInput>,
+    normal_q: VecDeque<QueueInput>,
 }
 
 impl Queue {
-    /// 入队（尾部追加）
+    /// 入队（user_chat 进 high_q，其余进 normal_q；各自尾部追加）
     pub fn enqueue(&mut self, input: QueueInput) {
-        self.pending.push_back(input);
+        match input.source {
+            QueueSource::UserChat => self.high_q.push_back(input),
+            _ => self.normal_q.push_back(input),
+        }
     }
 
-    /// 放行一条（取走即消费，FIFO）
+    /// 放行一条：high_q 非空先放 high_q（FIFO），空则放 normal_q（FIFO）
     pub fn release(&mut self) -> Option<QueueInput> {
-        self.pending.pop_front()
+        self.high_q.pop_front().or_else(|| self.normal_q.pop_front())
     }
 
     pub fn len(&self) -> usize {
-        self.pending.len()
+        self.high_q.len() + self.normal_q.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.pending.is_empty()
+        self.high_q.is_empty() && self.normal_q.is_empty()
     }
 
-    /// 待放行输入（case-runner observe 用，只读）
+    /// 待放行输入（case-runner observe 用，只读；high_q 在前）
     pub fn iter(&self) -> impl Iterator<Item = &QueueInput> {
-        self.pending.iter()
+        self.high_q.iter().chain(self.normal_q.iter())
     }
 }
 
@@ -93,6 +100,32 @@ mod tests {
             source: QueueSource::MockHook,
             ts,
         }
+    }
+
+    fn user_input(content: &str, ts: i64) -> QueueInput {
+        QueueInput {
+            role: Role::User,
+            content: content.into(),
+            source: QueueSource::UserChat,
+            ts,
+        }
+    }
+
+    #[test]
+    fn user_chat_jumps_ahead_but_fifo_within_each_queue() {
+        // docs/harness.md §Queue 规则 3：high_q（user_chat）优先放行；两队各自 FIFO
+        let mut q = Queue::default();
+        q.enqueue(input("hook 一", 1));
+        q.enqueue(user_input("用户一", 2));
+        q.enqueue(input("hook 二", 3));
+        q.enqueue(user_input("用户二", 4));
+        let mut got = vec![];
+        while let Some(i) = q.release() {
+            got.push(i.content);
+        }
+        assert_eq!(got, vec!["用户一", "用户二", "hook 一", "hook 二"]);
+        // 后到 user_chat 不超越先到 user_chat；normal 不被饿死（high 空后放行）
+        assert!(q.is_empty());
     }
 
     #[test]
