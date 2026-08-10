@@ -300,6 +300,9 @@ fn reconcile_node(path: &str, v: &mut Value, default: &Value, report: &mut Vec<S
     match kind {
         NodeKind::Leaf => {
             let type_ok = match (&*v, default) {
+                // 可选叶（default 为 null）：现状任何值不由 reconcile 定类型，
+                // 合法性归统一 Validation（OneOf 等）；null 现状已在 normalize_nulls 移除
+                (_, Value::Null) => true,
                 (Value::Bool(_), Value::Bool(_)) => true,
                 (Value::String(_), Value::String(_)) => true,
                 (Value::Number(a), Value::Number(b)) => {
@@ -347,14 +350,18 @@ fn reconcile_node(path: &str, v: &mut Value, default: &Value, report: &mut Vec<S
                 let cdefault = default.get(child).cloned().unwrap_or(Value::Null);
                 match map.get_mut(child) {
                     None => {
+                        // 可选叶（default 为 null）：缺失即现状，补值无声（null=缺失，不报噪音）
+                        let silent = cdefault.is_null();
                         map.insert(child.to_string(), cdefault);
-                        report.push(format!("reconcile: 缺失字段 {cpath} 补 default"));
+                        if !silent {
+                            report.push(format!("reconcile: 缺失字段 {cpath} 补 default"));
+                        }
                     }
                     Some(cv) => reconcile_node(&cpath, cv, &cdefault, report),
                 }
             }
         }
-        NodeKind::Map { entry_probe } => {
+        NodeKind::Map { entry_probe, free_keys } => {
             if !v.is_object() {
                 *v = default.clone();
                 report.push(format!("reconcile: 字段 {path} 缺失或非法，回退 default"));
@@ -364,8 +371,14 @@ fn reconcile_node(path: &str, v: &mut Value, default: &Value, report: &mut Vec<S
             let keys: Vec<String> = map.keys().cloned().collect();
             for k in keys {
                 // 动态 key grammar 运行时检查（docs/config.md：无法 default 化的 key，
-                // 修复结果为该 entry 不存在；其余 map entry 保留）
-                if !valid_map_key(&k) {
+                // 修复结果为该 entry 不存在；其余 map entry 保留）；
+                // free_keys 节点（effort.keywords 等自由文本 key）仅排除空串与 '.'
+                let key_ok = if free_keys {
+                    !k.is_empty() && !k.contains('.')
+                } else {
+                    valid_map_key(&k)
+                };
+                if !key_ok {
                     map.remove(&k);
                     report.push(format!("reconcile: 剔除非法 key {path}.{k}（path grammar）"));
                     continue;

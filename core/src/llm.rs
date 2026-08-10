@@ -229,7 +229,7 @@ pub struct Delta {
 /// temperature（随机性）与工具调用预算（执行上限）。领域层只有统一语义档位；
 /// provider 适配层经 `effort_wire` 方言翻译成自己的 wire 参数；
 /// None = 不设置，用该 provider 端点默认
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Effort {
     Low,

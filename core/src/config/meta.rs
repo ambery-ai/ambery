@@ -13,8 +13,11 @@ pub enum NodeKind {
     Leaf,
     Object,
     /// map<String, T>：entry 经 probe 反序列化修复（填 serde default、剔除未知 key）；
-    /// 无法修复的 entry 修复结果为该 entry 不存在，其余 entry 保留（docs/config.md）
-    Map { entry_probe: fn(&Value) -> Option<Value> },
+    /// 无法修复的 entry 修复结果为该 entry 不存在，其余 entry 保留（docs/config.md）。
+    /// free_keys=false：key 走动态 grammar（小写字母开头 [a-z0-9_-]）；
+    /// free_keys=true：自由文本 key（如 effort.keywords 的匹配关键词）——仅排除空串与
+    /// 路径分隔符 '.'（含 '.' 的 key 无法经 path 寻址，无意义）
+    Map { entry_probe: fn(&Value) -> Option<Value>, free_keys: bool },
 }
 
 /// Validation（docs/config.md）：校验最终当前 Config 是否允许生效。
@@ -68,6 +71,13 @@ fn probe_llm_provider(v: &Value) -> Option<Value> {
     serde_json::from_value::<super::LlmProvider>(v.clone())
         .ok()
         .map(|p| serde_json::to_value(p).unwrap())
+}
+
+/// effort.keywords 条目：合法 Effort 档位字符串（low/medium/high）才通过
+fn probe_effort_value(v: &Value) -> Option<Value> {
+    serde_json::from_value::<crate::llm::Effort>(v.clone())
+        .ok()
+        .map(|e| serde_json::to_value(e).unwrap())
 }
 
 fn kaomoji_pools_func(v: &Value) -> Vec<String> {
@@ -169,8 +179,8 @@ fn providers_keys_func(v: &Value) -> Vec<String> {
 /// 扁平顶层字段 → timer 子树（逐字段 Rename 完整旧路径）。失败统一 default 化（migrate.rs）。
 pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "kaomoji", kind: NodeKind::Object, validate: &[Validation::Func(kaomoji_pools_func)], no_llm_visible: false, cold: false, migrate: &[(0..=1, Migration::Func(migrate_kaomoji_v1))] },
-    NodeMeta { path: "kaomoji.system", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry }, validate: V, no_llm_visible: false, cold: false, migrate: M },
-    NodeMeta { path: "kaomoji.user", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry }, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "kaomoji.system", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry, free_keys: false }, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "kaomoji.user", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry, free_keys: false }, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "compression_reserve_default", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false, migrate: M },
     NodeMeta { path: "set_autonomy_default_ttl_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
     // filter_strategy 已退役（Filter 按实例 kind 选择，docs/filter.md；旧字段经 reconcile 剔除）
@@ -191,14 +201,20 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "badge_style", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "badge_side", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "theme", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
-    NodeMeta { path: "themes", kind: NodeKind::Map { entry_probe: probe_theme_value }, validate: &[Validation::Func(themes_func)], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "themes", kind: NodeKind::Map { entry_probe: probe_theme_value, free_keys: false }, validate: &[Validation::Func(themes_func)], no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "ui_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "harness_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "name", kind: NodeKind::Leaf, validate: &[Validation::Func(pet_name_func)], no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "context_compression_keep_recent_messages", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true, migrate: M },
+    // effort.*（docs/effort.md）：档位映射与关键词表（热：每次 LLM 调用现读）
+    NodeMeta { path: "effort", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "effort.user_chat", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["low", "medium", "high"])], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "effort.hook_stop_content", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["low", "medium", "high"])], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "effort.default", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["low", "medium", "high"])], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "effort.keywords", kind: NodeKind::Map { entry_probe: probe_effort_value, free_keys: true }, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false, migrate: M },
     NodeMeta { path: "llm.active", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
-    NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider }, validate: &[Validation::Func(providers_keys_func)], no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider, free_keys: false }, validate: &[Validation::Func(providers_keys_func)], no_llm_visible: false, cold: false, migrate: M },
 ];
 
 pub fn node_meta(path: &str) -> Option<&'static NodeMeta> {
@@ -248,6 +264,8 @@ fn run_one(v: &Validation, node_value: Option<&Value>) -> Vec<String> {
         }
         Validation::OneOf(opts) => match node_value {
             Some(Value::String(s)) if opts.contains(&s.as_str()) => vec![],
+            // 可选叶未设（缺省 None / 显式 null）合法——OneOf 只约束出现的值
+            None | Some(Value::Null) => vec![],
             other => vec![format!("{other:?} 不在合法候选 {opts:?} 中")],
         },
         Validation::Func(f) => f(&node_value.cloned().unwrap_or(Value::Null)),

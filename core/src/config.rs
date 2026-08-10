@@ -81,6 +81,10 @@ pub struct Config {
     /// LLM 多 profile 配置（docs/agent-loop.md §LLM 抽象）
     #[serde(default)]
     pub llm: LlmConfig,
+    /// Effort 档位配置（docs/effort.md）：按 Queue 来源的档位映射（未列出来源用
+    /// default）+ user_chat 关键词改写表
+    #[serde(default)]
+    pub effort: EffortConfig,
     /// 只读降级模式（docs/config.md 降级路径）：true 时任何 save 报错。
     /// 运行时标记，不落盘（serde skip）
     #[serde(skip)]
@@ -175,6 +179,45 @@ pub struct LlmProvider {
     /// None = 未声明/不支持：effort 忽略不发送（就近归并 + 告警，绝不塞陌生参数）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_wire: Option<String>,
+}
+
+/// Effort 配置（docs/effort.md §档位来源/§匹配关键词）：三个直接值预置；
+/// 未显式列出的来源一律使用 default
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct EffortConfig {
+    /// user_chat 档位（缺省 low：用户此刻盯着 pet 等回复）。
+    /// 可选叶不落盘（docs/config.md §null = 缺失：缺省即未设，reconcile 不报噪音）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_chat: Option<crate::llm::Effort>,
+    /// hook_stop_content 档位（缺省 high：有实质内容需要仔细读、判断）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook_stop_content: Option<crate::llm::Effort>,
+    /// 其余来源档位（缺省 medium）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<crate::llm::Effort>,
+    /// 匹配关键词表：user_chat 消息命中关键词 → 本次 effort 临时改写为对应档位；
+    /// 多命中取最长关键词（确定性）
+    #[serde(default = "default_effort_keywords")]
+    pub keywords: std::collections::HashMap<String, crate::llm::Effort>,
+}
+
+fn default_effort_keywords() -> std::collections::HashMap<String, crate::llm::Effort> {
+    // 文档示例语义（docs/effort.md §匹配关键词）
+    std::collections::HashMap::from([
+        ("仔细想想".to_string(), crate::llm::Effort::High),
+        ("快点".to_string(), crate::llm::Effort::Low),
+    ])
+}
+
+impl Default for EffortConfig {
+    fn default() -> Self {
+        Self {
+            user_chat: None,
+            hook_stop_content: None,
+            default: None,
+            keywords: default_effort_keywords(),
+        }
+    }
 }
 
 impl Default for LlmConfig {
@@ -498,6 +541,7 @@ impl Default for Config {
             name: default_pet_name(),
             context_compression_keep_recent_messages: default_keep_recent(),
             llm: LlmConfig::default(),
+            effort: EffortConfig::default(),
             read_only: false,
             load_report: Vec::new(),
         }

@@ -790,6 +790,41 @@ impl<L: Llm> OverseerBackend<L> {
         Ok(())
     }
 
+    /// effort 档位解析（docs/effort.md §档位来源 + §匹配关键词）：user_chat→low、
+    /// hook_stop_content→high、其余→medium（Config effort.* 可覆盖）；user_chat 消息
+    /// 命中关键词则本次临时改写（多命中取最长关键词，确定性）
+    fn resolve_effort(&self, source: crate::queue::QueueSource) -> Option<crate::llm::Effort> {
+        use crate::queue::QueueSource as S;
+        if source == S::UserChat {
+            let user_text = self.harness.context.messages().last().and_then(|m| {
+                if m.role == Role::User {
+                    m.content.as_deref()
+                } else {
+                    None
+                }
+            });
+            if let Some(text) = user_text {
+                let mut best: Option<(usize, crate::llm::Effort)> = None;
+                for (kw, e) in &self.config.effort.keywords {
+                    if !kw.is_empty() && text.contains(kw.as_str()) {
+                        let len = kw.chars().count();
+                        if best.is_none_or(|(l, _)| len > l) {
+                            best = Some((len, *e));
+                        }
+                    }
+                }
+                if let Some((_, e)) = best {
+                    return Some(e);
+                }
+            }
+        }
+        match source {
+            S::UserChat => self.config.effort.user_chat.or(Some(crate::llm::Effort::Low)),
+            S::HookStopContent => self.config.effort.hook_stop_content.or(Some(crate::llm::Effort::High)),
+            _ => self.config.effort.default.or(Some(crate::llm::Effort::Medium)),
+        }
+    }
+
     /// 一轮触发（docs/agent-loop.md §一轮触发）
     /// 调用前输入已写 Context、Event Buffer 已在放行点附带（release_one）。
     /// pending_notifications：未决通知数（server 层计数传入，推导 notify key 用）
@@ -801,7 +836,8 @@ impl<L: Llm> OverseerBackend<L> {
         source: crate::queue::QueueSource,
         pending_notifications: usize,
     ) -> std::io::Result<Vec<Effect>> {
-        let _ = source; // E4b 消费（effort 档位按来源解析）；本提交只贯通不消费
+        // effort 档位（docs/effort.md §档位来源）：本次触发解析一次，工具循环内沿用
+        let effort = self.resolve_effort(source);
         // 1. 现拼 system prompt 请求头（不落 Context）；变化才写 head 快照（docs/storage.md）
         let head = self.assemble_system_prompt();
         if self.harness.last_head.as_deref() != Some(head.as_str()) {
@@ -851,7 +887,7 @@ impl<L: Llm> OverseerBackend<L> {
             };
             let out = self
                 .llm
-                .complete_streaming(&request, &tools, None, &on_delta)
+                .complete_streaming(&request, &tools, effort, &on_delta)
                 .await
                 .map_err(std::io::Error::other)?;
             // usage 真值留痕（#16：每轮一条，覆盖刷新 last_usage）
@@ -931,7 +967,7 @@ impl<L: Llm> OverseerBackend<L> {
                 };
                 let out = self
                     .llm
-                    .complete_streaming(&request, &[], None, &on_delta)
+                    .complete_streaming(&request, &[], effort, &on_delta)
                     .await
                     .map_err(std::io::Error::other)?;
                 if let Some(u) = out.usage {
@@ -1922,6 +1958,55 @@ mod tests {
         let dir = tmp_dir(tag);
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
         OverseerBackend::new(harness, Config::default(), agent)
+    }
+
+    #[tokio::test]
+    async fn effort_resolved_from_source_with_config_override() {
+        // docs/effort.md §档位来源：user_chat→low、hook_stop_content→high、其余→medium
+        let mut ov = make_overseer("eff1");
+        use crate::llm::Effort;
+        use crate::queue::QueueSource as S;
+        assert_eq!(ov.resolve_effort(S::UserChat), Some(Effort::Low));
+        assert_eq!(ov.resolve_effort(S::HookStopContent), Some(Effort::High));
+        assert_eq!(ov.resolve_effort(S::TimerScan), Some(Effort::Medium));
+        assert_eq!(ov.resolve_effort(S::CronTick), Some(Effort::Medium));
+        assert_eq!(ov.resolve_effort(S::MockHook), Some(Effort::Medium));
+        // Config 覆盖（effort.user_chat / effort.default）
+        ov.config.effort.user_chat = Some(Effort::High);
+        ov.config.effort.default = Some(Effort::Low);
+        assert_eq!(ov.resolve_effort(S::UserChat), Some(Effort::High));
+        assert_eq!(ov.resolve_effort(S::HookStopContent), Some(Effort::High)); // 未覆盖项不动
+        assert_eq!(ov.resolve_effort(S::TimerScan), Some(Effort::Low));
+        let _ = std::fs::remove_dir_all(tmp_dir("eff1"));
+    }
+
+    #[tokio::test]
+    async fn effort_keyword_rewrite_only_for_user_chat() {
+        // docs/effort.md §匹配关键词：user_chat 命中关键词 → 本次临时改写；多命中取最长
+        let mut ov = make_overseer("eff2");
+        use crate::llm::Effort;
+        use crate::queue::QueueSource as S;
+        let ask = |ov: &mut OverseerBackend<DebugAgent>, text: &str| {
+            ov.enqueue(Role::User, text.into(), S::UserChat, 1).unwrap();
+            // 静默 mock 不产生 assistant 回复——末条即该 user 消息
+            ov.harness.queue.release().unwrap();
+            ov.harness
+                .append_context(crate::context::ContextMessage::new(Role::User, text.to_string(), 1))
+                .unwrap();
+            ov.resolve_effort(S::UserChat)
+        };
+        assert_eq!(ask(&mut ov, "仔细想想这个架构"), Some(Effort::High));
+        assert_eq!(ask(&mut ov, "快点告诉我结果"), Some(Effort::Low));
+        // 多命中取最长关键词：仔细想想(4) > 快点(2)
+        assert_eq!(ask(&mut ov, "仔细想想，快点"), Some(Effort::High));
+        // 未命中关键词的 user_chat 保持来源默认 low
+        assert_eq!(ask(&mut ov, "在吗"), Some(Effort::Low));
+        // 关键词改写只作用 user_chat：hook 内容含关键词不改写（medium）
+        ov.harness
+            .append_context(crate::context::ContextMessage::new(Role::System, "仔细想想".to_string(), 2))
+            .unwrap();
+        assert_eq!(ov.resolve_effort(S::HookStopHint), Some(Effort::Medium));
+        let _ = std::fs::remove_dir_all(tmp_dir("eff2"));
     }
 
     #[tokio::test]

@@ -75,7 +75,7 @@ async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) ->
     let s = wait_state(&state)?;
     {
         let mut ov = s.overseer().lock().await;
-        ov.enqueue(Role::User, text, now_ms()).map_err(|e| e.to_string())?;
+        ov.enqueue(Role::User, text, overseer_core::queue::QueueSource::UserChat, now_ms()).map_err(|e| e.to_string())?;
     }
     // 生产者只入队，放行由消费者任务驱动（concepts §10c）
     s.queue_notify.notify_one();
