@@ -43,6 +43,7 @@ fn apply_decision(config: &mut Config, brain_addr: Option<&str>, silent: bool) {
                 temperature: None,
                 context_window: None,
                 compression_reserve: None,
+                effort_wire: None, // brain 忽略未知参数；effort 不发送
             },
         );
         config.llm.active = "brain".into();

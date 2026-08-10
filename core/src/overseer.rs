@@ -851,7 +851,7 @@ impl<L: Llm> OverseerBackend<L> {
             };
             let out = self
                 .llm
-                .complete_streaming(&request, &tools, &on_delta)
+                .complete_streaming(&request, &tools, None, &on_delta)
                 .await
                 .map_err(std::io::Error::other)?;
             // usage 真值留痕（#16：每轮一条，覆盖刷新 last_usage）
@@ -931,7 +931,7 @@ impl<L: Llm> OverseerBackend<L> {
                 };
                 let out = self
                     .llm
-                    .complete_streaming(&request, &[], &on_delta)
+                    .complete_streaming(&request, &[], None, &on_delta)
                     .await
                     .map_err(std::io::Error::other)?;
                 if let Some(u) = out.usage {
@@ -2544,7 +2544,7 @@ mod tests {
         let mut config = Config::default();
         config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
-            context_window: Some(10), compression_reserve: Some(0),
+            context_window: Some(10), compression_reserve: Some(0), effort_wire: None,
         });
         let mut ov = OverseerBackend::new(harness, config, DebugAgent::silent());
         ov.harness
@@ -2972,7 +2972,7 @@ mod tests {
         let mut ov = make_overseer_with("compress-truth", agent);
         ov.config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
-            context_window: Some(100), compression_reserve: Some(0),
+            context_window: Some(100), compression_reserve: Some(0), effort_wire: None,
         });
         // 第一轮：last_usage 还是 None → est 兜底不触发；当轮落真值
         ov.enqueue(Role::User, "第一轮".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
@@ -2995,7 +2995,7 @@ mod tests {
         let mut ov = make_overseer("compress-est");
         ov.config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
-            context_window: Some(50), compression_reserve: Some(0),
+            context_window: Some(50), compression_reserve: Some(0), effort_wire: None,
         });
         for i in 0..30 {
             ov.enqueue(Role::User, format!("第 {i} 条消息内容内容内容"), crate::queue::QueueSource::UserChat, i as i64)

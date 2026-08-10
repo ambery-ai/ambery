@@ -225,12 +225,25 @@ pub struct Delta {
     pub reasoning_content: Option<String>,
 }
 
+/// effort 档位（docs/effort.md §定义）：单次 LLM 调用的思考预算，独立于
+/// temperature（随机性）与工具调用预算（执行上限）。领域层只有统一语义档位；
+/// provider 适配层经 `effort_wire` 方言翻译成自己的 wire 参数；
+/// None = 不设置，用该 provider 端点默认
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+}
+
 /// 返回 Result：OpenAiClient 网络/解析失败时 LlmBackend 可降级 DebugAgent
 pub trait Llm: Send + Sync {
     fn complete(
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
+        effort: Option<Effort>,
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send;
     /// 流式补全（docs/streaming.md）：边收边回调 Delta。
     /// 默认回落：一次性 complete 后把全文作为单个 delta 回调（不支持流式的客户端零改动）。
@@ -238,10 +251,11 @@ pub trait Llm: Send + Sync {
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
+        effort: Option<Effort>,
         on_delta: &(dyn Fn(&Delta) + Send + Sync),
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         async move {
-            let out = self.complete(messages, tools).await?;
+            let out = self.complete(messages, tools, effort).await?;
             if let Some(c) = &out.content {
                 if !c.is_empty() {
                     on_delta(&Delta {
@@ -322,6 +336,7 @@ impl Llm for DebugAgent {
         &self,
         messages: &[ContextMessage],
         _tools: &[ToolDef],
+        _effort: Option<Effort>, // mock 零逻辑：effort 无意义，忽略
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         let out = (self.decide)(messages);
         async move { Ok(out) }
@@ -341,12 +356,27 @@ fn truncate(s: &str, max: usize) -> String {
 
 use crate::LlmProvider;
 
+/// effort wire 方言（docs/effort.md §定义：各领域档位 → 端点参数；就近归并 + 告警，
+/// 不报错；绝不把不认识的参数塞进 body）
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum EffortWire {
+    /// OpenAI：顶层 `reasoning_effort` low/medium/high
+    OpenAi,
+    /// DeepSeek v4：`thinking:{reasoning_effort}` low/high/max（无 medium → 就近归并 high）
+    DeepSeek,
+}
+
 pub struct OpenAiClient {
     base_url: String,
     model: String,
     /// None = 端点无需鉴权（本地服务如 debug brain / ollama）：不带 Authorization 头
     api_key: Option<String>,
     temperature: Option<f64>,
+    /// provider 声明的 effort 方言（config `effort_wire`）；None = 端点不支持/未声明
+    /// → effort 忽略不发送（首次告警）
+    effort_wire: Option<EffortWire>,
+    /// 「不支持 effort」告警只报一次
+    effort_warned: std::sync::atomic::AtomicBool,
     http: reqwest::Client,
 }
 
@@ -361,6 +391,15 @@ impl OpenAiClient {
             ),
             None => None,
         };
+        let effort_wire = match p.effort_wire.as_deref() {
+            Some("openai") => Some(EffortWire::OpenAi),
+            Some("deepseek") => Some(EffortWire::DeepSeek),
+            Some(other) => {
+                eprintln!("[llm] effort_wire「{other}」未知方言，effort 将不发送");
+                None
+            }
+            None => None,
+        };
         let http = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()
@@ -370,12 +409,15 @@ impl OpenAiClient {
             model: p.model.clone(),
             api_key,
             temperature: p.temperature,
+            effort_wire,
+            effort_warned: std::sync::atomic::AtomicBool::new(false),
             http,
         })
     }
 
     /// ContextMessage → OpenAI messages（assistant tool_calls / tool tool_call_id 对齐 §10）
-    fn build_body(&self, messages: &[ContextMessage], tools: &[ToolDef]) -> Value {
+    /// effort 按 effort_wire 方言翻译（docs/effort.md）；端点未声明方言 = 忽略 + 首次告警
+    fn build_body(&self, messages: &[ContextMessage], tools: &[ToolDef], effort: Option<Effort>) -> Value {
         let msgs: Vec<Value> = messages
             .iter()
             .map(|m| {
@@ -432,6 +474,31 @@ impl OpenAiClient {
         if let Some(t) = self.temperature {
             body["temperature"] = json!(t);
         }
+        // effort 翻译（docs/effort.md）：统一档位 → 端点 wire 参数；就近归并 + 告警不报错
+        match (self.effort_wire, effort) {
+            (Some(EffortWire::OpenAi), Some(e)) => {
+                body["reasoning_effort"] = json!(match e {
+                    Effort::Low => "low",
+                    Effort::Medium => "medium",
+                    Effort::High => "high",
+                });
+            }
+            (Some(EffortWire::DeepSeek), Some(e)) => {
+                body["thinking"] = json!({
+                    "reasoning_effort": match e {
+                        Effort::Low => "low",
+                        Effort::Medium => "high", // 无 medium：就近归并
+                        Effort::High => "max",
+                    }
+                });
+            }
+            (None, Some(_)) => {
+                if !self.effort_warned.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    eprintln!("[llm] 端点未声明 effort_wire 方言，effort 忽略不发送（docs/effort.md）");
+                }
+            }
+            _ => {}
+        }
         body
     }
 
@@ -439,11 +506,12 @@ impl OpenAiClient {
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
+        effort: Option<Effort>,
     ) -> Result<LlmOutput, String> {
         let req = self
             .http
             .post(format!("{}/chat/completions", self.base_url))
-            .json(&self.build_body(messages, tools));
+            .json(&self.build_body(messages, tools, effort));
         let req = match &self.api_key {
             Some(k) => req.bearer_auth(k),
             None => req,
@@ -464,10 +532,11 @@ impl OpenAiClient {
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
+        effort: Option<Effort>,
         on_delta: &(dyn Fn(&Delta) + Send + Sync),
     ) -> Result<LlmOutput, String> {
         use futures_util::StreamExt;
-        let mut body = self.build_body(messages, tools);
+        let mut body = self.build_body(messages, tools, effort);
         body["stream"] = serde_json::json!(true);
         body["stream_options"] = serde_json::json!({ "include_usage": true });
         let req = self
@@ -532,7 +601,7 @@ impl OpenAiClient {
             ),
             ContextMessage::new(Role::User, transcript, 0),
         ];
-        let out = self.complete_async(&prompt, &[]).await?;
+        let out = self.complete_async(&prompt, &[], None).await?;
         let summary = out
             .content
             .filter(|c| !c.is_empty())
@@ -546,17 +615,19 @@ impl Llm for OpenAiClient {
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
+        effort: Option<Effort>,
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
-        self.complete_async(messages, tools)
+        self.complete_async(messages, tools, effort)
     }
 
     fn complete_streaming(
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
+        effort: Option<Effort>,
         on_delta: &(dyn Fn(&Delta) + Send + Sync),
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
-        self.complete_streaming_async(messages, tools, on_delta)
+        self.complete_streaming_async(messages, tools, effort, on_delta)
     }
 
     fn summarize(
@@ -727,15 +798,16 @@ impl Llm for LlmBackend {
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
+        effort: Option<Effort>,
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         async move {
             match self {
-                Self::Debug(agent) => agent.complete(messages, tools).await,
-                Self::OpenAi { client, fallback } => match client.complete(messages, tools).await {
+                Self::Debug(agent) => agent.complete(messages, tools, effort).await,
+                Self::OpenAi { client, fallback } => match client.complete(messages, tools, effort).await {
                     Ok(out) => Ok(out),
                     Err(err) => {
                         eprintln!("[llm] openai complete 失败（{err}），本轮回退 DebugAgent");
-                        fallback.complete(messages, tools).await
+                        fallback.complete(messages, tools, effort).await
                     }
                 },
             }
@@ -746,17 +818,18 @@ impl Llm for LlmBackend {
         &self,
         messages: &[ContextMessage],
         tools: &[ToolDef],
+        effort: Option<Effort>,
         on_delta: &(dyn Fn(&Delta) + Send + Sync),
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         async move {
             match self {
-                Self::Debug(agent) => agent.complete_streaming(messages, tools, on_delta).await,
+                Self::Debug(agent) => agent.complete_streaming(messages, tools, effort, on_delta).await,
                 Self::OpenAi { client, fallback } => {
-                    match client.complete_streaming(messages, tools, on_delta).await {
+                    match client.complete_streaming(messages, tools, effort, on_delta).await {
                         Ok(out) => Ok(out),
                         Err(err) => {
                             eprintln!("[llm] openai streaming 失败（{err}），本轮回退 DebugAgent");
-                            fallback.complete_streaming(messages, tools, on_delta).await
+                            fallback.complete_streaming(messages, tools, effort, on_delta).await
                         }
                     }
                 }
@@ -899,11 +972,11 @@ mod tests {
         });
         // 脚本怎么写，就怎么返回；耗尽 → 沉默
         let msgs = [ContextMessage::new(Role::User, "任意输入", 0)];
-        let out1 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh)).await.unwrap();
+        let out1 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh), None).await.unwrap();
         assert_eq!(out1.content.as_deref(), Some("脚本第一句"));
-        let out2 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh)).await.unwrap();
+        let out2 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh), None).await.unwrap();
         assert_eq!(out2.tool_calls.len(), 1);
-        let out3 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh)).await.unwrap();
+        let out3 = agent.complete(&msgs, &tool_set(crate::i18n::Lang::Zh), None).await.unwrap();
         assert!(out3.content.is_none() && out3.tool_calls.is_empty());
     }
 
@@ -912,9 +985,50 @@ mod tests {
             base_url: "http://x/v1".into(),
             model: "m".into(),
             api_key: Some("k".into()),
+            effort_wire: None,
+            effort_warned: std::sync::atomic::AtomicBool::new(false),
             temperature: Some(0.3),
             http: reqwest::Client::new(),
         }
+    }
+
+    #[test]
+    fn effort_wire_translation() {
+        // docs/effort.md §定义：统一档位 → 端点方言；就近归并 + 不发送兜底
+        let mut client = test_client();
+        let msgs = vec![ContextMessage::new(Role::User, "hi", 0)];
+        // openai 方言：顶层 reasoning_effort 原样三档
+        client.effort_wire = Some(EffortWire::OpenAi);
+        let body = client.build_body(&msgs, &[], Some(Effort::High));
+        assert_eq!(body["reasoning_effort"], json!("high"));
+        assert!(body.get("thinking").is_none());
+        // deepseek 方言：thinking.reasoning_effort；无 medium 就近归并 high；high → max
+        client.effort_wire = Some(EffortWire::DeepSeek);
+        let body = client.build_body(&msgs, &[], Some(Effort::Medium));
+        assert_eq!(body["thinking"]["reasoning_effort"], json!("high"));
+        let body = client.build_body(&msgs, &[], Some(Effort::High));
+        assert_eq!(body["thinking"]["reasoning_effort"], json!("max"));
+        assert!(body.get("reasoning_effort").is_none());
+        // 未声明方言：忽略不发送（绝不塞陌生参数进 body）
+        client.effort_wire = None;
+        let body = client.build_body(&msgs, &[], Some(Effort::Low));
+        assert!(body.get("reasoning_effort").is_none() && body.get("thinking").is_none());
+        // effort=None：不设参数（用端点默认）
+        client.effort_wire = Some(EffortWire::OpenAi);
+        let body = client.build_body(&msgs, &[], None);
+        assert!(body.get("reasoning_effort").is_none());
+        // from_provider 方言解析：未知值告警回落 None
+        let p = LlmProvider {
+            base_url: "http://x".into(),
+            model: "m".into(),
+            api_key_env: None,
+            temperature: None,
+            context_window: None,
+            compression_reserve: None,
+            effort_wire: Some("unknown-dialect".into()),
+        };
+        let c = OpenAiClient::from_provider(&p).unwrap();
+        assert_eq!(c.effort_wire, None);
     }
 
     #[test]
@@ -927,6 +1041,7 @@ mod tests {
             temperature: None,
             context_window: None,
             compression_reserve: None,
+            effort_wire: None,
         };
         let client = OpenAiClient::from_provider(&p).expect("无 key 端点构造成功");
         assert!(client.api_key.is_none());
@@ -953,7 +1068,7 @@ mod tests {
             ),
             ContextMessage::tool_result("c1", "{\"ok\":true}", 2),
         ];
-        let body = client.build_body(&msgs, &tool_set(crate::i18n::Lang::Zh));
+        let body = client.build_body(&msgs, &tool_set(crate::i18n::Lang::Zh), None);
         assert_eq!(body["model"], json!("m"));
         assert_eq!(body["messages"][0]["role"], json!("system"));
         assert_eq!(body["messages"][1]["content"], Value::Null);
@@ -1004,6 +1119,7 @@ mod tests {
                 temperature: None,
                 context_window: None,
                 compression_reserve: None,
+                effort_wire: None,
             },
         );
         let cfg2 = LlmConfig {

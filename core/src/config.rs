@@ -170,19 +170,25 @@ pub struct LlmProvider {
     /// 给输出预留的空间（触发点 = window − reserve）。None → 10_000
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compression_reserve: Option<usize>,
+    /// effort wire 方言声明（docs/effort.md）：该端点的 thinking 参数形态——
+    /// "openai" = 顶层 reasoning_effort；"deepseek" = thinking.reasoning_effort。
+    /// None = 未声明/不支持：effort 忽略不发送（就近归并 + 告警，绝不塞陌生参数）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_wire: Option<String>,
 }
 
 impl Default for LlmConfig {
     /// 公开厂商预设（首次启动写盘后可自由增删；内部网关只进本地 config.json，不进代码）
     fn default() -> Self {
         let mut providers = std::collections::HashMap::new();
-        // (name, base_url, model, key_env, context_window——模型窗口事实，#16)
-        for (name, base_url, model, key_env, window) in [
-            ("deepseek", "https://api.deepseek.com", "deepseek-chat", "DEEPSEEK_API_KEY", 128_000),
-            ("moonshot", "https://api.moonshot.cn/v1", "kimi-k2", "MOONSHOT_API_KEY", 256_000),
-            ("zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash", "ZHIPU_API_KEY", 128_000),
-            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY", 128_000),
-            ("ollama", "http://localhost:11434/v1", "qwen3", "", 32_000),
+        // (name, base_url, model, key_env, context_window——模型窗口事实，#16, effort_wire——
+        // 方言只给已确认值，docs/effort.md；未确认的留 None = 不发送+告警)
+        for (name, base_url, model, key_env, window, effort_wire) in [
+            ("deepseek", "https://api.deepseek.com", "deepseek-chat", "DEEPSEEK_API_KEY", 128_000, Some("deepseek")),
+            ("moonshot", "https://api.moonshot.cn/v1", "kimi-k2", "MOONSHOT_API_KEY", 256_000, None),
+            ("zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash", "ZHIPU_API_KEY", 128_000, None),
+            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY", 128_000, Some("openai")),
+            ("ollama", "http://localhost:11434/v1", "qwen3", "", 32_000, None),
         ] {
             providers.insert(
                 name.to_string(),
@@ -197,6 +203,7 @@ impl Default for LlmConfig {
                     temperature: Some(0.3),
                     context_window: Some(window),
                     compression_reserve: None,
+                    effort_wire: effort_wire.map(String::from),
                 },
             );
         }
