@@ -152,7 +152,7 @@ impl Default for TerminalConfig {
 /// LLM 配置 v2：多 provider profile + active 选择器（切换不丢配置）
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LlmConfig {
-    /// "debug" = DebugAgent（内置规则）；其他值 = providers 里的 key
+    /// "debug" = DebugAgent（纯 mock 零逻辑，沉默/脚本闭包决策源，docs/debug-agent.md）；其他值 = providers 里的 key
     pub active: String,
     #[serde(default)]
     pub providers: std::collections::HashMap<String, LlmProvider>,

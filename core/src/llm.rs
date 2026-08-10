@@ -1,6 +1,6 @@
 //! LLM 抽象 + debug 模式 agent（docs/agent-loop.md）。
 //! DebugAgent 是纯 mock：零逻辑，返回什么完全由外部决策源注入
-//! （测试脚本闭包 / debug CLI / 沉默兜底），它只负责转发。
+//! （测试脚本闭包 / HTTP brain / 沉默兜底，docs/debug-agent.md），它只负责转发。
 
 use crate::context::{ContextMessage, Role, ToolCall};
 use serde::{Deserialize, Serialize};
@@ -301,7 +301,7 @@ pub fn deterministic_summary(messages: &[ContextMessage]) -> String {
 }
 
 /// debug 模式 agent：纯 mock，零逻辑。决策源由外部注入——
-/// 测试用脚本闭包、debug 二进制用 CLI、降级兜底用沉默。
+/// 测试用脚本闭包、HTTP brain（OpenAI 兼容端点）、降级兜底用沉默（docs/debug-agent.md）。
 pub struct DebugAgent {
     decide: Box<dyn Fn(&[ContextMessage]) -> LlmOutput + Send + Sync>,
 }

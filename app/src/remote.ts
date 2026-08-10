@@ -36,7 +36,7 @@ export class RemoteBridge implements Bridge {
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
   private doneListeners: (() => void)[] = [];
 
-  /** 探测 overseer-core debug server 是否在跑（决定用 Remote 还是 Mock） */
+  /** 探测 debug server（overseer-case serve 完整 router）是否在跑（决定用 Remote 还是 Mock） */
   static async probe(timeoutMs = 800): Promise<boolean> {
     try {
       const r = await fetch(`${BASE}/state`, {

@@ -4,7 +4,7 @@
 //! 1. 本文件（core/src/mock.rs）
 //! 2. Cargo.toml `[features] mock`（及 default 里的 "mock"）
 //! 3. server.rs 中 `#[cfg(feature = "mock")]` 的 /debug/terminal 路由注册
-//! 4. main.rs / host.rs 的 mock_terminals 回退分支
+//! 4. app/src-tauri/main.rs 与 core/host.rs 的 MapAdapter 兜底分支
 //!
 //! 约定：mock 相关代码只许进本模块 + 上述挂点，禁止外溢。
 
@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use crate::server::AppState;
 use axum::{extract::State, response::IntoResponse, Json};
 
-/// MockTerminals（docs/timer.md §Scanner debug 实现）：instance → 当前终端文本
+/// MockTerminals（MapAdapter 共享 map，docs/terminal-adapter.md §实现）：instance → 当前终端文本
 pub type MockTerminals = Arc<Mutex<HashMap<String, String>>>;
 
 pub fn new_terminals() -> MockTerminals {

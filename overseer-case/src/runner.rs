@@ -10,7 +10,7 @@ pub fn exec_load() {
     println!("(storage 已于启动时 replay)");
 }
 
-/// terminal 剧情：设定实例屏幕内容（timer_scan 时 terminal_reader 返回它）
+/// terminal 剧情：设定实例屏幕内容（写 MapAdapter 共享 map，timer_scan/fetch 经它读到）
 pub fn exec_terminal(
     terminals: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     instance: &str,
@@ -23,7 +23,7 @@ pub fn exec_terminal(
     println!("[OK] terminal {instance} ← {} 字", content.chars().count());
 }
 
-/// terminal_gone 剧情：实例 tab 消亡（terminal_reader 返回 None）
+/// terminal_gone 剧情：实例 tab 消亡（MapAdapter 移除内容，locate/read 返回 None）
 pub fn exec_terminal_gone(
     terminals: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     instance: &str,
