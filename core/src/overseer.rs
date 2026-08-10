@@ -663,7 +663,14 @@ impl<L: Llm> OverseerBackend<L> {
 
     /// 入队一条输入（concepts §10c：hook 内容 = system，user 消息 = user）。
     /// 生产者只入队不触发——放行由 drain_queue / server 消费者任务驱动。
-    pub fn enqueue(&mut self, role: Role, content: String, ts: i64) -> std::io::Result<()> {
+    /// source = 输入来源（docs/harness.md §Queue 规则 2；effort 档位与双队列的一等公民）
+    pub fn enqueue(
+        &mut self,
+        role: Role,
+        content: String,
+        source: crate::queue::QueueSource,
+        ts: i64,
+    ) -> std::io::Result<()> {
         // 动作流记录（docs/effect-reporting.md §kind）：user 消息入队 = user_message/frontend
         // （单点覆盖 post_user / append_user / case user step；hook 的 system 输入不进）
         if role == Role::User {
@@ -675,7 +682,7 @@ impl<L: Llm> OverseerBackend<L> {
             );
         }
         self.harness
-            .enqueue_input(crate::queue::QueueInput { role, content, ts })
+            .enqueue_input(crate::queue::QueueInput { role, content, source, ts })
     }
 
     /// 前端非 readonly 调用上报单点（docs/effect-reporting.md §通道）：
@@ -718,7 +725,7 @@ impl<L: Llm> OverseerBackend<L> {
                     .append_context(ContextMessage::new(role, input.content, ts))?;
             }
         }
-        self.run_trigger(ts, pending_notifications).await
+                self.run_trigger(ts, input.source, pending_notifications).await
     }
 
     /// 放行循环：有输入就一轮一条处理完（server 消费者任务与测试共用）
@@ -786,11 +793,15 @@ impl<L: Llm> OverseerBackend<L> {
     /// 一轮触发（docs/agent-loop.md §一轮触发）
     /// 调用前输入已写 Context、Event Buffer 已在放行点附带（release_one）。
     /// pending_notifications：未决通知数（server 层计数传入，推导 notify key 用）
+    /// source：放行输入的来源（docs/harness.md §Queue 规则 2；effort 档位解析输入，
+    /// docs/effort.md——工具循环内后续调用沿用）
     pub async fn run_trigger(
         &mut self,
         ts: i64,
+        source: crate::queue::QueueSource,
         pending_notifications: usize,
     ) -> std::io::Result<Vec<Effect>> {
+        let _ = source; // E4b 消费（effort 档位按来源解析）；本提交只贯通不消费
         // 1. 现拼 system prompt 请求头（不落 Context）；变化才写 head 快照（docs/storage.md）
         let head = self.assemble_system_prompt();
         if self.harness.last_head.as_deref() != Some(head.as_str()) {
@@ -1156,17 +1167,18 @@ impl<L: Llm> OverseerBackend<L> {
             "user_prompt" => {
                 upsert(AgentStatus::Processing, tab)?;
                 let p = prompt.unwrap_or("").trim().to_string();
-                self.enqueue(Role::System, crate::i18n::trf(lang, "hook.user-prompt", &[("name", name.clone()), ("p", p)]), ts)?;
+                self.enqueue(Role::System, crate::i18n::trf(lang, "hook.user-prompt", &[("name", name.clone()), ("p", p)]), crate::queue::QueueSource::HookUserPrompt, ts)?;
             }
             "notification" => {
                 let m = message.unwrap_or("").trim().to_string();
-                self.enqueue(Role::System, crate::i18n::trf(lang, "hook.notification", &[("name", name.clone()), ("m", m)]), ts)?;
+                self.enqueue(Role::System, crate::i18n::trf(lang, "hook.notification", &[("name", name.clone()), ("m", m)]), crate::queue::QueueSource::HookNotification, ts)?;
             }
             "stop" => {
                 upsert(AgentStatus::Idle, tab)?;
                 let hint = last_assistant_message.unwrap_or("").trim();
-                // stop_hook_mode 三模式（docs/hook.md，Config 热生效）
-                let text = match self.config.stop_hook_mode.as_str() {
+                // stop_hook_mode 三模式（docs/hook.md，Config 热生效）；
+                // source 按模式与产物语义分标（docs/concrete-insight.md §Queue 中的 System 消息来源）
+                let (text, source) = match self.config.stop_hook_mode.as_str() {
                     // A：stop 到达即读通道全量（tab 切换限流见 timer，此处只读）
                     "auto_read" => {
                         let content = self
@@ -1191,29 +1203,36 @@ impl<L: Llm> OverseerBackend<L> {
                         match content {
                             Some(filtered) => {
                                 let len = filtered.chars().count().to_string();
-                                crate::i18n::trf(lang, "hook.stop.updated", &[("name", name.clone()), ("len", len)])
+                                (crate::i18n::trf(lang, "hook.stop.updated", &[("name", name.clone()), ("len", len)]),
+                                 crate::queue::QueueSource::HookStopContent)
                             }
-                            None => crate::i18n::trf(lang, "hook.stop.hint", &[("name", name.clone()), ("hint", hint.to_string())]),
+                            // 读失败回落 hint——语义同 queue_only 产物
+                            None => (crate::i18n::trf(lang, "hook.stop.hint", &[("name", name.clone()), ("hint", hint.to_string())]),
+                                     crate::queue::QueueSource::HookStopHint),
                         }
                     }
                     // C：汇报原文直达（零 UIA）
                     "message" => {
                         if hint.is_empty() {
-                            crate::i18n::trf(lang, "hook.stop.empty", &[("name", name.clone())])
+                            (crate::i18n::trf(lang, "hook.stop.empty", &[("name", name.clone())]),
+                             crate::queue::QueueSource::HookStopReport)
                         } else {
-                            crate::i18n::trf(lang, "hook.stop.report", &[("name", name.clone()), ("hint", hint.to_string())])
+                            (crate::i18n::trf(lang, "hook.stop.report", &[("name", name.clone()), ("hint", hint.to_string())]),
+                             crate::queue::QueueSource::HookStopReport)
                         }
                     }
                     // B（默认）：hint 注入，宠物按需 fetch
                     _ => {
                         if hint.is_empty() {
-                            crate::i18n::trf(lang, "hook.stop.empty", &[("name", name.clone())])
+                            (crate::i18n::trf(lang, "hook.stop.empty", &[("name", name.clone())]),
+                             crate::queue::QueueSource::HookStopHint)
                         } else {
-                            crate::i18n::trf(lang, "hook.stop.hint", &[("name", name.clone()), ("hint", hint.to_string())])
+                            (crate::i18n::trf(lang, "hook.stop.hint", &[("name", name.clone()), ("hint", hint.to_string())]),
+                             crate::queue::QueueSource::HookStopHint)
                         }
                     }
                 };
-                self.enqueue(Role::System, text, ts)?;
+                self.enqueue(Role::System, text, source, ts)?;
             }
             _ => {}
         }
@@ -1297,6 +1316,7 @@ impl<L: Llm> OverseerBackend<L> {
                         "hook.stop.updated",
                         &[("name", instance.to_string()), ("len", len)],
                     ),
+                    crate::queue::QueueSource::MockHook,
                     ts,
                 )?;
             }
@@ -1456,6 +1476,7 @@ impl<L: Llm> OverseerBackend<L> {
                     "timer.scan.updated",
                     &[("name", instance.to_string()), ("len", len.to_string())],
                 ),
+                crate::queue::QueueSource::TimerScan,
                 ts,
             )?;
         }
@@ -1903,6 +1924,65 @@ mod tests {
         OverseerBackend::new(harness, Config::default(), agent)
     }
 
+    #[tokio::test]
+    async fn queue_source_annotated_per_entry_point() {
+        // docs/concrete-insight.md §Queue 中的 System 消息来源：入队点逐一标注
+        let mut ov = make_overseer("qsrc");
+        // user_prompt hook → HookUserPrompt
+        ov.handle_real_hook("user_prompt", "sess-1111-2222", "/tmp/p", Some("claude"), Some("干这个"), None, None, 1)
+            .await
+            .unwrap();
+        // notification hook → HookNotification
+        ov.handle_real_hook("notification", "sess-1111-2222", "/tmp/p", Some("claude"), None, Some("权限询问"), None, 2)
+            .await
+            .unwrap();
+        let sources: Vec<_> = ov.harness.queue.iter().map(|i| i.source).collect();
+        assert_eq!(
+            sources,
+            vec![
+                crate::queue::QueueSource::HookUserPrompt,
+                crate::queue::QueueSource::HookNotification,
+            ],
+            "{sources:?}"
+        );
+        // queue.jsonl 落盘携带 source（docs/storage.md）；直接拼路径——tmp_dir() 会清空目录
+        let dir = std::env::temp_dir().join(format!("overseer-test-qsrc-{}", std::process::id()));
+        let raw = std::fs::read_to_string(dir.join(crate::QUEUE_FILE)).unwrap();
+        assert!(raw.contains("\"source\":\"hook_user_prompt\""), "{raw}");
+        assert!(raw.contains("\"source\":\"hook_notification\""), "{raw}");
+        let _ = std::fs::remove_dir_all(tmp_dir("qsrc"));
+    }
+
+    #[tokio::test]
+    async fn queue_source_stop_three_modes() {
+        // stop 三模式来源分标（docs/harness.md §Queue 规则 2）
+        // queue_only（默认）→ hint；message → report；auto_read 读成功 → content
+        let mut ov = make_overseer("qsrc-hint");
+        ov.handle_real_hook("session_start", "s0a00000-1", "/tmp/p", Some("claude"), None, None, None, 1).await.unwrap();
+        ov.handle_real_hook("stop", "s0a00000-1", "/tmp/p", Some("claude"), None, None, Some("修完了"), 2).await.unwrap();
+        assert_eq!(ov.harness.queue.iter().next().unwrap().source, crate::queue::QueueSource::HookStopHint);
+        let _ = std::fs::remove_dir_all(tmp_dir("qsrc-hint"));
+
+        let mut ov = make_overseer("qsrc-report");
+        ov.config.stop_hook_mode = "message".into();
+        ov.handle_real_hook("session_start", "s0a00000-1", "/tmp/p", Some("claude"), None, None, None, 1).await.unwrap();
+        ov.handle_real_hook("stop", "s0a00000-1", "/tmp/p", Some("claude"), None, None, Some("修了 3 个文件"), 2).await.unwrap();
+        assert_eq!(ov.harness.queue.iter().next().unwrap().source, crate::queue::QueueSource::HookStopReport);
+        let _ = std::fs::remove_dir_all(tmp_dir("qsrc-report"));
+
+        let mut ov = make_overseer("qsrc-content");
+        ov.config.stop_hook_mode = "auto_read".into();
+        let map = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::from([(
+            "p·s0a00000".to_string(),
+            "全量内容".to_string(),
+        )])));
+        ov.terminal = Some(std::sync::Arc::new(crate::terminal::MapAdapter::new(map)));
+        ov.handle_real_hook("session_start", "s0a00000-1", "/tmp/p", Some("claude"), None, None, None, 1).await.unwrap();
+        ov.handle_real_hook("stop", "s0a00000-1", "/tmp/p", Some("claude"), None, None, None, 2).await.unwrap();
+        assert_eq!(ov.harness.queue.iter().next().unwrap().source, crate::queue::QueueSource::HookStopContent);
+        let _ = std::fs::remove_dir_all(tmp_dir("qsrc-content"));
+    }
+
     /// 脚本决策源：每次 LLM 调用按序弹出一条；耗尽后沉默
     fn scripted(outputs: Vec<LlmOutput>) -> DebugAgent {
         let rest = std::sync::Mutex::new(std::collections::VecDeque::from(outputs));
@@ -2190,7 +2270,7 @@ mod tests {
         ov.harness
             .append_context(ContextMessage::new(Role::User, "那个 bug 具体怎么回事？", 2))
             .unwrap();
-        ov.run_trigger(3, 0).await.unwrap();
+        ov.run_trigger(3, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         let msgs = ov.harness.context.messages();
         // fetch_terminal 被执行，tool result 含 Context 全文
         assert!(msgs.iter().any(|m| m.role == Role::Tool
@@ -2207,7 +2287,7 @@ mod tests {
         let mut ov = make_overseer("merge");
         ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
         ov.harness.event_buffer.push("用户勾选了 todobox 条目「跑测试」");
-        ov.enqueue(Role::System, "ft 完成。评估是否通知。".into(), 1)
+        ov.enqueue(Role::System, "ft 完成。评估是否通知。".into(), crate::queue::QueueSource::MockHook, 1)
             .unwrap();
         ov.drain_queue(0).await.unwrap();
         let sys: Vec<_> = ov
@@ -2233,7 +2313,7 @@ mod tests {
         // buffer 以独立 system 消息先行附带，不污染 user 消息
         let mut ov = make_overseer("merge-user");
         ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
-        ov.enqueue(Role::User, "那个 bug 怎么回事？".into(), 1)
+        ov.enqueue(Role::User, "那个 bug 怎么回事？".into(), crate::queue::QueueSource::UserChat, 1)
             .unwrap();
         ov.drain_queue(0).await.unwrap();
         let msgs = ov.harness.context.messages();
@@ -2256,7 +2336,7 @@ mod tests {
         ov.harness
             .append_context(ContextMessage::new(Role::User, "你好", 1))
             .unwrap();
-        ov.run_trigger(2, 0).await.unwrap();
+        ov.run_trigger(2, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         let last = ov.harness.context.messages().last().unwrap();
         assert_eq!(last.role, Role::Assistant);
         assert_eq!(last.content.as_deref(), Some("[debug] 收到：你好"));
@@ -2404,7 +2484,7 @@ mod tests {
     async fn autonomy_logged_and_appended_to_request_end() {
         let frames = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
         let mut ov = make_overseer_with("autonomy", capturing(frames.clone()));
-        ov.run_trigger(1, 0).await.unwrap();
+        ov.run_trigger(1, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         // 请求帧：首条 = 现拼请求头，末条 = Autonomy 状态（concepts §4）
         let f = &frames.lock().unwrap()[0];
         assert!(f[0].contains("## 颜文字映射"));
@@ -2428,8 +2508,8 @@ mod tests {
     #[tokio::test]
     async fn head_written_only_on_change() {
         let mut ov = make_overseer("head-diff");
-        ov.run_trigger(1, 0).await.unwrap();
-        ov.run_trigger(2, 0).await.unwrap();
+        ov.run_trigger(1, crate::queue::QueueSource::MockHook, 0).await.unwrap();
+        ov.run_trigger(2, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         let storage = ov.harness.storage_dir().to_path_buf();
         let count = || {
             std::fs::read_to_string(storage.join(crate::CONTEXT_FILE))
@@ -2440,7 +2520,7 @@ mod tests {
         assert_eq!(count(), 1); // 不变不写
         // AGENTS.md 热编辑 → 请求头变化 → 第二条 head 快照
         std::fs::write(ov.harness.config_dir().join(AGENTS_MD_FILE), "# 改过的ペット").unwrap();
-        ov.run_trigger(3, 0).await.unwrap();
+        ov.run_trigger(3, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         assert_eq!(count(), 2);
         let _ = std::fs::remove_dir_all(tmp_dir("head-diff"));
     }
@@ -2449,7 +2529,7 @@ mod tests {
     async fn pending_notifications_drives_notify_key() {
         let frames = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
         let mut ov = make_overseer_with("notify-key", capturing(frames.clone()));
-        ov.run_trigger(1, 2).await.unwrap();
+        ov.run_trigger(1, crate::queue::QueueSource::MockHook, 2).await.unwrap();
         let f = &frames.lock().unwrap()[0];
         assert_eq!(f.last().unwrap(), "[face: notify, motion: bounce]");
         let _ = std::fs::remove_dir_all(tmp_dir("notify-key"));
@@ -2484,7 +2564,7 @@ mod tests {
                 .append_context(ContextMessage::new(Role::User, format!("第 {i} 条消息内容内容"), i as i64))
                 .unwrap();
         }
-        ov.run_trigger(10, 0).await.unwrap();
+        ov.run_trigger(10, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         let msgs = ov.harness.context.messages();
         // 内存视图：摘要为首条（shaking）
         assert!(msgs[0].content.as_deref().unwrap().starts_with("[历史摘要]"));
@@ -2605,7 +2685,7 @@ mod tests {
         ov.effect_sink = Some(std::sync::Arc::new(move |e: &Effect| {
             got2.lock().unwrap().push(e.clone());
         }));
-        ov.enqueue(Role::User, "打个招呼".into(), 1).unwrap();
+        ov.enqueue(Role::User, "打个招呼".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let got = got.lock().unwrap();
         // 完整回复作为单个 delta 到达 + Done 收尾；回复本体已写 Context
@@ -2728,8 +2808,8 @@ mod tests {
     async fn enqueue_user_records_user_message_once() {
         // user 入队 = user_message/frontend（单点覆盖端点与 case user step）；system 输入不进
         let mut ov = make_overseer("eff-user");
-        ov.enqueue(Role::User, "你好".into(), 1).unwrap();
-        ov.enqueue(Role::System, "hook 输入".into(), 2).unwrap();
+        ov.enqueue(Role::User, "你好".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
+        ov.enqueue(Role::System, "hook 输入".into(), crate::queue::QueueSource::MockHook, 2).unwrap();
         let recs = ov.harness.read_effects().unwrap();
         let user_recs: Vec<_> = recs.iter().filter(|r| r.kind == "user_message").collect();
         assert_eq!(user_recs.len(), 1, "{recs:?}");
@@ -2743,7 +2823,7 @@ mod tests {
         // run_trigger sink 记录点：delta 全量 + done 收尾都进 effect.jsonl
         let agent = scripted(vec![say("回复全文")]);
         let mut ov = make_overseer_with("eff-stream", agent);
-        ov.enqueue(Role::User, "问".into(), 1).unwrap();
+        ov.enqueue(Role::User, "问".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let recs = ov.harness.read_effects().unwrap();
         assert!(recs.iter().any(|r| r.kind == "assistant_delta"
@@ -2757,7 +2837,7 @@ mod tests {
         // 未接 sink 时流式路径静默无副作用（debug/测试模式默认）
         let agent = scripted(vec![say("你好")]);
         let mut ov = make_overseer_with("stream-none", agent);
-        ov.enqueue(Role::User, "hi".into(), 1).unwrap();
+        ov.enqueue(Role::User, "hi".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         assert_eq!(
             ov.harness.context.messages().last().unwrap().content.as_deref(),
@@ -2870,7 +2950,7 @@ mod tests {
             usage: None,
         });
         let mut ov = make_overseer_with("reason-keep", agent);
-        ov.enqueue(Role::User, "问".into(), 1).unwrap();
+        ov.enqueue(Role::User, "问".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let last = ov.harness.context.messages().last().unwrap();
         assert_eq!(last.role, Role::Assistant);
@@ -2895,11 +2975,11 @@ mod tests {
             context_window: Some(100), compression_reserve: Some(0),
         });
         // 第一轮：last_usage 还是 None → est 兜底不触发；当轮落真值
-        ov.enqueue(Role::User, "第一轮".into(), 1).unwrap();
+        ov.enqueue(Role::User, "第一轮".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         assert_eq!(ov.harness.last_usage, Some(big));
         // 第二轮：真值 900K + 增量 ≫ 100 → 触发压缩
-        ov.enqueue(Role::User, "第二轮".into(), 2).unwrap();
+        ov.enqueue(Role::User, "第二轮".into(), crate::queue::QueueSource::UserChat, 2).unwrap();
         ov.drain_queue(0).await.unwrap();
         let first = ov.harness.context.messages()[0]
             .content
@@ -2918,7 +2998,7 @@ mod tests {
             context_window: Some(50), compression_reserve: Some(0),
         });
         for i in 0..30 {
-            ov.enqueue(Role::User, format!("第 {i} 条消息内容内容内容"), i as i64)
+            ov.enqueue(Role::User, format!("第 {i} 条消息内容内容内容"), crate::queue::QueueSource::UserChat, i as i64)
                 .unwrap();
         }
         ov.drain_queue(0).await.unwrap();
@@ -3371,7 +3451,7 @@ mod tests {
         cfg.max_tool_calls_per_turn = 50;
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
         let mut ov = OverseerBackend::new(harness, cfg, agent);
-        ov.enqueue(Role::User, "x".into(), 1).unwrap();
+        ov.enqueue(Role::User, "x".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let results: Vec<String> = ov.harness.context.messages().iter()
             .filter(|m| m.role == Role::Tool)
@@ -3389,7 +3469,7 @@ mod tests {
         cfg.max_tool_calls_per_turn = 4;
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
         let mut ov = OverseerBackend::new(harness, cfg, agent);
-        ov.enqueue(Role::User, "x".into(), 1).unwrap();
+        ov.enqueue(Role::User, "x".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let msgs = ov.harness.context.messages();
         let results: Vec<String> = msgs.iter().filter(|m| m.role == Role::Tool)
@@ -3483,7 +3563,7 @@ mod tests {
             say("已调整缩放"),
         ]);
         let mut ov = make_overseer_with("proto", agent);
-        ov.enqueue(Role::User, "把缩放调到 0.5".into(), 1).unwrap();
+        ov.enqueue(Role::User, "把缩放调到 0.5".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         assert_eq!(ov.config.view_scale, 0.5);
         // Context 留痕：query 与 update 的 tool result 都在

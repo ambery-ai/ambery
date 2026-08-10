@@ -125,7 +125,7 @@ pub async fn exec_trigger<L: Llm>(ov: &mut OverseerBackend<L>) {
 
 /// user：用户消息入队 → 放行
 pub async fn exec_user<L: Llm>(ov: &mut OverseerBackend<L>, text: &str, ts: i64) {
-    ov.enqueue(Role::User, text.to_string(), ts).expect("enqueue");
+    ov.enqueue(Role::User, text.to_string(), overseer_core::queue::QueueSource::UserChat, ts).expect("enqueue");
     print_effects(ov.drain_queue(0).await.expect("drain"));
 }
 

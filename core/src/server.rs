@@ -196,7 +196,7 @@ async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -
     *s.pending_notifications.lock().await = 0;
     {
         let mut ov = s.overseer.lock().await;
-        if let Err(err) = ov.enqueue(Role::User, body.text, now_ms()) {
+        if let Err(err) = ov.enqueue(Role::User, body.text, crate::queue::QueueSource::UserChat, now_ms()) {
             return err_response(err);
         }
     }
@@ -518,7 +518,7 @@ pub fn spawn_cron_task(s: Arc<AppState>) {
             };
             for message in messages {
                 let mut ov = s.overseer.lock().await;
-                if let Err(e) = ov.enqueue(crate::context::Role::System, message, now) {
+                if let Err(e) = ov.enqueue(crate::context::Role::System, message, crate::queue::QueueSource::CronTick, now) {
                     eprintln!("[cron] 到期入队失败：{e}");
                     continue;
                 }
