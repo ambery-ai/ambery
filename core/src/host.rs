@@ -1,7 +1,6 @@
 //! 共享宿主装配（docs/case-runner.md §壳类比）：debug 宿主的统一骨架——
 //! Config/Harness/LLM/Terminal Adapter 装配 → AppState → 完整 router。
-//! overseer-case serve 与（E2e 前暂存的）overseer-debug 共用；Tauri 壳自带
-//! 窗口管理分歧，不复用本骨架。
+//! overseer-case serve / frontend 共用；Tauri 壳自带窗口管理分歧，不复用本骨架。
 
 use crate::llm::LlmBackend;
 use crate::overseer::OverseerBackend;
@@ -27,9 +26,9 @@ pub struct HostParts {
 /// 装配宿主（docs/case-runner.md §壳类比「进程主体内嵌 core」）：
 /// Config（OVERSEER_CONFIG_DIR 可覆盖，`adjust_config` 给调用方一次注入机会，
 /// 如 serve 的 brain provider）→ Harness（OVERSEER_STORAGE_DIR）→
-/// LLM（`wrap_backend` 给调用方一次换入决策源的机会，如 overseer-debug 的 CLI
-/// 决策源；serve 传恒等）→ Terminal Adapter（WtAdapter 受 adapter_wt 门控 +
-/// MapAdapter 兜底 → Composite；primitives 经 sidecar 交付）。
+/// LLM（`wrap_backend` 给调用方一次换入决策源的机会；serve/frontend 传恒等）→
+/// Terminal Adapter（WtAdapter 受 adapter_wt 门控 + MapAdapter 兜底 → Composite；
+/// primitives 经 sidecar 交付）。
 pub fn assemble_host(
     adjust_config: impl FnOnce(&mut Config),
     wrap_backend: impl FnOnce(LlmBackend) -> LlmBackend,

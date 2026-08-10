@@ -554,6 +554,12 @@ export async function createBridge(): Promise<Bridge> {
   if (await RemoteBridge.probe()) {
     const b = new RemoteBridge();
     b.connect();
+    // 等首个 WS open 再交出桥——调用方拿到即可收发（否则紧接的 effect 可能在
+    // WS 建立前到达而被丢失，时序竞态）
+    await Promise.race([
+      b.ready,
+      new Promise((r) => setTimeout(r, 5000)),
+    ]);
     return b;
   }
   return new BrowserMockBridge();

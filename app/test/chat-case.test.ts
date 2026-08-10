@@ -2,24 +2,18 @@
 // 滚动意图态机 / IME 守卫 / 自增长 / 发送按钮 / 失败保文重试 / 排队状态翻译 / 回应提示。
 // jsdom 无布局——滚动几何用 defineProperty 打桩（scrollHeight/clientHeight/scrollTop）。
 
-import { beforeAll, afterAll, expect, it, vi } from "vitest";
-import { startCore, stopCore, setupShim, type CoreHandle } from "./shim";
+import { beforeAll, expect, it, vi } from "vitest";
+import { waitCore, coreBase } from "./shim";
 import { createBridge, type Bridge } from "../src/bridge";
 import { Store } from "../src/store";
 import { ChatPanel } from "../src/windows/chat";
 import type { PositioningEngine } from "../src/positioning/engine";
 
-let core: CoreHandle;
-
 beforeAll(async () => {
-  core = await startCore(47658);
-  await setupShim(core);
+  await waitCore();
+
   document.body.innerHTML = '<div id="app"></div>';
 }, 60000);
-
-afterAll(() => {
-  stopCore(core);
-});
 
 const fakeEngine = {
   release: () => {},
@@ -47,21 +41,24 @@ it("IME 组合输入中 Enter 只确认候选不误发送；Shift+Enter 换行�
   const { mount } = await makePanel();
   const input = mount.querySelector<HTMLTextAreaElement>(".chat-input")!;
   const sendBtn = mount.querySelector<HTMLButtonElement>(".chat-send")!;
-  const send = vi.spyOn((window as unknown as { __sent: string[] }).__sent ??= [], "push");
-  void send;
+  // 共享 core（overseer-case frontend 单例）：context 可能已有其他文件的消息——断言用相对计数
+  const bubbles = () => mount.querySelectorAll(".chat-user").length;
+  const base = bubbles();
   input.value = "にほんご";
   // IME 组合中 Enter：不发送
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
-  expect(mount.querySelector(".chat-user")).toBeNull();
+  expect(bubbles()).toBe(base);
   expect(input.value).toBe("にほんご"); // 文字不动
   // Shift+Enter：换行不发送
   input.value = "第一行";
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true, cancelable: true }));
-  expect(mount.querySelector(".chat-user")).toBeNull();
+  expect(bubbles()).toBe(base);
   expect(input.value).toBe("第一行");
   // Enter 发送
   input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: false, bubbles: true, cancelable: true }));
-  await vi.waitFor(() => expect(mount.querySelector(".chat-user")?.textContent).toBe("第一行"));
+  await vi.waitFor(() =>
+    expect([...mount.querySelectorAll(".chat-user")].some((u) => u.textContent === "第一行")).toBe(true),
+  );
   expect(input.value).toBe(""); // 发送后清空
   // 发送按钮同语义：空白禁用
   expect(sendBtn.disabled).toBe(true);
@@ -69,7 +66,7 @@ it("IME 组合输入中 Enter 只确认候选不误发送；Shift+Enter 换行�
   input.dispatchEvent(new Event("input", { bubbles: true }));
   expect(sendBtn.disabled).toBe(false);
   sendBtn.click();
-  await vi.waitFor(() => expect(mount.querySelectorAll(".chat-user").length).toBe(2));
+  await vi.waitFor(() => expect(bubbles()).toBe(base + 2));
 });
 
 it("发送失败：文字退回输入框 + 错误行 + 重试路径", async () => {
@@ -102,6 +99,12 @@ it("发送失败：文字退回输入框 + 错误行 + 重试路径", async () =
 });
 
 it("滚动意图：跟随贴底；滚离后新消息只提示不抢视口；点提示回底清零", async () => {
+  // 共享 core（overseer-case frontend 单例）：先归一 UI 语言为 zh，防文件序影响
+  await fetch(`${coreBase()}/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path: "ui_language", value: "zh" }),
+  });
   const { mount, store } = await makePanel();
   // open() 的 scrollToBottom 把 suppressScroll 挂到下一宏任务——先越过，再模拟用户滚动
   await new Promise((r) => setTimeout(r, 20));
@@ -144,18 +147,18 @@ it("回应提示：发送后出现「…」，delta 到达即消失；排队状�
   // delta 到达：回应提示消失、streaming 开始
   (bridge as unknown as { deltaListeners?: ((d: { content?: string }) => void)[] });
   // 经 shim effect 总线注入 delta/done
-  await fetch(`${core.base}/debug/effect`, {
+  await fetch(`${coreBase()}/debug/effect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "assistant_delta", content: "回答中" }),
   });
   await vi.waitFor(() => expect(mount.querySelector(".chat-replying")).toBeNull());
-  await fetch(`${core.base}/debug/effect`, {
+  await fetch(`${coreBase()}/debug/effect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "assistant_done" }),
   });
-  await fetch(`${core.base}/debug/effect`, {
+  await fetch(`${coreBase()}/debug/effect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "assistant_done" }),

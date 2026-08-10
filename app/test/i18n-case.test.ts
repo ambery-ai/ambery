@@ -1,27 +1,21 @@
 // i18n 模块前端 case（docs/i18n.md）：ui_language 字段校验 + 切换即重渲染 + 机器契约不译。
 
-import { beforeAll, afterAll, expect, it, vi } from "vitest";
-import { startCore, stopCore, setupShim, type CoreHandle } from "./shim";
+import { beforeAll, expect, it, vi } from "vitest";
+import { waitCore, coreBase } from "./shim";
 import { createBridge } from "../src/bridge";
 import { Store } from "../src/store";
 import { t, uiLanguage } from "../src/i18n";
 import { ChatPanel } from "../src/windows/chat";
 import { ComponentManager } from "../src/components/component-manager";
 
-let core: CoreHandle;
-
 beforeAll(async () => {
-  core = await startCore(47657);
-  await setupShim(core);
+  await waitCore();
+
   document.body.innerHTML = '<div id="app"></div>';
 }, 60000);
 
-afterAll(() => {
-  stopCore(core);
-});
-
 const postConfig = (path: string, value: unknown) =>
-  fetch(`${core.base}/config`, {
+  fetch(`${coreBase()}/config`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path, value }),
@@ -32,7 +26,7 @@ it("字段默认与校验：harness_language 默认 zh；非法语言原子拒�
   const store = await Store.create(bridge);
   expect(["zh", "en"]).toContain(store.config?.uiLanguage);
   // harness_language 不进前端投影（core 内部）；经 schema 验证其默认与枚举
-  const schema = (await (await fetch(`${core.base}/config/schema`)).json()) as {
+  const schema = (await (await fetch(`${coreBase()}/config/schema`)).json()) as {
     nodes: { path: string; value: unknown }[];
   };
   const harness = schema.nodes.find((n) => n.path === "harness_language");
@@ -76,6 +70,10 @@ it("切换 ui_language 即重渲染：chat placeholder 与 card chrome 跟随", 
 
   // 机器契约不译：Config path 原样（t() 不涉及 path）；名称不参与翻译
   expect(t("pet.default-name")).toBe("ペット");
+
+  // 共享 core（overseer-case frontend 单例）：恢复初始语言，防跨文件污染
+  await postConfig("ui_language", lang0);
+  await vi.waitFor(() => expect(uiLanguage()).toBe(lang0));
 });
 
 it("缺失 key 回退 zh；插值工作", async () => {

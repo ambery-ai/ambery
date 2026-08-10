@@ -19,10 +19,6 @@ sys-locale = "0.3.2"
 [lib]
 path = "src/lib.rs"
 
-[[bin]]
-name = "overseer-debug"
-path = "src/bin/overseer-debug.rs"
-
 [dependencies.overseer-observe-derive]
 path = "../observe-derive"
 optional = true

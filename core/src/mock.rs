@@ -4,7 +4,7 @@
 //! 1. 本文件（core/src/mock.rs）
 //! 2. Cargo.toml `[features] mock`（及 default 里的 "mock"）
 //! 3. server.rs 中 `#[cfg(feature = "mock")]` 的 /debug/terminal 路由注册
-//! 4. main.rs / overseer-debug.rs 的 mock_terminals 回退分支
+//! 4. main.rs / host.rs 的 mock_terminals 回退分支
 //!
 //! 约定：mock 相关代码只许进本模块 + 上述挂点，禁止外溢。
 

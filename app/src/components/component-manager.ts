@@ -43,7 +43,12 @@ export class ComponentManager {
     mount.appendChild(this.layer);
     // windowed（card 窗口）：不订阅全局 render 流——本窗只渲染 card:spec 定向事件
     // （#25 根因 A：全局广播使每个 card 窗口渲染所有卡 → 一窗多卡堆叠 + 复活已关闭卡）
-    if (!windowed) bridge.onRenderComponent((spec) => this.render(spec));
+    if (!windowed) {
+      bridge.onRenderComponent((spec) => this.render(spec));
+      // 显式关闭（持续管理协议：agent close action）——browser 模式无窗口层，
+      // close_component 由本管理器直接落 DOM（与 render 订阅同 guard）
+      bridge.onCloseComponent?.((id) => this.closeById(id));
+    }
     // UI 语言切换：原地重贴 chrome 文案（docs/i18n.md；不重建 DOM——todobox 勾选态
     // 只在 DOM，重建会丢交互状态）
     onLanguageChange(() => this.relabel());

@@ -58,7 +58,8 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("usage: overseer-case <case.case> [--step-num N] [--health] [--brain-addr <url> | --silent]");
-        eprintln!("       overseer-case serve [--brain-addr <url> | --silent]   # 完整 router 宿主（docs/case-runner.md §壳类比）");
+        eprintln!("       overseer-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主（docs/case-runner.md §壳类比）");
+        eprintln!("       overseer-case frontend [--brain-addr <url> | --silent] # 前端进 case：内嵌 core + 拉起 vitest");
         eprintln!("       overseer-case export [--storage DIR] [--instances a,b] [--window 30m]");
         eprintln!("              [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] [--dedup] [--dry-run] [--case-id ID]");
         eprintln!("              [--keep-memory --memory name-a,AGENTS] [--keep-cron --cron-ids id-a,id-b]");
@@ -66,6 +67,12 @@ async fn main() {
     }
     if args[1] == "export" {
         run_export(&args[2..]);
+        return;
+    }
+    // frontend：前端进 case（docs/case-runner.md §壳类比）——内嵌 core + 拉起 TS 测试进程
+    if args[1] == "frontend" {
+        let (brain, silent) = parse_decision(&args[2..]);
+        run_frontend(brain, silent).await;
         return;
     }
     // serve：完整 router 宿主（浏览器调试 RemoteBridge / 前端进 case 的内嵌 core）
@@ -261,6 +268,47 @@ fn setup(
     let terminals: SharedTerminals = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     ov.terminal = Some(Arc::new(overseer_core::terminal::MapAdapter::new(terminals.clone())));
     (ov, terminals)
+}
+
+/// 前端进 case 宿主（docs/case-runner.md §壳类比落地形态）：
+/// 一次性沙盒 env → 内嵌 core（serve 同款装配，独立端口避让生产）→ 拉起 vitest
+/// 子进程（env 继承端口与沙盒目录）→ 退出码透传
+async fn run_frontend(brain: Option<String>, silent: bool) {
+    let dir = std::env::temp_dir().join(format!("overseer-case-frontend-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("create frontend sandbox");
+    // env 对本进程（assemble_host 经 paths:: 读取）与 vitest 子进程（继承）同时生效
+    std::env::set_var("OVERSEER_STORAGE_DIR", &dir);
+    std::env::set_var("OVERSEER_CONFIG_DIR", &dir);
+    let needs_decision = Config::load_or_default(&dir).llm.active == "debug";
+    if needs_decision && brain.is_none() && !silent {
+        eprintln!("USAGE: llm active=debug 的 frontend 必须显式 --brain-addr <url> 或 --silent（docs/debug-agent.md）");
+        std::process::exit(2);
+    }
+    let parts = overseer_core::host::assemble_host(
+        |c| apply_decision(c, brain.as_deref(), silent),
+        |b| b,
+    );
+    // 独立端口避让生产 47600：bind 0 取空闲端口后释放（serve 任务随即绑定）
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr().map(|a| a.port()))
+        .expect("probe free port");
+    tokio::spawn(overseer_core::host::serve_host(parts, port));
+    let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app");
+    let mut cmd = tokio::process::Command::new(if cfg!(windows) { "cmd" } else { "npx" });
+    if cfg!(windows) {
+        cmd.args(["/c", "npx", "vitest", "run"]);
+    } else {
+        cmd.args(["vitest", "run"]);
+    }
+    let status = cmd
+        .current_dir(&app_dir)
+        .env("OVERSEER_PORT", port.to_string())
+        .status()
+        .await
+        .expect("spawn vitest");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::process::exit(status.code().unwrap_or(1));
 }
 
 /// 两段式合法性校验（docs/case-runner.md §health 检查项）
