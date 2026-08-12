@@ -567,4 +567,93 @@ mod tests {
         assert!(a.rows.is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    fn sample_rows() -> Vec<ActivityRow> {
+        vec![
+            ActivityRow {
+                file: CONTEXT_FILE,
+                kind: "message/user".into(),
+                ts: 1,
+                summary: "你好".into(),
+            },
+            ActivityRow {
+                file: QUEUE_FILE,
+                kind: "user_chat".into(),
+                ts: 2,
+                summary: "hi".into(),
+            },
+            ActivityRow {
+                file: EFFECT_FILE,
+                kind: "backend/render_component".into(),
+                ts: 3,
+                summary: "{}".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn tui_view_filters_by_file_and_substring() {
+        let t = Tui::new(
+            Activity {
+                rows: sample_rows(),
+            },
+            false,
+        );
+        // all：全量
+        assert_eq!(t.view().len(), 3);
+
+        // 文件切换：只看 queue.jsonl
+        let mut t = t;
+        t.file_idx = FILES.iter().position(|f| *f == QUEUE_FILE).unwrap();
+        let v = t.view();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].file, QUEUE_FILE);
+
+        // 子串筛选（kind）
+        let mut t = Tui::new(
+            Activity {
+                rows: sample_rows(),
+            },
+            false,
+        );
+        t.filter = "render".into();
+        let v = t.view();
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].kind, "backend/render_component");
+    }
+
+    #[test]
+    fn tui_cursor_moves_within_view_bounds() {
+        let mut t = Tui::new(
+            Activity {
+                rows: sample_rows(),
+            },
+            false,
+        );
+        t.move_cursor(1);
+        assert_eq!(t.cursor, 1);
+        t.move_cursor(10);
+        assert_eq!(t.cursor, 2, "越界收敛到最后一行");
+        t.move_cursor(-10);
+        assert_eq!(t.cursor, 0, "越界收敛到首行");
+    }
+
+    #[test]
+    fn tui_next_file_cycles_and_resets_cursor() {
+        let mut t = Tui::new(
+            Activity {
+                rows: sample_rows(),
+            },
+            false,
+        );
+        t.move_cursor(2);
+        t.next_file();
+        assert_eq!(t.file_idx, 1);
+        assert_eq!(t.cursor, 0);
+        // 循环回到 all
+        for _ in 0..(FILES.len() - 1) {
+            t.next_file();
+        }
+        assert_eq!(t.file_idx, 0);
+    }
 }
