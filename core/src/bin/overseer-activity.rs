@@ -219,32 +219,274 @@ fn line_brief(line: &str) -> String {
     truncate(line, 60)
 }
 
-fn storage_dir_arg() -> PathBuf {
+/// CLI 选项（docs/tools.md §overseer-activity：--dir 覆盖目录，--follow tail 新增）
+struct Options {
+    dir: PathBuf,
+    follow: bool,
+}
+
+fn parse_args() -> Options {
+    let mut dir = overseer_core::paths::storage_dir();
+    let mut follow = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        if a == "--dir" {
-            if let Some(d) = args.next() {
-                return PathBuf::from(d);
+        match a.as_str() {
+            "--dir" => {
+                if let Some(d) = args.next() {
+                    dir = PathBuf::from(d);
+                }
             }
+            "--follow" | "-f" => follow = true,
+            _ => {}
         }
     }
-    overseer_core::paths::storage_dir()
+    Options { dir, follow }
 }
 
 fn main() {
-    let dir = storage_dir_arg();
-    match Activity::load(&dir) {
+    let opt = parse_args();
+    match Activity::load(&opt.dir) {
         Ok(a) => {
-            for r in &a.rows {
-                println!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary);
+            if opt.follow {
+                if let Err(e) = run_tui(opt.dir, a) {
+                    eprintln!("overseer-activity: {e}");
+                    std::process::exit(1);
+                }
+            } else {
+                for r in &a.rows {
+                    println!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary);
+                }
+                eprintln!("({} rows from {})", a.rows.len(), opt.dir.display());
             }
-            eprintln!("({} rows from {})", a.rows.len(), dir.display());
         }
         Err(e) => {
-            eprintln!("overseer-activity: {}: {e}", dir.display());
+            eprintln!("overseer-activity: {}: {e}", opt.dir.display());
             std::process::exit(1);
         }
     }
+}
+
+// ---- TUI 交互层（ratatui，docs/tools.md §形态）----
+
+use crossterm::event::{self, Event, KeyCode};
+use crossterm::execute;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Constraint, Layout};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::Terminal;
+
+/// 数据源文件清单（固定顺序，Tab 循环切换）
+const FILES: &[&str] = &[
+    "all",
+    CONTEXT_FILE,
+    QUEUE_FILE,
+    EFFECT_FILE,
+    TERMINAL_CONTENT_FILE,
+    WORK_AGENTS_FILE,
+    overseer_core::cron::CRON_FILE,
+];
+
+struct Tui {
+    activity: Activity,
+    /// FILES 中当前下标（0 = all）
+    file_idx: usize,
+    /// 光标所在行（在 filtered 视图内）
+    cursor: usize,
+    /// 顶部滚动偏移
+    offset: usize,
+    /// 筛选子串（匹配 kind / summary）
+    filter: String,
+    /// 正在输入筛选
+    filtering: bool,
+    follow: bool,
+    /// follow 模式下已消费的行数（增量重读起点）
+    seen: usize,
+    quit: bool,
+}
+
+impl Tui {
+    fn new(activity: Activity, follow: bool) -> Self {
+        let mut t = Self {
+            activity,
+            file_idx: 0,
+            cursor: 0,
+            offset: 0,
+            filter: String::new(),
+            filtering: false,
+            follow,
+            seen: 0,
+            quit: false,
+        };
+        t.seen = t.activity.rows.len();
+        t
+    }
+
+    /// 当前 filtered 视图（文件 + 子串筛选）
+    fn view(&self) -> Vec<&ActivityRow> {
+        let file = FILES[self.file_idx];
+        self.activity
+            .rows
+            .iter()
+            .filter(|r| file == "all" || r.file == file)
+            .filter(|r| {
+                self.filter.is_empty()
+                    || r.kind.contains(&self.filter)
+                    || r.summary.contains(&self.filter)
+            })
+            .collect()
+    }
+
+    fn move_cursor(&mut self, delta: isize) {
+        let len = self.view().len();
+        if len == 0 {
+            self.cursor = 0;
+            return;
+        }
+        let next = self.cursor as isize + delta;
+        self.cursor = next.clamp(0, len as isize - 1) as usize;
+    }
+
+    fn next_file(&mut self) {
+        self.file_idx = (self.file_idx + 1) % FILES.len();
+        self.cursor = 0;
+        self.offset = 0;
+    }
+
+    /// follow：增量重读新写入的行
+    fn reload(&mut self, dir: &Path) {
+        if let Ok(a) = Activity::load(dir) {
+            if a.rows.len() > self.seen {
+                self.seen = a.rows.len();
+                self.activity = a;
+                if self.follow {
+                    // 跟随模式保持光标在最新行
+                    let len = self.view().len();
+                    if len > 0 {
+                        self.cursor = len - 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn run_tui(dir: PathBuf, activity: Activity) -> std::io::Result<()> {
+    enable_raw_mode()?;
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    let mut tui = Tui::new(activity, true);
+
+    loop {
+        if tui.follow {
+            tui.reload(&dir);
+        }
+        // 滚动窗口：光标保持在可视区（借用前先把 view 物化，避免闭包内二次借用）
+        let view: Vec<ActivityRow> = tui.view().into_iter().cloned().collect();
+        let area = terminal.get_frame().area();
+        let height = area.height.saturating_sub(4) as usize;
+        if tui.cursor < tui.offset {
+            tui.offset = tui.cursor;
+        } else if height > 0 && tui.cursor >= tui.offset + height {
+            tui.offset = tui.cursor + 1 - height;
+        }
+        let offset = tui.offset;
+        let cursor = tui.cursor;
+        let file_label = FILES[tui.file_idx];
+        let filter = tui.filter.clone();
+        let filtering = tui.filtering;
+        let follow = tui.follow;
+
+        terminal.draw(|f| {
+            let chunks = Layout::default()
+                .direction(ratatui::layout::Direction::Vertical)
+                .constraints([
+                    Constraint::Length(2),
+                    Constraint::Min(1),
+                    Constraint::Length(2),
+                ])
+                .split(f.area());
+
+            let title = format!(
+                "overseer-activity  file={}  rows={}  filter={}{}",
+                file_label,
+                view.len(),
+                filter,
+                if follow { "  [follow]" } else { "" }
+            );
+            f.render_widget(
+                Paragraph::new(title).block(Block::default().borders(Borders::BOTTOM)),
+                chunks[0],
+            );
+
+            let items: Vec<ListItem> = view
+                .iter()
+                .skip(offset)
+                .take(height)
+                .map(|r| ListItem::new(format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary)))
+                .collect();
+            let mut state = ListState::default();
+            if !view.is_empty() {
+                state.select(Some(cursor.saturating_sub(offset)));
+            }
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::NONE))
+                .highlight_symbol("▶ ");
+            f.render_stateful_widget(list, chunks[1], &mut state);
+
+            let help = if filtering {
+                format!("/{}", filter)
+            } else {
+                "↑/↓ 滚动  Tab 切文件  / 筛选  f 跟随  q 退出".to_string()
+            };
+            f.render_widget(
+                Paragraph::new(help).block(Block::default().borders(Borders::TOP)),
+                chunks[2],
+            );
+        })?;
+
+        if event::poll(std::time::Duration::from_millis(200))? {
+            if let Event::Key(k) = event::read()? {
+                if tui.filtering {
+                    match k.code {
+                        KeyCode::Enter | KeyCode::Esc => tui.filtering = false,
+                        KeyCode::Backspace => {
+                            tui.filter.pop();
+                            tui.cursor = 0;
+                            tui.offset = 0;
+                        }
+                        KeyCode::Char(c) => {
+                            tui.filter.push(c);
+                            tui.cursor = 0;
+                            tui.offset = 0;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match k.code {
+                        KeyCode::Char('q') | KeyCode::Esc => tui.quit = true,
+                        KeyCode::Up => tui.move_cursor(-1),
+                        KeyCode::Down => tui.move_cursor(1),
+                        KeyCode::Tab => tui.next_file(),
+                        KeyCode::Char('/') => tui.filtering = true,
+                        KeyCode::Char('f') => tui.follow = !tui.follow,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if tui.quit {
+            break;
+        }
+    }
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    Ok(())
 }
 
 #[cfg(test)]
