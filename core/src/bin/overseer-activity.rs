@@ -247,16 +247,10 @@ fn main() {
     let opt = parse_args();
     match Activity::load(&opt.dir) {
         Ok(a) => {
-            if opt.follow {
-                if let Err(e) = run_tui(opt.dir, a) {
-                    eprintln!("overseer-activity: {e}");
-                    std::process::exit(1);
-                }
-            } else {
-                for r in &a.rows {
-                    println!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary);
-                }
-                eprintln!("({} rows from {})", a.rows.len(), opt.dir.display());
+            // TUI 为默认形态（docs/tools.md §形态：TUI 交互界面）
+            if let Err(e) = run_tui(opt.dir, a, opt.follow) {
+                eprintln!("overseer-activity: {e}");
+                std::process::exit(1);
             }
         }
         Err(e) => {
@@ -373,13 +367,13 @@ impl Tui {
     }
 }
 
-fn run_tui(dir: PathBuf, activity: Activity) -> std::io::Result<()> {
+fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut tui = Tui::new(activity, true);
+    let mut tui = Tui::new(activity, follow);
 
     loop {
         if tui.follow {
