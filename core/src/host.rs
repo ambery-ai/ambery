@@ -8,7 +8,9 @@ use crate::server::{
     now_ms, router, spawn_config_watcher, spawn_cron_task, spawn_queue_consumer,
     spawn_timer_task, AppState,
 };
-use crate::terminal::{Composite, MapAdapter, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
+use crate::terminal::{
+    Composite, MapAdapter, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter, ZellijAdapter,
+};
 use crate::{Config, Harness};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -79,6 +81,11 @@ pub fn assemble_host(
     let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
     if let Some(sc) = &sidecar {
         adapters.push(Arc::new(WtAdapter::new(sc.clone())));
+    }
+    if overseer.config.terminal.adapter_zellij {
+        adapters.push(Arc::new(ZellijAdapter::new(Arc::new(
+            crate::terminal::ProcessZellijRunner,
+        ))));
     }
     adapters.push(Arc::new(MapAdapter::new(mock.clone())));
     overseer.terminal = Some(Arc::new(Composite::new(adapters)));

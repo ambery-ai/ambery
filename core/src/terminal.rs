@@ -162,6 +162,80 @@ impl TerminalAdapter for MapAdapter {
     }
 }
 
+/// ZellijAdapter（docs/terminal-adapter.md §实现）：zellij 复用器经 `zellij action` CLI
+/// 进程内直调，无独立进程。locate 经 query-tab-names 匹配 marker、read 经 dump-screen 读
+/// 内容；forget 清定位缓存。
+pub struct ZellijAdapter {
+    runner: Arc<dyn ZellijRunner>,
+    /// 定位缓存：实例名 → TabRef（forget / 自愈驱逐）
+    cache: Mutex<HashMap<String, TabRef>>,
+}
+
+/// zellij CLI 执行器（系统边界，可注入 mock）
+pub trait ZellijRunner: Send + Sync {
+    fn run(&self, args: &[&str]) -> Option<String>;
+}
+
+/// 生产实现：直调 `zellij` 进程（docs/terminal-adapter.md §实现「进程内（Rust 直调 CLI）」）
+pub struct ProcessZellijRunner;
+
+impl ZellijRunner for ProcessZellijRunner {
+    fn run(&self, args: &[&str]) -> Option<String> {
+        let out = std::process::Command::new("zellij")
+            .args(args)
+            .output()
+            .ok()?;
+        if out.status.success() {
+            Some(String::from_utf8_lossy(&out.stdout).into_owned())
+        } else {
+            None
+        }
+    }
+}
+
+impl ZellijAdapter {
+    pub fn new(runner: Arc<dyn ZellijRunner>) -> Self {
+        Self {
+            runner,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn find_tab(&self, inst: &str) -> Option<TabRef> {
+        let out = self.runner.run(&["action", "query-tab-names"])?;
+        // Contains 匹配（docs/hook.md §marker 定位：✳ 前缀与 | 描述后缀不影响命中）
+        let idx = out.lines().position(|l| l.contains(inst))?;
+        Some(TabRef {
+            hwnd: -(idx as i64 + 1),
+            index: idx as i64,
+        })
+    }
+}
+
+impl TerminalAdapter for ZellijAdapter {
+    fn locate(&self, inst: &str) -> Option<TabRef> {
+        if let Some(t) = self.cache.lock().ok()?.get(inst) {
+            return Some(*t);
+        }
+        let tab = self.find_tab(inst)?;
+        self.cache.lock().ok()?.insert(inst.to_string(), tab);
+        Some(tab)
+    }
+
+    fn read(&self, tab: &TabRef) -> Option<String> {
+        let out = self
+            .runner
+            .run(&["action", "dump-screen", &tab.index.to_string()])?;
+        Some(out)
+    }
+
+    fn forget(&self, inst: &str) {
+        if let Ok(mut c) = self.cache.lock() {
+            c.remove(inst);
+        }
+    }
+}
+
 /// Composite：多 adapter 分发（docs/terminal-adapter.md「多终端兼容 = 抽象接口 +
 /// 按终端分发实现」）。locate 首中者胜并记录路由；read 按路由精确回到同一 adapter
 /// （TabRef 只在产出它的 adapter 上有意义）；forget 广播（各 adapter 缓存独立）。
@@ -259,6 +333,49 @@ mod tests {
         // 内容移除后定位失败
         map.lock().unwrap().remove("ft");
         assert_eq!(a.locate("ft"), None);
+    }
+
+    /// Stub zellij CLI runner（系统边界 mock，docs/tdd/mocking.md 系统边界）
+    struct StubZellij {
+        tabs: Vec<String>,
+        contents: HashMap<String, String>,
+    }
+
+    impl ZellijRunner for StubZellij {
+        fn run(&self, args: &[&str]) -> Option<String> {
+            match args {
+                ["action", "query-tab-names"] => Some(self.tabs.join("\n")),
+                ["action", "dump-screen", idx] => {
+                    let i: usize = idx.parse().ok()?;
+                    let name = self.tabs.get(i)?;
+                    self.contents.get(name).cloned()
+                }
+                _ => None,
+            }
+        }
+    }
+
+    #[test]
+    fn zellij_adapter_locate_read_forget() {
+        // zellij tab 名带 marker 前缀与描述后缀（docs/hook.md §marker 定位）
+        let z = Arc::new(StubZellij {
+            tabs: vec!["alpha".into(), "✳ ft | 收尾中".into()],
+            contents: HashMap::from([("✳ ft | 收尾中".to_string(), "终端内容".to_string())]),
+        });
+        let a = ZellijAdapter::new(z);
+        // 未收录实例定位失败
+        assert_eq!(a.locate("ghost"), None);
+        // 收录实例：Contains 匹配 marker → locate → read 配对
+        let tab = a.locate("ft").expect("locate");
+        assert!(tab.hwnd < 0, "合成 hwnd 取负数段");
+        assert_eq!(a.read(&tab).as_deref(), Some("终端内容"));
+        // 同实例再定位 = 同一 TabRef（缓存稳定）
+        assert_eq!(a.locate("ft"), Some(tab));
+        // forget 清定位缓存（重定位仍可读，重新分配）
+        a.forget("ft");
+        let tab2 = a.locate("ft").expect("重新定位");
+        assert_eq!(tab2, tab, "zellij tab 顺序稳定，重定位回到同一 TabRef");
+        assert_eq!(a.read(&tab2).as_deref(), Some("终端内容"));
     }
 
     #[test]
