@@ -163,11 +163,15 @@ impl TerminalAdapter for MapAdapter {
 }
 
 /// ZellijAdapter（docs/terminal-adapter.md §实现）：zellij 复用器经 `zellij action` CLI
-/// 进程内直调，无独立进程。locate 经 query-tab-names 匹配 marker、read 经 dump-screen 读
-/// 内容；forget 清定位缓存。
+/// 进程内直调，无独立进程。locate 经 `list-panes -a --json` 匹配 marker（pane 是读取单元，
+/// tab 只是容器），read 经 `dump-screen -p <pane_id>` 读内容；forget 清定位缓存。
+///
+/// 合成 hwnd 取 `-(100000 + pane_id)` 深负段——与 MapAdapter 的小负数段（-1..-N）隔离，
+/// 避免 Composite::read 按 TabRef 精确路由时两个 adapter 产出相同 TabRef 产生歧义。
 pub struct ZellijAdapter {
     runner: Arc<dyn ZellijRunner>,
-    /// 定位缓存：实例名 → TabRef（forget / 自愈驱逐）
+    /// 定位缓存：实例名 → TabRef（forget 驱逐；read 直接用 TabRef.index 承载的 pane id，
+    /// 不缓存反查——pane 关闭时 dump-screen 失败返回 None，交由调用方重定位）
     cache: Mutex<HashMap<String, TabRef>>,
 }
 
@@ -201,14 +205,25 @@ impl ZellijAdapter {
         }
     }
 
-    fn find_tab(&self, inst: &str) -> Option<TabRef> {
-        let out = self.runner.run(&["action", "query-tab-names"])?;
-        // Contains 匹配（docs/hook.md §marker 定位：✳ 前缀与 | 描述后缀不影响命中）
-        let idx = out.lines().position(|l| l.contains(inst))?;
-        Some(TabRef {
-            hwnd: -(idx as i64 + 1),
-            index: idx as i64,
-        })
+    /// 定位：list-panes 枚举 pane，TYPE=terminal（is_plugin=false）且 TITLE contains marker 者
+    fn find_pane(&self, inst: &str) -> Option<TabRef> {
+        let out = self.runner.run(&["action", "list-panes", "-a", "--json"])?;
+        let panes: Vec<serde_json::Value> = serde_json::from_str(&out).ok()?;
+        for p in panes {
+            // 只认真实终端 pane，跳过 plugin pane（tab-bar / status-bar / zellij:link）
+            if p["is_plugin"].as_bool() == Some(false) {
+                let title = p["title"].as_str().unwrap_or("");
+                // Contains 匹配（docs/hook.md §marker 定位：✳ 前缀与 | 描述后缀不影响命中）
+                if title.contains(inst) {
+                    let id = p["id"].as_i64()?;
+                    return Some(TabRef {
+                        hwnd: -(100_000 + id),
+                        index: id,
+                    });
+                }
+            }
+        }
+        None
     }
 }
 
@@ -217,16 +232,15 @@ impl TerminalAdapter for ZellijAdapter {
         if let Some(t) = self.cache.lock().ok()?.get(inst) {
             return Some(*t);
         }
-        let tab = self.find_tab(inst)?;
+        let tab = self.find_pane(inst)?;
         self.cache.lock().ok()?.insert(inst.to_string(), tab);
         Some(tab)
     }
 
     fn read(&self, tab: &TabRef) -> Option<String> {
-        let out = self
-            .runner
-            .run(&["action", "dump-screen", &tab.index.to_string()])?;
-        Some(out)
+        // dump-screen -p <pane_id>（裸数字等价 terminal_<id>，跨版本稳定）
+        self.runner
+            .run(&["action", "dump-screen", "-p", &tab.index.to_string()])
     }
 
     fn forget(&self, inst: &str) {
@@ -335,20 +349,35 @@ mod tests {
         assert_eq!(a.locate("ft"), None);
     }
 
-    /// Stub zellij CLI runner（系统边界 mock，docs/tdd/mocking.md 系统边界）
+    /// Stub zellij CLI runner（系统边界 mock，仅在系统边界打桩）。
+    /// 复刻真实命令形态：list-panes -a --json（数组）/ dump-screen -p <id>。
     struct StubZellij {
-        tabs: Vec<String>,
-        contents: HashMap<String, String>,
+        /// (pane_id, title, is_plugin)
+        panes: Vec<(i64, String, bool)>,
+        /// pane_id → 内容
+        contents: HashMap<i64, String>,
     }
 
     impl ZellijRunner for StubZellij {
         fn run(&self, args: &[&str]) -> Option<String> {
             match args {
-                ["action", "query-tab-names"] => Some(self.tabs.join("\n")),
-                ["action", "dump-screen", idx] => {
-                    let i: usize = idx.parse().ok()?;
-                    let name = self.tabs.get(i)?;
-                    self.contents.get(name).cloned()
+                ["action", "list-panes", "-a", "--json"] => {
+                    let arr: Vec<serde_json::Value> = self
+                        .panes
+                        .iter()
+                        .map(|(id, title, is_plugin)| {
+                            serde_json::json!({
+                                "id": id,
+                                "title": title,
+                                "is_plugin": is_plugin,
+                            })
+                        })
+                        .collect();
+                    Some(serde_json::to_string(&arr).unwrap())
+                }
+                ["action", "dump-screen", "-p", id] => {
+                    let id: i64 = id.parse().ok()?;
+                    self.contents.get(&id).cloned()
                 }
                 _ => None,
             }
@@ -357,24 +386,29 @@ mod tests {
 
     #[test]
     fn zellij_adapter_locate_read_forget() {
-        // zellij tab 名带 marker 前缀与描述后缀（docs/hook.md §marker 定位）
+        // zellij pane title 带 marker 前缀与描述后缀（docs/hook.md §marker 定位）；
+        // plugin pane（tab-bar）混入以验证 TYPE 过滤
         let z = Arc::new(StubZellij {
-            tabs: vec!["alpha".into(), "✳ ft | 收尾中".into()],
-            contents: HashMap::from([("✳ ft | 收尾中".to_string(), "终端内容".to_string())]),
+            panes: vec![
+                (0, "(.) - zellij:link".into(), true),
+                (3, "✳ ft | 收尾中".into(), false),
+            ],
+            contents: HashMap::from([(3, "终端内容".to_string())]),
         });
         let a = ZellijAdapter::new(z);
         // 未收录实例定位失败
         assert_eq!(a.locate("ghost"), None);
-        // 收录实例：Contains 匹配 marker → locate → read 配对
+        // 收录实例：跳过 plugin pane，Contains 匹配 marker → locate → read 配对
         let tab = a.locate("ft").expect("locate");
-        assert!(tab.hwnd < 0, "合成 hwnd 取负数段");
+        assert!(tab.hwnd < -(100_000 + 2), "合成 hwnd 取深负段，与 MapAdapter 小负段隔离");
+        assert_eq!(tab.index, 3, "index 承载真实 pane id");
         assert_eq!(a.read(&tab).as_deref(), Some("终端内容"));
         // 同实例再定位 = 同一 TabRef（缓存稳定）
         assert_eq!(a.locate("ft"), Some(tab));
-        // forget 清定位缓存（重定位仍可读，重新分配）
+        // forget 清定位缓存（重定位仍可读）
         a.forget("ft");
         let tab2 = a.locate("ft").expect("重新定位");
-        assert_eq!(tab2, tab, "zellij tab 顺序稳定，重定位回到同一 TabRef");
+        assert_eq!(tab2, tab, "pane id 稳定，重定位回到同一 TabRef");
         assert_eq!(a.read(&tab2).as_deref(), Some("终端内容"));
     }
 

@@ -131,12 +131,20 @@ fn read_queue(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
         };
         rows.push(ActivityRow {
             file: QUEUE_FILE,
-            kind: format!("{:?}", q.source).to_lowercase(),
+            // 用 serde 序列化名（snake_case），Debug 名会丢下划线（MockHook → mockhook）
+            kind: serde_name(&q.source),
             ts: q.ts,
             summary: truncate(&q.content, 60),
         });
     }
     Ok(rows)
+}
+
+/// 枚举的 serde 序列化名（snake_case），非 Debug 名（multi-word Debug 无下划线分隔）
+fn serde_name<T: serde::Serialize>(v: &T) -> String {
+    serde_json::to_string(v)
+        .map(|s| s.trim_matches('"').to_string())
+        .unwrap_or_default()
 }
 
 fn read_effect(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
@@ -163,7 +171,8 @@ fn read_terminal_content(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
         };
         rows.push(ActivityRow {
             file: TERMINAL_CONTENT_FILE,
-            kind: format!("{:?}", t.source).to_lowercase(),
+            // serde 序列化名（RecordSource::FetchTerminal 是 snake_case fetch_terminal）
+            kind: serde_name(&t.source),
             ts: t.ts,
             summary: format!("{}: {}", t.instance, truncate(&t.raw, 40)),
         });
@@ -223,11 +232,14 @@ fn line_brief(line: &str) -> String {
 struct Options {
     dir: PathBuf,
     follow: bool,
+    /// --dump：非交互，纯文本打印全部行（脚本/管道用；默认是 TUI）
+    dump: bool,
 }
 
 fn parse_args() -> Options {
     let mut dir = overseer_core::paths::storage_dir();
     let mut follow = false;
+    let mut dump = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -237,20 +249,29 @@ fn parse_args() -> Options {
                 }
             }
             "--follow" | "-f" => follow = true,
+            "--dump" | "-d" => dump = true,
             _ => {}
         }
     }
-    Options { dir, follow }
+    Options { dir, follow, dump }
 }
 
 fn main() {
     let opt = parse_args();
     match Activity::load(&opt.dir) {
         Ok(a) => {
-            // TUI 为默认形态（docs/tools.md §形态：TUI 交互界面）
-            if let Err(e) = run_tui(opt.dir, a, opt.follow) {
-                eprintln!("overseer-activity: {e}");
-                std::process::exit(1);
+            if opt.dump {
+                // --dump：非交互纯文本（脚本/管道/验证用）
+                for r in &a.rows {
+                    println!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary);
+                }
+                eprintln!("({} rows from {})", a.rows.len(), opt.dir.display());
+            } else {
+                // TUI 为默认形态（docs/tools.md §形态：TUI 交互界面）
+                if let Err(e) = run_tui(opt.dir, a, opt.follow) {
+                    eprintln!("overseer-activity: {e}");
+                    std::process::exit(1);
+                }
             }
         }
         Err(e) => {
