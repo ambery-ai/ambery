@@ -1,4 +1,4 @@
-//! 声明式 UI 反射（docs/config.md）：Config 类型 = UI 唯一声明源。
+//! 声明式 UI 反射：Config 类型 = UI 唯一声明源。
 //! serde + schemars 即 Rust 的 type reflection：reflect() 泛型 walker 产出节点列表，
 //! CLI / 托盘面板 / LLM tool 全是节点的薄渲染器——加字段零成本。
 
@@ -44,8 +44,7 @@ pub enum NodeType {
     Enum { options: Vec<String> },
     /// map<String, T>：节点本体 + 已有条目展开为子节点
     Map,
-    /// 静态 object 容器（仅 LLM 投影树产出；descriptor tree 为所有容器保留可定位节点，
-    /// docs/config.md §反射与消费者投影）
+    /// 静态 object 容器（仅 LLM 投影树产出；descriptor tree 为所有容器保留可定位节点）
     Object,
     /// 暂不支持渲染的类型（array 等）：只读展示 JSON
     Other,
@@ -61,7 +60,7 @@ pub fn reflect<T: Serialize + schemars::JsonSchema>(value: &T) -> Vec<ConfigNode
 }
 
 /// Config 专用入口：reflect() + OPTIONS 注册表动态 enum 注入 + meta 静态约束投影
-/// （docs/config.md §Validation enum：Range/OneOf 是 descriptor/reflect 输出的一部分，
+/// （Range/OneOf 是 descriptor/reflect 输出的一部分，
 ///  供 CLI 与设置面板机械选择控件——后端仍是唯一放行者，此处只是同一真值的只读投影）
 pub fn config_nodes(config: &Config) -> Vec<ConfigNode> {
     let mut nodes = reflect(config);
@@ -74,7 +73,7 @@ pub fn config_nodes(config: &Config) -> Vec<ConfigNode> {
     nodes
 }
 
-/// LLM 受限投影（docs/config.md §反射与消费者投影）：完整 descriptor tree
+/// LLM 受限投影：完整 descriptor tree
 /// （静态 object / map / map entry 容器全部保留可定位节点）按 no_llm_visible
 /// 过滤——edit_config 的 grep / query 唯一数据源。本地 CLI/面板用 config_nodes。
 pub fn config_nodes_llm(config: &Config) -> Vec<ConfigNode> {
@@ -94,7 +93,7 @@ pub fn config_nodes_llm(config: &Config) -> Vec<ConfigNode> {
 
 /// meta 注册表的静态约束投影进节点（Range → min/max；OneOf → enum options）。
 /// OPTIONS 动态 enum 优先（已覆盖者跳过 OneOf）；Func 不输出静态约束（提交后由统一
-/// validation 返回其 message，docs/config.md §Validation enum）
+/// validation 返回其 message）
 fn apply_meta_constraints(nodes: &mut [ConfigNode]) {
     for n in nodes.iter_mut() {
         let Some(meta) = crate::config::meta::node_meta(&n.path) else { continue };
@@ -132,7 +131,7 @@ static OPTIONS: &[(&str, fn(&Config) -> Vec<String>)] = &[
         v
     }),
     ("theme", |c| {
-        // 合法主题名 = themes 的 key（docs/theme.md）
+        // 合法主题名 = themes 的 key
         let mut keys: Vec<String> = c.themes.keys().cloned().collect();
         keys.sort();
         keys
@@ -341,7 +340,7 @@ mod tests {
 
     #[test]
     fn meta_constraints_project_into_nodes() {
-        // docs/config.md §Validation enum：Range/OneOf 是 reflect 输出的只读投影
+        // Range/OneOf 是 reflect 输出的只读投影
         let cfg = Config::default();
         let nodes = config_nodes(&cfg);
         let vs = nodes.iter().find(|n| n.path == "view_scale").unwrap();
@@ -372,7 +371,7 @@ mod tests {
 
     #[test]
     fn provider_keys_grammar_validated_on_update() {
-        // docs/config.md §Config path grammar：动态 key 在每次 update 时由统一 validation 检查
+        // 动态 key 在每次 update 时由统一 validation 检查
         let mut c = serde_json::to_value(Config::default()).unwrap();
         c["llm"]["providers"]["Bad Key"] = serde_json::json!({"base_url": "http://x", "model": "m"});
         let errs = crate::config::meta::validate_for_update(&c, "llm.providers.Bad Key");

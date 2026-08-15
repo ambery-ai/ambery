@@ -1,5 +1,5 @@
-// Pet 窗口入口（docs/multi-window.md）：pet + Autonomy + 位置广播 + 动画窗口自适应
-// 窗口尺寸走 docs/pet-window-size.md：纯函数公式 + 六入口 + 中心锚定（钉基准中心，非窗口几何中心）
+// Pet 窗口入口：pet + Autonomy + 位置广播 + 动画窗口自适应
+// 窗口尺寸走 ：纯函数公式 + 六入口 + 中心锚定（钉基准中心，非窗口几何中心）
 import { Autonomy } from "../autonomy";
 import { BrowserMockBridge, createBridge, type AppConfig, type Motion } from "../bridge";
 import { reportEffect } from "../effects";
@@ -16,10 +16,10 @@ export async function main() {
   if (!("__TAURI_INTERNALS__" in window)) document.documentElement.classList.add("browser");
 
   const bridge = await createBridge();
-  // 前端 store（docs/case-runner.md §前端读取架构）：core 可读状态集中持有，读取走 store
+  // 前端 store：core 可读状态集中持有，读取走 store
   const store = await Store.create(bridge);
-  wireTheme(store); // docs/theme.md：基线即应用 + 切换即全窗口生效
-  wireI18n(store); // docs/i18n.md：UI 语言基线（本页组件各自订阅重渲染）
+  wireTheme(store); // 基线即应用 + 切换即全窗口生效
+  wireI18n(store); // UI 语言基线（本页组件各自订阅重渲染）
 
   const mount = document.getElementById("app")!;
   const view = new View(mount);
@@ -48,7 +48,7 @@ export async function main() {
     ? await createTauriAdapter(view.el, window.devicePixelRatio || 1)
     : createBrowserAdapter(mount, view.el, view);
 
-  // ── 尺寸控制器（docs/pet-window-size.md：纯函数，不读当前 OS 窗口大小） ──
+  // ── 尺寸控制器（纯函数，不读当前 OS 窗口大小） ──
   // dpr 现读（多屏不同 DPI：拖到别的显示器后换算不失真，#19 坐标契约）
   const dpr = () => (isTauri ? (window.devicePixelRatio || 1) : 1);
   let scale = 1;
@@ -62,7 +62,7 @@ export async function main() {
   /** 入口 1 测量：#face 当前渲染宽度 ÷ scale 还原为未缩放值（公式输入是未缩放宽度） */
   const measureFaceW = () => faceEl.getBoundingClientRect().width / scale;
 
-  /** 系统池扫描取 max + 余量（maxFaceWidth 唯一来源；只扫系统池，docs/config.md §表情池） */
+  /** 系统池扫描取 max + 余量（maxFaceWidth 唯一来源；只扫系统池） */
   function scanMaxFaceW(cfg: AppConfig): number {
     const probe = document.createElement("span");
     probe.style.cssText =
@@ -225,7 +225,7 @@ export async function main() {
   if (isTauri) {
     view.el.dataset.tauriDragRegion = "";
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    // 非只读 Tauri 运行时动作只经动作层执行（docs/effect-reporting.md §运行时动作层）：
+    // 非只读 Tauri 运行时动作只经动作层执行：
     // 动作层执行真实 API 成功后自记 effect；业务只编排语义化动作，不拼 kind/payload
     const actions = await import("../tauri_runtime_actions");
     const emitR = (event: string, payload?: unknown) => { void actions.emitEvent(event, payload); };
@@ -283,7 +283,7 @@ export async function main() {
       })();
     });
 
-    // Cards Shelf（docs/view.md：瞬时管理弹出层，不属于 Surface）：中键唤出——
+    // Cards Shelf（瞬时管理弹出层，不属于 Surface）：中键唤出——
     // 发去 pet 中心与物理宽高，shelf 按 ×3 现算尺寸、遮挡 pet 向右上延伸；
     // 关闭走 中键/失焦/pet 拖拽
     view.el.addEventListener("auxclick", async (e) => {
@@ -328,7 +328,7 @@ export async function main() {
       engine.remove(`card-${id}`);
     });
 
-    // 手势（docs/view.md §手势与 Chat 唤出）：右键 = 唤出/关闭 Chat（chat:toggle，
+    // 手势：右键 = 唤出/关闭 Chat（chat:toggle，
     // pet 原地不动——无吸附态）；chat 窗口位置经 engine.place 自定位（chat-window.ts）
     view.el.addEventListener("chat:toggle", () => {
       emitToR("chat", "chat:toggle");
@@ -337,7 +337,7 @@ export async function main() {
     broadcastPosition();
     await win.onMoved(() => broadcastPosition());
 
-    // Card 跨重启恢复（docs/components.md §Card 文件）：pull-on-ready——store 基线即
+    // Card 跨重启恢复：pull-on-ready——store 基线即
     // 存活卡片（component + _meta）；可见（user_closed=false）的重建窗口；manual 布局
     // 先 seed engine（相对 pet 偏移原样接棒），card 的 requestPlace 命中 manual 占区即原位恢复
     for (const c of store.cards ?? []) {
@@ -353,7 +353,7 @@ export async function main() {
     const { ComponentManager } = await import("../components/component-manager");
     const mgr = new ComponentManager(mount, bridge, () => view.center(), false, engine);
     const chatPanel = new ChatPanel(mount, bridge, store, engine);
-    // 手势（docs/view.md §手势与 Chat 唤出，browser 与 Tauri 同一语义）：
+    // 手势（browser 与 Tauri 同一语义）：
     // 右键 = 唤出/关闭 Chat（chat:toggle；pet 原地不动，无吸附态）
     view.el.addEventListener("chat:toggle", () => chatPanel.toggle());
 
@@ -494,8 +494,8 @@ export async function main() {
 
   store.onConfig((cfg) => {
     autonomy.updateConfig(cfg); // 表情解析热更新（key 消失回落在 deriveDefault）
-    applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right"); // view.md：badge 热更新
-    // docs/autonomy.md 字段表：系统池变更 → 立即重扫、重算 pet 尺寸与固定障碍区
+    applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right"); // badge 热更新
+    //  字段表：系统池变更 → 立即重扫、重算 pet 尺寸与固定障碍区
     maxFaceW = scanMaxFaceW(cfg);
     const ns = cfg.viewScale ?? 1;
     if (ns !== scale) {

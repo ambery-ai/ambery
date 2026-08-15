@@ -1,4 +1,4 @@
-﻿# ambery-hook.ps1（docs/hook.md）：Claude Code command hook → ambery。
+﻿# ambery-hook.ps1：Claude Code command hook → ambery。
 # stdin 读 payload JSON；SessionStart/UserPromptSubmit 向 stdout 输出 sessionTitle（定位标记）；
 # 所有事件 fire-and-forget POST 到 127.0.0.1:47600/hook（失败静默，绝不阻塞 Claude）。
 # 隐私边界：只转发 session_id/cwd/kind/prompt/message/last_assistant_message，不读 transcript。
@@ -39,7 +39,7 @@ try {
 
     switch ($event) {
         "SessionStart" {
-            # 定位标记（marker 前缀不变量，docs/hook.md §marker 定位）
+            # 定位标记（marker 前缀不变量）
             @{ sessionTitle = $marker } | ConvertTo-Json -Compress | Write-Output
             postHook @{ event = "session_start"; session_id = $sid; cwd = $cwd; kind = "claude" }
         }

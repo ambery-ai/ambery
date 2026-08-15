@@ -1,4 +1,4 @@
-//! ambery-case CLI（docs/case-runner.md）：两段式 .case 回放、step 执行与概念观测。
+//! ambery-case CLI：两段式 .case 回放、step 执行与概念观测。
 
 use ambery_core::case::CaseFile;
 use ambery_core::llm::LlmBackend;
@@ -19,7 +19,7 @@ fn opt_val(args: &[String], flag: &str) -> Option<String> {
         .cloned()
 }
 
-/// debug 决策源参数（docs/debug-agent.md §HTTP brain / docs/case-runner.md §用例）：
+/// debug 决策源参数：
 /// `--brain-addr <url>` = HTTP brain（注入 provider，走 OpenAiClient 通用路径）；
 /// `--silent` = 沉默 DebugAgent。两者互斥；debug 模式必须显式给一个
 fn parse_decision(args: &[String]) -> (Option<String>, bool) {
@@ -59,7 +59,7 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("usage: ambery-case <case.case> [--step-num N] [--health] [--brain-addr <url> | --silent]");
-        eprintln!("       ambery-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主（docs/case-runner.md §壳类比）");
+        eprintln!("       ambery-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主");
         eprintln!("       ambery-case frontend [--brain-addr <url> | --silent] # 前端进 case：内嵌 core + 拉起 vitest");
         eprintln!("       ambery-case export [--storage DIR] [--instances a,b] [--window 30m]");
         eprintln!("              [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] [--dedup] [--dry-run] [--case-id ID]");
@@ -70,7 +70,7 @@ async fn main() {
         run_export(&args[2..]);
         return;
     }
-    // frontend：前端进 case（docs/case-runner.md §壳类比）——内嵌 core + 拉起 TS 测试进程
+    // frontend：前端进 case——内嵌 core + 拉起 TS 测试进程
     if args[1] == "frontend" {
         let (brain, silent) = parse_decision(&args[2..]);
         run_frontend(brain, silent).await;
@@ -82,7 +82,7 @@ async fn main() {
         let needs_decision =
             Config::load_or_default(&ambery_core::paths::config_root()).llm.active == "debug";
         if needs_decision && brain.is_none() && !silent {
-            eprintln!("USAGE: llm active=debug 的 serve 必须显式 --brain-addr <url> 或 --silent（docs/debug-agent.md）");
+            eprintln!("USAGE: llm active=debug 的 serve 必须显式 --brain-addr <url> 或 --silent");
             std::process::exit(2);
         }
         let parts = ambery_core::host::assemble_host(
@@ -115,12 +115,12 @@ async fn main() {
         }
     };
 
-    // debug 决策源规则（docs/case-runner.md §用例）：debug 模式必须显式 --brain-addr
+    // debug 决策源规则：debug 模式必须显式 --brain-addr
     // 或 --silent；real 模式禁止携带（brain 是 debug 专用决策源）。health 静态检查豁免
     if !health_mode {
         match case.meta.llm_mode {
             ambery_core::case::LlmMode::Debug if brain_addr.is_none() && !silent => {
-                eprintln!("USAGE: debug 模式必须显式给 --brain-addr <url> 或 --silent（docs/case-runner.md §用例）");
+                eprintln!("USAGE: debug 模式必须显式给 --brain-addr <url> 或 --silent");
                 std::process::exit(2);
             }
             ambery_core::case::LlmMode::Real if brain_addr.is_some() || silent => {
@@ -144,7 +144,7 @@ async fn main() {
         seq_ts += 1;
         v.and_then(|v| v.as_i64()).unwrap_or(seq_ts)
     };
-    // 用户变量（store step 设置，跨 step 复用；docs/case-eval-system.md）
+    // 用户变量（store step 设置，跨 step 复用）
     let mut vars: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     for (i, step) in case.steps.iter().enumerate() {
@@ -214,7 +214,7 @@ fn setup(
     write_jsonl(&tmp, "queue.jsonl", &case.queue);
     write_jsonl(&tmp, "cron.jsonl", &case.cron);
     // memory 节：Markdown 原文按相对路径落盘；index.md 不进 case——
-    // Harness bootstrap 按已选普通记忆在沙盒重建（docs/case-runner.md §数据节）
+    // Harness bootstrap 按已选普通记忆在沙盒重建
     for f in &case.memory {
         let path = tmp.join(ambery_core::memory::MEMORY_DIR).join(&f.path);
         std::fs::create_dir_all(path.parent().expect("memory file parent")).expect("memory dir");
@@ -231,7 +231,7 @@ fn setup(
         }
         config = serde_json::from_value(cv).expect("config from value");
     }
-    // LLM 模式（docs/case-runner.md §LLM 模式）：meta.llm_mode 两种平级——
+    // LLM 模式：meta.llm_mode 两种平级——
     // debug 强制沉默（确定性）；real 合并生产 providers（子集校验）+ env key 现成
     match case.meta.llm_mode {
         ambery_core::case::LlmMode::Debug => {
@@ -271,7 +271,7 @@ fn setup(
     (ov, terminals)
 }
 
-/// 前端进 case 宿主（docs/case-runner.md §壳类比落地形态）：
+/// 前端进 case 宿主：
 /// 一次性沙盒 env → 内嵌 core（serve 同款装配，独立端口避让生产）→ 拉起 vitest
 /// 子进程（env 继承端口与沙盒目录）→ 退出码透传
 async fn run_frontend(brain: Option<String>, silent: bool) {
@@ -283,7 +283,7 @@ async fn run_frontend(brain: Option<String>, silent: bool) {
     std::env::set_var("AMBERY_CONFIG_DIR", &dir);
     let needs_decision = Config::load_or_default(&dir).llm.active == "debug";
     if needs_decision && brain.is_none() && !silent {
-        eprintln!("USAGE: llm active=debug 的 frontend 必须显式 --brain-addr <url> 或 --silent（docs/debug-agent.md）");
+        eprintln!("USAGE: llm active=debug 的 frontend 必须显式 --brain-addr <url> 或 --silent");
         std::process::exit(2);
     }
     let parts = ambery_core::host::assemble_host(
@@ -312,7 +312,7 @@ async fn run_frontend(brain: Option<String>, silent: bool) {
     std::process::exit(status.code().unwrap_or(1));
 }
 
-/// 两段式合法性校验（docs/case-runner.md §health 检查项）
+/// 两段式合法性校验
 fn health(text: &str, case: &CaseFile) {
     let mut ok = true;
     // 1. 数据区每行（含 marker 行）是合法 JSONL；marker 行形态校验
@@ -385,7 +385,7 @@ fn health(text: &str, case: &CaseFile) {
     // 4. replay 烟测：Harness::load 不 panic + observe 可执行（health 不经 LLM，沉默装配）
     let (ov, _t) = setup(case, None, false);
     let _ = ambery_core::case::observe(&ov);
-    // 5. pre-parse 预检（docs/case-eval-system.md §checkhealth，静态不执行）：
+    // 5. pre-parse 预检（静态不执行）：
     //    表达式 try_parse / 变量引用有效 / store 类型合法 / 类型可落 / observe target 合法
     for f in ambery_core::case::pre_parse_check(case) {
         eprintln!("FAIL: pre-parse: {f}");
@@ -406,7 +406,7 @@ fn write_jsonl(dir: &std::path::Path, name: &str, content: &str) {
     std::fs::write(dir.join(name), content).expect("write jsonl");
 }
 
-/// 实时 storage → .case 导出（docs/case-runner.md §导出工具）：过滤 → 最小化 → 两段式输出
+/// 实时 storage → .case 导出：过滤 → 最小化 → 两段式输出
 fn run_export(args: &[String]) {
     let opt_val = |flag: &str| -> Option<String> {
         args.iter()
@@ -421,7 +421,7 @@ fn run_export(args: &[String]) {
     let case_id = opt_val("--case-id").unwrap_or_else(|| {
         format!("export-{}", std::process::id())
     });
-    // inclusion bool 与类别过滤器必须成对（docs/case-runner.md §过滤器参数）：单独指定 = USAGE
+    // inclusion bool 与类别过滤器必须成对：单独指定 = USAGE
     let keep_memory = has("--keep-memory");
     let memory = opt_val("--memory")
         .map(|s| s.split(',').map(|x| x.trim().to_string()).collect::<Vec<_>>());

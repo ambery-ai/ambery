@@ -1,4 +1,4 @@
-//! 共享宿主装配（docs/case-runner.md §壳类比）：debug 宿主的统一骨架——
+//! 共享宿主装配：debug 宿主的统一骨架——
 //! Config/Harness/LLM/Terminal Adapter 装配 → AppState → 完整 router。
 //! ambery-case serve / frontend 共用；Tauri 壳自带窗口管理分歧，不复用本骨架。
 
@@ -25,7 +25,7 @@ pub struct HostParts {
     pub timer_batch: usize,
 }
 
-/// 装配宿主（docs/case-runner.md §壳类比「进程主体内嵌 core」）：
+/// 装配宿主：
 /// Config（AMBERY_CONFIG_DIR 可覆盖，`adjust_config` 给调用方一次注入机会，
 /// 如 serve 的 brain provider）→ Harness（AMBERY_STORAGE_DIR）→
 /// LLM（`wrap_backend` 给调用方一次换入决策源的机会；serve/frontend 传恒等）→
@@ -63,7 +63,7 @@ pub fn assemble_host(
     let backend = wrap_backend(LlmBackend::from_config(&config.llm));
     let mut ambery = AmberyBackend::new(harness, config, backend);
 
-    // Terminal Adapter 装配（docs/terminal-adapter.md）：adapter_wt 开关门控（冷字段）
+    // Terminal Adapter 装配：adapter_wt 开关门控（冷字段）
     let sidecar = if ambery.config.terminal.adapter_wt {
         crate::paths::sidecar_exe()
             .map(crate::sidecar::SidecarClient::new)
@@ -101,7 +101,7 @@ pub fn assemble_host(
     }
 }
 
-/// 完整 router 服役（docs/core-server.md §debug 模式完整 router）：
+/// 完整 router 服役：
 /// 广播/effect sink/后台任务（timer/queue/config watcher/cron）+ axum serve。
 pub async fn serve_host(parts: HostParts, port: u16) {
     let (tx, _) = broadcast::channel(64);
@@ -115,9 +115,9 @@ pub async fn serve_host(parts: HostParts, port: u16) {
     state.wire_effect_sink().await;
     spawn_timer_task(state.clone(), parts.tick_ms, parts.timer_batch);
     spawn_queue_consumer(state.clone());
-    // 外部文件自动载入（docs/config.md §外部文件自动载入）
+    // 外部文件自动载入
     spawn_config_watcher(state.clone(), parts.config_dir.clone());
-    // Cron 调度任务（concepts §10g，docs/cron.md）
+    // Cron 调度任务
     spawn_cron_task(state.clone());
     let app = router(state, tx_for_ws);
 

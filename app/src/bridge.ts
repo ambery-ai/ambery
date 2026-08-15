@@ -2,9 +2,9 @@
 // Tauri 模式走 IPC（后续 Tauri 壳迭代接入），浏览器测试模式走内存 mock，
 // 使全部显示逻辑可在 Chrome DevTools 中直接驱动验证。
 
-// ── 领域模型（与 concepts.md 对齐） ──
+// ── 领域模型（与  对齐） ──
 
-/** concepts §9a Status 状态机 */
+/**  Status 状态机 */
 export type CodeCliStatus = "idle" | "processing" | "unknown";
 
 export interface CodeCliInstance {
@@ -13,13 +13,13 @@ export interface CodeCliInstance {
   status: CodeCliStatus;
 }
 
-/** concepts §4：Autonomy 顶层状态 = Context 中 Code CLI Status 一览 + 未决通知数 */
+/** Autonomy 顶层状态 = Context 中 Code CLI Status 一览 + 未决通知数 */
 export interface TopState {
   instances: CodeCliInstance[];
   pendingNotifications: number;
 }
 
-/** docs/autonomy.md：Motion 枚举 */
+/** Motion 枚举 */
 export type Motion = "still" | "float" | "bounce" | "shake";
 
 export interface KaomojiEntry {
@@ -27,9 +27,9 @@ export interface KaomojiEntry {
   motion: Motion;
 }
 
-/** concepts §12 Config（当前仅前端所需子集） */
+/**  Config（当前仅前端所需子集） */
 export interface AppConfig {
-  /** 表情两池（docs/config.md §表情池）：system 系统池（尺寸扫描来源）+ user 用户池。
+  /** 表情两池：system 系统池（尺寸扫描来源）+ user 用户池。
    *  key 全局唯一（后端校验不相交），默认状态与 set_autonomy(key) 按并集解析 */
   kaomoji: {
     system: Record<string, KaomojiEntry>;
@@ -37,23 +37,23 @@ export interface AppConfig {
   };
   /** set_autonomy 省略 ttlMs 时的默认值 */
   setAutonomyDefaultTtlMs: number;
-  /** View 缩放（concepts §3，默认 0.5） */
+  /** View 缩放（默认 0.5） */
   viewScale: number;
   /** 未读角标样式（#5）：number 纯数字（默认）/ bubble 气泡 */
   badgeStyle?: "number" | "bubble";
   /** 未读角标方位（#5）：right（默认）/ left */
   badgeSide?: "right" | "left";
-  /** 当前主题名（docs/theme.md）：themes 的 key */
+  /** 当前主题名：themes 的 key */
   theme?: string;
-  /** 主题表（docs/theme.md）：主题名 → token 覆写表（token 名去 --ov- 前缀 → CSS 值） */
+  /** 主题表：主题名 → token 覆写表（token 名去 --ov- 前缀 → CSS 值） */
   themes?: Record<string, Record<string, string>>;
-  /** UI 语言（docs/i18n.md）：zh / en */
+  /** UI 语言：zh / en */
   uiLanguage?: "zh" | "en";
-  /** pet 名称（docs/view.md §名称）：稳定身份值，不参与翻译 */
+  /** pet 名称：稳定身份值，不参与翻译 */
   name?: string;
 }
 
-/** docs/components.md：Component 方位（八方位词；引擎内部按 16 方位环解析） */
+/** Component 方位（八方位词；引擎内部按 16 方位环解析） */
 export type Direction =
   | "n"
   | "ne"
@@ -65,7 +65,7 @@ export type Direction =
   | "nw"
   | "auto";
 
-/** docs/components.md：call_component 协议（判别联合） */
+/** call_component 协议（判别联合） */
 export type ComponentSpec =
   | { id: string; type: "text_card"; direction?: Direction; title: string; text: string }
   | { id: string; type: "quick_jump"; direction?: Direction; label: string; target: string }
@@ -96,7 +96,7 @@ export type ComponentSpec =
       items: { text: string; done: boolean }[];
     };
 
-/** docs/chat-panel.md：Queue 消息（concepts §10c 四 role） */
+/** Queue 消息（四 role） */
 export interface ContextMessage {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
@@ -109,15 +109,15 @@ export interface Bridge {
   onTopStateChanged(cb: (s: TopState) => void): void;
   /** Ambery → UI：渲染 Component（pet call_component 的执行结果） */
   onRenderComponent(cb: (spec: ComponentSpec) => void): void;
-  /** UI → Harness：Component 交互事件写入 Event Buffer（concepts §10e）。
+  /** UI → Harness：Component 交互事件写入 Event Buffer。
    *  前端只上报结构化事实；自然语言文本由 core 按 Harness 语言现写
-   *  （lifecycle 语义单源 + docs/i18n.md §Harness 内部语言）。
+   *  （lifecycle 语义单源）。
    *  dismiss：closed_by_user 双行事件 + 删 .card.json + 出注册表；
    *  todo_toggle/todo_add 经 state 携带双载荷快照（同 card 去重合并） */
   pushEvent(ev: UserActionEvent): void;
-  /** Queue：对话历史读取 + 用户输入写入 user role（concepts §3a）。
+  /** Queue：对话历史读取 + 用户输入写入 user role。
    *  appendUserMessage 返回是否成功送达 core——失败时调用方必须让用户文字不丢
-   *  （docs/chat-panel.md §输入与发送：明确说明失败 + 可重试/继续编辑） */
+   *  （明确说明失败 + 可重试/继续编辑） */
   getContext(): Promise<ContextMessage[]>;
   appendUserMessage(text: string): Promise<boolean>;
   onContextChanged(cb: (msgs: ContextMessage[]) => void): void;
@@ -127,14 +127,14 @@ export interface Bridge {
   ): void;
   /** 可选（RemoteBridge）：Ambery 推送 Config 变更（edit_config 的结果） */
   onConfigChanged?(cb: (cfg: AppConfig) => void): void;
-  /** 可选：流式增量（docs/streaming.md）——assistant 回复片段，纯显示优化 */
+  /** 可选：流式增量——assistant 回复片段，纯显示优化 */
   onAssistantDelta?(cb: (d: { content?: string; reasoning_content?: string }) => void): void;
   /** 可选：一轮回复完毕（loading 收尾，完整回复已写 Context） */
   onAssistantDone?(cb: () => void): void;
   /** 可选：显式关闭卡片（Component 持续管理协议：action="close"） */
   onCloseComponent?(cb: (id: string) => void): void;
   /** 可选（TauriBridge）：Card 跨重启恢复——启动拉取全部存活卡片
-   *  （component + _meta 显示选择与布局；readonly 查询，docs/components.md §Card 文件） */
+   *  （component + _meta 显示选择与布局；readonly 查询） */
   listCards?(): Promise<RestoredCard[]>;
   /** 可选（TauriBridge）：Card 显示选择回写（Cards Shelf 显隐切换 → _meta.user_closed） */
   setCardUserClosed?(id: string, userClosed: boolean): Promise<{ ok: boolean; error?: string }>;
@@ -143,10 +143,10 @@ export interface Bridge {
   /** 可选（TauriBridge/RemoteBridge）：设置面板 schema 读取（单消费者、体积大，不进 store） */
   getConfigSchema?(): Promise<ConfigSchemaResp>;
   /** 可选（TauriBridge/RemoteBridge）：设置面板改值（写：core 统一修改管道，
-   *  端点记录 config_update effect，docs/effect-reporting.md） */
+   *  端点记录 config_update effect） */
   setConfig?(path: string, value: unknown): Promise<SetConfigResp>;
   /** 可选（TauriBridge）：Card 布局回写（写：拖拽结束落 _meta.layout，
-   *  端点记录 card_layout effect，docs/components.md §Card 文件） */
+   *  端点记录 card_layout effect） */
   updateCardLayout?(id: string, offset: [number, number]): Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -169,7 +169,7 @@ export interface RestoredCard {
   layout: { direction: string | null; offset: [number, number] | null; manual: boolean };
 }
 
-/** 设置面板 schema（docs/config.md §统一修改入口）：menu 单消费者且体积大，
+/** 设置面板 schema：menu 单消费者且体积大，
  *  不满足 store 边界判据（多窗口/组件读），经 bridge 方法直读，不进 store */
 export interface ConfigNodeType {
   kind: "bool" | "int" | "float" | "str" | "enum" | "map" | "other";
@@ -231,7 +231,7 @@ export interface DebugApi {
   };
   /** 模拟 pet 的 call_component tool call */
   callComponent(spec: ComponentSpec): void;
-  /** 读取 Event Buffer 当前内容（不写 Queue user role，concepts §10e） */
+  /** 读取 Event Buffer 当前内容（不写 Queue user role） */
   eventBuffer(): string[];
   /** 模拟 LLM 触发时合并注入后清空 Buffer */
   flushEventBuffer(): string[];
@@ -393,7 +393,7 @@ export class BrowserMockBridge implements Bridge {
   }
 }
 
-/** Tauri 原生 IPC bridge（invoke + listen，docs/core-server.md） */
+/** Tauri 原生 IPC bridge（invoke + listen） */
 class TauriBridge implements Bridge {
   private renderListeners: ((spec: ComponentSpec) => void)[] = [];
   private contextListeners: ((m: ContextMessage[]) => void)[] = [];

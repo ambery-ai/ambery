@@ -1,4 +1,4 @@
-//! ambery-cli（docs/config.md「修改入口」）：Config 的声明式 CLI。
+//! ambery-cli（「修改入口」）：Config 的声明式 CLI。
 //! 零 per-field 代码——list/get/set/schema 四命令全是 schema 节点的薄渲染。
 //! 默认走 HTTP（热生效 + 广播）；--offline 直写文件兜底（server 未运行时使用）。
 
@@ -10,7 +10,7 @@ use serde_json::Value;
 const DEFAULT_BASE: &str = "http://127.0.0.1:47600";
 
 #[derive(Parser)]
-#[command(name = "ambery-cli", about = "Ambery 配置 CLI（docs/config.md）")]
+#[command(name = "ambery-cli", about = "Ambery 配置 CLI")]
 struct Cli {
     /// 直写 config.json（server 未运行时；无热生效/广播）
     #[arg(long, global = true)]
@@ -149,7 +149,7 @@ fn run_offline(cmd: Cmd) -> Result<String, String> {
             reflect::set_by_path(&mut v, &path, value.clone())?;
             let new: Config =
                 serde_json::from_value(v).map_err(|e| format!("验证失败: {e}"))?;
-            // 统一 validation（docs/config.md §统一修改入口：验证只能有一份——
+            // 统一 validation（验证只能有一份——
             // offline 直写同样跑 meta validators，原子拒绝）
             let verrs = ambery_core::config::meta::validate_for_update(
                 &serde_json::to_value(&new).map_err(|e| e.to_string())?,

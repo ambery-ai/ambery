@@ -1,4 +1,4 @@
-//! Mock 面（隔离区，docs/agent-loop.md §Mock）——真实 hook 接入完成后**整模块删除**。
+//! Mock 面（隔离区）——真实 hook 接入完成后**整模块删除**
 //!
 //! 删除清单（一刀）：
 //! 1. 本文件（core/src/mock.rs）
@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use crate::server::AppState;
 use axum::{extract::State, response::IntoResponse, Json};
 
-/// MockTerminals（MapAdapter 共享 map，docs/terminal-adapter.md §实现）：instance → 当前终端文本
+/// MockTerminals（MapAdapter 共享 map）：instance → 当前终端文本
 pub type MockTerminals = Arc<Mutex<HashMap<String, String>>>;
 
 pub fn new_terminals() -> MockTerminals {

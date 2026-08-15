@@ -1,7 +1,7 @@
-// 托盘设置面板（docs/config.md）：schema 驱动的声明式 config UI。
+// 托盘设置面板：schema 驱动的声明式 config UI。
 // 本文件不认识 Config——只是 GET /config/schema 节点的薄渲染器，
 // 加字段零成本自动出现；改值 → set_config（验证/热生效/广播都在 core）。
-// 读取走 bridge 方法、写入走动作层（invoke 收口规则，docs/case-runner.md §前端读取架构）。
+// 读取走 bridge 方法、写入走动作层（invoke 收口规则）。
 
 import { createBridge, type Bridge, type ConfigSchemaNode, type ConfigSchemaResp } from "../bridge";
 import { Store } from "../store";
@@ -18,7 +18,7 @@ let bridge: Bridge;
 export async function main() {
   bridge = await createBridge();
   const store = await Store.create(bridge);
-  // docs/theme.md：设置面板同样采用当前主题；docs/i18n.md：UI 语言切换即重渲染
+  // 设置面板同样采用当前主题：UI 语言切换即重渲染
   wireTheme(store);
   wireI18n(store, () => void render());
   document.body.innerHTML = `<div id="menu-panel">
@@ -70,14 +70,14 @@ async function render() {
       `<div class="warn">${escapeHtml(t("menu.readonly"))}</div>`,
     );
   }
-  // 外部自动载入错误（docs/config.md §外部文件自动载入：保持 live Config，UI 显示具体错误）
+  // 外部自动载入错误（保持 live Config，UI 显示具体错误）
   if (resp.loadError) {
     body.insertAdjacentHTML(
       "beforeend",
       `<div class="err">${escapeHtml(t("menu.load-error", { error: resp.loadError }))}</div>`,
     );
   }
-  // 待重启状态（docs/config.md §待重启状态：保存值与运行值不同）
+  // 待重启状态（保存值与运行值不同）
   if (resp.restartRequired?.length) {
     body.insertAdjacentHTML(
       "beforeend",
@@ -107,7 +107,7 @@ async function render() {
       body.appendChild(renderNode(n, resp.readOnly, pools));
     }
   }
-  // 主题分享（docs/theme.md §导出、分享与兼容）：导出到 config_root/themes/，按文件名导入
+  // 主题分享：导出到 config_root/themes/，按文件名导入
   if (!resp.readOnly) {
     const currentTheme = String(resp.nodes.find((n) => n.path === "theme")?.value ?? "dark");
     body.insertAdjacentHTML("beforeend", `<div class="group">${t("menu.theme-group")}</div>`);
@@ -215,7 +215,7 @@ function renderNode(
   line.innerHTML = nameHtml;
   line.appendChild(control);
   // 表情池条目（kaomoji.{system|user}.<key>.face 行）：池间原子移动按钮——
-  // 单次 kaomoji 整节点写入，统一管道保证原子性与两池校验（docs/config.md §表情池）
+  // 单次 kaomoji 整节点写入，统一管道保证原子性与两池校验
   const m = n.path.match(/^kaomoji\.(system|user)\.([^.]+)\.face$/);
   if (m) {
     const from = m[1] as "system" | "user";

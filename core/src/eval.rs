@@ -1,4 +1,4 @@
-//! case 求值引擎（docs/case-eval-system.md）：表达式 + 变量 + parser + 类型系统。
+//! case 求值引擎：表达式 + 变量 + parser + 类型系统。
 //! observe 路径类 target 的 lines 与 store 的 value 共用本机制。
 //! feature "case-runner" gate。
 

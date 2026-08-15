@@ -1,10 +1,10 @@
-//! Harness 内部语言（docs/i18n.md §Harness 内部语言）：供系统与 LLM 协作的人读文本。
+//! Harness 内部语言：供系统与 LLM 协作的人读文本。
 //! 切换从下一次新的 LLM 交互开始生效——工具说明/参数说明在请求构建时现查表，系统事件
 //! 文字在事件发生时现写，错误反馈在执行时现查；不改写已有 Context、历史 Chat 或已生成
 //! 内容（持久化的 base_prompt / AGENTS.md 以首启时刻语言生成，属已生成内容）。
 //! 机器契约（tool name / Config path / JSON key / 协议字段 / 枚举值）不在本表，永不翻译。
 //!
-//! 表体：(key, zh, en) 三元组；zh 为基准语言，en 为 AI 生成翻译（i18n.md §0.1.0 公开说明）。
+//! 表体：(key, zh, en) 三元组；zh 为基准语言，en 为 AI 生成翻译。
 
 /// Harness 语言（Config `harness_language` 的运行时形态）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

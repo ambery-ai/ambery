@@ -1,4 +1,4 @@
-// chat 交互原则前端 case（docs/chat-panel.md）：
+// chat 交互原则前端 case：
 // 滚动意图态机 / IME 守卫 / 自增长 / 发送按钮 / 失败保文重试 / 排队状态翻译 / 回应提示。
 // jsdom 无布局——滚动几何用 defineProperty 打桩（scrollHeight/clientHeight/scrollTop）。
 

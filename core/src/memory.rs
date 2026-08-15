@@ -1,4 +1,4 @@
-//! Memory（concepts §10f，docs/memory.md）：Harness 管理的持久工作空间。
+//! Memory：Harness 管理的持久工作空间。
 //! memory/ 根：AGENTS.md + index.md（只读）；notes/ 普通 note（YAML frontmatter 必带
 //! description）；cards/ 持久工作产物（不经 read_memory/write_memory 管理）。
 
@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 pub const MEMORY_DIR: &str = "memory";
 pub const NOTES_DIR: &str = "notes";
 pub const CARDS_DIR: &str = "cards";
-/// 设计常量（docs/memory.md）：单文件 UTF-8 字节上限（碎片化记忆）
+/// 设计常量：单文件 UTF-8 字节上限（碎片化记忆）
 pub const MAX_CONTENT_BYTES: usize = 4096;
 /// description 上限（单行、不含 `|`，进 index.md 表）
 pub const MAX_DESC_CHARS: usize = 80;
@@ -16,7 +16,7 @@ pub const MAX_NAME_CHARS: usize = 64;
 /// 保留名（可读不可写）
 pub const RESERVED: &[&str] = &["index", "AGENTS"];
 
-/// 文件名 grammar（docs/memory.md）：`^[a-z][a-z0-9_-]*$` 且 ≤ 64 字符
+/// 文件名 grammar：`^[a-z][a-z0-9_-]*$` 且 ≤ 64 字符
 pub fn valid_name(name: &str) -> bool {
     if name.is_empty() || name.chars().count() > MAX_NAME_CHARS {
         return false;
@@ -35,7 +35,7 @@ pub struct Memory {
 }
 
 impl Memory {
-    /// bootstrap：创建 Memory 工作空间（根 + notes/ + cards/）+ 默认 AGENTS.md（不存在时）；
+    /// bootstrap：创建 Memory 工作空间（根 + notes/ + cards）+ 默认 AGENTS.md（不存在时）；
     /// 旧扁平根自动迁移（根下普通 .md 移入 notes/，首行 description 注释转 frontmatter）；
     /// index.md 不存在或发生迁移时重生成。
     /// 默认路径用项目默认语言（测试/工具）；生产经 bootstrap_with_lang 传 harness_language
@@ -62,12 +62,12 @@ impl Memory {
         Ok(m)
     }
 
-    /// Memory 工作空间根（storage/memory/）
+    /// Memory 工作空间根（storage/memory）
     pub fn root(&self) -> &Path {
         &self.root
     }
 
-    /// 普通 note 目录（memory/notes/）
+    /// 普通 note 目录（memory/notes）
     pub fn notes_dir(&self) -> PathBuf {
         self.root.join(NOTES_DIR)
     }
@@ -105,7 +105,7 @@ impl Memory {
     }
 
     /// 读记忆（None = index.md 导航）。返回 (name, content)；全文含 frontmatter。
-    /// 错误反馈按 Harness 语言（docs/i18n.md §Harness 内部语言）
+    /// 错误反馈按 Harness 语言
     pub fn read(&self, lang: crate::i18n::Lang, name: Option<&str>) -> Result<(String, String), String> {
         use crate::i18n::{tr, trf};
         let name = name.unwrap_or("index");
@@ -149,7 +149,7 @@ impl Memory {
         if desc_chars > MAX_DESC_CHARS {
             return Err(trf(lang, "mem.desc-too-long", &[("len", desc_chars.to_string()), ("max", MAX_DESC_CHARS.to_string())]));
         }
-        // description 存于文件开头 YAML frontmatter（与正文同文件不漂移，docs/memory.md）
+        // description 存于文件开头 YAML frontmatter（与正文同文件不漂移）
         let file_content = format!("---\ndescription: {description}\n---\n\n{content}");
         std::fs::write(self.notes_dir().join(format!("{name}.md")), file_content)
             .map_err(|e| trf(lang, "mem.write-failed", &[("e", e.to_string())]))?;
@@ -185,7 +185,7 @@ impl Memory {
         entries
     }
 
-    /// index.md 全量重生成（docs/memory.md §index.md 契约）：
+    /// index.md 全量重生成：
     /// 汇总 notes/ 内普通 note 的名称 + frontmatter description。
     /// 每次 write 后调用；外部增删文件在下一次 write 时自动收敛。
     fn regenerate_index(&self) -> std::io::Result<()> {
@@ -230,17 +230,17 @@ fn strip_desc_comment(content: &str) -> Option<(String, String)> {
 
 /// 旧版 bootstrap 默认 AGENTS.md（仅用于识别未改过的自动生成文件并收敛）
 const OLD_DEFAULT_AGENTS_MD: &str = "# Memory（Ambery 持久化理解 buffer）\n\n\
-     本目录是 pet 的长期记忆根（扁平、无子目录，concepts §10f）。普通记忆是同层短小 .md 文件；\n\
+     本目录是 pet 的长期记忆根（扁平、无子目录）。普通记忆是同层短小 .md 文件；\n\
      `index.md` 自动汇总所有普通记忆的名称与描述（请勿手编，会被下一次 write 覆盖）。\n\n\
      读写规则：`read_memory` 读记忆（省略 name = 读 index.md 导航）；`write_memory` 整篇新建/覆盖，\n\
      必须附 description（进 index.md）。本文件与 index.md 默认只读；无删除 tool——记忆经同名覆盖演进，\n\
-     确需删除由用户或后端直接管理本目录文件。详见 docs/memory.md。\n";
+     确需删除由用户或后端直接管理本目录文件。\n";
 
-/// Memory 工作空间默认 AGENTS.md（docs/i18n.md：bootstrap 时刻的 Harness 语言生成）
+/// Memory 工作空间默认 AGENTS.md（bootstrap 时刻的 Harness 语言生成）
 fn default_agents_md_lang(lang: crate::i18n::Lang) -> String {
     match lang {
         crate::i18n::Lang::En => "# Memory Workspace (Ambery persistent workspace)\n\n\
-             This directory is pet's persistent workspace (concepts §10f): `notes/` holds long-term\n\
+             This directory is pet's persistent workspace: `notes/` holds long-term\n\
              understanding (small .md files; frontmatter must carry a description); `cards/` holds\n\
              persistent work products (Component / Card files, not managed via read_memory / write_memory).\n\
              `index.md` auto-summarizes names and descriptions of notes/ (do not hand-edit; the next write\n\
@@ -249,15 +249,15 @@ fn default_agents_md_lang(lang: crate::i18n::Lang) -> String {
              creates/replaces a whole note under notes/ and requires a description (stored in frontmatter\n\
              and index.md). This file and index.md are read-only by default; there is no delete tool — notes\n\
              evolve by same-name overwrite; if deletion is truly needed, the user or the backend manages\n\
-             notes/ files directly. See docs/memory.md.\n"
+             notes/ files directly. \n"
             .into(),
         crate::i18n::Lang::Zh => "# Memory Workspace（Ambery 持久工作空间）\n\n\
-             本目录是 pet 的持久工作空间（concepts §10f）：`notes/` 放长期理解（短小 .md，frontmatter 必带\n\
+             本目录是 pet 的持久工作空间：`notes/` 放长期理解（短小 .md，frontmatter 必带\n\
              description）；`cards/` 放持久工作产物（Component / Card 文件，不经 read_memory / write_memory 管理）。\n\
              `index.md` 自动汇总 notes/ 的名称与描述（请勿手编，会被下一次 write 覆盖）。\n\n\
              读写规则：`read_memory` 读记忆（省略 name = 读 index.md 导航）；`write_memory` 整篇新建/覆盖 notes/\n\
              下的普通 note，必须附 description（写入 frontmatter 并进 index.md）。本文件与 index.md 默认只读；\n\
-             无删除 tool——note 经同名覆盖演进，确需删除由用户或后端直接管理 notes/ 文件。详见 docs/memory.md。\n"
+             无删除 tool——note 经同名覆盖演进，确需删除由用户或后端直接管理 notes/ 文件。\n"
             .into(),
     }
 }
@@ -347,7 +347,7 @@ mod tests {
         let m = Memory::bootstrap(&dir).unwrap();
         m.write(crate::i18n::Lang::Zh, "a-note", "A", "A 描述").unwrap();
         m.write(crate::i18n::Lang::Zh, "b-note", "B", "B 描述").unwrap();
-        // 外部删除 b-note（用户/后端直接管理 notes/），下一次 write 时 index 收敛
+        // 外部删除 b-note（用户/后端直接管理 notes），下一次 write 时 index 收敛
         std::fs::remove_file(dir.join("memory/notes/b-note.md")).unwrap();
         m.write(crate::i18n::Lang::Zh, "a-note", "A2", "A 描述").unwrap();
         let (_, idx) = m.read(crate::i18n::Lang::Zh, None).unwrap();

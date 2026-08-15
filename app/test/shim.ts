@@ -1,4 +1,4 @@
-// 前端进 case 的 shim（docs/case-runner.md §前端进 case，壳类比落地形态）：
+// 前端进 case 的 shim（壳类比落地形态）：
 //   case-runner 进程主体内嵌 core 并拉起本 TS 测试进程（ambery-case frontend）；
 //   测试经 RemoteBridge 连内嵌 core（createBridge 无 __TAURI_INTERNALS__ 自动选中，
 //   HTTP+WS 真链路）；本文件不拦截任何 Tauri API，只提供：

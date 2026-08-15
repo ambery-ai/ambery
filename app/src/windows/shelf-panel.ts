@@ -1,13 +1,12 @@
 // ShelfPanel — Cards Shelf 的共享 DOM 面板（Tauri shelf 窗口与 browser pet 页共用，
-// 同一 UI 真相）。Cards Shelf 是 pet 锚定的瞬时管理弹出层（不属于 Surface，
-// docs/view.md §一致性剖析）：无标题栏、无 ×——关闭全靠中键 / 失焦 / 点面板外
+// 同一 UI 真相）。Cards Shelf 是 pet 锚定的瞬时管理弹出层（不属于 Surface）：无标题栏、无 ×——关闭全靠中键 / 失焦 / 点面板外
 // （由环境层接管）。环境差异收进 ShelfActions 回调：Tauri = IPC + pet 窗口动作；
 // browser = mock bridge + DOM 卡片显隐。
 
 import type { RestoredCard } from "../bridge";
 import { t } from "../i18n";
 
-/** 类型图标（concepts §5 五类 Component） */
+/** 类型图标（五类 Component） */
 const TYPE_ICON: Record<string, string> = {
   text_card: "📄",
   quick_jump: "↗️",

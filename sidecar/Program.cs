@@ -1,4 +1,4 @@
-// UIA sidecar（docs/sidecar.md）：stdio JSON Lines 协议，UIA 逻辑移植自 exp01。
+// UIA sidecar：stdio JSON Lines 协议，UIA 逻辑移植自 exp01。
 // stdin 每行一个 JSON 请求 → stdout 每行一个 JSON 响应。sidecar 不过滤文本（Filter 在 Rust 侧）。
 
 using System.Text.Json;
@@ -43,7 +43,7 @@ class Program
         {
             case "list_windows":
             {
-                // EnumWindows + DWM cloaked：全 VD 视野（cloaked 窗口只有窗口级信息，docs/sidecar.md §视野模型）
+                // EnumWindows + DWM cloaked：全 VD 视野（cloaked 窗口只有窗口级信息）
                 var wins = new JsonArray();
                 foreach (var (hwnd, title, cloaked) in Uia.ListWindowsAllVds())
                     wins.Add(new JsonObject { ["hwnd"] = hwnd.ToInt64(), ["title"] = title, ["cloaked"] = cloaked });
@@ -87,7 +87,7 @@ class Program
             }
             case "switch_to_window_desktop":
             {
-                // VD 切换（docs/hook.md §VD 切换能力）：目标窗口所在桌面 → 切过去（不切回）
+                // VD 切换：目标窗口所在桌面 → 切过去（不切回）
                 var hwnd = new IntPtr(req["hwnd"]!.GetValue<long>());
                 return Vd.SwitchToWindowDesktop(hwnd)
                     ? Ok(new JsonObject { ["switched"] = true })

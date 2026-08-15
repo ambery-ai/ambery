@@ -1,4 +1,4 @@
-// Store（docs/case-runner.md §前端读取架构）：core 拥有的可读状态在前端集中持有。
+// Store：core 拥有的可读状态在前端集中持有。
 // 边界判据：core 拥有 + 多窗口/组件读 + 变化驱动 UI + 体积可控
 //   → 收敛四类：config / top_state / context / cards；
 //   前端局部瞬态（面板开关、输入框、拖拽中位置）与写意图（invoke 写指令）不进 store。

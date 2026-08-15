@@ -1,4 +1,4 @@
-// 主题应用（docs/theme.md）：切换 theme = 全应用立即覆写 --ov-* token 表。
+// 主题应用：切换 theme = 全应用立即覆写 --ov-* token 表。
 // 纯视觉变更：只写 documentElement 内联 CSS 变量，不触碰窗口开关/位置/尺寸/布局记忆、
 // 阅读位置、输入内容、Card 内容与可见性、pet 名称/表情或任何 Harness 行为。
 // 应用规则：先清全部已知 token 的内联覆写（回到 styles.css :root 内置默认），再写
@@ -65,7 +65,7 @@ export function applyTheme(cfg: AppConfig | null) {
   }
 }
 
-/** 窗口接线单点：基线即应用 + config 变化即重应用（store 订阅，docs/theme.md §作用范围） */
+/** 窗口接线单点：基线即应用 + config 变化即重应用（store 订阅） */
 export function wireTheme(store: { config: AppConfig | null; onConfig(cb: (c: AppConfig) => void): void }) {
   applyTheme(store.config);
   store.onConfig(applyTheme);

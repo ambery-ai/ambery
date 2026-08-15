@@ -1,4 +1,4 @@
-//! 主题导出 / 导入（docs/theme.md §导出、分享与兼容）。
+//! 主题导出 / 导入。
 //!
 //! 导出文件自包含：`config_version` + 主题名 + 一个完整主题 value（token 覆写表），
 //! 不引用导入方的任何其他配置。导入经兼容层：先按声明的 Config version 变换为当前
@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use super::migrate::CURRENT_VERSION;
 use super::{validate_theme_table, Config};
 
-/// 主题分享文件目录（config_root/themes/）
+/// 主题分享文件目录（config_root/themes）
 pub const THEME_DIR: &str = "themes";
 
 /// 导出主题名对应的 value 到 `<config_root>/themes/<name>.theme.json`，返回文件路径
@@ -36,7 +36,7 @@ pub fn export_theme(
     Ok(path)
 }
 
-/// 版本兼容变换（docs/theme.md §兼容层）：按导出文件声明的 Config version 将主题
+/// 版本兼容变换：按导出文件声明的 Config version 将主题
 /// value 变换为当前版本可理解的形态。当前只承诺自身版本（恒等）；旧版本演进在此挂表
 fn compat_transform(_from_version: u32, value: Value) -> Result<Value, String> {
     Ok(value)

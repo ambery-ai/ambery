@@ -1,4 +1,4 @@
-﻿# install-hooks.ps1（docs/hook.md §安装/卸载）：把 ambery-hook 挂进 ~/.claude/settings.json。
+﻿# install-hooks.ps1：把 ambery-hook 挂进 ~/.claude/settings.json。
 #   powershell -File scripts/install-hooks.ps1            # 安装（幂等，改前备份）
 #   powershell -File scripts/install-hooks.ps1 -Uninstall # 卸载（只移除我们的条目）
 param([switch]$Uninstall)
@@ -61,4 +61,4 @@ foreach ($e in $events) {
 }
 $settings | ConvertTo-Json -Depth 20 | Out-File $settingsPath -Encoding UTF8
 Write-Host "installed: backup at $bak"
-Write-Host "提示: WT 开启「在所有桌面上显示此应用的窗口」可让其他桌面的实例也可读（可选,docs/sidecar.md §视野模型）"
+Write-Host "提示: WT 开启「在所有桌面上显示此应用的窗口」可让其他桌面的实例也可读（可选）"

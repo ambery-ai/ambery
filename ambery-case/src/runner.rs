@@ -1,4 +1,4 @@
-//! step 执行器（docs/case-runner.md §steps）。
+//! step 执行器。
 
 use ambery_core::case::CaseObserve;
 use ambery_core::context::{Role, ToolCall};
@@ -32,9 +32,9 @@ pub fn exec_terminal_gone(
     println!("[OK] terminal_gone {instance}");
 }
 
-/// observe：按请求项分节打印（docs/case-runner.md §observe 输出）——
+/// observe：按请求项分节打印——
 /// 值类直接给当前值；路径类（context/effects）无 lines 给文件指针+摘要，
-/// 带 lines 打印文件切片原文（含行号；表达式求值见 docs/case-eval-system.md）
+/// 带 lines 打印文件切片原文（含行号；表达式求值）
 pub fn exec_observe<L: Llm>(
     ov: &AmberyBackend<L>,
     items: &[ambery_core::case::ObserveItem],
@@ -45,7 +45,7 @@ pub fn exec_observe<L: Llm>(
 }
 
 /// store：设用户变量（value 经对应 parser 求值 → to_string → 存 string）。
-/// $tail 绑定规则（case-eval-system.md §变量）：store 求值 = context.jsonl 末行号。
+/// $tail 绑定规则：store 求值 = context.jsonl 末行号。
 pub fn exec_store<L: Llm>(
     ov: &AmberyBackend<L>,
     map: &std::collections::HashMap<String, ambery_core::case::StoreValue>,
@@ -73,7 +73,7 @@ fn read_file_lines(path: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-/// timer 周期：生产路径 TimerWheel 调度（docs/timer.md）——due_timer_scans 取到期实例，
+/// timer 周期：生产路径 TimerWheel 调度——due_timer_scans 取到期实例，
 /// 读 → Some 走 handle_timer_scan（变化检测入队）；None → closed；最后放行。
 /// horizon = 模拟一个 interval+stagger 已流逝（case 不等墙钟）。
 /// 返回 (到期扫描数, 判 closed 数)
@@ -147,7 +147,7 @@ fn print_effects(effects: Vec<Effect>) {
     }
 }
 
-/// 内容级 observe 输出（docs/case-runner.md §observe 输出）
+/// 内容级 observe 输出
 fn print_observe(
     obs: &CaseObserve,
     items: &[ambery_core::case::ObserveItem],

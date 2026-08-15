@@ -1,4 +1,4 @@
-//! Timer（concepts §1a，docs/timer.md）：每实例独立兜底扫描，错峰分布；Hook 是主通道。
+//! Timer：每实例独立兜底扫描，错峰分布；Hook 是主通道。
 
 use std::collections::HashMap;
 

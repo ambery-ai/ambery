@@ -1,5 +1,5 @@
 // 系统托盘 + 关闭隐藏到托盘。
-// 右键 → 设置面板（docs/config.md：原生菜单退役，100% web 渲染）
+// 右键 → 设置面板（原生菜单退役，100% web 渲染）
 use tauri::AppHandle;
 use tauri::Manager;
 use tauri::WebviewWindow;

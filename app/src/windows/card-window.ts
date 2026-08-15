@@ -21,13 +21,13 @@ export async function main() {
   adapter = await createTauriAdapter(document.body, dpr);
 
   const bridge = await createBridge();
-  // docs/theme.md + docs/i18n.md：新卡窗随当前主题与 UI 语言，切换即生效
+  //  + ：新卡窗随当前主题与 UI 语言，切换即生效
   const store = await Store.create(bridge);
   wireTheme(store);
   wireI18n(store);
   const mount = document.getElementById("app")!;
   mount.classList.add("cards-mode");
-  // 屏高 cap 取口统一走 adapter（docs/window-follow.md §显示器几何）
+  // 屏高 cap 取口统一走 adapter
   const mgr = new ComponentManager(mount, bridge, () => ({ x: 0, y: 0 }), true, undefined, () => adapter!.getScreenHeight());
 
   const { listen } = await import("@tauri-apps/api/event");
@@ -107,6 +107,6 @@ function cardDirection(el: HTMLElement): Direction | "auto" {
     const dir = Direction[d as keyof typeof Direction];
     if (dir !== undefined) return dir;
   }
-  // auto/省略：engine 按「屏幕剩余空间最大的方位」现算（docs/components.md §调用协议）
+  // auto/省略：engine 按「屏幕剩余空间最大的方位」现算
   return "auto";
 }

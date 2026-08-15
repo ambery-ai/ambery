@@ -1,4 +1,4 @@
-//! Config / Storage 目录解析（concepts §12/§13 分离：同根不同子路径）。
+//! Config / Storage 目录解析（§13 分离：同根不同子路径）。
 //!
 //! 默认布局：
 //! ```text
@@ -33,9 +33,9 @@ pub fn config_file() -> PathBuf {
     config_root().join(crate::CONFIG_FILE)
 }
 
-/// UIA sidecar exe 路径发现（docs/sidecar.md §常驻与拉起）：
+/// UIA sidecar exe 路径发现：
 /// AMBERY_SIDECAR env > 仓库约定位置（CARGO_MANIFEST_DIR/../sidecar）。
-/// 平台边界（docs/tauri-shell.md §跨平台与 UIA 边界）：UIA sidecar 是 Windows 可选增强——
+/// 平台边界：UIA sidecar 是 Windows 可选增强——
 /// 非 Windows 一律 None（不发现、不启动、不使用；Hook 驱动核心体验不依赖它）
 #[cfg(windows)]
 pub fn sidecar_exe() -> Option<PathBuf> {
@@ -48,7 +48,7 @@ pub fn sidecar_exe() -> Option<PathBuf> {
     p.exists().then_some(p)
 }
 
-/// 非 Windows：无 UIA sidecar（docs/tauri-shell.md §跨平台与 UIA 边界）
+/// 非 Windows：无 UIA sidecar
 #[cfg(not(windows))]
 pub fn sidecar_exe() -> Option<PathBuf> {
     None

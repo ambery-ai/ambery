@@ -1,6 +1,6 @@
-//! Terminal Content（concepts §8/§11，docs/harness.md）：原文存档（terminal-content.jsonl，
+//! Terminal Content（§11）：原文存档（terminal-content.jsonl，
 //! Filter 前）+ Filtered 内容（归一全文，**不持久化**——从原文 digest 现算，
-//! docs/storage.md §filtered_content 退役）。
+//!。
 
 use serde::{Deserialize, Serialize};
 
@@ -12,7 +12,7 @@ pub enum RecordSource {
     FetchTerminal,
 }
 
-/// Filtered 内容（docs/harness.md 数据模型）：Filter 后归一全文，agent 实际读到的终端内容。
+/// Filtered 内容：Filter 后归一全文，agent 实际读到的终端内容。
 /// 不持久化——由 terminal-content.jsonl 原文 digest 现算（变化检测 prev 存内存，重启丢）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FilteredContent {
@@ -22,7 +22,7 @@ pub struct FilteredContent {
     pub ts: i64,
 }
 
-/// Terminal Content 原文存档记录（terminal-content.jsonl，Filter 前，docs/storage.md）
+/// Terminal Content 原文存档记录（terminal-content.jsonl，Filter 前）
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalContentRecord {
     pub instance: String,

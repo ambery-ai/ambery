@@ -1,4 +1,4 @@
-//! Storage（concepts §13，docs/harness.md）：append-only JSONL，启动 replay 恢复。
+//! Storage：append-only JSONL，启动 replay 恢复。
 
 use serde::{de::DeserializeOwned, Serialize};
 use std::fs::{self, File, OpenOptions};

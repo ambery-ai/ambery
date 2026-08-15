@@ -1,4 +1,4 @@
-// theme 模块前端 case（docs/theme.md）：store 事件 → applyTheme → token 表覆写语义。
+// theme 模块前端 case：store 事件 → applyTheme → token 表覆写语义。
 // 另含 KNOWN_TOKENS ↔ styles.css :root 的 parity 守卫（node fs 直读样式表）。
 
 import { beforeAll, expect, it, vi } from "vitest";

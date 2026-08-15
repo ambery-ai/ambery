@@ -1,4 +1,4 @@
-//! 字段 metadata 注册表（docs/config.md「字段 metadata」实现形态）。
+//! 字段 metadata 注册表（「字段 metadata」实现形态）。
 //!
 //! 文档的目标语法是 `#[config(...)]` derive 在字段上共位标注；当前以声明式注册表
 //! 承载同一份 descriptor tree——行为元数据（节点种类 / validation / no_llm_visible /
@@ -13,14 +13,14 @@ pub enum NodeKind {
     Leaf,
     Object,
     /// map<String, T>：entry 经 probe 反序列化修复（填 serde default、剔除未知 key）；
-    /// 无法修复的 entry 修复结果为该 entry 不存在，其余 entry 保留（docs/config.md）。
+    /// 无法修复的 entry 修复结果为该 entry 不存在，其余 entry 保留。
     /// free_keys=false：key 走动态 grammar（小写字母开头 [a-z0-9_-]）；
     /// free_keys=true：自由文本 key（如 effort.keywords 的匹配关键词）——仅排除空串与
     /// 路径分隔符 '.'（含 '.' 的 key 无法经 path 寻址，无意义）
     Map { entry_probe: fn(&Value) -> Option<Value>, free_keys: bool },
 }
 
-/// Validation（docs/config.md）：校验最终当前 Config 是否允许生效。
+/// Validation：校验最终当前 Config 是否允许生效。
 /// Range 闭区间只挂数值节点；OneOf 严格 JSON 值相等；Func 收节点最终值返回 message。
 pub enum Validation {
     Range { min: Option<f64>, max: Option<f64> },
@@ -28,7 +28,7 @@ pub enum Validation {
     Func(fn(&Value) -> Vec<String>),
 }
 
-/// Migration（docs/config.md §Migration enum）：历史 JSON → 当前 JSON 的纯、确定性、
+/// Migration：历史 JSON → 当前 JSON 的纯、确定性、
 /// 可重放映射。适用源版本由所属 range 表达；未命中显式 range = 隐式 Current。
 /// Func/RenameWithFunc 可失败——任意 migration 失败统一 default 化该节点（migrate.rs）
 pub enum Migration {
@@ -47,12 +47,12 @@ pub struct NodeMeta {
     pub path: &'static str,
     pub kind: NodeKind,
     pub validate: &'static [Validation],
-    /// 该节点及整棵子树不进入 LLM 的 Config 投影（docs/config.md §反射与消费者投影）
+    /// 该节点及整棵子树不进入 LLM 的 Config 投影
     pub no_llm_visible: bool,
-    /// 冷字段：写盘但保持当前运行行为，重启生效（docs/config.md §热/冷语义）。
-    /// 待重启状态 = 保存值与启动快照不同（docs/config.md §待重启状态）
+    /// 冷字段：写盘但保持当前运行行为，重启生效。
+    /// 待重启状态 = 保存值与启动快照不同
     pub cold: bool,
-    /// 迁移表（docs/config.md §Migration enum）：(源版本 range, 规则) 稀疏映射；
+    /// 迁移表：(源版本 range, 规则) 稀疏映射；
     /// 显式 range 不得相交（同节点内、祖先与后代节点间；启动时 check_migrate_ranges 检查）
     pub migrate: &'static [(std::ops::RangeInclusive<u32>, Migration)],
 }
@@ -100,7 +100,7 @@ fn themes_func(v: &Value) -> Vec<String> {
     }
 }
 
-/// v0..=1 扁平 kaomoji map → 两池（docs/config.md §表情池；从 migrate.rs 步进表收编为
+/// v0..=1 扁平 kaomoji map → 两池（从 migrate.rs 步进表收编为
 /// per-node 迁移规则）。以系统池 default 为底、旧条目覆盖同名 key（行为保持 + 天然满足
 /// 基础 key 不变量）；已是两池形态原样返回（幂等防御）
 fn migrate_kaomoji_v1(old: &Value) -> Result<Value, String> {
@@ -118,7 +118,7 @@ fn migrate_kaomoji_v1(old: &Value) -> Result<Value, String> {
     Ok(serde_json::json!({ "system": system, "user": {} }))
 }
 
-/// 显式 range 不相交检查（docs/config.md §历史覆盖与父子关系）：
+/// 显式 range 不相交检查：
 /// 同一节点表内 range 不重叠；任一祖先与后代节点的显式 range 不相交。
 /// 启动时由 migrate::check 调用一次；测试覆盖
 pub fn check_migrate_ranges() -> Result<(), String> {
@@ -159,7 +159,7 @@ fn pet_name_func(v: &Value) -> Vec<String> {
     }
 }
 
-/// providers 动态 key grammar（docs/config.md §Config path grammar：动态 key 在每次
+/// providers 动态 key grammar（动态 key 在每次
 /// update 时由统一 validation 运行时检查——覆盖 update 路径，加载侧 reconcile 已有）
 fn providers_keys_func(v: &Value) -> Vec<String> {
     let mut errs = Vec::new();
@@ -175,7 +175,7 @@ fn providers_keys_func(v: &Value) -> Vec<String> {
 
 /// descriptor tree 行为元数据（单源）。desc/类型见 config.rs 结构体 doc comment + schemars。
 ///
-/// 迁移表语义（docs/config.md）：kaomoji v0..=1 扁平 map → 两池；timer.* v0..=2 四个
+/// 迁移表语义：kaomoji v0..=1 扁平 map → 两池；timer.* v0..=2 四个
 /// 扁平顶层字段 → timer 子树（逐字段 Rename 完整旧路径）。失败统一 default 化（migrate.rs）。
 pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "kaomoji", kind: NodeKind::Object, validate: &[Validation::Func(kaomoji_pools_func)], no_llm_visible: false, cold: false, migrate: &[(0..=1, Migration::Func(migrate_kaomoji_v1))] },
@@ -183,13 +183,13 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "kaomoji.user", kind: NodeKind::Map { entry_probe: probe_kaomoji_entry, free_keys: false }, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "compression_reserve_default", kind: NodeKind::Leaf, validate: V, no_llm_visible: true, cold: false, migrate: M },
     NodeMeta { path: "set_autonomy_default_ttl_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
-    // filter_strategy 已退役（Filter 按实例 kind 选择，docs/filter.md；旧字段经 reconcile 剔除）
+    // filter_strategy 已退役（Filter 按实例 kind 选择；旧字段经 reconcile 剔除）
     NodeMeta { path: "timer", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "timer.interval_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_interval_ms" })] },
     NodeMeta { path: "timer.stagger_ms", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_stagger_ms" })] },
     NodeMeta { path: "timer.tick_ms", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(100.0), max: None }], no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_tick_ms" })] },
     NodeMeta { path: "timer.batch", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true, migrate: &[(0..=2, Migration::Rename { from: "timer_batch" })] },
-    // terminal.adapter_*（docs/terminal-adapter.md §Config 字段）：装配期生效 = 冷字段
+    // terminal.adapter_*装配期生效 = 冷字段
     NodeMeta { path: "terminal", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "terminal.adapter_wt", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: M },
     NodeMeta { path: "terminal.adapter_zellij", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: true, migrate: M },
@@ -206,7 +206,7 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "harness_language", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["zh", "en"])], no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "name", kind: NodeKind::Leaf, validate: &[Validation::Func(pet_name_func)], no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "context_compression_keep_recent_messages", kind: NodeKind::Leaf, validate: &[Validation::Range { min: Some(1.0), max: None }], no_llm_visible: false, cold: true, migrate: M },
-    // effort.*（docs/effort.md）：档位映射与关键词表（热：每次 LLM 调用现读）
+    // effort.*档位映射与关键词表（热：每次 LLM 调用现读）
     NodeMeta { path: "effort", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "effort.user_chat", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["low", "medium", "high"])], no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "effort.hook_stop_content", kind: NodeKind::Leaf, validate: &[Validation::OneOf(&["low", "medium", "high"])], no_llm_visible: false, cold: false, migrate: M },
@@ -273,7 +273,7 @@ fn run_one(v: &Validation, node_value: Option<&Value>) -> Vec<String> {
 }
 
 /// 在指定节点集合上执行 validators，返回 (path, message) 列表
-/// （错误聚合：按完整 path 字典序、同 path 按 message 字典序，docs/config.md）
+/// （错误聚合：按完整 path 字典序、同 path 按 message 字典序）
 fn run_on(cfg: &Value, paths: &[&str]) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     for p in paths {
@@ -288,7 +288,7 @@ fn run_on(cfg: &Value, paths: &[&str]) -> Vec<(String, String)> {
     out
 }
 
-/// update 校验（docs/config.md）：目标节点子树的 validators → 祖先 validators，
+/// update 校验：目标节点子树的 validators → 祖先 validators，
 /// 执行顺序子树→祖先；任一失败原子拒绝整次更新（调用方语义）。
 pub fn validate_for_update(cfg: &Value, target: &str) -> Vec<(String, String)> {
     // 子树（含目标自身）：path == target 或 path 以 target. 开头
@@ -310,7 +310,7 @@ pub fn validate_for_update(cfg: &Value, target: &str) -> Vec<(String, String)> {
     run_on(cfg, &paths)
 }
 
-/// load 校验（docs/config.md §启动载入）：没有单一目标，运行全部 validators
+/// load 校验：没有单一目标，运行全部 validators
 pub fn validate_all(cfg: &Value) -> Vec<(String, String)> {
     let mut paths: Vec<&str> = NODES.iter().map(|n| n.path).collect();
     paths.sort_unstable();

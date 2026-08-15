@@ -12,11 +12,11 @@ export const engine = new PositioningEngine();
 /** pet 窗调用一次，注册处理 chat/cards 的 place 请求（bridge 供布局回写写指令） */
 export async function setupServer(bridge: Bridge) {
   const { listen } = await import("@tauri-apps/api/event");
-  // 显示器缓存启动一次（docs/window-follow.md §显示器几何：缓存时机启动一次，出界自愈）
+  // 显示器缓存启动一次（缓存时机启动一次，出界自愈）
   void import("./monitors").then((m) => m.refreshMonitors());
 
   await listen<{ id: string; spec: WindowSpec; preferred: string }>("engine:place", (ev) => {
-    // auto 透传（docs/components.md §调用协议：剩余空间最大方位由 engine 现算）
+    // auto 透传（剩余空间最大方位由 engine 现算）
     const dir = ev.payload.preferred === "auto"
       ? "auto"
       : Direction[ev.payload.preferred as keyof typeof Direction] ?? Direction.sse;
@@ -28,7 +28,7 @@ export async function setupServer(bridge: Bridge) {
     engine.remove(ev.payload.id);
   });
 
-  // 用户隐藏：释放占区但保留布局记忆（docs/window-follow.md §一致性剖析）
+  // 用户隐藏：释放占区但保留布局记忆
   await listen<{ id: string }>("engine:release", (ev) => {
     engine.release(ev.payload.id);
   });
@@ -36,11 +36,11 @@ export async function setupServer(bridge: Bridge) {
   // #12/#15/#8①：chat/cards 拖拽结束回写真实位置 → 新跟随基准
   await listen<{ id: string; x: number; y: number }>("engine:moved", (ev) => {
     const offset = engine.updateCenter(ev.payload.id, { x: ev.payload.x, y: ev.payload.y });
-    // Card 布局回写（docs/components.md §Card 文件）：相对 pet 偏移落 .card.json
+    // Card 布局回写：相对 pet 偏移落 .card.json
     // （engine id = card-<spec.id>；只有 Card 有布局文件，chat 布局是运行期语义）
     if (offset && ev.payload.id.startsWith("card-")) {
       const id = ev.payload.id.slice("card-".length);
-      // 写指令走 bridge 写方法（invoke 收口规则，docs/case-runner.md §前端读取架构）；
+      // 写指令走 bridge 写方法（invoke 收口规则）；
       // 本模块仅 Tauri 模式加载，TauriBridge 必实现 updateCardLayout
       void bridge
         .updateCardLayout!(id, [Math.round(offset.x), Math.round(offset.y)])

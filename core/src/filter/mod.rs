@@ -1,4 +1,4 @@
-//! Filter（concepts §11，docs/filter.md）：终端文本结构理解。
+//! Filter：终端文本结构理解。
 //! 策略文件：claude.rs（Claude Code）；opencode.rs（骨架，待真实样本）。
 
 pub mod claude;
@@ -15,7 +15,7 @@ pub enum Change {
     Substantive(f64),
 }
 
-/// 结构理解产物（docs/filter.md）：filter 每次处理终端文本按字段填一份新数据；
+/// 结构理解产物：filter 每次处理终端文本按字段填一份新数据；
 /// filter 看不到/判不准的字段留 None（不硬填）
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TerminalDigest {
@@ -32,7 +32,7 @@ pub enum ContentBlock {
     ToolCall {
         head: String,
         result: Option<String>,
-        /// 展开体全文（diff/编号内容行）——不做任何省略（设计决定）
+        /// 展开体全文（diff/编号内容行）——不做任何省略
         body: String,
         /// 原文自带折叠尾（… +N lines，源已丢信息，filter 无法复原，仅标记）
         truncated: bool,
@@ -97,7 +97,7 @@ pub trait Filter {
     fn detect_change(&self, prev: &str, next: &str) -> Change;
 }
 
-/// 按实例 hook kind 选择实现（docs/filter.md：Filter 唯一按实例 kind 选择——
+/// 按实例 hook kind 选择实现（Filter 唯一按实例 kind 选择——
 /// 无全局 Config 策略、无 "default" 兼容映射、无未知回退）；
 /// 缺失或不受支持的 kind 返回 None（调用方在处理前直接拒绝）
 pub fn by_name(name: &str) -> Option<std::sync::Arc<dyn Filter + Send + Sync>> {

@@ -1,4 +1,4 @@
-//! HTTP server（docs/core-server.md）：
+//! HTTP server：
 //! - Tauri 模式：仅 `/hook`（前端走 Tauri IPC）
 //! - debug 模式：完整 HTTP+WS（浏览器前端）
 
@@ -28,10 +28,10 @@ pub struct AppState {
     pending_notifications: Mutex<usize>,
     mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     send: Mutex<Option<EffectSender>>,
-    /// 外部自动载入的最近错误（docs/config.md §外部文件自动载入）：
+    /// 外部自动载入的最近错误：
     /// 文件被移动/删除或加载失败时保持 live Config，错误在此暴露给反射 Config UI
     config_error: Mutex<Option<String>>,
-    /// Queue 放行信号（concepts §10c）：生产者入队后唤醒单消费者
+    /// Queue 放行信号：生产者入队后唤醒单消费者
     pub queue_notify: tokio::sync::Notify,
 }
 
@@ -54,7 +54,7 @@ impl AppState {
     pub async fn broadcast_effect_json(&self, msg: Value) {
         if let Some(send) = self.send.lock().await.as_ref() { send(msg); }
     }
-    /// 流式 delta 旁路接线（docs/streaming.md）：AmberyBackend.effect_sink →
+    /// 流式 delta 旁路接线：AmberyBackend.effect_sink →
     /// effect 通道广播（Tauri emit / WS 由 sender 双发）。Weak 防循环引用。
     pub async fn wire_effect_sink(self: &Arc<AppState>) {
         let weak = Arc::downgrade(self);
@@ -200,23 +200,23 @@ async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -
             return err_response(err);
         }
     }
-    // 生产者只入队，放行由消费者任务串行驱动（concepts §10c）
+    // 生产者只入队，放行由消费者任务串行驱动
     s.queue_notify.notify_one();
     Json(json!({ "ok": true })).into_response()
 }
 
-/// Component 交互事件（结构化事实载荷，docs/i18n.md：文本由 core 按 Harness 语言现写）
+/// Component 交互事件（结构化事实载荷：文本由 core 按 Harness 语言现写）
 #[derive(Deserialize)]
 struct EventBody {
     action: String,
-    /// 用户 × 关闭卡片时的 card id（生命周期 closed_by_user 双行事件，docs/components.md）
+    /// 用户 × 关闭卡片时的 card id（生命周期 closed_by_user 双行事件）
     card_id: Option<String>,
     card_type: Option<String>,
     title: Option<String>,
     text: Option<String>,
     target: Option<String>,
     checked: Option<bool>,
-    /// 结构化状态快照（双载荷，todobox 交互附带，docs/harness.md）
+    /// 结构化状态快照（双载荷，todobox 交互附带）
     state: Option<Value>,
 }
 
@@ -236,12 +236,12 @@ impl EventBody {
 
 async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>) -> impl IntoResponse {
     let mut ov = s.ambery.lock().await;
-    // 结构化事实 → 文本（lifecycle 语义单源，docs/i18n.md §Harness 内部语言）
+    // 结构化事实 → 文本（lifecycle 语义单源）
     let desc = crate::lifecycle::user_action_desc(
         crate::i18n::Lang::of(&ov.config.harness_language),
         &body.as_value(),
     );
-    // 动作流记录（docs/effect-reporting.md §kind）：前端 push_event = interaction/frontend
+    // 动作流记录：前端 push_event = interaction/frontend
     ov.record_frontend_effect(
         "interaction",
         json!({ "desc": desc.as_str(), "card_id": body.card_id.as_deref() }),
@@ -260,7 +260,7 @@ async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>)
             }
         }
     }
-    // 双载荷（docs/harness.md）：带快照走 push_with_state，否则普通描述
+    // 双载荷：带快照走 push_with_state，否则普通描述
     match body.state {
         Some(state) => ov.harness.event_buffer.push_with_state(desc, state),
         None => ov.harness.event_buffer.push(desc),
@@ -273,7 +273,7 @@ async fn get_config(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     Json(config_json(&ov.config))
 }
 
-/// Card 跨重启恢复（readonly 查询，docs/components.md §Card 文件）：
+/// Card 跨重启恢复（readonly 查询）：
 /// 与 Tauri command list_cards 同一 core 逻辑（双运输层共享）
 async fn get_cards(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     let ov = s.ambery.lock().await;
@@ -297,7 +297,7 @@ struct CardLayoutBody {
     offset: (i64, i64),
 }
 
-/// Card 布局回写（docs/components.md §Card 文件）：与 update_card_layout 同一 core 逻辑
+/// Card 布局回写：与 update_card_layout 同一 core 逻辑
 async fn post_card_layout(State(s): State<Arc<AppState>>, Json(body): Json<CardLayoutBody>) -> impl IntoResponse {
     let mut ov = s.ambery.lock().await;
     match ov.harness.cards_write_layout(&body.id, body.offset) {
@@ -343,7 +343,7 @@ async fn get_config_schema(State(s): State<Arc<AppState>>) -> impl IntoResponse 
     }))
 }
 
-/// ConfigOutcome 应用收尾（统一管道热应用，docs/config.md §统一修改入口）：
+/// ConfigOutcome 应用收尾（统一管道热应用）：
 /// llm_changed → 重建 LlmBackend 注入（热字段立即生效）；effects 广播。
 pub async fn finish_config_outcome(s: &Arc<AppState>, outcome: crate::ambery::ConfigOutcome) {
     if outcome.llm_changed {
@@ -356,7 +356,7 @@ pub async fn finish_config_outcome(s: &Arc<AppState>, outcome: crate::ambery::Co
     }
 }
 
-/// 外部文件自动载入（docs/config.md §外部文件自动载入）：轮询 config.json。
+/// 外部文件自动载入：轮询 config.json。
 /// - 成功：与一次全文 update 完全相同的管线与热应用；冷字段 pending 按启动快照发散重算
 /// - 文件被移动/删除、读取/解析/校验失败：保持 live Config 不变，错误暴露给反射 UI；
 ///   不自动重建默认文件或写回，后续检测到文件修复或重新出现时自动重试
@@ -416,7 +416,7 @@ async fn post_config(State(s): State<Arc<AppState>>, Json(body): Json<SetConfigB
     let mut ov = s.ambery.lock().await;
     match ov.apply_config_by_path(&body.path, body.value) {
         Ok(outcome) => {
-            // 动作流记录（docs/effect-reporting.md §kind）：前端设置面板 = config_update/frontend
+            // 动作流记录：前端设置面板 = config_update/frontend
             ov.record_frontend_effect("config_update", json!({ "path": body.path }));
             let restart = outcome.restart_required.clone();
             drop(ov);
@@ -427,7 +427,7 @@ async fn post_config(State(s): State<Arc<AppState>>, Json(body): Json<SetConfigB
     }
 }
 
-/// 前端非 readonly @tauri-apps/api 调用上报（docs/effect-reporting.md §通道）
+/// 前端非 readonly @tauri-apps/api 调用上报
 #[derive(Deserialize)]
 struct EffectBody {
     kind: String,
@@ -468,7 +468,7 @@ async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -
     Json(json!({ "ok": true })).into_response()
 }
 
-/// Timer 后台任务（docs/timer.md）
+/// Timer 后台任务
 pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(tick_ms));
@@ -492,7 +492,7 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
     });
 }
 
-/// Cron 调度任务（concepts §10g，docs/cron.md §调度实现）：
+/// Cron 调度任务：
 /// 每 500ms 轮询——① waiters 到点唤醒（共享句柄，不经 ambery 锁：sleep 持
 /// Queue 串行点等待时无死锁）；② entries due → message 作 system 输入入 Queue
 /// （与 hook 同构，唤醒单消费者）。
@@ -529,7 +529,7 @@ pub fn spawn_cron_task(s: Arc<AppState>) {
     });
 }
 
-/// Queue 单消费者（concepts §10c 串行放行）：唤醒后逐条放行——
+/// Queue 单消费者：唤醒后逐条放行——
 /// 放行一条 → Context 写输入 → run_trigger（LLM 一轮）→ 广播副作用 → 放行下一条。
 /// 一轮一条地持锁：生产者在轮次之间可继续入队，不等整个积压清空。
 pub fn spawn_queue_consumer(s: Arc<AppState>) {

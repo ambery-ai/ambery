@@ -1,4 +1,4 @@
-// 前端进 case 首套（docs/case-runner.md §前端进 case，壳类比落地形态）：
+// 前端进 case 首套（壳类比落地形态）：
 // 真前端模块（store / RemoteBridge / pet main 浏览器分支 / ChatPanel / ComponentManager）
 // × case-runner 内嵌真 core（ambery-case frontend 拉起本进程，RemoteBridge 连）。
 // 断言对象：store 基线与回读、Queue 放行回读、#25 同 id 不重复/不复活（DOM 层）、
@@ -70,7 +70,7 @@ it("T3 #25 前端语义：同 id render 原地更新不重复，close 移除后�
   // render → DOM 建卡
   await emitEffect({ kind: "render_component", spec });
   await poll(() => cardsById("t1").length === 1, "card t1 渲染");
-  // 同 id 再 render → 原地更新（docs/components.md 持续管理协议），不复制
+  // 同 id 再 render → 原地更新（持续管理协议），不复制
   await emitEffect({ kind: "render_component", spec: { ...spec, text: "v2" } });
   await poll(
     () => (cardsById("t1")[0] as HTMLElement).textContent?.includes("v2"),

@@ -1,4 +1,4 @@
-//! 卡片生命周期（docs/components.md §卡片生命周期事件）：
+//! 卡片生命周期：
 //! 语义单源在 core——五类事件的自然语言格式、start/end 时间、存活 N 计数。
 //! 前端只做上报终端，不各自拼事件文本。
 
@@ -13,7 +13,7 @@ pub struct CardMeta {
     pub created: i64,
 }
 
-/// Component 交互事件文本（语义单源，docs/i18n.md §Harness 内部语言）：
+/// Component 交互事件文本（语义单源）：
 /// 前端只上报结构化事实（action + 字段），自然语言由 core 按 Harness 语言现写。
 /// 输入 = push_event 的结构化载荷（serde_json Value）
 pub fn user_action_desc(lang: crate::i18n::Lang, ev: &serde_json::Value) -> String {
@@ -45,7 +45,7 @@ pub trait Lifecycle {
     fn user_action_line(&self, typ: &str, action: &str, text: &str) -> String;
 }
 
-/// 默认生命周期生产器。事件文字按 Harness 语言现写（docs/i18n.md：事件发生时刻的
+/// 默认生命周期生产器。事件文字按 Harness 语言现写（事件发生时刻的
 /// 语言生效，此后成为历史记录不被改写）
 pub struct DefaultLifecycle {
     lang: crate::i18n::Lang,

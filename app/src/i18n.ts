@@ -1,4 +1,4 @@
-// i18n（docs/i18n.md）：UI 自身文案的语言设施。
+// i18n：UI 自身文案的语言设施。
 // 两个独立全局语言偏好中的 UI 半（harness_language 的 core 侧见各 core 模块）：
 // ui_language 控制应用固有文案（设置/按钮/placeholder/状态提示/错误说明），切换即重渲染；
 // 不翻译用户消息、用户命名、既有 Chat 历史、卡片内容或已生成 LLM 输出；
@@ -9,9 +9,9 @@ import type { Store } from "./store";
 
 export type UiLanguage = "zh" | "en";
 
-/** 字符串表（zh 为基准；en 为 AI 生成翻译，docs/i18n.md §0.1.0 支持范围与公开说明） */
+/** 字符串表（zh 为基准；en 为 AI 生成翻译） */
 const zh = {
-  // pet 正式默认名（view.md §名称，用户定案「不改」）：名称不参与翻译，两语言同值
+  // pet 正式默认名（名称，用户定案「不改」）：名称不参与翻译，两语言同值
   "pet.default-name": "pet",
   "chat.placeholder": "和{name}说话…",
   "chat.offline": "⚠ 未连接到 core",
@@ -35,7 +35,7 @@ const zh = {
   "menu.quit": "退出",
   "menu.loading": "加载中…",
   "menu.offline": "连不上 core",
-  "menu.readonly": "只读降级模式：备份文件加载中，修改被拒绝（docs/config.md）",
+  "menu.readonly": "只读降级模式：备份文件加载中，修改被拒绝",
   "menu.load-error": "配置文件外部载入失败：{error}（当前仍使用已加载配置；修复文件后自动重试）",
   "menu.restart-banner": "以下字段已保存，重启应用后生效：{paths}",
   "menu.move-title": "把「{key}」移到 {to} 池（原子移动）",
@@ -50,7 +50,7 @@ const zh = {
 };
 
 const en: Record<keyof typeof zh, string> = {
-  "pet.default-name": "pet", // 名称不参与翻译（view.md §名称）
+  "pet.default-name": "pet", // 名称不参与翻译（名称）
   "chat.placeholder": "Talk to {name}…",
   "chat.offline": "⚠ Cannot reach core",
   "chat.thinking-title": "Thinking (click to view the reasoning trace)",
@@ -73,7 +73,7 @@ const en: Record<keyof typeof zh, string> = {
   "menu.quit": "Quit",
   "menu.loading": "Loading…",
   "menu.offline": "Cannot reach core",
-  "menu.readonly": "Read-only fallback: loaded from backup; edits are rejected (docs/config.md)",
+  "menu.readonly": "Read-only fallback: loaded from backup; edits are rejected",
   "menu.load-error": "External config reload failed: {error} (current config still in use; it auto-retries once the file is fixed)",
   "menu.restart-banner": "Saved; takes effect after restart: {paths}",
   "menu.move-title": "Move \"{key}\" to the {to} pool (atomic move)",

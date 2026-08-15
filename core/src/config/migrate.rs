@@ -1,4 +1,4 @@
-//! 版本与迁移加载管线（docs/config.md）：
+//! 版本与迁移加载管线：
 //! 数字版本 + enum Migration 稀疏区间映射 + reconcile 字段级 default 兜底
 //! + 对称备份（config.bak/config-v0NN.json）+ 降级只读报错。
 //!
@@ -12,11 +12,11 @@ use super::{meta, Config, CONFIG_FILE};
 use meta::NodeKind;
 
 /// 当前 schema 代际（bump 规则：仅语义断裂 +1）
-/// v2：kaomoji 扁平 map → 两池 {system, user}（docs/config.md §表情池）
-/// v3：timer_* 扁平字段 → timer 子树（docs/timer.md 字段表）
+/// v2：kaomoji 扁平 map → 两池 {system, user}
+/// v3：timer_* 扁平字段 → timer 子树
 pub const CURRENT_VERSION: u32 = 3;
 
-/// 从 from 版本迁移到 current——per-node 稀疏 range 映射（docs/config.md §Migration enum）：
+/// 从 from 版本迁移到 current——per-node 稀疏 range 映射：
 /// 逐节点查 meta 迁移表，命中显式 range 应用规则；未命中 = 隐式 Current（交 reconcile）。
 /// 任意 migration 失败（Rename 源缺失 / Func 返回 Err）统一 default 化该节点、逐项
 /// 上报并继续（§失败与删除）。规则是纯、确定性、可重放的映射，不读环境/网络/文件。
@@ -58,7 +58,7 @@ fn migrate_steps(mut value: Value, from: u32, report: &mut Vec<String>) -> Value
     value
 }
 
-/// 加载前启动检查（docs/config.md §历史覆盖与父子关系）：显式 range 不相交
+/// 加载前启动检查：显式 range 不相交
 pub fn check() {
     if let Err(e) = meta::check_migrate_ranges() {
         eprintln!("[config] 迁移表 range 相交（实现错误，启动即暴露）：{e}");
@@ -67,7 +67,7 @@ pub fn check() {
 
 /// 加载入口（Config::load_or_default 的实现体）
 /// 旧版内置 base_prompt 原文（你改过的不会被碰）：随 {name} 占位收敛一次性升级
-/// （docs/view.md §名称——身份文案读取当前名称；同 memory.rs OLD_DEFAULT 收敛先例）
+/// （同 memory.rs OLD_DEFAULT 收敛先例）
 const OLD_DEFAULT_BASE_PROMPT: &str =
     "你是 pet，Ambery 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。";
 
@@ -107,7 +107,7 @@ pub fn load(dir: &Path) -> Config {
             return cfg;
         }
     };
-    // null 归一（docs/config.md §null = 缺失）：进入 migration / reconcile 前，
+    // null 归一：进入 migration / reconcile 前，
     // 递归移除所有 object 中值为 null 的 key（数组中的 null 不适用）
     normalize_nulls(&mut value);
 
@@ -145,7 +145,7 @@ pub fn load(dir: &Path) -> Config {
     }
 }
 
-/// 加载期校验（docs/config.md：validator 失败不阻断启动——同一节点的全部
+/// 加载期校验（validator 失败不阻断启动——同一节点的全部
 /// message 写入加载报告，该节点只 default 化一次，然后继续）。
 /// validators 单源于 config/meta.rs 注册表（当前手写挂点，目标形态为字段 metadata）。
 fn validate_and_repair(mut cfg: Config) -> Config {
@@ -224,7 +224,7 @@ fn downgrade(dir: &Path, file_version: u32, raw: &str) -> Config {
     }
 }
 
-/// null 归一（docs/config.md §null = 缺失）：递归移除 object 中值为 null 的 key；
+/// null 归一：递归移除 object 中值为 null 的 key；
 /// 数组中的 null 不适用。加载、工具写入与保存遵守同一归一化
 pub fn normalize_nulls(v: &mut Value) {
     match v {
@@ -250,7 +250,7 @@ pub fn normalize_nulls(v: &mut Value) {
     }
 }
 
-/// reconcile（docs/config.md §递归 reconcile 逻辑链，registry 驱动）：
+/// reconcile（registry 驱动）：
 /// 未知 path 递归剔除并逐项上报；静态 object 向下递归组装 child；
 /// 叶子缺失/类型错误回退自身 default；map 缺失/类型错误回退自身 default、
 /// 已存在不 merge default key，entry 经 probe 修复（无法修复 = 该 entry 不存在）。
@@ -282,7 +282,7 @@ fn child_paths(path: &str) -> Vec<&'static str> {
     out
 }
 
-/// 动态 map key 的运行时 grammar 检查（docs/config.md §Config path grammar，单源在 config.rs）
+/// 动态 map key 的运行时 grammar 检查（单源在 config.rs）
 fn valid_map_key(k: &str) -> bool {
     super::valid_dynamic_key(k)
 }
@@ -370,7 +370,7 @@ fn reconcile_node(path: &str, v: &mut Value, default: &Value, report: &mut Vec<S
             let map = v.as_object_mut().unwrap();
             let keys: Vec<String> = map.keys().cloned().collect();
             for k in keys {
-                // 动态 key grammar 运行时检查（docs/config.md：无法 default 化的 key，
+                // 动态 key grammar 运行时检查（无法 default 化的 key，
                 // 修复结果为该 entry 不存在；其余 map entry 保留）；
                 // free_keys 节点（effort.keywords 等自由文本 key）仅排除空串与 '.'
                 let key_ok = if free_keys {
@@ -431,7 +431,7 @@ fn best_backup(dir: &Path, max_version: u32) -> Option<(u32, PathBuf)> {
     best
 }
 
-/// 只读加载预览（docs/config.md §外部文件自动载入）：
+/// 只读加载预览：
 /// 不备份、不写回、缺失不 bootstrap——只读解析 + 完整加载管线
 /// （migration → null 归一 → reconcile → serde 验证 → validate）。
 /// 错误原样返回：调用方保持 live Config 不变并在 UI 显示具体错误。
@@ -621,7 +621,7 @@ mod tests {
 
     #[test]
     fn migration_func_failure_defaults_node_and_reports() {
-        // 任意 migration 失败统一 default 化该节点、逐项上报并继续（docs/config.md §失败与删除）：
+        // 任意 migration 失败统一 default 化该节点、逐项上报并继续：
         // kaomoji 同路径子树不是 object → Func 返回 Err → kaomoji 节点 default 化
         let mut report = Vec::new();
         let v = migrate_steps(serde_json::json!({"kaomoji": 42}), 0, &mut report);
@@ -631,7 +631,7 @@ mod tests {
 
     #[test]
     fn migrate_ranges_non_overlapping() {
-        // 显式 range 不相交（同节点 + 祖先/后代，docs/config.md §历史覆盖与父子关系）
+        // 显式 range 不相交（同节点 + 祖先/后代）
         assert_eq!(meta::check_migrate_ranges(), Ok(()));
     }
 

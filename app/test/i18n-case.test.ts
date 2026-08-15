@@ -1,4 +1,4 @@
-// i18n 模块前端 case（docs/i18n.md）：ui_language 字段校验 + 切换即重渲染 + 机器契约不译。
+// i18n 模块前端 case：ui_language 字段校验 + 切换即重渲染 + 机器契约不译。
 
 import { beforeAll, expect, it, vi } from "vitest";
 import { waitCore, coreBase } from "./shim";
@@ -80,7 +80,7 @@ it("缺失 key 回退 zh；插值工作", async () => {
   expect(t("chat.placeholder", { name: "X" })).toContain("X");
 });
 
-it("pet 名称：Config name 流入 chat 标题/placeholder，改名即重贴（view.md §名称）", async () => {
+it("pet 名称：Config name 流入 chat 标题/placeholder，改名即重贴（名称）", async () => {
   const bridge = await createBridge();
   const store = await Store.create(bridge);
   const mount = document.createElement("div");

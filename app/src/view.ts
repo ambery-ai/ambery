@@ -1,6 +1,6 @@
-// View（concepts §3，设计 docs/view.md）：横向椭圆浮动窗口，窗内仅颜文字。
+// View（设计）：横向椭圆浮动窗口，窗内仅颜文字。
 // Tauri 模式：native 窗口拖拽（startDragging）；浏览器模式：DOM pointer 事件。
-// 手势（docs/view.md §手势与 Chat 唤出）：右键 = 唤出/关闭 Chat（chat:toggle，
+// 手势：右键 = 唤出/关闭 Chat（chat:toggle，
 // pet 原地不动——无吸附态，2026-07-26 否决）；左键拖拽恒可用。
 
 import type { Motion } from "./bridge";
@@ -69,7 +69,7 @@ export class View {
 
   private onContextMenu = (ev: MouseEvent) => {
     ev.preventDefault();
-    // 右键 = 唤出/关闭 Chat（docs/view.md §手势与 Chat 唤出；pet 原地不动）
+    // 右键 = 唤出/关闭 Chat（pet 原地不动）
     this.dispatch("chat:toggle", {});
   };
 

@@ -1,4 +1,4 @@
-// Component（concepts §5，设计 docs/components.md）：
+// Component（设计）：
 // pet 经 call_component 调用，以 View 为中心向合适方位偏移弹出；
 // 用户交互写 Event Buffer（bridge.pushEvent），不写 Queue user role。
 //
@@ -30,9 +30,9 @@ export class ComponentManager {
     private anchor: Anchor,
     /** multi-window 模式：跳过 DOM 定位，卡片在窗口内自然流式布局 */
     public windowed = false,
-    /** browser 模式：卡片纳入 engine 语义（place 注册 / follow 重排，docs/window-follow.md） */
+    /** browser 模式：卡片纳入 engine 语义（place 注册 / follow 重排） */
     private engine?: PositioningEngine,
-    /** 屏幕高度提供方（docs/window-follow.md §显示器几何：消费通道统一走 adapter 取口；
+    /** 屏幕高度提供方（消费通道统一走 adapter 取口；
      *  缺省回落 window.screen——browser 单屏调试可接受） */
     private screenHeightProvider?: () => Promise<number>,
   ) {
@@ -49,7 +49,7 @@ export class ComponentManager {
       // close_component 由本管理器直接落 DOM（与 render 订阅同 guard）
       bridge.onCloseComponent?.((id) => this.closeById(id));
     }
-    // UI 语言切换：原地重贴 chrome 文案（docs/i18n.md；不重建 DOM——todobox 勾选态
+    // UI 语言切换：原地重贴 chrome 文案（不重建 DOM——todobox 勾选态
     // 只在 DOM，重建会丢交互状态）
     onLanguageChange(() => this.relabel());
   }
@@ -74,7 +74,7 @@ export class ComponentManager {
   }
 
   render(spec: ComponentSpec) {
-    // 持续管理协议（docs/components.md）：同 id = **原地更新**（重建内容，不销毁窗口/DOM）；
+    // 持续管理协议：同 id = **原地更新**（重建内容，不销毁窗口/DOM）；
     // 关闭只走显式 close（closeById / 用户 ×），render 永不关
     const existing = this.cards.get(spec.id);
     if (existing) {
@@ -86,7 +86,7 @@ export class ComponentManager {
     void this.screenHeightProvider?.().then((h) => (this.screenH = h));
     const card = this.buildCard(spec);
     if (spec.direction) card.dataset.direction = spec.direction;
-    // browser：DOM 拖拽（docs/window-follow.md §拖拽回写；Tauri 走 OS startDragging）
+    // browser：DOM 拖拽（Tauri 走 OS startDragging）
     if (this.engine) {
       const specId = spec.id;
       attachDrag(card, ".cmp-header", ".cmp-close", (center) =>
@@ -118,7 +118,7 @@ export class ComponentManager {
     }
   }
 
-  /** 系统藏/恢复（pet 拖动，docs/window-follow.md：整层，不逐卡改状态） */
+  /** 系统藏/恢复（pet 拖动：整层，不逐卡改状态） */
   systemHideAll() {
     this.layer.hidden = true;
   }
@@ -147,8 +147,8 @@ export class ComponentManager {
     close.className = "cmp-close";
     close.textContent = "×";
     close.addEventListener("click", () => {
-      // closed_by_user 双行生命周期事件（docs/components.md）：结构化事实，
-      // 文本由 core 按 Harness 语言现写（lifecycle 单源，docs/i18n.md）
+      // closed_by_user 双行生命周期事件：结构化事实，
+      // 文本由 core 按 Harness 语言现写（lifecycle 单源）
       this.bridge.pushEvent({ action: "dismiss", cardId: spec.id });
       this.closeById(spec.id);
     });
@@ -156,7 +156,7 @@ export class ComponentManager {
     const body = this.buildBody(spec);
     card.append(header, body);
     // #20 高度 cap（单源：Tauri/browser 共用渲染路径）——body 限高 = 屏高×0.5 − header，
-    // 屏高经 adapter 取口（docs/window-follow.md §显示器几何：分支不各自 window.screen），
+    // 屏高经 adapter 取口（分支不各自 window.screen），
     // 超长走 .cmp-body 滚动（styles.css overflow-y:auto），内容不截断
     const screenH = this.screenH ?? window.screen.availHeight;
     const cap = Math.max(screenH * 0.5 - (header.offsetHeight || 40), 120);
@@ -185,7 +185,7 @@ export class ComponentManager {
         btn.className = "cmp-jump";
         btn.textContent = `→ ${spec.target}`;
         btn.addEventListener("click", () => {
-          // 真实切换 WT 标签页待 C# sidecar 接入（docs/components.md）
+          // 真实切换 WT 标签页待 C# sidecar 接入
           this.bridge.pushEvent({ action: "jump", cardType: "quick_jump", target: spec.target });
         });
         body.append(btn);
@@ -243,7 +243,7 @@ export class ComponentManager {
     const { kind, labels, series } = spec.chart;
     const flat = series.flatMap((s) => s.data);
     const max = Math.max(...flat, 1);
-    // 调色板走设计 token（styles.css --ov-chart-*）：SVG paint 属性不认 var()，
+    // 调色板走设计 token（styles.css --ov-chart-*：SVG paint 属性不认 var()，
     // 经 style 属性引用（fill/stroke 是 CSS 属性，var() 在文档内解析）
     const colors = ["var(--ov-chart-1)", "var(--ov-chart-2)", "var(--ov-chart-3)", "var(--ov-chart-4)"];
 
@@ -333,7 +333,7 @@ export class ComponentManager {
       cb.type = "checkbox";
       cb.checked = done;
       cb.addEventListener("change", () => {
-        // 双载荷（docs/harness.md）：该 card 当前完整 items 快照（同 card 去重合并）；
+        // 双载荷：该 card 当前完整 items 快照（同 card 去重合并）；
         // 文本由 core 现写（lifecycle 单源）
         this.bridge.pushEvent({
           action: "todo_toggle",
@@ -376,9 +376,9 @@ export class ComponentManager {
     return wrap;
   }
 
-  /** 方位几何（docs/components.md）：engine 优先（单源语义），无 engine 时本地锚点偏移。
+  /** 方位几何：engine 优先（单源语义），无 engine 时本地锚点偏移。
    *  auto 在两路径各自现算最大剩余空间（engine 与本地四象限同一语义）。
-   *  不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见） */
+   *  不做 clamp（不压人 > 完全可见） */
   private place(card: HTMLDivElement, dir: Direction) {
     const cw = card.offsetWidth || 260;
     const ch = card.offsetHeight || 140;
@@ -396,7 +396,7 @@ export class ComponentManager {
         ? this.autoDirection()
         : dir;
     const { x, y } = this.anchor();
-    // 方位几何（docs/components.md）：锚点 ± (View 半径 + 12px 间距 + 卡片半尺寸)；
+    // 方位几何：锚点 ± (View 半径 + 12px 间距 + 卡片半尺寸)；
     // 斜方位 = 两轴分别偏移
     const ox = VIEW_RADIUS_X + GAP + cw / 2;
     const oy = VIEW_RADIUS_Y + GAP + ch / 2;

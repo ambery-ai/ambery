@@ -1,4 +1,4 @@
-// Chat Panel（concepts §3a，设计 docs/chat-panel.md）：用户与 pet 对话的产品界面。
+// Chat Panel（设计）：用户与 pet 对话的产品界面。
 // 滚动由用户意图驱动（跟随最新 / 阅读历史两态），输入服务于「组织一段话并决定发送」，
 // 内部状态（Queue/Context/流式增量/窗口尺寸）必须翻译为用户可理解的反馈，不得抢视口。
 
@@ -27,15 +27,15 @@ export class ChatPanel {
   private visible = false;
   /** 回应提示（…）：assistant 未输出正文时显示，开始输出/完成/失败即消失 */
   private replyingEl: HTMLDivElement | null = null;
-  /** 用户意图关闭（docs/window-follow.md：窗口私有，与系统藏分离，单源语义） */
+  /** 用户意图关闭（窗口私有，与系统藏分离，单源语义） */
   userClosed = false;
-  /** 流式（docs/streaming.md）：在飞的 assistant 气泡 + Thinking 气泡/累积文本 */
+  /** 流式：在飞的 assistant 气泡 + Thinking 气泡/累积文本 */
   private streamRow: HTMLDivElement | null = null;
   private thinkEl: HTMLDivElement | null = null;
   private thinkText = "";
   private thinkModal: HTMLDivElement | null = null;
 
-  // ── 滚动意图态机（docs/chat-panel.md §滚动与新消息）──
+  // ── 滚动意图态机──
   /** true=跟随最新（贴底）；false=阅读历史（不抢视口，累积新消息提示） */
   private follow = true;
   /** 阅读历史时累积的新消息计数（一个在飞的流式回复只计一条） */
@@ -133,26 +133,26 @@ export class ChatPanel {
     });
     this.sendEl = document.createElement("button");
     this.sendEl.className = "chat-send";
-    this.sendEl.disabled = true; // 初始空内容不可用（docs/chat-panel.md §输入与发送）
+    this.sendEl.disabled = true; // 初始空内容不可用
     this.sendEl.addEventListener("click", () => void this.send());
     inputRow.append(this.inputEl, this.sendEl);
 
     this.el.append(header, this.historyEl, this.pillEl, this.queueEl, inputRow);
     mount.appendChild(this.el);
     this.relabel();
-    // UI 语言切换即重渲染文案（docs/i18n.md；历史内容不翻译）；
-    // pet 名称变化同样即时重贴（docs/view.md §名称：UI 读取当前名称）
+    // UI 语言切换即重渲染文案（历史内容不翻译）；
+    // pet 名称变化同样即时重贴（UI 读取当前名称）
     wireI18n(store, () => this.relabel());
     store.onConfig(() => this.relabel());
 
-    // browser：DOM 拖拽（docs/window-follow.md §拖拽回写；Tauri 走 OS startDragging）
+    // browser：DOM 拖拽（Tauri 走 OS startDragging）
     if (engine) {
       attachDrag(this.el, ".chat-header", ".chat-close", (center) =>
         engine.updateCenter("chat-panel", center),
       );
     }
 
-    // 流式增量（docs/streaming.md §前端行为）：
+    // 流式增量：
     // reasoning → ThinkingBubble「…」+ ThinkingModal 累积；content → 气泡逐片追加
     bridge.onAssistantDelta?.((d) => {
       this.dropReplying();
@@ -191,7 +191,7 @@ export class ChatPanel {
     });
   }
 
-  // ── 输入与发送（docs/chat-panel.md §输入与发送）──
+  // ── 输入与发送──
 
   private autoGrow() {
     this.inputEl.style.height = "auto";
@@ -270,7 +270,7 @@ export class ChatPanel {
     }
   }
 
-  /** 回应提示「…」（docs/chat-panel.md §回应提示）：只表达正在回应，不暴露内部状态 */
+  /** 回应提示「…」：只表达正在回应，不暴露内部状态 */
   private showReplying() {
     this.dropReplying();
     this.replyingEl = document.createElement("div");
@@ -348,7 +348,7 @@ export class ChatPanel {
     return this.visible;
   }
 
-  // ── 统一可见性 API（docs/window-follow.md §两路径统一：语义单源，分支只做事件翻译）──
+  // ── 统一可见性 API（语义单源，分支只做事件翻译）──
   /** windowed 模式由 chat-window.ts 注入的统一关闭副作用（requestRelease + adapter.hide） */
   onIntentClose: (() => void) | null = null;
 
@@ -375,7 +375,7 @@ export class ChatPanel {
     return !this.userClosed;
   }
 
-  /** 按中心点定位并显示（系统恢复路径，docs/window-follow.md）。
+  /** 按中心点定位并显示（系统恢复路径）。
    *  不做 clamp（§出屏与重叠：不压人 > 完全可见，部分出屏接受） */
   showAt(center: { x: number; y: number }) {
     this.el.style.left = `${center.x - PANEL_W / 2}px`;
@@ -383,7 +383,7 @@ export class ChatPanel {
     this.showPanel();
   }
 
-  /** 唤出（右键 toggle，docs/chat-panel.md §唤出与关闭）：
+  /** 唤出（右键 toggle）：
    *  intentOpen 复位 + engine.place 固定 sse 方位展开（自己的定位引擎） +
    *  渲染历史 + 初次打开定位历史底部（跟随最新） */
   open() {
@@ -395,7 +395,7 @@ export class ChatPanel {
       { id: "chat-panel", width: PANEL_W, height: PANEL_H },
       Direction.sse,
     );
-    // 不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见）
+    // 不做 clamp（不压人 > 完全可见）
     this.el.style.left = `${pos.x - PANEL_W / 2}px`;
     this.el.style.top = `${pos.y - PANEL_H / 2}px`;
     // 基线读 store（context_changed 事件保持新鲜）；core 未就绪时明示
@@ -417,12 +417,12 @@ export class ChatPanel {
     this.inputEl.focus();
   }
 
-  /** 关闭（右键 toggle / × 同一收口，docs/chat-panel.md §唤出与关闭）：统一 API */
+  /** 关闭（右键 toggle / × 同一收口）：统一 API */
   close() {
     this.intentClose();
   }
 
-  /** 右键 toggle（docs/view.md §手势与 Chat 唤出）：可见则关、不可见则开 */
+  /** 右键 toggle：可见则关、不可见则开 */
   toggle() {
     if (this.visible) {
       this.close();
@@ -431,7 +431,7 @@ export class ChatPanel {
     }
   }
 
-  /** UI 文案（i18n）：标题 = pet 名称（Config 稳定身份值，docs/view.md §名称）；
+  /** UI 文案（i18n）：标题 = pet 名称（Config 稳定身份值）；
    *  placeholder/按钮跟随 UI 语言。切换语言只重贴文案，不动历史 */
   private relabel() {
     const name = this.store.config?.name ?? t("pet.default-name");

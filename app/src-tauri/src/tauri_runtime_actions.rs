@@ -1,4 +1,4 @@
-//! Rust 壳侧非只读 Tauri 运行时动作的唯一出口（docs/effect-reporting.md §运行时动作层）：
+//! Rust 壳侧非只读 Tauri 运行时动作的唯一出口：
 //! 语义化动作 = 真实 tauri API 写调用，成功后经同一记录入口写对应 effect（失败不写）。
 //! 记录 best-effort、不得阻断主动作（state 未就绪只跳过记录）；只读调用不进本层。
 //! 动作词表与 WebView 侧（app/src/tauri_runtime_actions.ts）共享，不共享跨语言代码。

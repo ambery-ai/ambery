@@ -1,4 +1,4 @@
-//! 可观测性基座（docs/observability.md）：trait Observable（模块投影）+
+//! 可观测性基座：trait Observable（模块投影）+
 //! derive Observe（聚合覆盖断言，proc-macro 作 case-runner feature 可选依赖）。
 //! feature "case-runner" gate。
 //!
@@ -40,7 +40,7 @@ pub struct MessageSnapshot {
     pub ts: i64,
 }
 
-/// Filtered 内容快照条目（归一全文现算，docs/storage.md §filtered_content 退役）
+/// Filtered 内容快照条目（归一全文现算）
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FilteredContentSnapshot {
     pub instance: String,
@@ -49,7 +49,7 @@ pub struct FilteredContentSnapshot {
     pub ts: i64,
 }
 
-/// Memory note 摘要条目（index 摘要：name / description；不展开正文，docs/observability.md）
+/// Memory note 摘要条目（index 摘要：name / description；不展开正文）
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MemoryNoteSnapshot {
     pub name: String,

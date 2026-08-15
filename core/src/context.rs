@@ -1,7 +1,7 @@
-//! Context（concepts §10b，docs/harness.md）：完整消息数组（OpenAI messages 对齐）——
+//! Context：完整消息数组（OpenAI messages 对齐）——
 //! Queue 放行的输入 + LLM 的 assistant/tool 输出。LLM 请求的上下文源，也是完整对话的
 //! 持久化存档（context.jsonl message 行双写）。system prompt 不是 Context 消息——
-//! 它是每次调用现拼的请求头（docs/storage.md）。
+//! 它是每次调用现拼的请求头。
 
 use serde::{Deserialize, Serialize};
 
@@ -85,7 +85,7 @@ impl ContextMessage {
 }
 
 /// shaking 保留条数的最终兜底（配置值见 Config.context_compression_keep_recent_messages，
-/// docs/harness.md §Compression；本常量仅供无配置场景/测试）
+/// 本常量仅供无配置场景/测试）
 pub const KEEP_RECENT: usize = 24;
 
 pub struct Context {
@@ -126,10 +126,10 @@ impl Context {
     }
 
     /// 总结 + shaking：历史压为一条 system 摘要，按完整 turn 边界保留最近
-    /// `keep_recent` 条（目标值，docs/harness.md §Compression）：
+    /// `keep_recent` 条（目标值）：
     /// - 切口不得落在 tool 序列中间（孤儿 tool result 使下一请求体非法）——切口前进越过；
     /// - `min_tail_start` 保护当前在飞 turn 不被切断（调用方给本 turn 输入消息的下标）。
-    /// lang：摘要前缀按 Harness 语言（docs/i18n.md）
+    /// lang：摘要前缀按 Harness 语言
     pub fn compress(
         &mut self,
         summary: String,
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn compress_never_splits_tool_sequence() {
-        // turn 边界（docs/harness.md §Compression）：切口不落在 tool 序列中间
+        // turn 边界：切口不落在 tool 序列中间
         let mut ctx = ctx();
         ctx.push(ContextMessage::new(Role::User, "u", 1));
         let mut ac = ContextMessage::new(Role::Assistant, "", 2);

@@ -1,4 +1,4 @@
-// 托盘设置面板窗口（docs/config.md）：右键托盘弹出，失焦自动隐藏——菜单行为
+// 托盘设置面板窗口：右键托盘弹出，失焦自动隐藏——菜单行为
 use tauri::{Manager, WebviewWindow};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -19,7 +19,7 @@ pub fn show_at(app: &tauri::AppHandle, x: f64, y: f64) {
     crate::tauri_runtime_actions::move_window(app, "menu", px, py);
     crate::tauri_runtime_actions::show_window(app, "menu");
     *SHOWN_AT.lock().unwrap() = Some(Instant::now());
-    // 直接 Win32 抢前台（Windows 专属，tauri-shell.md §跨平台边界）：Tauri set_focus
+    // 直接 Win32 抢前台（Windows 专属）：Tauri set_focus
     // 在后台进程下会被 Windows 焦点保护静默拒绝，而托盘点击上下文授予了前台权
     #[cfg(windows)]
     if let Ok(hwnd) = w.hwnd() {
@@ -30,7 +30,7 @@ pub fn show_at(app: &tauri::AppHandle, x: f64, y: f64) {
     // 非 Windows：走 Tauri 标准聚焦
     #[cfg(not(windows))]
     let _ = w.set_focus();
-    // focus 是独立的非只读动作，单独记录（docs/effect-reporting.md §一动作一记录）
+    // focus 是独立的非只读动作，单独记录
     crate::tauri_runtime_actions::record(app, "window_focused", serde_json::json!({ "window": "menu" }));
 }
 

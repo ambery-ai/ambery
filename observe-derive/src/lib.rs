@@ -1,6 +1,6 @@
-//! derive(Observe)：聚合覆盖断言（docs/observability.md）。
+//! derive(Observe)：聚合覆盖断言。
 //! 作用在聚合体 struct（Harness）上，生成 `__observe_coverage` 方法——每个字段必须
-//! 实现 `ambery_core::observe::Observable`，或显式 `#[observe(skip = "理由")]` 跳过，
+//! 实现 `ambery_core::observe::Observable`，或显式 `#[observe(skip = "理由")]` 跳过
 //! 否则 E0277（编译期强制所有模块可观测）。
 
 use proc_macro::TokenStream;
@@ -59,7 +59,7 @@ pub fn derive_observe(input: TokenStream) -> TokenStream {
     let (ig, tg, wc) = input.generics.split_for_impl();
     quote! {
         impl #ig #name #tg #wc {
-            /// derive(Observe) 生成的覆盖断言：只类型检查不调用（docs/observability.md）
+            /// derive(Observe) 生成的覆盖断言：只类型检查不调用
             #[doc(hidden)]
             #[allow(dead_code)]
             fn __observe_coverage(&self) {

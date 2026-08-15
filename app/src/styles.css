@@ -1,4 +1,4 @@
-/* ── 设计 token（docs/theme.md：主题 value 的字段收敛源——主题即写这张表）──
+/* ── 设计 token（主题 value 的字段收敛源——主题即写这张表）──
    收敛自既有界面视觉（值与原硬编码逐一对应，视觉零变化）；默认配色表 = 深色。 */
 :root {
   /* 页面底（仅 browser 调试模式；Tauri 窗口透明） */
@@ -83,8 +83,8 @@ html.browser body {
   background: var(--ov-bg);
 }
 
-/* ── View（concepts §3）：球场圆形浮动窗口，窗内仅颜文字 ──
-   ⚠ CSS ↔ JS 一致性契约（docs/pet-window-size.md）：标注 token 被 JS 直接读取，
+/* ── View：球场圆形浮动窗口，窗内仅颜文字 ──
+   ⚠ CSS ↔ JS 一致性契约：标注 token 被 JS 直接读取，
    修改必须在 app/src/pet-size.ts 同步，否则窗口尺寸会错 */
 #view {
   --view-scale: 1;
@@ -135,8 +135,8 @@ html.browser body {
   padding: 1px 6px;
 }
 
-/* ── Autonomy motion（docs/autonomy.md） ──
-   ⚠ CSS ↔ JS 一致性契约（docs/pet-window-size.md）：translateX/Y 极值与
+/* ── Autonomy motion ──
+   ⚠ CSS ↔ JS 一致性契约：translateX/Y 极值与
    animation-duration 必须与 app/src/motions.ts 的 MotionDef 同步——
    极值 → overflow 四向预留；duration → durationMs（once:true 的 TTL）。 */
 @keyframes float {
@@ -164,8 +164,8 @@ html.browser body {
 #view[data-motion="shake"] { animation: shake 0.4s ease-in-out infinite; }
 /* data-motion="still"：无动画 */
 
-/* ── Component（concepts §5 / docs/components.md） ── */
-/* cards 窗口模式：卡片自然流式布局，窗口自身定位（docs/multi-window.md）；
+/* ── Component ── */
+/* cards 窗口模式：卡片自然流式布局，窗口自身定位；
    窗口量 offsetWidth/offsetHeight（已含 border），恰好包裹内容（chrome 规则） */
 .cards-mode { height: 100vh; }
 .cards-mode .component { position: static; margin-bottom: 8px; width: fit-content; }
@@ -262,8 +262,8 @@ html.browser body {
 
 .cmp-chart svg { display: block; }
 
-/* ── Chat Panel（concepts §3a / docs/chat-panel.md） ── */
-/* chat 窗口模式：面板填充整个窗口（docs/multi-window.md + chrome 规则：
+/* ── Chat Panel ── */
+/* chat 窗口模式：面板填充整个窗口（+ chrome 规则：
    border-box 100%，border 内绘不被窗口裁；面板与窗口同尺寸，无内缩环） */
 .chat-mode { height: 100vh; }
 .chat-mode #chat-panel {
@@ -341,7 +341,7 @@ html.browser body {
   font-size: 12px;
 }
 
-/* ThinkingBubble（docs/streaming.md）：虚线透明气泡「…」，点击展开 ThinkingModal */
+/* ThinkingBubble：虚线透明气泡「…」，点击展开 ThinkingModal */
 .chat-thinking {
   opacity: 0.6;
   border: 1px dashed var(--ov-thinking-border);
@@ -376,7 +376,7 @@ html.browser body {
   font-family: inherit;
 }
 
-/* 输入区（docs/chat-panel.md §输入与发送）：自增长多行 + 发送按钮（与 Enter 同语义） */
+/* 输入区：自增长多行 + 发送按钮（与 Enter 同语义） */
 .chat-input-row {
   display: flex;
   align-items: flex-end;
@@ -456,7 +456,7 @@ html.browser body {
 }
 
 
-/* ===== Cards Shelf（docs/view.md，windows/shelf.ts） ===== */
+/* ===== Cards Shelf（windows/shelf.ts） ===== */
 #shelf-panel {
   display: flex;
   flex-direction: column;
@@ -505,7 +505,7 @@ html.browser body {
   z-index: 9997;
 }
 
-/* ===== 托盘设置面板（docs/config.md，windows/menu.ts） ===== */
+/* ===== 托盘设置面板（windows/menu.ts） ===== */
 #menu-panel {
   display: flex;
   flex-direction: column;

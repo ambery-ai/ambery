@@ -1,11 +1,11 @@
-//! Event Buffer（concepts §10e，docs/harness.md §Event Buffer 双载荷）：
+//! Event Buffer：
 //! Component 交互事件暂存区，与 Queue 平行。每条事件 = 自然语言（必填）+ 结构化快照
 //! （可选，todobox 类交互附带）。Queue 放行时合并为一条 system message 入 Context，
 //! 然后清空。永不写 user role；原始条目不持久化。
 
 use serde_json::Value;
 
-/// 一条缓冲事件：自然语言描述 + 可选结构化状态快照（docs/harness.md §双载荷）
+/// 一条缓冲事件：自然语言描述 + 可选结构化状态快照
 #[derive(Debug, Clone, PartialEq)]
 pub struct BufferedEvent {
     pub desc: String,
@@ -48,7 +48,7 @@ impl EventBuffer {
 
     /// 合并 + 清空；空时返回 None（不注入空消息）。
     /// 自然语言逐条保留；结构化快照**同 card 去重合并**（按 state.id，最后 wins，
-    /// 单次 flush 内一 card 一份最终状态，docs/harness.md §去重合并）。
+    /// 单次 flush 内一 card 一份最终状态）。
     pub fn merge_and_clear(&mut self) -> Option<String> {
         if self.entries.is_empty() {
             return None;

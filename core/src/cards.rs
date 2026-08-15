@@ -1,4 +1,4 @@
-//! Card 文件持久化（docs/components.md §Card 文件 / docs/storage.md §Memory Workspace）：
+//! Card 文件持久化：
 //! 一张 Card = memory/cards/<id>.card.json 一个完整 JSON 文件——component（Agent 的
 //! ComponentSpec）与 _meta（本地 Surface 管理状态）同位。文件即 Card 的跨重启真相：
 //! 恢复从文件读，不经 effect.jsonl replay（动作审计不反推 Card）。

@@ -1,5 +1,5 @@
 // 透明置顶窗口 + 跨虚拟桌面 pin + 任务栏 fight-back
-// Windows 专属实现（docs/tauri-shell.md §跨平台与 UIA 边界）：
+// Windows 专属实现：
 // 非 Windows 构建不编译本模块的 Win32 体（winvd/windows 依赖也仅 cfg(windows) 目标拉入）。
 use tauri::WebviewWindow;
 

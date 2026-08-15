@@ -1,4 +1,4 @@
-// positioning/monitors — 显示器缓存表（docs/window-follow.md §显示器几何）：
+// positioning/monitors — 显示器缓存表：
 // 一次读取、出界自愈刷新。出屏判定/高度 cap 的唯一直径。
 // 单位（#21 定案）：engine 世界 = 物理像素（petCenter/窗口尺寸/setPosition 全是物理）；
 // browser 的「屏」= 浏览器视口（卡片 DOM 活在视口里，不是 OS 屏）。

@@ -9,12 +9,12 @@ export interface WindowAdapter {
   setOffset(top: number, left: number): void;
   show(): Promise<void>;
   hide(): Promise<void>;
-  /** 屏幕逻辑高度（issues #20：card 高度 cap 的唯一取口，docs/window-follow.md §显示器几何） */
+  /** 屏幕逻辑高度（issues #20：card 高度 cap 的唯一取口） */
   getScreenHeight(): Promise<number>;
 }
 
 /** Tauri 模式：真实 OS 窗口。写操作全部经 WebView 动作层执行+留痕
- *  （tauri_runtime_actions，docs/effect-reporting.md §运行时动作层）；读取直调。 */
+ *  （tauri_runtime_actions）；读取直调。 */
 export async function createTauriAdapter(
   viewEl: HTMLElement,
   _dpr: number,
@@ -34,7 +34,7 @@ export async function createTauriAdapter(
     show: () => actions.showWindow(win),
     hide: () => actions.hideWindow(win),
     async getScreenHeight() {
-      // 读缓存 monitor 表（docs/window-follow.md §显示器几何：其 Tauri 实现内部读本表；
+      // 读缓存 monitor 表（其 Tauri 实现内部读本表；
       // 窗口实际所在屏 = 当前位置命中项，多屏正确）
       const p = await win.outerPosition();
       const { monitorOf } = await import("./positioning/monitors");

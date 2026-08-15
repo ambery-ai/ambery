@@ -1,4 +1,4 @@
-// effects — 前端非 readonly @tauri-apps/api 调用上报（docs/effect-reporting.md）。
+// effects — 前端非 readonly @tauri-apps/api 调用上报。
 // fire-and-forget：不 await、错误吞掉（上报失败不破坏窗口逻辑）；
 // 高频 kind 按 key 250ms 去抖打包成一条（payload 附 count）。
 

@@ -1,4 +1,4 @@
-//! Cron（concepts §10g，docs/cron.md）：Harness 的持久化计划与延时调度。
+//! Cron：Harness 的持久化计划与延时调度。
 //! CronScheduler 是唯一调度实现：entries（cron.jsonl append-only，replay 折叠）
 //! + waiters（sleep 非持久化 oneshot，独立共享句柄——sleep 占用 Queue 串行点时
 //! 调度任务仍能到点唤醒，无死锁）。
@@ -9,12 +9,12 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
 pub const CRON_FILE: &str = "cron.jsonl";
-/// 设计常量（docs/cron.md）：sleep 上限 5 分钟（Queue 串行点占用防呆）
+/// 设计常量：sleep 上限 5 分钟（Queue 串行点占用防呆）
 pub const MAX_SLEEP_MS: u64 = 300_000;
-/// 设计常量（docs/cron.md）：every_ms 上限 30 天（防溢出回绕成永久刷屏计划）
+/// 设计常量：every_ms 上限 30 天（防溢出回绕成永久刷屏计划）
 pub const MAX_EVERY_MS: u64 = 2_592_000_000;
 
-/// 任务调度（docs/cron.md §任务表示）：二选一
+/// 任务调度：二选一
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Schedule {
@@ -50,7 +50,7 @@ pub struct CronEntry {
 }
 
 /// sleep 等待者共享句柄（独立锁，不经 AmberyBackend 锁——sleep 持 Queue 串行点
-/// 等待时，调度任务经此句柄到点唤醒，docs/cron.md §调度实现）
+/// 等待时，调度任务经此句柄到点唤醒）
 #[derive(Clone)]
 pub struct WaiterHandle {
     waiters: Arc<Mutex<Vec<(i64, oneshot::Sender<()>)>>>,

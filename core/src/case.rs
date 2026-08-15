@@ -1,4 +1,4 @@
-//! case-runner（docs/case-runner.md）：两段式 .case 解析、step 类型与概念观测。
+//! case-runner：两段式 .case 解析、step 类型与概念观测。
 //! feature "case-runner" gate。
 
 use crate::llm::Llm;
@@ -10,7 +10,7 @@ use crate::ambery::AmberyBackend;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// 概念结构观测快照（内容级，docs/case-runner.md §observe 输出）
+/// 概念结构观测快照（内容级）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaseObserve {
     pub agents: Vec<AgentSnapshot>,
@@ -31,17 +31,17 @@ pub struct CaseObserve {
     pub context_est_delta: usize,
     /// 最后一条 assistant 消息原文（回答准确度扫读位）
     pub answer: Option<String>,
-    /// Memory index 摘要（name / description；不默认展开正文，docs/observability.md）
+    /// Memory index 摘要（name / description；不默认展开正文）
     pub memory: Vec<MemoryNoteSnapshot>,
     /// Cron 持久化计划投影（id / schedule / message / next_due；不含 sleep waiter）
     pub cron: Vec<CronSnapshot>,
     /// Card 注册表投影（id/typ/title/created/user_closed/layout 摘要；不展开 component）
     pub cards: Vec<CardSnapshot>,
-    /// 动作流（从 effect.jsonl 读）：后端副作用 + 前端非只读调用（docs/storage.md §effect.jsonl）
+    /// 动作流（从 effect.jsonl 读）：后端副作用 + 前端非只读调用
     pub effects: Vec<crate::EffectRecord>,
 }
 
-/// 观测当前概念结构：模块快照走 Observable 投影（docs/observability.md），
+/// 观测当前概念结构：模块快照走 Observable 投影，
 /// 派生项（panorama / context_est_delta / answer）手写组装。
 pub fn observe<L: Llm>(ov: &AmberyBackend<L>) -> CaseObserve {
     let h = &ov.harness;
@@ -81,13 +81,13 @@ pub fn observe<L: Llm>(ov: &AmberyBackend<L>) -> CaseObserve {
     }
 }
 
-// ── 两段式 .case 格式（docs/case-runner.md §Case 文件格式）──
+// ── 两段式 .case 格式──
 
 /// 解析规则（唯一一条）：首个无缩进 `{"__section":` 行之前 = JSON 头；
 /// 之后按 marker 行分节，数据行归当前节。
 pub const SECTION_MARKER: &str = "{\"__section\":";
 
-/// memory 节文件标记（docs/case-runner.md §数据节）：`{"__file":"notes/<name>.md"}`
+/// memory 节文件标记：`{"__file":"notes/<name>.md"}`
 /// 行起到下一标记的行为该文件原文（Markdown 原文区，不转义、不按 JSONL 解析）。
 pub const FILE_MARKER: &str = "{\"__file\":";
 
@@ -123,7 +123,7 @@ struct CaseHead {
     steps: Vec<CaseStep>,
 }
 
-/// LLM 模式（docs/case-runner.md §LLM 模式）：两种平级无默认，case 头部 meta 必填声明
+/// LLM 模式：两种平级无默认，case 头部 meta 必填声明
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LlmMode {
@@ -143,7 +143,7 @@ pub struct CaseMeta {
     pub llm_mode: LlmMode,
 }
 
-/// no_case_visible（docs/case-runner.md §case 隐私）：case 禁止携带 llm.providers.*
+/// no_case_visible：case 禁止携带 llm.providers.*
 /// （base_url / api_key_env 等敏感字段），覆盖校验拒绝——case 绝不携带 apikey。
 /// 扁平静 key（"llm.providers.x"）与嵌套形（{"llm":{"providers":...}}）都拦。
 fn check_no_case_visible(config: &Value) -> Result<(), String> {
@@ -270,7 +270,7 @@ fn parse_memory_section(rows: &[String]) -> Result<Vec<CaseMemoryFile>, String> 
     Ok(files)
 }
 
-/// memory 节路径白名单（docs/case-runner.md §数据节）：`AGENTS.md` 或
+/// memory 节路径白名单：`AGENTS.md` 或
 /// `notes/<name>.md`（name 经文件名 grammar 且非保留名）；index.md 不导出（沙盒重建）、
 /// cards/ 不经此节（契约另定）。
 fn check_memory_path(path: &str) -> Result<(), String> {
@@ -306,7 +306,7 @@ pub enum CaseStep {
     Observe { observe: Vec<ObserveItem> },
 }
 
-/// store step 的变量设置（docs/case-eval-system.md §变量）：
+/// store step 的变量设置：
 /// `{ "<name>": { "type": "expr|var|int|str", "value": "<字符串>" } }`
 #[derive(Debug, Deserialize)]
 pub struct StoreValue {
@@ -348,7 +348,7 @@ impl CaseStep {
     }
 }
 
-/// pre-parse 预检（docs/case-eval-system.md §checkhealth）：静态校验，不执行 case。
+/// pre-parse 预检：静态校验，不执行 case。
 /// 检查项：① 表达式 try_parse 语法合法；② 变量引用有效（$tail 预定义、用户变量使用前
 /// 已 store）；③ store 类型合法（expr/var/int/str）；④ 类型可落（eval_store 的
 /// DirectToString 泛型约束编译期保证）；⑤ observe target 合法（可观测模块；lines 仅路径类）。
@@ -497,7 +497,7 @@ mod tests {
         assert!(parse(ok).is_ok());
     }
 
-    // ── memory/cron 数据节（docs/case-runner.md §数据节）──
+    // ── memory/cron 数据节──
 
     #[test]
     fn parse_memory_section_files_and_blank_lines() {
@@ -540,7 +540,7 @@ mod tests {
         assert!(parse(&bad).unwrap_err().contains("文件标记"), "bare");
     }
 
-    // ── pre-parse 预检（docs/case-eval-system.md §checkhealth）──
+    // ── pre-parse 预检──
 
     fn head(steps: &str) -> String {
         format!(

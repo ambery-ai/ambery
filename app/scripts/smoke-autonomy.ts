@@ -67,7 +67,7 @@ assert(seen.length === 2 && seen[1].source === "set_autonomy" && seen[1].e.motio
 autonomy.setAutonomy({ motion: "bounce", ttlMs: 60000 });
 assert(seen.length === 2, "同值覆盖去重（不 emit）");
 
-// 5. 覆盖期间 topState 变化不中断覆盖（docs/autonomy.md）
+// 5. 覆盖期间 topState 变化不中断覆盖
 f.emitTop(PROC);
 assert(seen.length === 2, "覆盖期间 topState 变化不 emit");
 

@@ -1,17 +1,16 @@
-//! Queue（concepts §10c，docs/harness.md）：输入串行化关口——只装输入
+//! Queue：输入串行化关口——只装输入
 //! （hook 内容 = system 输入；user 消息 = user 输入），串行放行一轮一条：
 //! 放行 → Context 写输入 → LLM → 输出写 Context → 放行下一条。
 //! assistant/tool 输出不走 Queue，直接入 Context。
-//! 双队列（docs/harness.md §Queue 规则 3）：high_q 装 user_chat（用户直接问 pet），
+//! 双队列：high_q 装 user_chat（用户直接问 pet），
 //! normal_q 装其余全部；放行时 high_q 非空先放 high_q（FIFO），空则放 normal_q（FIFO）。
-//! queue.jsonl 留痕（排队轨迹非对话本体；崩溃丢失未放行输入可接受，docs/storage.md）。
+//! queue.jsonl 留痕（排队轨迹非对话本体；崩溃丢失未放行输入可接受）。
 
 use crate::context::Role;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
-/// Queue 输入来源（docs/harness.md §Queue 规则 2；docs/concrete-insight.md §Queue 中的
-/// System 消息来源）：触发这次输入的语义原因——effort 档位、双队列优先级等
+/// Queue 输入来源：触发这次输入的语义原因——effort 档位、双队列优先级等
 /// 按来源定行为的机制的一等公民
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -54,7 +53,7 @@ pub struct QueueInput {
     pub ts: i64,
 }
 
-/// 双队列（docs/harness.md §Queue 规则 3）：high_q = user_chat 优先放行；两队各自 FIFO
+/// 双队列：high_q = user_chat 优先放行；两队各自 FIFO
 #[derive(Default)]
 pub struct Queue {
     high_q: VecDeque<QueueInput>,
@@ -113,7 +112,7 @@ mod tests {
 
     #[test]
     fn user_chat_jumps_ahead_but_fifo_within_each_queue() {
-        // docs/harness.md §Queue 规则 3：high_q（user_chat）优先放行；两队各自 FIFO
+        // high_q（user_chat）优先放行；两队各自 FIFO
         let mut q = Queue::default();
         q.enqueue(input("hook 一", 1));
         q.enqueue(user_input("用户一", 2));
@@ -130,7 +129,7 @@ mod tests {
 
     #[test]
     fn queue_input_source_serde_compat() {
-        // 旧 queue.jsonl 行（无 source 字段）→ mock_hook（docs/harness.md §Queue 规则 2）
+        // 旧 queue.jsonl 行（无 source 字段）→ mock_hook
         let v: QueueInput = serde_json::from_str(r#"{"role":"system","content":"x","ts":1}"#).unwrap();
         assert_eq!(v.source, QueueSource::MockHook);
         // 落盘携带 source（snake_case）
@@ -152,7 +151,7 @@ mod tests {
 
     #[test]
     fn enqueue_during_processing_queues_up() {
-        // 处理中到来 → 排队等待（concepts §10c）
+        // 处理中到来 → 排队等待
         let mut q = Queue::default();
         let first = q.enqueue(input("处理中", 1));
         let _ = first;

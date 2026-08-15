@@ -1,4 +1,4 @@
-//! 实时 storage → case 导出管线（docs/case-runner.md §导出工具）
+//! 实时 storage → case 导出管线
 //! 过滤阶段只控制哪些行进入 case（不改行内容）；最小化阶段对行内容瘦身（不改结构）。
 
 use serde_json::Value;
@@ -13,7 +13,7 @@ pub struct ExportOpts {
     pub keep_last: Option<usize>,
     pub trim_context: bool,
     pub dedup: bool,
-    /// 默认不导出 work_agents 节（含项目名，隐私）；显式才保留完整节（docs/case-runner.md §过滤器参数）
+    /// 默认不导出 work_agents 节（含项目名，隐私）；显式才保留完整节
     pub keep_agents: bool,
     /// Memory 导出资格（必须与 memory 同用，CLI 层校验成对）
     pub keep_memory: bool,
@@ -23,7 +23,7 @@ pub struct ExportOpts {
     pub keep_cron: bool,
     /// Cron 计划过滤器：选中 id 的 create / fire / delete 行完整保留，不受时间窗逐行裁断
     pub cron_ids: Option<Vec<String>>,
-    /// 预览过滤后各文件行数，不生成 case 文件（docs/case-runner.md §最小化参数）
+    /// 预览过滤后各文件行数，不生成 case 文件
     pub dry_run: bool,
 }
 
@@ -121,7 +121,7 @@ fn filter_work_agents(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
 
 /// context.jsonl 行过滤：时间按 ts；--trim-context（需配合 --instances）：
 /// - content 行：只留保留实例（孤行清理）
-/// - message 行：content 提及保留实例名才留（spec §过滤器参数原义）
+/// - message 行：content 提及保留实例名才留
 /// - autonomy/session/head/compact_boundary：装配/审计留痕，case replay 不入内存 → 丢弃
 ///   （默认保留；多 run 切片类 case 不要用 --trim-context）
 fn filter_context(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
@@ -268,7 +268,7 @@ fn select_memory(storage_dir: &std::path::Path, names: &[String]) -> Vec<(String
 }
 
 /// cron.jsonl 行过滤：只按 id 集选择（create / fire / delete 完整生命周期），
-/// 不套时间窗/--keep-last（因果链不按时间裁断，docs/case-runner.md §过滤器参数）
+/// 不套时间窗/--keep-last（因果链不按时间裁断）
 fn filter_cron(lines: Vec<String>, ids: &[String]) -> Vec<String> {
     let kept: Vec<String> = lines
         .into_iter()
@@ -286,7 +286,7 @@ fn filter_cron(lines: Vec<String>, ids: &[String]) -> Vec<String> {
     kept
 }
 
-/// 实时 storage → 两段式 .case 文本（docs/case-runner.md §Case 文件格式）：
+/// 实时 storage → 两段式 .case 文本：
 /// JSON 头（meta/config/steps）+ __section 分节 JSONL 原文；mock_terminals 不再有节
 ///（读通道剧情由 steps 的 terminal/terminal_gone 表达，导出默认全 None）
 pub fn export(storage_dir: &std::path::Path, opts: &ExportOpts) -> String {

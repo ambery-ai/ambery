@@ -1,5 +1,5 @@
-//! ambery-activity（docs/tools.md §ambery-activity）：storage 活动查看器。
-//! 读取 Storage 目录下 JSONL 文件（docs/storage.md），交互查看内部消息流。
+//! ambery-activity：storage 活动查看器。
+//! 读取 Storage 目录下 JSONL 文件，交互查看内部消息流。
 //! 目录参数默认取 `storage_dir`（`AMBERY_STORAGE_DIR` 可覆盖），也支持显式传目录。
 
 use ambery_core::context::ContextMessage;
@@ -228,7 +228,7 @@ fn line_brief(line: &str) -> String {
     truncate(line, 60)
 }
 
-/// CLI 选项（docs/tools.md §ambery-activity：--dir 覆盖目录，--follow tail 新增）
+/// CLI 选项（--dir 覆盖目录，--follow tail 新增）
 struct Options {
     dir: PathBuf,
     follow: bool,
@@ -267,7 +267,7 @@ fn main() {
                 }
                 eprintln!("({} rows from {})", a.rows.len(), opt.dir.display());
             } else {
-                // TUI 为默认形态（docs/tools.md §形态：TUI 交互界面）
+                // TUI 为默认形态（TUI 交互界面）
                 if let Err(e) = run_tui(opt.dir, a, opt.follow) {
                     eprintln!("ambery-activity: {e}");
                     std::process::exit(1);
@@ -281,7 +281,7 @@ fn main() {
     }
 }
 
-// ---- TUI 交互层（ratatui，docs/tools.md §形态）----
+// ---- TUI 交互层（ratatui）----
 
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;

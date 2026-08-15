@@ -141,7 +141,7 @@ await check(
   "1",
 );
 
-// 手势（docs/view.md §手势与 Chat 唤出）：右键 = chat:toggle——chat 唤出且
+// 手势：右键 = chat:toggle——chat 唤出且
 // **pet 原地不动**（#28 回归：无吸附瞬移——2026-07-26 否决 OS 式贴靠）
 await check(
   "右键唤出 chat：pet 原地不动 + 渲染 store.context",
@@ -157,7 +157,7 @@ await check(
     return stayed && !document.getElementById("chat-panel").hidden && h && h.textContent.includes("回复来了");
   })()`,
 );
-// 再次右键 → chat 随关（chat-panel.md §唤出与关闭：toggle）
+// 再次右键 → chat 随关（toggle）
 await check(
   "再次右键：chat 随关（toggle）",
   `(async () => {
@@ -166,7 +166,7 @@ await check(
     return document.getElementById("chat-panel").hidden;
   })()`,
 );
-// × 关闭后再右键重新唤出（chat-panel.md §唤出与关闭：同一关闭收口）
+// × 关闭后再右键重新唤出（同一关闭收口）
 await check(
   "× 关闭后再右键重新唤出",
   `(async () => {
@@ -182,7 +182,7 @@ await check(
     return !panel.hidden;
   })()`,
 );
-// 左键拖拽恒可用（无吸附锁定态，view.md §手势与 Chat 唤出）
+// 左键拖拽恒可用（无吸附锁定态）
 await check(
   "左键拖拽恒可用（无吸附锁定）",
   `(() => {

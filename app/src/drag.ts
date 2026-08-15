@@ -1,4 +1,4 @@
-// drag — DOM 窗口拖拽助手（docs/window-follow.md §拖拽回写）：
+// drag — DOM 窗口拖拽助手：
 // Tauri 走 OS startDragging；browser 走这里——同一语义：拖动 DOM，松手把中心点回写 engine。
 
 import type { Point } from "./positioning/types";

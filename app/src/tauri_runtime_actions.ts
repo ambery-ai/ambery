@@ -1,5 +1,5 @@
 // tauri_runtime_actions — WebView 侧非只读 Tauri 运行时动作的唯一出口
-// （docs/effect-reporting.md §运行时动作层）。
+// 
 // 每个语义化动作 = 真实 @tauri-apps/api 写调用，成功后才经 effects 单点记录对应
 // effect（失败原样抛错、不写“已发生”的 effect；上报本身 fire-and-forget）。
 // 只读调用（getByLabel / outerPosition / currentMonitor / listen）不属于本层，
@@ -43,7 +43,7 @@ export async function moveWindow(win: WindowLike, x: number, y: number): Promise
 }
 
 /** show_window：show + setFocus → window_visible {window} + window_focused {window}
- *  （一调用两动作分别记录，docs/effect-reporting.md §一动作一记录） */
+ *  （一调用两动作分别记录） */
 export async function showWindow(win: WindowLike): Promise<void> {
   await win.show();
   await win.setFocus();
@@ -64,7 +64,7 @@ export async function startDragging(win: WindowLike): Promise<void> {
 }
 
 /** ensure_card_window：Rust 权威注册表同步决策 create/reuse（#25 断根——前端不再
- *  getByLabel 自决存在性，docs/case-runner.md §窗口决策上提）。window_opened 与
+ *  getByLabel 自决存在性）。window_opened 与
  *  card:spec 的 event_emit 由 Rust 端记录，动作层只收口 invoke */
 export async function ensureCardWindow(id: string, spec: unknown): Promise<{ result: string }> {
   return (await invoke("ensure_card_window", { id, spec })) as { result: string };
@@ -106,7 +106,7 @@ export async function quitApp(): Promise<void> {
   await invoke("quit_app");
 }
 
-/** export_theme：主题导出到 config_root/themes/<name>.theme.json（docs/theme.md §导出） */
+/** export_theme：主题导出到 config_root/themes/<name>.theme.json */
 export async function exportTheme(name: string): Promise<{ ok: boolean; path?: string; error?: string }> {
   return (await invoke("export_theme", { name })) as { ok: boolean; path?: string; error?: string };
 }

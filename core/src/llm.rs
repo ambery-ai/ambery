@@ -1,6 +1,6 @@
-//! LLM 抽象 + debug 模式 agent（docs/agent-loop.md）。
+//! LLM 抽象 + debug 模式 agent。
 //! DebugAgent 是纯 mock：零逻辑，返回什么完全由外部决策源注入
-//! （测试脚本闭包 / HTTP brain / 沉默兜底，docs/debug-agent.md），它只负责转发。
+//! （测试脚本闭包 / HTTP brain / 沉默兜底），它只负责转发。
 
 use crate::context::{ContextMessage, Role, ToolCall};
 use serde::{Deserialize, Serialize};
@@ -14,10 +14,10 @@ pub struct ToolDef {
     pub parameters: Value,
 }
 
-/// Tool Set（concepts §10a）：pet 的权限边界，仅此九个
+/// Tool Set：pet 的权限边界，仅此九个
 /// （call_component / fetch_terminal / set_autonomy / edit_config /
 ///   read_memory / write_memory / cron_create / cron_delete / sleep）
-/// 说明文案按 Harness 语言现查表（docs/i18n.md：切换从下一次 LLM 交互起生效）；
+/// 说明文案按 Harness 语言现查表（切换从下一次 LLM 交互起生效）；
 /// tool name / 参数名 / 枚举值是机器契约，永不翻译
 pub fn tool_set(lang: crate::i18n::Lang) -> Vec<ToolDef> {
     use crate::i18n::tr as t;
@@ -217,7 +217,7 @@ pub struct LlmOutput {
     pub usage: Option<Usage>,
 }
 
-/// 流式增量（docs/streaming.md）：content / reasoning_content 两路，互斥非空。
+/// 流式增量：content / reasoning_content 两路，互斥非空。
 /// Delta 纯显示优化——不经 Queue/Context，完整回复最后才写 Context。
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Delta {
@@ -225,7 +225,7 @@ pub struct Delta {
     pub reasoning_content: Option<String>,
 }
 
-/// effort 档位（docs/effort.md §定义）：单次 LLM 调用的思考预算，独立于
+/// effort 档位：单次 LLM 调用的思考预算，独立于
 /// temperature（随机性）与工具调用预算（执行上限）。领域层只有统一语义档位；
 /// provider 适配层经 `effort_wire` 方言翻译成自己的 wire 参数；
 /// None = 不设置，用该 provider 端点默认
@@ -245,7 +245,7 @@ pub trait Llm: Send + Sync {
         tools: &[ToolDef],
         effort: Option<Effort>,
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send;
-    /// 流式补全（docs/streaming.md）：边收边回调 Delta。
+    /// 流式补全：边收边回调 Delta。
     /// 默认回落：一次性 complete 后把全文作为单个 delta 回调（不支持流式的客户端零改动）。
     fn complete_streaming(
         &self,
@@ -268,7 +268,7 @@ pub trait Llm: Send + Sync {
         }
     }
 
-    /// Compression 专项摘要（concepts §10d / docs/storage.md compact_boundary）。
+    /// Compression 专项摘要（compact_boundary）。
     /// 返回（摘要, usage 真值）——摘要调用也留真值（#16 审计完整）。
     /// 默认确定性 stub（DebugAgent / 测试保证确定性）；OpenAiClient 覆写为真实调用。
     fn summarize(
@@ -280,7 +280,7 @@ pub trait Llm: Send + Sync {
     }
 }
 
-/// 确定性摘要 stub（Compression 的 debug 回退，docs/harness.md：保证测试确定性）
+/// 确定性摘要 stub（Compression 的 debug 回退：保证测试确定性）
 pub fn deterministic_summary(messages: &[ContextMessage]) -> String {
     let n = messages.len();
     let first = messages
@@ -301,7 +301,7 @@ pub fn deterministic_summary(messages: &[ContextMessage]) -> String {
 }
 
 /// debug 模式 agent：纯 mock，零逻辑。决策源由外部注入——
-/// 测试用脚本闭包、HTTP brain（OpenAI 兼容端点）、降级兜底用沉默（docs/debug-agent.md）。
+/// 测试用脚本闭包、HTTP brain（OpenAI 兼容端点）、降级兜底用沉默。
 pub struct DebugAgent {
     decide: Box<dyn Fn(&[ContextMessage]) -> LlmOutput + Send + Sync>,
 }
@@ -356,7 +356,7 @@ fn truncate(s: &str, max: usize) -> String {
 
 use crate::LlmProvider;
 
-/// effort wire 方言（docs/effort.md §定义：各领域档位 → 端点参数；就近归并 + 告警，
+/// effort wire 方言（各领域档位 → 端点参数；就近归并 + 告警，
 /// 不报错；绝不把不认识的参数塞进 body）
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum EffortWire {
@@ -416,7 +416,7 @@ impl OpenAiClient {
     }
 
     /// ContextMessage → OpenAI messages（assistant tool_calls / tool tool_call_id 对齐 §10）
-    /// effort 按 effort_wire 方言翻译（docs/effort.md）；端点未声明方言 = 忽略 + 首次告警
+    /// effort 按 effort_wire 方言翻译；端点未声明方言 = 忽略 + 首次告警
     fn build_body(&self, messages: &[ContextMessage], tools: &[ToolDef], effort: Option<Effort>) -> Value {
         let msgs: Vec<Value> = messages
             .iter()
@@ -474,7 +474,7 @@ impl OpenAiClient {
         if let Some(t) = self.temperature {
             body["temperature"] = json!(t);
         }
-        // effort 翻译（docs/effort.md）：统一档位 → 端点 wire 参数；就近归并 + 告警不报错
+        // effort 翻译：统一档位 → 端点 wire 参数；就近归并 + 告警不报错
         match (self.effort_wire, effort) {
             (Some(EffortWire::OpenAi), Some(e)) => {
                 body["reasoning_effort"] = json!(match e {
@@ -494,7 +494,7 @@ impl OpenAiClient {
             }
             (None, Some(_)) => {
                 if !self.effort_warned.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                    eprintln!("[llm] 端点未声明 effort_wire 方言，effort 忽略不发送（docs/effort.md）");
+                    eprintln!("[llm] 端点未声明 effort_wire 方言，effort 忽略不发送");
                 }
             }
             _ => {}
@@ -525,7 +525,7 @@ impl OpenAiClient {
         parse_chat_response(&text)
     }
 
-    /// SSE 流式补全（docs/streaming.md）：stream:true + 逐事件解析，
+    /// SSE 流式补全：stream:true + 逐事件解析，
     /// content/reasoning_content 两路边收边回调；tool_calls 分片按 index 聚合。
     /// 字节级缓冲：\n\n 事件边界不可能切开 UTF-8 多字节字符（0x0A 不出现在多字节序列内）。
     async fn complete_streaming_async(
@@ -638,7 +638,7 @@ impl Llm for OpenAiClient {
     }
 }
 
-/// SSE 流式聚合器（docs/streaming.md）：content/reasoning 拼接，tool_calls 分片按 index 聚合；
+/// SSE 流式聚合器：content/reasoning 拼接，tool_calls 分片按 index 聚合；
 /// 末尾 usage 帧（stream_options.include_usage，三家实测支持）收真值（#16）
 #[derive(Default)]
 struct StreamAcc {
@@ -862,7 +862,7 @@ mod tests {
 
     #[test]
     fn stream_acc_content_and_reasoning_two_channels() {
-        // docs/streaming.md §OpenAI SSE 格式：reasoning(thinking 阶段)→content(回复阶段)
+        // reasoning(thinking 阶段)→content(回复阶段)
         let mut acc = StreamAcc::default();
         let mut deltas = vec![];
         for v in [
@@ -994,7 +994,7 @@ mod tests {
 
     #[test]
     fn effort_wire_translation() {
-        // docs/effort.md §定义：统一档位 → 端点方言；就近归并 + 不发送兜底
+        // 统一档位 → 端点方言；就近归并 + 不发送兜底
         let mut client = test_client();
         let msgs = vec![ContextMessage::new(Role::User, "hi", 0)];
         // openai 方言：顶层 reasoning_effort 原样三档

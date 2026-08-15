@@ -1,4 +1,4 @@
-//! claude 策略（docs/filter.md）：Claude Code 终端的结构理解。
+//! claude 策略：Claude Code 终端的结构理解。
 //! 规则取自真实 Claude Code 标签页的 UIA 文本样本（UIA 返回渲染后纯文本，无 ANSI 码）。
 //! 管线：trim_end → 折行合并 → 去噪 → 块切分填 TerminalDigest。
 
@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 
 use super::{Change, ContentBlock, Filter, TerminalDigest};
 
-/// claude 策略（docs/filter.md §claude.rs 噪音清单）
+/// claude 策略
 pub struct ClaudeFilter {
     /// Jaccard 相似度阈值，≥ 判 Minor
     pub similarity_threshold: f64,
@@ -263,7 +263,7 @@ mod tests {
             }
             other => panic!("expected ToolCall, got {other:?}"),
         }
-        // render 全量不省略（设计决定）
+        // render 全量不省略
         assert_eq!(
             d.render(),
             "● Update(settings.json)\n  ⎿  Added 3 lines\n      13 +  \"hooks\": {\n      14 +    \"SessionStart\": []\n      15 +  }"
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn toolcall_with_fold_tail() {
-        let raw = "● Write(docs/issues.md)\n  ⎿  Wrote 11 lines\n      1 # Issues\n      2 \n      3 ***\n  … +5 lines\n● 后续";
+        let raw = "● Write(issues.md)\n  ⎿  Wrote 11 lines\n      1 # Issues\n      2 \n      3 ***\n  … +5 lines\n● 后续";
         let d = filter().digest(raw);
         match &d.blocks[0] {
             ContentBlock::ToolCall {

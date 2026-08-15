@@ -1,4 +1,4 @@
-// Cards Shelf 窗口（docs/view.md：Card 集合的瞬时管理弹出层，不属于 Surface）。
+// Cards Shelf 窗口（Card 集合的瞬时管理弹出层，不属于 Surface）。
 // 瞬时语义：尺寸 = pet 物理尺寸 ×3（钳制 180–480 × 120–240，toggle 载荷带来 pet
 // 中心与宽高，打开时现算）；位置 = 左下角落在 pet 中心、向右上延伸；中键点 pet 或
 // shelf 任意位置直接关闭；失焦即关（600ms 武装延迟）；pet 拖拽/托盘连坐关。
@@ -27,10 +27,10 @@ export async function main() {
   const { listen } = await import("@tauri-apps/api/event");
   const win = getCurrentWindow();
   const bridge: Bridge = await createBridge();
-  // 前端 store（docs/case-runner.md §前端读取架构）：cards 注册表经 store 读
+  // 前端 store：cards 注册表经 store 读
   const store = await Store.create(bridge);
-  wireTheme(store); // docs/theme.md：瞬时弹出层同样采用当前主题
-  wireI18n(store, () => void panel.refresh()); // docs/i18n.md：语言切换即重渲染
+  wireTheme(store); // 瞬时弹出层同样采用当前主题
+  wireI18n(store, () => void panel.refresh()); // 语言切换即重渲染
 
   const panel = new ShelfPanel(document.body, {
     list: async () => store.cards ?? [],
@@ -46,7 +46,7 @@ export async function main() {
       await panel.refresh();
     },
     dismiss: async (c, title) => {
-      void title; // 文本由 core 现写（lifecycle 单源，docs/i18n.md）
+      void title; // 文本由 core 现写（lifecycle 单源）
       bridge.pushEvent({ action: "dismiss", cardId: c.component.id });
       await actions.emitEvent("shelf:dismiss", { id: c.component.id }, "pet");
       await store.refreshCards();

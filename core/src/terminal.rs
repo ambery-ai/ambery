@@ -1,5 +1,5 @@
-//! Terminal Adapter（concepts §14，docs/terminal-adapter.md）与 Platform Primitives
-//! （concepts §15，docs/platform-primitives.md）：概念的可实例化落地。
+//! Terminal Adapter与 Platform Primitives
+//! 概念的可实例化落地。
 //!
 //! TerminalAdapter 向 Code CLI 实例提供「定位、读取、遗忘」统一接口——一个实现
 //! 对应一个终端类型（WtAdapter = wt 经 C# sidecar；MapAdapter = map 支撑终端，
@@ -12,14 +12,14 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// 实例在终端会话载体中的位置（concepts §7；docs/hook.md §定位缓存）
+/// 实例在终端会话载体中的位置
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct TabRef {
     pub hwnd: i64,
     pub index: i64,
 }
 
-/// Terminal Adapter 接口（docs/terminal-adapter.md §能力接口）
+/// Terminal Adapter 接口
 pub trait TerminalAdapter: Send + Sync {
     /// 定位：instance → 它在终端会话中的位置
     fn locate(&self, inst: &str) -> Option<TabRef>;
@@ -29,14 +29,14 @@ pub trait TerminalAdapter: Send + Sync {
     fn forget(&self, inst: &str);
 }
 
-/// Platform Primitives 接口（docs/platform-primitives.md §能力接口）
+/// Platform Primitives 接口
 pub trait PlatformPrimitives: Send + Sync {
     /// 切到目标窗口所在虚拟桌面（读取前置 / 跳转共用）
     fn switch_vd(&self, hwnd: i64) -> bool;
 }
 
-/// WtAdapter（docs/terminal-adapter.md §实现）：Windows Terminal 经 C# sidecar
-/// 独立进程访问（UIA 定位 + TermControl TextPattern 读取，协议见 docs/sidecar.md）。
+/// WtAdapter：Windows Terminal 经 C# sidecar
+/// 独立进程访问（UIA 定位 + TermControl TextPattern 读取，协议见）。
 /// 定位缓存与 #10 hwnd 回收验证在本层（SidecarClient 是纯协议客户端）。
 pub struct WtAdapter {
     sidecar: Arc<crate::sidecar::SidecarClient>,
@@ -162,7 +162,7 @@ impl TerminalAdapter for MapAdapter {
     }
 }
 
-/// ZellijAdapter（docs/terminal-adapter.md §实现）：zellij 复用器经 `zellij action` CLI
+/// ZellijAdapter：zellij 复用器经 `zellij action` CLI
 /// 进程内直调，无独立进程。locate 经 `list-panes -a --json` 匹配 marker（pane 是读取单元，
 /// tab 只是容器），read 经 `dump-screen -p <pane_id>` 读内容；forget 清定位缓存。
 ///
@@ -180,7 +180,7 @@ pub trait ZellijRunner: Send + Sync {
     fn run(&self, args: &[&str]) -> Option<String>;
 }
 
-/// 生产实现：直调 `zellij` 进程（docs/terminal-adapter.md §实现「进程内（Rust 直调 CLI）」）
+/// 生产实现：直调 `zellij` 进程（进程内 Rust 直调 CLI）
 pub struct ProcessZellijRunner;
 
 impl ZellijRunner for ProcessZellijRunner {
@@ -213,7 +213,7 @@ impl ZellijAdapter {
             // 只认真实终端 pane，跳过 plugin pane（tab-bar / status-bar / zellij:link）
             if p["is_plugin"].as_bool() == Some(false) {
                 let title = p["title"].as_str().unwrap_or("");
-                // Contains 匹配（docs/hook.md §marker 定位：✳ 前缀与 | 描述后缀不影响命中）
+                // Contains 匹配（✳ 前缀与 | 描述后缀不影响命中）
                 if title.contains(inst) {
                     let id = p["id"].as_i64()?;
                     return Some(TabRef {
@@ -250,7 +250,7 @@ impl TerminalAdapter for ZellijAdapter {
     }
 }
 
-/// Composite：多 adapter 分发（docs/terminal-adapter.md「多终端兼容 = 抽象接口 +
+/// Composite：多 adapter 分发（「多终端兼容 = 抽象接口 +
 /// 按终端分发实现」）。locate 首中者胜并记录路由；read 按路由精确回到同一 adapter
 /// （TabRef 只在产出它的 adapter 上有意义）；forget 广播（各 adapter 缓存独立）。
 pub struct Composite {
@@ -301,7 +301,7 @@ impl TerminalAdapter for Composite {
 }
 
 /// SidecarPlatformPrimitives：Windows 平台原语经 C# sidecar 进程交付
-/// （COM IVirtualDesktopManager 在 sidecar 内；docs/platform-primitives.md §实现）
+/// （COM IVirtualDesktopManager 在 sidecar 内）
 pub struct SidecarPlatformPrimitives {
     sidecar: Arc<crate::sidecar::SidecarClient>,
 }
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn zellij_adapter_locate_read_forget() {
-        // zellij pane title 带 marker 前缀与描述后缀（docs/hook.md §marker 定位）；
+        // zellij pane title 带 marker 前缀与描述后缀；
         // plugin pane（tab-bar）混入以验证 TYPE 过滤
         let z = Arc::new(StubZellij {
             panes: vec![

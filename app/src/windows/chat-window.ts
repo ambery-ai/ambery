@@ -1,4 +1,4 @@
-// Chat 窗口入口（docs/multi-window.md）：ChatPanel + 窗口定位
+// Chat 窗口入口：ChatPanel + 窗口定位
 // Tauri B 方案：通过 requestPlace/requestRemove 调 pet 窗 engine
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
@@ -20,8 +20,7 @@ export async function main() {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const win = getCurrentWindow();
     await listen("pet:moved", () => {}); // 占位，确保事件系统初始化
-    // 唤出/关闭由 pet 右键 toggle 驱动（docs/view.md §手势与 Chat 唤出 +
-    // docs/chat-panel.md §唤出与关闭）：chat:toggle → 开则关、关则开；
+    // 唤出/关闭由 pet 右键 toggle 驱动：chat:toggle → 开则关、关则开；
     // 位置经 engine.place 固定 sse（自己的定位引擎，非 OS 贴靠）
     await listen("chat:toggle", () => {
       if (chatPanel?.isVisible()) {
@@ -64,7 +63,7 @@ export async function main() {
 
   const bridge = await createBridge();
   const store = await Store.create(bridge);
-  wireTheme(store); // docs/theme.md：新窗口随当前主题，切换即生效
+  wireTheme(store); // 新窗口随当前主题，切换即生效
   const mount = document.getElementById("app")!;
   // ChatPanel 不需要 engine，toggle 直接用 DOM show/hide
   chatPanel = new ChatPanel(mount, bridge, store, null!, true);
@@ -94,7 +93,7 @@ export async function main() {
 async function showChat() {
   if (!chatPanel) return;
   chatPanel.showPanel();
-  // 固定 sse 方位经 engine.place 落到 pet 旁（docs/chat-panel.md §布局）
+  // 固定 sse 方位经 engine.place 落到 pet 旁
   const pos = await requestPlace("chat-panel", { id: "chat-panel", width: panelW, height: panelH }, Direction.sse);
   await adapter?.setPosition(Math.round(pos.x - panelW / 2), Math.round(pos.y - panelH / 2));
   await adapter?.show();

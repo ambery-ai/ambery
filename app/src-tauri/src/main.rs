@@ -1,5 +1,5 @@
-//! Tauri 壳（docs/multi-window.md）：三独立窗口（pet + chat + menu）+ 内嵌 ambery-core。
-//! 前端通信走 Tauri IPC（docs/core-server.md），仅 /hook 保留 HTTP。
+//! Tauri 壳：三独立窗口（pet + chat + menu）+ 内嵌 ambery-core。
+//! 前端通信走 Tauri IPC，仅 /hook 保留 HTTP。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -19,7 +19,7 @@ mod tray;
 mod tauri_runtime_actions;
 
 /// 面板底部按钮（原托盘菜单动作）。复合入口逐动作转发、逐动作记录
-/// （docs/effect-reporting.md：四个动作四条 effect，不能合成一条 toggle）
+/// （四个动作四条 effect，不能合成一条 toggle）
 #[tauri::command]
 fn toggle_pet<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
     if let Some(w) = app.get_webview_window("pet") {
@@ -77,7 +77,7 @@ async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) ->
         let mut ov = s.ambery().lock().await;
         ov.enqueue(Role::User, text, ambery_core::queue::QueueSource::UserChat, now_ms()).map_err(|e| e.to_string())?;
     }
-    // 生产者只入队，放行由消费者任务驱动（concepts §10c）
+    // 生产者只入队，放行由消费者任务驱动
     s.queue_notify.notify_one();
     Ok(json!({ "ok": true }))
 }
@@ -97,7 +97,7 @@ async fn push_event(
 ) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let mut ov = s.ambery().lock().await;
-    // 结构化事实 → 文本（lifecycle 语义单源，docs/i18n.md §Harness 内部语言）
+    // 结构化事实 → 文本（lifecycle 语义单源）
     let ev = json!({
         "action": action,
         "card_type": card_type,
@@ -110,7 +110,7 @@ async fn push_event(
         ambery_core::i18n::Lang::of(&ov.config.harness_language),
         &ev,
     );
-    // 动作流记录（docs/effect-reporting.md §kind）：前端 push_event = interaction/frontend
+    // 动作流记录：前端 push_event = interaction/frontend
     ov.record_frontend_effect("interaction", json!({ "desc": desc.as_str(), "card_id": card_id.as_deref() }));
     // 用户 × 关卡：dismiss（删 .card.json、出注册表、忘记布局）+ closed_by_user 双行事件
     if action == "dismiss" {
@@ -144,7 +144,7 @@ async fn get_config(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
     Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale, "badgeStyle": cfg.badge_style, "badgeSide": cfg.badge_side, "theme": cfg.theme, "themes": cfg.themes, "uiLanguage": cfg.ui_language, "name": cfg.name }))
 }
 
-/// 主题导出（docs/theme.md §导出、分享与兼容）：写 `<config_root>/themes/<name>.theme.json`
+/// 主题导出：写 `<config_root>/themes/<name>.theme.json`
 #[tauri::command]
 async fn export_theme(state: tauri::State<'_, SharedTauriState>, name: String) -> Result<Value, String> {
     let s = wait_state(&state)?;
@@ -152,7 +152,7 @@ async fn export_theme(state: tauri::State<'_, SharedTauriState>, name: String) -
     let root = ov.harness.config_dir().to_path_buf();
     match ambery_core::config::theme::export_theme(&root, &ov.config, &name) {
         Ok(path) => {
-            // 写文件副作用，端点记录（docs/effect-reporting.md §通道）
+            // 写文件副作用，端点记录
             ov.record_frontend_effect("theme_export", json!({ "name": name.as_str() }));
             Ok(json!({ "ok": true, "path": path.display().to_string() }))
         }
@@ -160,7 +160,7 @@ async fn export_theme(state: tauri::State<'_, SharedTauriState>, name: String) -
     }
 }
 
-/// 主题导入（docs/theme.md §导出、分享与兼容）：版本检查 → 兼容变换 → 校验 →
+/// 主题导入：版本检查 → 兼容变换 → 校验 →
 /// 统一修改管道写入 themes.<name>（原子拒绝 + 广播 config_changed，全部窗口即切）
 #[tauri::command]
 async fn import_theme(state: tauri::State<'_, SharedTauriState>, file: String) -> Result<Value, String> {
@@ -208,7 +208,7 @@ async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, val
     let mut ov = s.ambery().lock().await;
     match ov.apply_config_by_path(&path, value) {
         Ok(outcome) => {
-            // 动作流记录（docs/effect-reporting.md §kind）：前端设置面板 = config_update/frontend
+            // 动作流记录：前端设置面板 = config_update/frontend
             ov.record_frontend_effect("config_update", json!({ "path": path.as_str() }));
             let restart = outcome.restart_required.clone();
             drop(ov);
@@ -219,7 +219,7 @@ async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, val
     }
 }
 
-/// Card 跨重启恢复（readonly 查询，docs/components.md §Card 文件）：
+/// Card 跨重启恢复（readonly 查询）：
 /// pet 启动 pull 全部存活卡片（component + _meta）；可见性过滤在前端（pull-on-ready，
 /// 规避 push-at-startup 的 webview 未就绪时序漏洞）
 #[tauri::command]
@@ -240,9 +240,9 @@ async fn list_cards(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
     Ok(json!(out))
 }
 
-/// Card 布局回写（docs/components.md §Card 文件）：拖拽结束把相对 pet 偏移落
+/// Card 布局回写：拖拽结束把相对 pet 偏移落
 /// .card.json（_meta.layout.offset/manual）。invoke 写动作，端点记录 card_layout
-/// effect（docs/effect-reporting.md §通道：core 接收端记录）
+/// effect（core 接收端记录）
 #[tauri::command]
 async fn update_card_layout(state: tauri::State<'_, SharedTauriState>, id: String, offset: (i64, i64)) -> Result<Value, String> {
     let s = wait_state(&state)?;
@@ -256,9 +256,9 @@ async fn update_card_layout(state: tauri::State<'_, SharedTauriState>, id: Strin
     }
 }
 
-/// Card 显示选择回写（Cards Shelf 显隐切换，docs/components.md §Card 文件）：
+/// Card 显示选择回写（Cards Shelf 显隐切换）：
 /// 只改 _meta.user_closed（窗口动作由 pet 经 shelf:visibility 事件执行）；
-/// invoke 写动作，端点记录 card_visibility effect（docs/effect-reporting.md §通道）
+/// invoke 写动作，端点记录 card_visibility effect
 #[tauri::command]
 async fn set_card_user_closed(state: tauri::State<'_, SharedTauriState>, id: String, user_closed: bool) -> Result<Value, String> {
     let s = wait_state(&state)?;
@@ -275,7 +275,7 @@ async fn set_card_user_closed(state: tauri::State<'_, SharedTauriState>, id: Str
     }
 }
 
-/// 前端非 readonly @tauri-apps/api 调用上报（docs/effect-reporting.md §通道）
+/// 前端非 readonly @tauri-apps/api 调用上报
 #[tauri::command]
 async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, payload: Option<Value>) -> Result<Value, String> {
     let s = wait_state(&state)?;
@@ -284,7 +284,7 @@ async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, 
     Ok(json!({ "ok": true }))
 }
 
-/// card 窗口 id 合法性（与 core 同一约束，docs/components.md §Card 文件）：
+/// card 窗口 id 合法性（与 core 同一约束）：
 /// A-Z a-z 0-9 _ - . /，路径段不得为空或 `..`（嵌套子目录合法；core 接受壳不得拒绝）
 fn valid_card_id(id: &str) -> bool {
     !id.is_empty()
@@ -295,7 +295,7 @@ fn valid_card_id(id: &str) -> bool {
         && !id.split('/').any(|seg| seg.is_empty() || seg == "..")
 }
 
-/// Card 窗口权威注册表（docs/case-runner.md §窗口决策上提，#25 断根）。
+/// Card 窗口权威注册表（#25 断根）。
 /// Tauri 注册表的移除走事件循环（`destroy()` 经 dispatcher 分发、event loop 处理时才出表），
 /// 决策若读其瞬时视图仍有「将死窗口」窗口期（#25 根因 B 的残留形态）。
 /// 本表是 create / reuse / close 决策的唯一依据：`Closing` 吸收 destroy 的生效窗口期——
@@ -320,7 +320,7 @@ async fn wait_window_gone<R: tauri::Runtime>(app: &tauri::AppHandle<R>, label: &
     eprintln!("[card-win] wait_window_gone 超时（事件循环未处理 destroy？）: {label}");
 }
 
-/// 窗口决策上提（docs/case-runner.md §窗口决策上提，#25 断根）：
+/// 窗口决策上提（#25 断根）：
 /// 前端不再 getByLabel 自查自决存在性——Rust 权威注册表同步决策 create / reuse。
 /// create → window_opened 记录 + 500ms 后推 card:spec（等页面 JS listener 就绪）；
 /// reuse → 立即重推 card:spec（原地更新），记录 event_emit。
@@ -390,7 +390,7 @@ async fn ensure_card_window<R: tauri::Runtime>(
     Ok(json!({ "result": "opened" }))
 }
 
-/// 统一关闭（docs/multi-window.md §窗口创建与生命周期）：destroy 不经 onCloseRequested
+/// 统一关闭：destroy 不经 onCloseRequested
 /// （preventDefault 会留将死窗口，#25 根因 B 的机制）。标 Closing → destroy → 等物理
 /// 移除 → 出表；ensure 侧见 Closing 等待，窗口期被本表完全吸收。
 /// agent close / shelf dismiss / 用户 × 三条路径收口到本命令。
@@ -465,9 +465,9 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let (timer_tick, timer_batch) = (config.timer.tick_ms, config.timer.batch);
     let mut ambery = AmberyBackend::new(harness, config, backend);
 
-    // Terminal Adapter 装配（docs/terminal-adapter.md）：adapter_wt 开关门控（冷字段，
+    // Terminal Adapter 装配：adapter_wt 开关门控（冷字段，
     // 装配期生效）——false = wt sidecar 完全不接入（无定位/读取/原语/启动扫描），
-    // Hook 驱动核心体验仍可用；MapAdapter 兜底（/debug/terminal 注入）恒在
+    // Hook 驱动核心体验仍可用；MapAdapter 兜底（debug/terminal 注入）恒在
     let sidecar = if ambery.config.terminal.adapter_wt {
         ambery_core::paths::sidecar_exe()
             .map(ambery_core::sidecar::SidecarClient::new)
@@ -504,9 +504,9 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
 
     spawn_timer_task(state.clone(), timer_tick, timer_batch);
     spawn_queue_consumer(state.clone());
-    // 外部文件自动载入（docs/config.md §外部文件自动载入）
+    // 外部文件自动载入
     ambery_core::server::spawn_config_watcher(state.clone(), ambery_core::paths::config_root());
-    // Cron 调度任务（concepts §10g，docs/cron.md）
+    // Cron 调度任务
     ambery_core::server::spawn_cron_task(state.clone());
 
     // 注入 Tauri managed state
@@ -524,7 +524,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
             }))
             .await;
     }
-    // 流式 delta 旁路（docs/streaming.md）
+    // 流式 delta 旁路
     state.wire_effect_sink().await;
     // Tauri 模式：前端走 IPC（TauriBridge），HTTP 仅留 /hook（外部 hook 脚本，进程外不可走 command）
     let app = hook_router(state);
@@ -688,7 +688,7 @@ mod ipc_tests {
             .unwrap();
         let resp = tauri::test::get_ipc_response(&window, ipc("toggle_pet"));
         assert!(resp.is_ok(), "toggle_pet invoke 失败: {resp:?}");
-        // 复合入口逐动作记录：不能合成一条 toggle（docs/effect-reporting.md §一动作一记录）
+        // 复合入口逐动作记录：不能合成一条 toggle
         let dir = std::env::temp_dir().join("ambery-ipc-test-toggle");
         let mut content = String::new();
         for _ in 0..60 {
@@ -746,7 +746,7 @@ mod ipc_tests {
         // 非法 id 拒绝
         let r = call("ensure_card_window", json!({ "id": "bad id!", "spec": spec }));
         assert_eq!(r["result"], json!("error"), "{r}");
-        // 嵌套 id（docs/components.md §Card 文件：可含 / 子目录）core 接受壳也接受
+        // 嵌套 id（可含 / 子目录）core 接受壳也接受
         let r = call("ensure_card_window", json!({ "id": "proj/nested-1", "spec": spec }));
         assert_eq!(r["result"], json!("opened"), "{r}");
         assert!(app.get_webview_window("card-proj/nested-1").is_some());

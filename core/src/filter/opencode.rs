@@ -1,4 +1,4 @@
-//! opencode 策略（docs/filter.md）：骨架——待真实 OpenCode 终端 UIA 样本调规则。
+//! opencode 策略：骨架——待真实 OpenCode 终端 UIA 样本调规则。
 //! 噪声谱、块 glyph 表与 Claude Code 不同，无样本不臆造：
 //! 当前只做 R0 trim_end + 空行剔除，digest 走默认实现（整篇 Info，不丢信息）。
 //! TODO(样本)：noise 清单 / 块切分 / 折行合并参数（采集后比照 claude.rs 填）。

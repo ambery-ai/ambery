@@ -24,7 +24,7 @@ interface Occupied {
 
 export class PositioningEngine {
   private occupied: Occupied[] = [];
-  /** 布局记忆（docs/window-follow.md §一致性剖析）：用户隐藏释放占区但保留布局；
+  /** 布局记忆：用户隐藏释放占区但保留布局；
    *  与系统临时隐藏（占区原地保留）和 dismiss（remove：结束 Surface 并忘记布局）区分 */
   private layoutMemory = new Map<string, { offset: Point; w: number; h: number; manual?: boolean }>();
   private petCenter: Point = { x: 0, y: 0 };
@@ -42,9 +42,8 @@ export class PositioningEngine {
   }
 
   /** 放置新窗口：自动布局（或 manual 保持偏移）。返回屏幕绝对坐标（左上角换算由调用方做）。
-   *  preferred 可传 "auto"（docs/components.md §调用协议）：按「屏幕剩余空间最大的方位」
-   *  自动选择（以 pet 中心划分四象限比较）。出屏兜底（docs/window-follow.md §出屏与重叠，
-   *  issues #21）：完全出屏 → 全 16 方位环重试（±1~±8，首选命中即止）；全失败取最初结果。 */
+   *  preferred 可传 "auto"：按「屏幕剩余空间最大的方位」
+   *  自动选择（以 pet 中心划分四象限比较）。出屏兜底（*  issues #21）：完全出屏 → 全 16 方位环重试（±1~±8，首选命中即止）；全失败取最初结果。 */
   place(newWindow: WindowSpec, preferred: Direction | "auto"): Point {
     const dir0 = preferred === "auto" ? this.autoDirection() : preferred;
     const dirs: Direction[] = [dir0];
@@ -62,7 +61,7 @@ export class PositioningEngine {
     return first!;
   }
 
-  /** auto 方位（docs/components.md）：pet 中心到缓存 monitor 四边的最大剩余空间方位 */
+  /** auto 方位：pet 中心到缓存 monitor 四边的最大剩余空间方位 */
   private autoDirection(): Direction {
     const m = monitorOf(this.petCenter);
     const spaces: [Direction, number][] = [
@@ -75,7 +74,7 @@ export class PositioningEngine {
     return spaces[0][0];
   }
 
-  /** 完全出屏判定（零相交才否决；部分出屏接受；视口 = 缓存 monitor 表，docs/window-follow.md） */
+  /** 完全出屏判定（零相交才否决；部分出屏接受；视口 = 缓存 monitor 表） */
   private _fullyOffscreen(center: Point, spec: WindowSpec): boolean {
     const m = monitorOf(this.petCenter);
     return (
@@ -188,7 +187,7 @@ export class PositioningEngine {
     console.info("[engine] release（用户隐藏，布局入记忆）", id);
   }
 
-  /** 跨重启布局接棒（docs/components.md §Card 文件）：恢复 Card 的 manual 偏移——
+  /** 跨重启布局接棒：恢复 Card 的 manual 偏移——
    *  无占区时新建条目（尺寸待首个 place 刷新），有占区只刷偏移与 manual 标记 */
   seedManual(id: string, offset: Point): void {
     const o = this.occupied.find((o) => o.id === id && o.id !== "_pet_");

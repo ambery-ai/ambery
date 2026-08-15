@@ -1,4 +1,4 @@
-//! SidecarClient（docs/sidecar.md）：stdio JSON Lines 调 C# UIA sidecar。
+//! SidecarClient：stdio JSON Lines 调 C# UIA sidecar。
 //! Mutex 串行化请求（UIA 切 Tab 是全局状态，不可并行）。
 //! 常驻简化语义：进程死了即弃，下次请求现拉起（冷启 ~200ms）——无保活预检、无心跳。
 
@@ -9,7 +9,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// tab 切换限流（docs/hook.md §auto_read）：全局 5 秒内最多一次
+/// tab 切换限流：全局 5 秒内最多一次
 const SWITCH_THROTTLE: Duration = Duration::from_secs(5);
 
 /// 纯协议客户端（stdio JSONL 往返 + 进程冷启 + tab 切换限流）。
@@ -31,7 +31,7 @@ impl SidecarClient {
         }
     }
 
-    /// 公开请求口（启动扫描等 core 逻辑用，docs/hook.md §启动扫描）
+    /// 公开请求口（启动扫描等 core 逻辑用）
     pub fn call(&self, req: &Value) -> Option<Value> {
         self.request(req)
     }

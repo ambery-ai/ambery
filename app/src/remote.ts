@@ -1,5 +1,5 @@
-// RemoteBridge：前端经 HTTP+WS loopback 连 ambery-core（docs/agent-loop.md §协议）。
-// 浏览器调试模式与 Tauri 内嵌模式共用同一协议，前端代码不变（docs/harness.md 末节）。
+// RemoteBridge：前端经 HTTP+WS loopback 连 ambery-core。
+// 浏览器调试模式与 Tauri 内嵌模式共用同一协议，前端代码不变。
 
 import type {
   AppConfig,
@@ -14,8 +14,7 @@ import type {
 } from "./bridge";
 
 // 端口：默认 47600（生产/浏览器调试）；case-runner 拉起 TS 测试进程时经
-// __AMBERY_PORT__ 注入独立端口避让生产（docs/case-runner.md §壳类比；
-// 该全局必须在导入本模块前设置——app/test/shim.ts 顶部）
+// __AMBERY_PORT__ 注入独立端口避让生产（该全局必须在导入本模块前设置——app/test/shim.ts 顶部）
 const PORT =
   (globalThis as Record<string, unknown>).__AMBERY_PORT__ ?? "47600";
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -84,7 +83,7 @@ export class RemoteBridge implements Bridge {
           if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec!));
           break;
         case "close_component":
-          // 持续管理协议显式关闭（docs/components.md；与 TauriBridge 同一语义）
+          // 持续管理协议显式关闭（与 TauriBridge 同一语义）
           if (msg.id) this.closeListeners.forEach((cb) => cb(msg.id!));
           break;
         case "context_changed":
@@ -99,7 +98,7 @@ export class RemoteBridge implements Bridge {
           break;
         case "config":
           // config effect 是裸信号（无载荷）——按需重拉（与 TauriBridge 同一刷新语义，
-          // docs/case-runner.md §前端读取架构：事件提示时按需重拉）
+          // 事件提示时按需重拉）
           void this.getConfig().then((cfg) => this.configListeners.forEach((cb) => cb(cfg)));
           break;
         case "assistant_delta":
@@ -189,7 +188,7 @@ export class RemoteBridge implements Bridge {
     this.doneListeners.push(cb);
   }
 
-  // 设置面板（docs/config.md §统一修改入口 Server API；debug 全量 router 才有这两端点）
+  // 设置面板（debug 全量 router 才有这两端点）
   async getConfigSchema(): Promise<ConfigSchemaResp> {
     return (await fetch(`${BASE}/config/schema`)).json() as Promise<ConfigSchemaResp>;
   }
