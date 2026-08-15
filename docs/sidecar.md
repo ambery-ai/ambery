@@ -12,7 +12,7 @@
 
 - **self-contained win-x64，非单文件**：`sidecar.csproj` 固化 `RuntimeIdentifier=win-x64` / `SelfContained=true` / `PublishSingleFile=false`；用户机器无需 .NET 9 Desktop Runtime。
 - 发布命令：`dotnet publish sidecar/sidecar.csproj -c Release` → `sidecar/bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe`。
-- Tauri 侧：`app/src-tauri/tauri.conf.json` 的 `bundle.externalBin` 指向该 publish 路径；开启 `bundle.active` 后随包分发。
+- Tauri 侧：`bundle.active` 当前为 false（发布轮开启）。开启 Windows 打包时在 `app/src-tauri/tauri.conf.json` 的 `bundle.externalBin` 加入 `../../sidecar/bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe`；不要在非 Windows 构建常驻该配置——Tauri build script 会按当前平台解析 externalBin 路径。
 - 路径发现优先级（`core/src/paths.rs`）：`AMBERY_SIDECAR` env > 当前 exe 旁 > 当前 exe 旁 `sidecar/` > Release publish > Debug。Windows 真机验证前，publish 布局未经打包流水线实测（标 `dev/issues.md`）。
 
 ## 命令集
