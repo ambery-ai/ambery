@@ -1,64 +1,64 @@
 # Streaming Delta
 
-LLM 回复的流式传输——assistant 输出以增量片段逐条推送到前端，而非完整一次性交付。
+Streaming transport of LLM replies — assistant output is pushed to the frontend incrementally, fragment by fragment, rather than delivered all at once.
 
-## 概念
+## Concepts
 
-| 概念 | 说明 |
+| Concept | Description |
 |------|------|
-| **Delta** | LLM 输出的一小段文本，不等完整回复 |
-| **StreamingChannel** | Delta 的推送管道，与 Queue/Context/Event Buffer 均无关 |
-| **ThinkingBubble** | 前端透明气泡，显示 reasoning_content 时的动画 "…" |
-| **ThinkingModal** | 点击 ThinkingBubble 展开的弹窗，流式显示 reasoning_content |
-| **ContentDelta** | ordinary assistant 文本增量，直接追加到 chat 气泡 |
+| **Delta** | A small piece of LLM output text, without waiting for the complete reply |
+| **StreamingChannel** | The push channel for Delta, independent of Queue/Context/Event Buffer |
+| **ThinkingBubble** | Frontend transparent bubble; the animated "…" shown while reasoning_content is being displayed |
+| **ThinkingModal** | The modal expanded when ThinkingBubble is clicked; shows reasoning_content in streaming fashion |
+| **ContentDelta** | ordinary assistant text delta, directly appended to the chat bubble |
 
-## 链路
+## Chain
 
 ```
 LLM SSE chunk ─→ parse ─→ Effect::AssistantDelta { content?, reasoning_content? }
                               │
               ┌───────────────┴───────────────┐
               ▼                               ▼
-        content 非空                     reasoning_content 非空
-        直接追加 chat 气泡                ThinkingBubble + ThinkingModal
+        content non-empty               reasoning_content non-empty
+        directly append to chat bubble  ThinkingBubble + ThinkingModal
 ```
 
-- Delta 不入 Queue（Queue 只管输入）
-- Delta 不入 Context（仅在 LLM 完整回复后才写 Context）
-- Delta 是纯显示优化——降低首字延迟
+- Delta does not enter Queue (Queue only handles input)
+- Delta does not enter Context (Context is written only after the complete LLM reply)
+- Delta is a pure display optimization — reducing time to first token
 
-## OpenAI SSE 格式
+## OpenAI SSE Format
 
 ```
-{ "choices": [{ "delta": { "reasoning_content": "用户想要..." } }] }
-{ "choices": [{ "delta": { "content": "好的，我来..." } }] }
-{ "choices": [{ "delta": { "content": "分析一下..." } }] }
+{ "choices": [{ "delta": { "reasoning_content": "The user wants..." } }] }
+{ "choices": [{ "delta": { "content": "Okay, let me..." } }] }
+{ "choices": [{ "delta": { "content": "Let me analyze this." } }] }
 { "choices": [{ "finish_reason": "stop" }] }
 ```
 
-两个字段互斥：一个 chunk 要么是 reasoning（thinking 阶段），要么是 content（回复阶段），不会同时非空。
+The two fields are mutually exclusive: a chunk is either reasoning (thinking phase) or content (reply phase); they are never non-empty at the same time.
 
-## 实现层
+## Implementation Layers
 
-| 层 | 改动 |
+| Layer | Change |
 |----|------|
-| `Llm` trait | 新增 `complete_streaming(on_delta)` 方法，默认回退一次性回调 |
-| `OpenAiClient` | override：设 `stream: true` → `resp.chunk()` → SSE 解析 |
-| `Effect` | 新增 `AssistantDelta { content, reasoning_content }` + `AssistantDone` |
-| `AmberyBackend` | `effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>`，run_trigger 内每收到 delta 即推 |
-| `Bridge` | 新增 `onAssistantDelta(cb)` + `onAssistantDone(cb)` |
-| `RemoteBridge` | WS handler 新 case：`assistant_delta` / `assistant_done` |
-| `chat.ts` | 收到 delta 直接追加 DOM，收到 done 时移除 loading 气泡 |
-| `ThinkingBubble` | reasoning_content 非空时显示动画 "…"，点击展开 ThinkingModal |
-| `ThinkingModal` | 内联弹窗，流式追加 reasoning_content |
+| `Llm` trait | Add a `complete_streaming(on_delta)` method, defaulting back to a one-shot callback |
+| `OpenAiClient` | override: set `stream: true` → `resp.chunk()` → SSE parsing |
+| `Effect` | Add `AssistantDelta { content, reasoning_content }` + `AssistantDone` |
+| `AmberyBackend` | `effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>`; inside run_trigger, push each delta as soon as it arrives |
+| `Bridge` | Add `onAssistantDelta(cb)` + `onAssistantDone(cb)` |
+| `RemoteBridge` | New WS handler cases: `assistant_delta` / `assistant_done` |
+| `chat.ts` | On delta, directly append to the DOM; on done, remove the loading bubble |
+| `ThinkingBubble` | When reasoning_content is non-empty, show the animated "…"; clicking it expands ThinkingModal |
+| `ThinkingModal` | Inline modal; appends reasoning_content in streaming fashion |
 
-## 前端行为
+## Frontend Behavior
 
 ```
 Delta arriving:
-  content:           "好的，我来" ─→ chat 气泡追加 "好的，我来"
-  content:           "分析一下"   ─→ chat 气泡追加 "分析一下"
-  reasoning_content: "用户想..."  ─→ ThinkingBubble 显示 + Modal 写 "用户想..."
-  content:           "结果是..."  ─→ ThinkingBubble 消失，chat 气泡追加 "结果是..."
-  finish_reason:     "stop"       ─→ loading 消失，完整回复入 Context
+  content:           "Okay, let me..." ─→ append "Okay, let me..." to the chat bubble
+  content:           "Let me analyze this." ─→ append "Let me analyze this." to the chat bubble
+  reasoning_content: "The user wants..." ─→ ThinkingBubble shows + Modal writes "The user wants..."
+  content:           "The result is..." ─→ ThinkingBubble disappears, chat bubble appends "The result is..."
+  finish_reason:     "stop"       ─→ loading disappears, complete reply enters Context
 ```

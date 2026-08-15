@@ -1,29 +1,29 @@
-# Theme 设计
+# Theme Design
 
-## 定义
+## Definition
 
-主题是一整套视觉方案：以配色表为主体，包含与视觉共同变化的常见样式修改。主题不是单个颜色开关、不是散落的 CSS 覆写，也不是某个组件的局部皮肤。
+A theme is a complete visual scheme: a color table as its main body, plus common style modifications that change together with the visual. A theme is not a single color switch, not scattered CSS overrides, and not a partial skin of some Component.
 
-Config 为主题提供正式设施：
+Config provides formal facilities for themes:
 
 ```text
 theme   当前使用的主题名
 themes  主题名 → 主题 value 的 Map
 ```
 
-每个主题 value 表达该主题的配色表与常见样式修改。具体字段清单、命名和校验规则应从现有界面视觉需求中收敛，本文不预设。收敛的物理落点是 `app/src/styles.css` `:root` 的 `--ov-*` token 表——主题 value 的字段与该表一一对应，应用主题即覆写这张表。
+Each theme value expresses the theme's color table and common style modifications. The concrete field list, naming, and validation rules should be converged from the actual visual needs of the current UI; this document does not prescribe them. The converged physical landing point is the `app/src/styles.css` `:root` `--ov-*` token table — theme value fields correspond one-to-one with that table, and applying a theme overwrites that table.
 
-## 作用范围
+## Scope
 
-主题是全应用的单一视觉选择。用户切换 `theme` 的意图是让整个应用立即使用这一套视觉方案：
+A theme is the single visual choice for the entire app. The user's intent when switching `theme` is for the whole app to use this visual scheme immediately:
 
-- 所有当前可见 Surface 与瞬时弹出层立即采用新主题；此后新开的窗口也采用它。
-- 不存在 Chat、Card、Menu、Pet 各自独立选择主题的状态。
-- 主题切换是纯视觉变更：不得改变窗口开关、位置、尺寸、布局记忆、Chat 阅读位置或输入内容、Card 内容和可见性、pet 名称、表情或 Harness 行为。
+- All currently visible Surfaces and transient popovers adopt the new theme immediately; windows opened later also adopt it.
+- There is no state where Chat, Card, Menu, and pet each choose their own theme independently.
+- Theme switching is a purely visual change: it must not alter window open/close state, position, size, layout memory, Chat reading position or input content, Card content and visibility, pet name, expression, or Harness behavior.
 
-## 导出、分享与兼容
+## Export, sharing, and compatibility
 
-主题可以导出为可分享的独立文件。导出载荷必须携带生成时的 **Config version**，使导入方能按声明的配置代际解释主题，而不是猜测其字段含义。
+Themes can be exported as shareable standalone files. The export payload must carry the **Config version** at generation time, so the importer can interpret the theme according to the declared config generation instead of guessing field meanings.
 
 ```text
 主题导出文件（config_root/themes/<name>.theme.json）
@@ -32,14 +32,14 @@ themes  主题名 → 主题 value 的 Map
 └─ value（一个完整主题 value：token 覆写表）
 ```
 
-导入时必须经过兼容层：先根据导出文件声明的 Config version 将主题变换为当前版本可理解的形态，再校验并写入本地 `themes` Map。正常本地更新仍保持原子拒绝；导入失败不改变当前正在使用的主题或既有主题表，并向用户给出明确原因。
+Import must go through a compatibility layer: first transform the theme into a form the current version understands according to the Config version declared by the exported file, then validate and write it into the local `themes` Map. Normal local updates still keep atomic rejection; a failed import does not change the currently active theme or the existing theme table, and gives the user a clear reason.
 
-兼容只承诺已知旧版本到当前版本的演进。旧版本应用遇到自己不认识的未来 Config version 时必须明确拒绝导入并提示更新应用，不能猜测、截断或静默套用未来主题。
+Compatibility only promises evolution from known old versions to the current version. When an old app encounters a future Config version it does not recognize, it must explicitly reject the import and prompt the user to update the app; it must not guess, truncate, or silently apply a future theme.
 
-主题导出是自包含的：它只能依赖自己的完整 value，不得引用、继承、覆盖或要求导入方的其他主题、当前主题、任何外部 Config 字段或机器环境。导入结果在任意兼容应用中只由导出文件自身与声明的版本决定。
+Theme export is self-contained: it may only depend on its own complete value, and must not reference, inherit from, override, or require the importer's other themes, the current theme, any external Config fields, or the machine environment. The import result in any compatible app is determined only by the export file itself and its declared version.
 
-物理入口：设置面板（menu）底部 theme 区块提供「导出当前主题 / 按文件名导入」；导入经 `import_theme` command → 版本检查 → 兼容变换 → 校验 → 统一修改管道写入 `themes.<name>`（原子拒绝 + config_changed 广播，全部窗口即切）。token 名与校验规则见 `core/src/config.rs` `validate_theme_table`；前端应用面见 `app/src/theme.ts`。
+Physical entry: the theme section at the bottom of the settings panel (menu) provides "export current theme / import by filename"; import goes through the `import_theme` command → version check → compatibility transform → validation → unified modification pipeline, writing `themes.<name>` (atomic rejection + config_changed broadcast, all windows switch immediately). For token names and validation rules see `core/src/config.rs` `validate_theme_table`; for the frontend application side see `app/src/theme.ts`.
 
-## 配置访问
+## Config access
 
-主题使用 Config 的默认访问权：本地用户与 LLM 都可读取当前 `theme` 和 `themes` Map，也都可通过各自已有的 Config 入口修改它们。LLM 对主题的读写继续受现有 query → update、校验、持久化与审计管道约束；不为主题另设权限模型。
+Themes use Config's default access rights: both the local user and the LLM can read the current `theme` and `themes` Map, and both can modify them through their existing Config entries. LLM reads and writes of themes continue to be constrained by the existing query → update, validation, persistence, and audit pipeline; no separate permission model is created for themes.

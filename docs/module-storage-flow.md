@@ -1,6 +1,6 @@
 # Module Storage Flow
 
-代码模块分层 + 处理流（storage 文件只在箭头上）+ 表现层/effect。同一视图的 ASCII 与 Mermaid 两版。
+Code module layering + processing flow (storage files appear only on arrows) + presentation layer / effect. Two versions of the same view: ASCII and Mermaid.
 
 ## ASCII
 

@@ -1,35 +1,35 @@
-# DebugAgent — 纯 Mock 与 HTTP brain
+# DebugAgent — Pure Mock and HTTP Brain
 
-> 本文档定义 debug 规则。
+> This document defines the debug rules.
 
-## 定位（设计决定）
+## Positioning (Design Decision)
 
-DebugAgent 是**纯 mock，零逻辑**。它不做任何判断——不解析消息、不设阈值、不挑实例。
-每次 `complete()` 把全量 Context 交给**外部注入的决策源**，原样返回决策源给的 `LlmOutput`。
+DebugAgent is a **pure mock, zero logic**. It makes no judgments — it does not parse messages, set thresholds, or pick instances.
+Every `complete()` hands the full Context to an **externally injected decision source** and returns the `LlmOutput` that source gives, unchanged.
 
-判断逻辑不属于 mock——它要么属于真实 LLM，要么属于调试者本人。
+Judgment logic does not belong in the mock — it belongs either to the real LLM or to the debugger.
 
-## 三种决策源
+## Three Decision Sources
 
-| 来源 | 构造 | 用途 |
+| Source | Construction | Purpose |
 |---|---|---|
-| 沉默 | `DebugAgent::silent()`（Default） | OpenAi 失败降级兜底；不需要反应的测试 |
-| 脚本闭包 | `DebugAgent::new(move \|msgs\| …)` | 测试：按调用序弹出预定返回（ambery.rs 测试的 `scripted()` 辅助函数） |
-| HTTP brain | `debug_brain.py`（OpenAI 兼容 `/chat/completions`） | 人/外部脚本当 LLM，手动驱动真实 Harness 链路（case-runner debug 模式 `--brain-addr` 连） |
+| Silent | `DebugAgent::silent()` (Default) | OpenAi failure fallback; tests that need no reaction |
+| Script closure | `DebugAgent::new(move \|msgs\| …)` | Tests: pop predetermined returns by call order (the `scripted()` helper in ambery.rs tests) |
+| HTTP brain | `debug_brain.py` (OpenAI-compatible `/chat/completions`) | A human/external script acts as the LLM to manually drive the real Harness chain (case-runner debug mode connects via `--brain-addr`) |
 
-`LlmBackend::from_config` 的 debug 分支默认沉默；case-runner 检测到
-Debug 变体时按 debug 模式参数换成 HTTP brain 或沉默。Tauri 内嵌 core 无控制台，
-保持沉默兜底（诚实降级：不再假装会判断）。
+The debug branch of `LlmBackend::from_config` defaults to silent; when case-runner detects the
+Debug variant it swaps in the HTTP brain or silence according to the debug-mode arguments. The Tauri-embedded core has no console,
+so it keeps the silent fallback (honest degradation: it no longer pretends to judge).
 
-## scripts/debug_brain.py — HTTP LLM 替换示例
+## scripts/debug_brain.py — HTTP LLM Replacement Example
 
-本地 OpenAI 兼容 `/chat/completions` HTTP 服务器，是「LLM 替换」的最小示例：
-决策源逻辑内置在脚本里，case-runner 以 debug 模式 `--brain-addr` 连它当 LLM 用
-（docs/case-runner.md §用例）。
+A local OpenAI-compatible `/chat/completions` HTTP server, and a minimal example of an "LLM replacement":
+the decision-source logic is built into the script, and case-runner connects to it as the LLM in debug mode via `--brain-addr`
+(docs/case-runner.md §Use cases).
 
 ```bash
 python scripts/debug_brain.py --port 47777   # 起 HTTP 服务（--port 可选，默认 47777）
 ```
 
-内置最小阈值决策源：请求内容含「完成，Context 已更新（N 字）」且 N ≥ 80 → 回通知 tool；
-否则沉默。实现为 OpenAI 兼容响应，case-runner 走 OpenAiClient 通用路径调用。
+Built-in minimal threshold decision source: if the request content contains the completion notice pattern `完成，Context 已更新（N 字）` and N ≥ 80, it replies with the notify tool;
+otherwise it stays silent. Implemented as an OpenAI-compatible response, case-runner calls it through the common OpenAiClient path.

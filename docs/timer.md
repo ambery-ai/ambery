@@ -1,25 +1,25 @@
-# Timer 设计
+# Timer Design
 
-> 概念定义见 concepts.md §1a。本文档定调度机制、错峰算法与扫描动作的应用点。
+> See concepts.md §1a for the concept definition. This document defines the scheduling mechanism, the stagger algorithm, and where the scan action applies.
 
-## 定位
+## Positioning
 
-Hook 是主通道，Timer 是兜底。实例 Hook 长时间未触发时补扫一次——读 Terminal Content → Filter → 变化检测 → 有实质变化才注入 Queue 评估（Example C：「config-service 上次 Hook 未触发，但 Timer 兜底扫描已更新其 Context」）。
+hook is the primary channel; Timer is the fallback. When an instance's hook has not fired for a long time, Timer does one catch-up scan — read Terminal Content → Filter → change detection → only inject into the Queue for evaluation when there is substantive change (Example C: "config-service's last hook did not fire, but the Timer fallback scan has already updated its Context").
 
-**开关**：`timer.interval_ms ≤ 0 = 禁用`（Config，面板/CLI 可配）。真实 hook 接入初期建议禁用——只留 hook 驱动，避免全量实例周期扫描带来的 LLM 触发频率；mock 调试期用正数。
+**Switch**: `timer.interval_ms ≤ 0 = 禁用` (Config, configurable from panel/CLI). It is recommended to disable it in the early stage of real hook integration — keep only the hook drive and avoid the LLM trigger frequency caused by periodic full-instance scans; use a positive value during mock debugging.
 
-## Config 字段
+## Config fields
 
-全部为冷字段：重启应用后生效；agent 可见、可修改。TimerWheel / 主循环在启动时构建，不在运行中重建。
+All cold fields: take effect after app restart; visible to and modifiable by the agent. TimerWheel / main loop are built at startup and are not rebuilt at runtime.
 
-| 字段 | 默认 | 生效 | agent 访问 | 语义 |
-|---|---:|---|---|---|
-| `timer.interval_ms` | 300000（5 分钟） | 冷 | 可见、可修改 | 每实例兜底扫描间隔；≤ 0 = 禁用 |
-| `timer.stagger_ms` | 30000（30 秒） | 冷 | 可见、可修改 | 错峰窗口：多实例到期时间在窗口内打散 |
-| `timer.tick_ms` | 60000（60 秒） | 冷 | 可见、可修改 | 主循环粒度：每 tick 醒一次取到期实例（interval 小于它也最多每 tick 一扫）；合法下界 ≥ 100 |
-| `timer.batch` | 2 | 冷 | 可见、可修改 | 每 tick 最多扫描实例数（限流）；合法下界 ≥ 1 |
+| Field | Default | Takes effect | Agent access | Semantics |
+|---:|---|---|---|---|
+| `timer.interval_ms` | 300000 (5 minutes) | cold | visible, modifiable | per-instance fallback scan interval; ≤ 0 = disabled |
+| `timer.stagger_ms` | 30000 (30 seconds) | cold | visible, modifiable | stagger window: due times of multiple instances are spread within this window |
+| `timer.tick_ms` | 60000 (60 seconds) | cold | visible, modifiable | main loop granularity: wakes each tick and takes due instances (if interval is smaller than this, it scans at most once per tick); legal lower bound ≥ 100 |
+| `timer.batch` | 2 | cold | visible, modifiable | maximum number of instances scanned per tick (rate limiting); legal lower bound ≥ 1 |
 
-## 调度（TimerWheel）
+## Scheduling (TimerWheel)
 
 ```rust
 struct TimerWheel {
@@ -29,18 +29,18 @@ struct TimerWheel {
 }
 ```
 
-- **错峰**：`due(instance) = now + interval + hash(instance) % stagger`。确定性哈希（实例名）保证同一实例每次偏移相同，不同实例天然错开，避免同时扫描（concepts §1a「错峰分布」）。
-- **Hook 到达 → reset**：`handle_hook` 里对触发实例 `reset(now)`（重新计 interval + 错峰偏移）——Hook 是主通道，近期有 Hook 的实例不该被补扫。
-- **到期提取**：`due(now, batch)` 返回到期实例（一次最多 batch 个），取走即重排 `now + interval + stagger`；剩余保持到期，下一 tick 再取——批量上限也是错峰。
+- **Stagger**: `due(instance) = now + interval + hash(instance) % stagger`. The deterministic hash (instance name) guarantees the same offset for the same instance each time and naturally spreads different instances apart, avoiding simultaneous scans (concepts §1a "staggered distribution").
+- **hook arrives → reset**: `handle_hook` calls `reset(now)` for the triggering instance (recomputes interval + stagger offset) — hook is the primary channel, and instances with recent hooks should not be catch-up scanned.
+- **Due extraction**: `due(now, batch)` returns the due instances (at most batch at a time); once taken, they are rescheduled to `now + interval + stagger`; the rest remain due and are taken on the next tick — the batch cap is also a form of staggering.
 
-## 扫描动作（Terminal Adapter 读取）
+## Scan action (Terminal Adapter read)
 
-扫描读通道 = Terminal Adapter（docs/terminal-adapter.md）：`locate(instance) → read(tab)` 读到当前 Terminal Content；读不到返回 None。各终端实现（WtAdapter / MapAdapter / Composite 分发）与装配门控（`terminal.adapter_*`）见该文档。
+The scan read channel = Terminal Adapter (docs/terminal-adapter.md): `locate(instance) → read(tab)` reads the current Terminal Content; None if it cannot be read. For the per-terminal implementations (WtAdapter / MapAdapter / Composite dispatch) and assembly gating (`terminal.adapter_*`), see that document.
 
-- case-runner 剧情面：`terminal` step 写 MapAdapter 的共享 map，**模拟「终端当前显示什么」**。与 mock hook 对称：hook 模拟推通道，terminal 剧情模拟读通道。
-- `fetch_terminal` tool 读同一 adapter（读不到回退 Context 最新记录）——读通道只有一处。
+- case-runner scenario side: the `terminal` step writes the shared map of MapAdapter to **simulate "what the terminal currently displays"**. Symmetric with the mock hook: hook simulates the push channel, the terminal scenario simulates the read channel.
+- The `fetch_terminal` tool reads the same adapter (falls back to the latest Context record when unreadable) — there is only one read channel.
 
-## 扫描处理流程（变化检测的真实应用点）
+## Scan processing flow (the real application point of change detection)
 
 ```
 tick（server 后台任务，默认 60s（config `timer.tick_ms`；case-runner 可经 AMBERY_TIMER_TICK_MS 覆盖））
@@ -52,4 +52,4 @@ tick（server 后台任务，默认 60s（config `timer.tick_ms`；case-runner �
   → Minor / Unchanged：原文存档 + prev 更新，不打扰（concepts §9b 沉默精神一致）
 ```
 
-注入消息与 stop hook 同构（`…，Context 已更新（N 字）。评估是否通知。`）——通知/沉默决策路径一致。
+The injected message is isomorphic to the stop hook (`…，Context 已更新（N 字）。评估是否通知。`) — the notification/silence decision path is identical.

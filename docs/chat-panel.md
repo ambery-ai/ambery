@@ -1,68 +1,68 @@
-# Chat Panel 设计
+# Chat Panel Design
 
-> 概念定义见 concepts.md §3a。本文档定唤出/关闭、布局与消息渲染规则。
+> Concept definitions are in concepts.md §3a. This document specifies invocation/dismissal, layout, and message rendering rules.
 
-## 产品原则
+## Product Principles
 
-Chat 是用户与 pet 对话的产品界面，不是 Context、Queue、流式协议或窗口实现的调试投影。交互设计与验收应先回答用户此刻的意图：用户是在阅读历史、等待新回复、继续组织输入，还是希望立即查看最新内容；底层状态只负责可靠地实现该意图，不能反过来决定用户体验。
+Chat is the product interface for users to converse with their pet; it is not a debugging projection of Context, Queue, the streaming protocol, or the window implementation. Interaction design and acceptance should first answer what the user intends at this moment: is the user reading history, waiting for a new reply, continuing to compose input, or wanting to see the latest content right away; the underlying state is only responsible for reliably implementing that intent and must not in turn dictate the user experience.
 
-因此，新增消息、流式增量、Context 刷新、窗口尺寸变化或队列调度都不能擅自改变用户正在做的事。任何系统内部状态都必须翻译为用户可理解的反馈，而不能要求用户理解 Queue、Context role、tool call 或某次 DOM 更新。
+Therefore, new messages, streaming increments, Context refreshes, window size changes, or Queue scheduling must not unilaterally change what the user is doing. Any internal system state must be translated into user-understandable feedback; the user must not be required to understand Queue, Context roles, tool calls, or a particular DOM update.
 
-## 唤出与关闭
+## Invocation and Dismissal
 
-- **唤出/关闭**：View 右键 toggle（`chat:toggle`）——concepts §3a「由 View 右键唤出」；面板开着时再右键即关。pet 原地不动（无吸附瞬移，docs/view.md §手势与 Chat 唤出）。
-- 面板右上角 × 是同一关闭收口（用户意图关）；× 后再右键重新唤出。
-- 唤出位置：经窗口方位布局引擎 `engine.place` 以固定 `sse` 方位落到 pet 旁（docs/window-positioning.md——自己的定位引擎，非 OS 贴靠）。
-- 面板不是 Component：不走 `call_component`，不进 Component 层，无方位选择逻辑。
+- **Invoke/Dismiss**: right-click toggle on the View (`chat:toggle`) — concepts §3a "invoked via View right-click"; when the panel is open, right-clicking again closes it. The pet stays in place (no snapping teleport; docs/view.md §Gestures and Chat invocation).
+- The × in the top-right corner is the same close action (user intent to close); after ×, right-clicking again re-invokes.
+- Invocation position: placed beside the pet with the fixed `sse` direction by the window placement engine `engine.place` (docs/window-positioning.md — our own positioning engine, not OS snapping).
+- The panel is not a Component: it does not go through `call_component`, does not enter the Component layer, and has no direction-selection logic.
 
-## 布局
+## Layout
 
-- 面板经 `engine.place` 以固定 `sse` 方位贴 pet 展开（docs/window-positioning.md）。
-- 尺寸 320×380。不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见，部分出屏接受）。
+- The panel expands attached to the pet with the fixed `sse` direction via `engine.place` (docs/window-positioning.md).
+- Size 320×380. No clamping (docs/window-follow.md §Off-screen and overlap: not covering the person > fully visible; partially off-screen is accepted).
 
-## 消息模型（Context 的投影）
+## Message Model (Projection of Context)
 
-- 对话历史从 Context 读取（concepts §3a），面板是 Context 的**视图投影**，不自有数据。
-- Context 四种 role（concepts §10b）中，面板只渲染 `user` 和 `assistant` 的 content；`system`（事件消息）和 `tool`（执行结果）是运行态消息，不污染对话视图（设计决定）。
-- 用户输入 → `bridge.appendUserMessage(text)` 写入 Queue 排队 → 放行后作为 `user` role 消息入 Context → 触发一轮 LLM 处理（触发逻辑见 docs/harness.md）。
-- 面板经 `onContextChanged` 订阅增量刷新。
+- Conversation history is read from Context (concepts §3a); the panel is a **view projection** of Context and holds no data of its own.
+- Of the four Context roles (concepts §10b), the panel renders only the content of `user` and `assistant`; `system` (event messages) and `tool` (execution results) are runtime messages and do not pollute the conversation view (design decision).
+- User input → `bridge.appendUserMessage(text)` writes into the Queue for admission → after admission it enters Context as a `user` role message → triggers one round of LLM processing (see docs/harness.md for trigger logic).
+- The panel subscribes to incremental refreshes via `onContextChanged`.
 
-## 滚动与新消息
+## Scrolling and New Messages
 
-Chat 的滚动由**用户意图**而不是单次 DOM 更新决定。面板始终处于以下之一：
+Chat scrolling is determined by **user intent**, not by any single DOM update. The panel is always in one of the following states:
 
-| 状态 | 进入条件 | 新消息、流式增量或历史刷新时 | 离开条件 |
+| State | Entry condition | On new message, streaming increment, or history refresh | Exit condition |
 |---|---|---|---|
-| 跟随最新 | 初次打开；用户发送消息；用户主动滚回底部；点击新消息提示 | 保持贴住底部 | 用户主动向上滚离底部 |
-| 阅读历史 | 用户主动向上滚离底部 | 保持当前阅读位置，不自动滚动；累积新消息提示 | 用户滚回底部或点击提示 |
+| Follow latest | First open; user sends a message; user actively scrolls back to the bottom; clicks the new-message indicator | Stays pinned to the bottom | User actively scrolls up away from the bottom |
+| Reading history | User actively scrolls up away from the bottom | Keeps the current reading position, no auto-scroll; accumulates the new-message indicator | User scrolls back to the bottom or clicks the indicator |
 
-具体规则：
+Specific rules:
 
-- 初次打开 Chat 定位到历史底部，进入“跟随最新”。
-- 用户发送消息表示其意图是等待后续内容；无论此前是否在阅读历史，发送后都无条件滚到底部并恢复“跟随最新”。
-- 在“跟随最新”时，用户消息、assistant 流式增量、assistant 完成消息和 Context 刷新都持续贴底。
-- 在“阅读历史”时，任何新增内容都不得抢走当前视口；消息区底部显示“↓ N 条新消息”提示。一个正在流式生成的 assistant 回复只计作一条新消息，不因每个增量重复计数。
-- 用户点击该提示会滚到底部、清除计数并恢复“跟随最新”；用户手动滚回底部也具有同样效果。
-- Context 全量重渲或窗口尺寸变化不能改变用户阅读意图：跟随最新者仍在底部；阅读历史者以刷新前第一条可见消息为锚点恢复位置，而不是机械复用旧 `scrollTop`。
+- On first open, Chat positions at the bottom of the history and enters "Follow latest".
+- Sending a message indicates that the user intends to wait for subsequent content; regardless of whether the user was reading history before, after sending it unconditionally scrolls to the bottom and resumes "Follow latest".
+- In "Follow latest", user messages, assistant streaming increments, assistant completion messages, and Context refreshes all stay pinned to the bottom.
+- In "Reading history", no new content may steal the current viewport; the bottom of the message area shows a "↓ N new messages" indicator. One assistant reply being streamed counts as a single new message, not counted again for each increment.
+- Clicking the indicator scrolls to the bottom, clears the count, and resumes "Follow latest"; manually scrolling back to the bottom has the same effect.
+- A full Context re-render or a window size change must not change the user's reading intent: those following latest stay at the bottom; those reading history restore their position anchored by the first visible message before the refresh, rather than mechanically reusing the old `scrollTop`.
 
-## 输入与发送
+## Input and Send
 
-输入区服务于“组织一段话并决定发送”的用户意图，而不是只捕获一个 Enter 键：
+The input area serves the user intent of "composing a message and deciding to send", not merely capturing an Enter key:
 
-- 使用可自动增长的多行输入区：默认一行，高度增长到明确上限；超过上限后只让输入区自身滚动，不能挤没消息历史。
-- `Enter` 发送；`Shift + Enter` 插入换行；输入法组合输入尚未确认时，`Enter` 只确认输入法候选，不能误发送消息。
-- 发送按钮与 `Enter` 语义完全一致：只有存在非空内容时可用；空白内容不发送。
-- 用户发送后，消息立即在对话中以用户气泡出现，输入区清空、保留焦点，并按“跟随最新”规则滚到底部；用户无需等待 assistant 完成当前回复后才能继续输入。
-- Chat 允许连续发送。assistant 正在生成时新发送的消息仍可提交到底层队列；界面必须将“正在回复”和“已排队等待处理”翻译为用户可理解的状态，不能把已排队的消息伪装成 assistant 已经读取。
-- 发送失败时，用户已输入的文字不能无声丢失；界面必须明确说明失败，并提供可重试或继续编辑的路径。
+- Use an auto-growing multiline input: one line by default, growing to an explicit maximum height; beyond the maximum the input area itself scrolls and must not squeeze out the message history.
+- `Enter` sends; `Shift + Enter` inserts a newline; while IME composition is not yet confirmed, `Enter` only confirms the IME candidate and must not accidentally send the message.
+- The send button has exactly the same semantics as `Enter`: enabled only when non-empty content exists; blank content is not sent.
+- After sending, the message immediately appears in the conversation as a user bubble; the input area clears, keeps focus, and scrolls to the bottom per the "Follow latest" rule. The user does not need to wait for the assistant to finish the current reply before continuing to type.
+- Chat allows consecutive sends. While the assistant is generating, newly sent messages can still be submitted to the underlying queue; the UI must translate "replying" and "queued for processing" into user-understandable states, and must not disguise a queued message as already read by the assistant.
+- When sending fails, the text the user typed must not be silently lost; the UI must clearly explain the failure and offer a path to retry or continue editing.
 
-## 回应提示
+## Reply Indicator
 
-- assistant 尚未输出正文时，最新消息位置显示简洁的三个点（`…`）回应提示；它只表达“正在回应”，不暴露 Queue、Context、tool call 或 reasoning 等内部状态。
-- 三个点可以使用轻量动画，让用户知道界面仍在活动；动画不能改变布局、抢夺阅读焦点或增加额外状态文案。
-- assistant 开始输出正文、完成回复或本轮失败时，该提示消失；正常历史中不保留“已完成”等过程状态。
+- When the assistant has not yet output any body text, the latest message position shows a concise three-dot (`…`) reply indicator; it only means "responding" and does not expose internal state such as Queue, Context, tool calls, or reasoning.
+- The three dots may use a lightweight animation to let the user know the interface is still active; the animation must not change layout, steal reading focus, or add extra status copy.
+- The indicator disappears when the assistant starts outputting body text, completes the reply, or fails this round; process states such as "completed" are not retained in normal history.
 
-## 消息格式
+## Message Format
 
 ```ts
 interface ContextMessage {
@@ -72,4 +72,4 @@ interface ContextMessage {
 }
 ```
 
-assistant 的 tool_calls 不携带在 content 里（OpenAI 模型中 tool_calls 是独立字段），面板无需感知。
+The assistant's `tool_calls` are not carried inside `content` (in the OpenAI model, `tool_calls` is a separate field), and the panel does not need to be aware of them.

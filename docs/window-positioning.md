@@ -1,47 +1,47 @@
-# Window Positioning（窗口方位布局引擎）
+# Window Positioning
 
-## 概述
+## Overview
 
-引擎为所有非 pet 窗口（ChatPanel、Component 卡片）计算相对于 pet 的唯一最优方位。核心原则：
+The engine computes the unique optimal direction relative to pet for all non-pet windows (ChatPanel, Component Cards). Core principles:
 
-- **最近**：离 pet 越近越好
-- **不重叠**：新窗口不与 pet 及任何已有窗口重叠
-- **最优**：满足前两条的前提下，方位尽可能接近期望方向
+- **Closest**: as close to pet as possible
+- **No overlap**: the new window does not overlap pet or any existing window
+- **Optimal**: subject to the first two, the direction is as close as possible to the desired direction
 
-引擎接受一个 preferred 方向（16 方位之一，见下），返回新窗口中心的世界坐标。
+The engine accepts a preferred direction (one of the 16 directions, see below) and returns the world coordinate of the new window center.
 
 ---
 
-## 坐标系与建模
+## Coordinate system and modeling
 
-### 符号
+### Symbols
 
-| 符号 | 含义 |
+| Symbol | Meaning |
 |---|---|
-| `A` | pet 中心点（固定） |
-| `B` | 新窗口中心（待求） |
-| `m⃗` | preferred 方向的单位向量 |
-| `θ` | `∠(m⃗, AB⃗)`，两向量夹角，取值 `[0, π]` |
-| `|AB|` | pet 中心到新窗口中心的欧氏距离 |
+| `A` | pet center point (fixed) |
+| `B` | new window center (to be found) |
+| `m⃗` | unit vector of the preferred direction |
+| `θ` | `∠(m⃗, AB⃗)`, the angle between the two vectors, range `[0, π]` |
+| `|AB|` | Euclidean distance from pet center to new window center |
 
-### 价值函数
+### Value function
 
 ```
 V(B) = α · θ² + β · |AB|    (α, β > 0)
 ```
 
-- `α ≫ β`（方向优先级压倒性高于距离），具体值由实现微调
-- debug 模式可通过 DevTools 或端点覆盖 `α`、`β`
-- `gap`：窗口间最小间距，默认 12px，可配置
-- 极小值点 = 全局唯一最优解
+- `α ≫ β` (direction priority is overwhelmingly higher than distance); exact values are tuned by the implementation
+- debug mode can override `α` and `β` via DevTools or an endpoint
+- `gap`: minimum spacing between windows, default 12px, configurable
+- the minimum point = the globally unique optimum
 
 ---
 
-## 单调性：唯一极小值
+## Monotonicity: unique minimum
 
-将 B 约束在一条线段 `CD` 上（直线段，长度 `l`），参数 `t ∈ [0, l]` 表示 B 位置。设 A 不在直线 CD 上。
+Constrain B to a segment `CD` (a straight segment of length `l`), with parameter `t ∈ [0, l]` giving B's position. Assume A is not on line CD.
 
-推导得（见附录）：
+Derivation gives (see appendix):
 
 ```
 f'(t) = ψ'(t) · F(t)
@@ -49,41 +49,41 @@ F(t) = 2α(ψ(t) − c) + (β/d) · (t−a)·√((t−a)²+d²)
 F'(t) = 2α·ψ'(t) + (β/d) · (2(t−a)²+d²)/√((t−a)²+d²)  > 0
 ```
 
-**结论**：`F(t)` 严格单调递增 → `f'(t)` 至多有一零点 → `f(t)` 单谷 → 每条边线上有唯一极小值（内部驻点或端点）。
+**Conclusion**: `F(t)` is strictly increasing → `f'(t)` has at most one zero → `f(t)` is unimodal → each edge line has a unique minimum (an interior stationary point or an endpoint).
 
 ---
 
-## 边线分解
+## Edge decomposition
 
-引擎把 pet 周围可用空间分解为若干**边线段（CD 段）**，形成搜索域。
+The engine decomposes the usable space around pet into **edge segments (CD segments)**, forming the search domain.
 
-### 禁止区外扩
+### Forbidden-region expansion
 
-设新窗口尺寸 `W_new × H_new`。`gap` 为最小间距（默认 12px）。
+Let the new window size be `W_new × H_new`. `gap` is the minimum spacing (default 12px).
 
-每个已有窗口（含 pet）以其 BBox 为基，**各向四边外扩**：
+Each existing window (including pet) takes its BBox as the base and is **expanded outward on all four sides**:
 
 ```
 outerX = gap + W_new / 2
 outerY = gap + H_new / 2
 ```
 
-外扩后的矩形区域是禁止区——新窗口**中心**不得落入。
+The expanded rectangle is the forbidden region — the new window **center** must not fall inside it.
 
-### 并集外边界与 CD 段提取
+### Union outer boundary and CD segment extraction
 
-1. 收集所有已有窗口（含 pet）的禁止区矩形
-2. 所有禁止区矩形的并集 = 障碍物多边形
-3. 提取障碍物的**外边界**
-4. 外边界上每条**凸边段** = 一条合法 CD 段
+1. Collect the forbidden-region rectangles of all existing windows (including pet)
+2. The union of all forbidden-region rectangles = the obstacle polygon
+3. Extract the **outer boundary** of the obstacles
+4. Each **convex edge segment** on the outer boundary = one legal CD segment
 
-新窗口中心落在 CD 段上时，窗口边缘与最近障碍物恰好贴 `gap`，不重叠。
+When the new window center lies on a CD segment, the window edge just touches the nearest obstacle at exactly `gap`, with no overlap.
 
 ---
 
-## 三分搜索
+## Ternary search
 
-每条 CD 段上 f(t) 单谷 → 三分法（ternary search）收敛到局部极小。
+On each CD segment, f(t) is unimodal → ternary search converges to the local minimum.
 
 ```
 function ternarySearch(CD, A, mPref, α, β, tol):
@@ -96,47 +96,47 @@ function ternarySearch(CD, A, mPref, α, β, tol):
     return V((l+r)/2)
 ```
 
-全搜索域 = 所有 CD 段。每条 CD 段上局部极小 → 全局 min 取各段中的最小值。对应的 `B` 坐标即为唯一最优方位。
+The full search domain = all CD segments. Local minimum on each CD segment → the global min is the minimum across all segments. The corresponding `B` coordinate is the unique optimal direction.
 
 ---
 
-## 引擎接口
+## Engine interface
 
 ```typescript
 interface PositioningEngine {
-  /** 注册窗口（尺寸），返回最优位置；"auto" 按屏幕剩余空间最大方位现算 */
+  /** Register a window (size), return the optimal position; "auto" computes from the screen's largest remaining-space direction */
   place(window: WindowSpec, preferred: Direction | "auto"): Point;
 
-  /** dismiss：占区与布局记忆一并忘记 */
+  /** dismiss: forget the occupied region and layout memory together */
   remove(windowId: string): void;
 
-  /** 用户隐藏：释放占区但保留布局记忆（重开 place 原位恢复） */
+  /** User hide: release the occupied region but keep layout memory (re-open place restores the original position) */
   release(windowId: string): void;
 
-  /** 拖拽结束回写真实位置为新跟随基准（manual 标记） */
+  /** Drag end writes the real position back as the new follow basis (manual flag) */
   updateCenter(windowId: string, center: Point): Point | null;
 
-  /** 恢复坐标：现算 petCenter + offset（无快照） */
+  /** Restore coordinates: compute petCenter + offset now (no snapshot) */
   restorePositions(petCenter: Point): { id: string; center: Point }[];
 }
 
 interface WindowSpec {
   id: string;
-  width: number;   // 窗口声明尺寸
+  width: number;   // declared window size
   height: number;
-  gap?: number;     // 自定义间距，默认 12（常量 DEFAULT_GAP，无全局可配字段）
+  gap?: number;     // custom spacing, default 12 (constant DEFAULT_GAP, no global config field)
 }
 ```
 
-### 藏/恢复
+### Hide/restore
 
-- pet 移动（拖拽开始）：整层系统藏——占区原地保留，无快照；
-- pet 移动结束：现算 `pet_new + offset` 恢复（restorePositions）——offset 是 pet 相对偏移，天然随 pet 平移，无需记录-回放；
-- 拖拽回写：松手经 `updateCenter` 把 OS 真实位置换算为新跟随基准（manual 标记），后续 pet 移动以拖后位置为基准跟随。
+- pet moves (drag start): the whole layer system-hides — occupied regions stay in place, no snapshot;
+- pet move ends: compute `pet_new + offset` to restore (restorePositions) — offset is pet-relative and naturally translates with pet; no record-replay needed;
+- Drag write-back: on release, `updateCenter` converts the OS real position into the new follow basis (manual flag); subsequent pet movement follows from the dragged position.
 
-### Direction 枚举
+### Direction enum
 
-16 方位英文名，0 = 顶（north），顺时针 22.5° 递增：
+16 direction names in English, 0 = top (north), increasing clockwise by 22.5°:
 
 ```
 enum Direction {
@@ -147,51 +147,51 @@ enum Direction {
 }
 ```
 
-| 值 | 名称 | 角度 | 说明 |
+| Value | Name | Angle | Description |
 |---|---|---|---|
-| 0 | `n` | 0° | 正上方 |
-| 4 | `e` | 90° | 正右侧 |
-| 7 | `sse` | 157.5° | ChatPanel 默认 |
-| 8 | `s` | 180° | 正下方 |
-| 12 | `w` | 270° | 正左侧 |
+| 0 | `n` | 0° | directly above |
+| 4 | `e` | 90° | directly right |
+| 7 | `sse` | 157.5° | ChatPanel default |
+| 8 | `s` | 180° | directly below |
+| 12 | `w` | 270° | directly left |
 
-### ChatPanel 默认
+### ChatPanel default
 
-ChatPanel 的 preferred 方向固定 **`sse`**（docs/chat-panel.md §布局；0 = 顶，顺时针）。layout 略偏移以匹配视觉习惯。
+ChatPanel's preferred direction is fixed to **`sse`** (docs/chat-panel.md §Layout; 0 = top, clockwise). The layout is slightly offset to match visual habit.
 
-### gap 配置
+### gap configuration
 
-窗口间最小间距（px）：`WindowSpec.gap` 可逐窗口覆盖；全局默认 = `DEFAULT_GAP` 常量 12（positioning/engine.ts；当前无 Config 字段）。
+Minimum spacing between windows (px): `WindowSpec.gap` can override per window; the global default = the `DEFAULT_GAP` constant 12 (positioning/engine.ts; currently no Config field).
 
 ---
 
-## 算法流程
+## Algorithm flow
 
 ```
-输入: petCenter, newWindow{size, preferred}, occupiedWindows[]
+Input: petCenter, newWindow{size, preferred}, occupiedWindows[]
 
-1. 计算禁止区：对 pet + occupiedWindows 各自 BBox 四向外扩
-2. 取禁止区并集外边界 → CD 段列表
-3. for each CD 段:
+1. Compute forbidden regions: expand the BBox of pet + occupiedWindows outward on all four sides
+2. Take the union outer boundary of forbidden regions → CD segment list
+3. for each CD segment:
      ternarySearch(CD, petCenter, preferredAngle, α, β)
-4. 取所有局部极小中的全局最小 → B 坐标
-5. 返回 B
+4. Take the global minimum among all local minima → B coordinate
+5. Return B
 ```
 
-时间复杂度：O(k · log(1/ε))，其中 k = CD 段数量（≤ 2 × occupiedCount）。
+Time complexity: O(k · log(1/ε)), where k = number of CD segments (≤ 2 × occupiedCount).
 
 ---
 
-## 附录：价值函数单调性推导
+## Appendix: monotonicity derivation of the value function
 
-设线段 CD 在 x 轴，`C = (0,0)`，`D = (l,0)`。`B(t) = (t, 0)`。
+Place segment CD on the x-axis, `C = (0,0)`, `D = (l,0)`. `B(t) = (t, 0)`.
 
-`A = (a, d)`，`d > 0`（A 不在 CD 上）。
+`A = (a, d)`, `d > 0` (A is not on CD).
 
 ```
 |AB| = d(t) = √((t−a)² + d²)
-ψ(t) = atan2(−d, t−a)    // AB 方向角，单调递增 (ψ'(t) > 0)
-θ(t) = |ψ(t) − c|         // 与 preferred 方向角 c 的夹角
+ψ(t) = atan2(−d, t−a)    // direction angle of AB, monotonically increasing (ψ'(t) > 0)
+θ(t) = |ψ(t) − c|         // angle from the preferred direction angle c
 f(t) = α·θ² + β·d(t)
 ```
 
@@ -200,10 +200,10 @@ f'(t) = 2αθ(t)θ'(t) + β·d'(t)
       = ψ'(t) [2α(ψ(t)−c) + β·d'(t)/ψ'(t)]
 ```
 
-由 `d'(t) = (t−a)/d(t)`、`ψ'(t) = d/d(t)²` 得 `d'(t)/ψ'(t) = (t−a)·d(t)/d`。
+From `d'(t) = (t−a)/d(t)` and `ψ'(t) = d/d(t)²`, we get `d'(t)/ψ'(t) = (t−a)·d(t)/d`.
 
-令 `F(t) = 2α(ψ(t)−c) + (β/d)·(t−a)·d(t)`。
+Let `F(t) = 2α(ψ(t)−c) + (β/d)·(t−a)·d(t)`.
 
-`F'(t) = 2α·ψ'(t) + (β/d)·(2(t−a)²+d²)/d(t)` > 0（各项正）。
+`F'(t) = 2α·ψ'(t) + (β/d)·(2(t−a)²+d²)/d(t)` > 0 (all terms positive).
 
-→ `F(t)` 严格单调递增 → `f'(t)` 至多一零点 → `f(t)` 单谷 → 唯一极小值（内部驻点或端点）。
+→ `F(t)` is strictly increasing → `f'(t)` has at most one zero → `f(t)` is unimodal → unique minimum (an interior stationary point or an endpoint).

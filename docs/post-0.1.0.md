@@ -1,51 +1,51 @@
-# `0.1.0` 后续能力
+# `0.1.0` Follow-up Capabilities
 
-> 本文档仅登记 `0.1.0` 之后的方向，不定义当前实现、协议、权限流程、素材格式、渲染接口或配置结构。
+> This document only records directions after `0.1.0`; it does not define the current implementation, protocol, permission flow, asset format, rendering interface, or configuration structure.
 
-## 全局唤起快捷键（明确 cut）
+## Global Wake-up Hotkey (Explicitly Cut)
 
-0.1.0 **不实现**全局唤起快捷键。早期设计曾列为 v2 候选后未兑现，此处正式 cut：它涉及跨平台全局监听、与托盘显隐语义的冲突、以及用户已有快捷键的抢占决策，不属于 alpha0 的最小可信面。重新启动该能力时，先确定触发键、冲突处理、与托盘/失焦关闭的交互，再落地实现。
+0.1.0 **does not implement** a global wake-up hotkey. An earlier design once listed it as a v2 candidate but never delivered it; it is formally cut here: it involves cross-platform global listening, conflicts with tray show/hide semantics, and preemption decisions against the user's existing hotkeys, so it is not part of alpha0's minimal credible surface. When restarting this capability, first determine the trigger key, conflict handling, and interaction with tray/blur-close, and only then land the implementation.
 
 ## Codex Skin
 
-后续考虑支持 Codex 风格的 pet skin。它属于角色外观与相关设计系统的能力，不是当前主题 / 配色表设施的交付范围。
+Support for a Codex-style pet skin is considered for later. It belongs to the character appearance and related design system capabilities, not the delivery scope of the current theme / palette facility.
 
-当前主题负责全应用的配色表与常见样式修改。Codex skin 的具体设计将在后续独立收敛；不得为提前支持它而改变 `0.1.0` 主题模型的边界。
+The current theme is responsible for the application-wide palette and common style modifications. The specific design of the Codex skin will be converged separately later; do not change the boundaries of the `0.1.0` theme model in order to support it early.
 
-正式设计时需要独立确定 skin 的身份、素材与动作表现、渲染边界、配置入口，以及它与现有 pet 名称、主题和 Harness 文案的关系。
+A formal design must independently determine the skin's identity, assets and motion expression, rendering boundaries, configuration entry point, and its relationship with the existing pet name, theme, and Harness copy.
 
-## 用户临时调整 effort 与 chat 快捷栏
+## Temporary User effort Adjustment and Chat Shortcut Bar
 
-用户手动改档当前 `user_chat` 的 effort（临时提高/降低思考预算），以及一个 chat 快捷栏作为该调整的 UI 入口。它们是 effort 分类与匹配关键词之上的独立用户能力；正式设计时需要独立确定手动改档的粒度、生效范围与快捷栏的形态。
+The user manually shifts the effort of the current `user_chat` (temporarily raising/lowering the thinking budget), plus a chat shortcut bar as the UI entry for that adjustment. These are independent user capabilities above effort classification and keyword matching; a formal design must independently determine the granularity of manual shifting, its effective scope, and the form of the shortcut bar.
 
-## Tool Call 批量与并发（观察驱动）
+## Tool Call Batching and Concurrency (Observation-Driven)
 
-具体 tool call 优化——一次响应合并多个调用、单个调用携带多个目的、独立调用并发执行——以真实运行数据为准绳，先长期观察 pet 实际产生的 tool call 分布，再决定是否及如何优化，不为优化而优化。
+Specific tool call optimizations — merging multiple calls into one response, having a single call carry multiple purposes, and executing independent calls concurrently — must be judged by real runtime data. First observe the actual tool call distribution produced by pet over the long term, then decide whether and how to optimize; do not optimize for its own sake.
 
-已确认的原则：tool call 有两种语法寄存器——多个独立 call 表达 **process 语义**（逐个发出、逐个观察、后一步依赖前一步结果），单个 call 携带批量参数表达 **set 语义**（一次集合级决定、内部无分叉、全成或全败）。批量不是性能优化，而是 LLM 表达"这是一次整体决定"的语法原语；harness 忠实执行 LLM 选择的形式，不在两种形式间隐式转换。渐进披露约束"参数如何被发现"，批量约束"已知道后如何携带"，两者正交不冲突。
+Confirmed principle: tool calls have two syntactic registers — multiple independent calls express **process semantics** (issued one by one, observed one by one, each later step depending on the previous result), while a single call carrying batch parameters expresses **set semantics** (one set-level decision, no internal branching, all succeed or all fail). Batching is not a performance optimization; it is the syntactic primitive by which the LLM expresses "this is one holistic decision". Harness faithfully executes whichever form the LLM chooses and never implicitly converts between the two forms. Progressive disclosure constrains "how parameters are discovered"; batching constrains "how known parameters are carried" — the two are orthogonal, not in conflict.
 
-正式设计时需要独立确定：批量 update 的失败语义（原子拒绝 vs 逐条独立）、快照机制（每 path 独立快照 vs 批量 query）、只读工具组（`fetch_terminal` / `read_memory` / `edit_config` grep/query 分支）是否并发执行，以及观测有信号后的对比实验方案。
+A formal design must independently determine: failure semantics of batch update (atomic rejection vs per-item independence), the snapshot mechanism (per-path independent snapshot vs batch query), whether the read-only tool group (`fetch_terminal` / `read_memory` / `edit_config` grep/query branches) executes concurrently, and the comparison experiment plan once observation shows a signal.
 
-## 跳转到目标实例所在桌面
+## Jump to the Target Instance's Desktop
 
-用户可见的「跳转」：从卡片/通知一键切到目标 Code CLI 实例所在的虚拟桌面。它消费 Platform Primitives 的 `switch_vd`（docs/platform-primitives.md）；正式设计时需要独立确定跳转入口（quick_jump 事件链还是独立手势）、目标定位（Terminal Adapter locate）与切换确认语义。
+The user-visible "jump": from a Card/notification, switch with one click to the virtual desktop where the target Code CLI instance resides. It consumes Platform Primitives' `switch_vd` (docs/platform-primitives.md); a formal design must independently determine the jump entry (quick_jump event chain or an independent gesture), target location (Terminal Adapter locate), and switch-confirmation semantics.
 
-## v2 Prune 模式（摘要替换）
+## v2 Prune Mode (Summary Replacement)
 
-用配置的模型在 Hook 触发后生成摘要，Queue 中仅保留摘要替换原始内容，大幅压缩上下文。原始 Terminal Content 全文仍存档在 terminal-content.jsonl（归一全文从原文 digest 现算），可通过查询接口按需恢复。参照 pi-context-prune：检测工具调用完成 → 模型生成摘要 → 替换原始输出 → 原始数据保存在会话索引中，通过 context_tree_query 随时恢复。
+After a hook fires, use the configured model to generate a summary; keep only the summary in Queue to replace the original content, greatly compressing the Context. The full original Terminal Content is still archived in terminal-content.jsonl (the normalized full text is computed on demand from the original digest), and can be restored on demand through the query interface. Reference pi-context-prune: detect tool call completion → model generates summary → replace original output → original data is kept in the session index and can be restored at any time via context_tree_query.
 
-## Autonomy 位置状态
+## Autonomy Position State
 
-当前 Autonomy 顶层状态为表情与动画；位置状态（随状态 key 改变 pet 的屏幕位置）为后续能力，正式设计时确定位置表达、运动路径与障碍区交互。
+The current Autonomy top-level state is facial expression and motion; position state (changing pet's screen position according to the state key) is a later capability. A formal design must determine the position expression, motion path, and obstacle-area interaction.
 
-## OpenCode 过滤器规则
+## OpenCode Filter Rules
 
-OpenCode 过滤器的噪声清单、块切分与折行合并参数待真实样本后收敛（当前支持 `"claude"` 与 `"opencode"` kind，opencode 规则为骨架）。
+OpenCode Filter's noise list, block splitting, and line-wrap merging parameters are to be converged after real samples (currently supporting the `"claude"` and `"opencode"` kinds; the opencode rules are a skeleton).
 
-## 多显示器验证
+## Multi-Monitor Validation
 
-多显示器场景的窗口布局、出屏与中心锚定行为需在真实多屏环境验证。
+Window layout, off-screen behavior, and center anchoring in multi-monitor scenarios need validation in a real multi-monitor environment.
 
-## 默认值校准
+## Default Value Calibration
 
-Compression 阈值、Timer 间隔等默认值按真实使用数据校准。
+Defaults such as Compression thresholds and Timer intervals are to be calibrated against real usage data.

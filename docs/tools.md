@@ -1,45 +1,45 @@
-# Tools 设计
+# Tools Design
 
-开发工具统一定义：`tools/` 目录下的脚本工具 + core 的独立 bin 工具。
+Unified definition of development tools: script tools under the `tools/` directory + core's standalone bin tools.
 
-## 工具清单
+## Tool list
 
-| 工具 | 说明 | 调用 |
+| Tool | Description | Invocation |
 |---|---|---|
-| `locate.ps1` | 枚举进程下所有窗口（定位/验证窗口相关改动） | 直接运行 |
-| `run-vite-dev.ps1` | vite dev 常驻 runner（崩溃自动重启） | 后台常驻 |
-| `ambery-activity` | 读取 storage JSONL 的活动查看器（core 独立 bin） | 见下 |
+| `locate.ps1` | enumerates all windows under a process (locating/verifying window-related changes) | run directly |
+| `run-vite-dev.ps1` | vite dev resident runner (auto-restart on crash) | run in background as a resident process |
+| `ambery-activity` | activity viewer that reads Storage JSONL (core standalone bin) | see below |
 
-## ambery-activity — storage 活动查看器
+## ambery-activity — Storage activity viewer
 
-读取 Storage 目录下 JSONL 文件（docs/storage.md），TUI 交互查看内部消息流。用于开发/调试时观察系统实际写下的内容。
+Reads the JSONL files under the Storage directory (docs/storage.md) and interactively inspects the internal message flow in a TUI. Used during development/debugging to observe what the system actually writes.
 
-### 数据源
+### Data source
 
-按 storage 布局（docs/storage.md）读取：
+Reads according to the storage layout (docs/storage.md):
 
-- `context.jsonl` — Context 消息（message / autonomy / head / 压缩边界）
-- `queue.jsonl` — Queue 输入排队记录
-- `effect.jsonl` — 动作流（render / close / window 生命周期 / event_emit）
-- `terminal-content.jsonl` — Terminal Content 原文
+- `context.jsonl` — Context messages (message / autonomy / head / Compression boundary)
+- `queue.jsonl` — Queue input enqueue records
+- `effect.jsonl` — action stream (render / close / window lifecycle / event_emit)
+- `terminal-content.jsonl` — Terminal Content raw text
 
-### 形态
+### Form
 
-TUI 交互界面（`ratatui`）。核心交互：
+TUI interactive interface (`ratatui`). Core interactions:
 
-- **文件切换**：在不同 JSONL 文件间切换
-- **滚动**：上下翻看历史记录
-- **筛选**：按 kind / role / 来源过滤
-- **跟随**（`--follow`）：tail 新写入的记录
+- **File switching**: switch between different JSONL files
+- **Scrolling**: page up/down through historical records
+- **Filtering**: filter by kind / role / source
+- **Follow** (`--follow`): tail newly written records
 
-### Trajectory 形态（`--trajectory`）
+### Trajectory form (`--trajectory`)
 
-参考 dsh 的 trajectory 概念：平铺 JSONL 投影为 **turn-aware 紧凑轨迹账本**——保留因果结构而不是只给一行行日志。
+References the trajectory concept from dsh: projects the flat JSONL into a **turn-aware compact trajectory ledger** — preserving causal structure rather than just giving line-by-line logs.
 
-- `context.jsonl` 的 `session` 行 = 会话边界（较重规则）；`queue.jsonl` 每行 = 一个 turn 边界（Queue 放行一轮 = 一次触发）；其余行按 ts 归属到最近 turn，缩进为事件行。
-- 无 queue 数据时（case 快照常见），`context.jsonl` 的 user message 退化为 turn 边界。
-- `x` 折叠/展开全部事件行——只看 session/turn 骨架；`/` 筛选、Tab 切文件、`f` 跟随与普通形态一致。
+- A `context.jsonl` `session` line = session boundary (heavier rule); each `queue.jsonl` line = one turn boundary (one Queue release round = one trigger); remaining lines are attributed to the nearest turn by ts and indented as event lines.
+- When there is no queue data (common in case snapshots), a user message in `context.jsonl` degrades into a turn boundary.
+- `x` collapses/expands all event lines — showing only the session/turn skeleton; `/` filters, Tab switches files, `f` follows, same as the normal form.
 
-### 实现
+### Implementation
 
-Rust 独立 bin，复用 core 的 JSONL 记录类型（`ContextMessage` / `Effect` 等）。目录参数默认取 `storage_dir`（`AMBERY_STORAGE_DIR` 可覆盖），也支持显式传目录。
+Rust standalone bin, reusing core's JSONL record types (`ContextMessage` / `Effect` etc.). The directory parameter defaults to `storage_dir` (overridable by `AMBERY_STORAGE_DIR`), and an explicit directory can also be passed.

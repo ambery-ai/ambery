@@ -1,56 +1,56 @@
 # Core Server
 
-Tauri 进程内薄 HTTP server，默认绑 `127.0.0.1:47600`，只承载外部 hook 收口。
+A thin in-process HTTP server inside the Tauri process, bound by default to `127.0.0.1:47600`, carrying only the external hook intake.
 
-## 端口语义
+## Port Semantics
 
-- 默认 `47600` 是 hook 脚本的投递契约；`AMBERY_PORT` 可显式覆盖（换端口必须同步更新 hook 配置）。
-- **不做随机回退**：端口被占用时打印可读错误并退出——随机换端口会让外部 hook 静默投递失败，比启动失败更难诊断。
+- Default `47600` is the delivery contract for hook scripts; `AMBERY_PORT` may explicitly override it (changing the port must update the hook configuration accordingly).
+- **No random fallback**: when the port is occupied, print a readable error and exit — randomly changing the port would make external hooks silently fail to deliver, which is harder to diagnose than a startup failure.
 
-## 环回威胁模型（已定案）
+## Loopback Threat Model (Decided)
 
-不加 token。边界是 **仅 `127.0.0.1` + 信任同机用户**：
+No token. The boundary is **only `127.0.0.1` + trusting same-machine users**:
 
-- `/hook` 与 debug router 都不监听外网接口；任何能 POST loopback 的进程已经具有当前用户权限，能直接读写 `~/.claude/settings.json`、storage/config 文件与所有用户文件——在此威胁模型下，token 只增加配置成本，不增加实际安全边界。
-- 这是本地开发工具通行惯例（本地 DB/REPL/CLI 服务同构）。对外发布不改变结论；若未来增加跨设备或远程接入面，再引入认证。
+- `/hook` and the debug router do not listen on external interfaces; any process that can POST to loopback already has current-user privileges and can directly read/write `~/.claude/settings.json`, storage/config files, and all user files — under this threat model, a token only adds configuration cost, not an actual security boundary.
+- This is common practice for local development tools (local DB/REPL/CLI services are isomorphic). Public release does not change the conclusion; if a cross-device or remote access surface is added in the future, authentication will be introduced then.
 
-## 职责
+## Responsibilities
 
-- **仅**：外部 hook 脚本 POST `/hook` 接入（PowerShell，进程外。Tauri command 无法跨进程调）
+- **Only**: external hook scripts POST to `/hook` (PowerShell, out-of-process. Tauri commands cannot be invoked cross-process)
 
-## 不在 scope
+## Out of Scope
 
-以下职责由 Tauri 原生能力承载：
+The following responsibilities are carried by Tauri native capabilities:
 
-| 职责 | 承载 |
-|--------|--------|
-| 前端 HTTP API（state/context/config/events） | `#[tauri::command]` + `invoke()` |
-| effects 广播 + WS 推送 | `app_handle.emit()` + 前端 `listen()` |
-| timer 后台任务 | Tauri async runtime `spawn`（原已在 runtime 内） |
+| Responsibility | Carrier |
+|---|---|
+| Frontend HTTP API (state/context/config/events) | `#[tauri::command]` + `invoke()` |
+| effects broadcast + WS push | `app_handle.emit()` + frontend `listen()` |
+| timer background tasks | Tauri async runtime `spawn` (already inside the runtime) |
 
-## 路由
+## Routes
 
-| 方法 | 路径 | 用途 |
-|------|------|------|
-| POST | `/hook` | 外部 hook 脚本触发（fire-and-forget，唯一保留的 HTTP 端口） |
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/hook` | external hook script trigger (fire-and-forget, the only HTTP port kept) |
 
-## 前端通信
+## Frontend Communication
 
-Tauri 原生 IPC（不经过 47600）：
+Tauri native IPC (not through 47600):
 
-- **前端 → Rust**：`invoke("get_state")` / `invoke("append_user", {text})` 等 Tauri command
-- **Rust → 前端**：`app_handle.emit("effect:render_component", spec)` → 前端 `listen()` 接收
+- **Frontend → Rust**: `invoke("get_state")` / `invoke("append_user", {text})` and other Tauri commands
+- **Rust → Frontend**: `app_handle.emit("effect:render_component", spec)` → frontend `listen()` receives
 
-## debug 模式完整 router
+## Debug Mode Full Router
 
-case-runner 以完整 `router()` 启动（`ambery-case serve`，浏览器调试 RemoteBridge 消费，docs/case-runner.md §CLI）：`/state` `/context` `/queue/user` `/events` `/config` `/config/schema` `/effect` `/ws`，另有：
+case-runner starts with the full `router()` (`ambery-case serve`, browser debugging consumed by RemoteBridge, docs/case-runner.md §CLI): `/state` `/context` `/queue/user` `/events` `/config` `/config/schema` `/effect` `/ws`, plus:
 
-- `GET /cards`、`POST /cards/layout`、`POST /cards/user_closed`——与 Tauri command `list_cards` / `update_card_layout` / `set_card_user_closed` 同一 core 逻辑（双运输层共享），供 RemoteBridge 消费（TS 子进程 / 浏览器调试）
-- `POST /debug/effect`（`case-runner` feature，release 默认构建不含）——向 effect 下行总线注入任意 effect 消息，headless 测试确定性驱动 render/close/config 事件，不经 LLM
-- 端口默认 47600，`AMBERY_PORT` 可覆盖（沙盒用独立端口避让生产）；storage/config 目录经 `AMBERY_STORAGE_DIR` / `AMBERY_CONFIG_DIR` 隔离
+- `GET /cards`, `POST /cards/layout`, `POST /cards/user_closed` — the same core logic as Tauri commands `list_cards` / `update_card_layout` / `set_card_user_closed` (shared across the dual transports), consumed by RemoteBridge (TS subprocess / browser debugging)
+- `POST /debug/effect` (`case-runner` feature; not included in release default builds) — injects arbitrary effect messages into the effect downlink bus, deterministically driving render/close/config events in headless tests, without going through the LLM
+- Default port 47600, `AMBERY_PORT` can override (sandboxes use an independent port to avoid production); storage/config directories are isolated via `AMBERY_STORAGE_DIR` / `AMBERY_CONFIG_DIR`
 
-## 相关文档
+## Related Documents
 
-- `agent-loop.md` §协议：Tauri IPC + `/hook` 链路
-- `hook.md`：外部 hook 脚本接入
-- `timer.md`：timer 后台任务逻辑
+- `agent-loop.md` §Protocol: Tauri IPC + `/hook` path
+- `hook.md`: external hook script integration
+- `timer.md`: timer background task logic

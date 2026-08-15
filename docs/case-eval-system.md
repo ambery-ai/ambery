@@ -1,22 +1,22 @@
 # Case Eval System
 
-> 概念：case runner 的表达式求值系统（docs/case-runner.md §可观测体系的读取 / store 配套）。
+> Concept: the case runner's expression evaluation system (docs/case-runner.md §reading of the observability system / store companion).
 
-## 原则
+## Principles
 
-> **本文档范围**——本文定义 case 的求值系统：读取（observe 路径类 target）/ store / 表达式 / 变量 / parser / 类型系统 / checkhealth；runner 基础设施见 `docs/case-runner.md`。
+> **Scope of this document** — this document defines the case evaluation system: reading (observe path-type targets) / store / expressions / variables / parser / type system / checkhealth; for runner infrastructure, see `docs/case-runner.md`.
 
-> **引入变量系统控制执行流，极简设计**——用变量系统表达执行中的位置/参数（路径类读取的偏移、存储的值）；极简设计：变量统一 string、内置末行变量。
+> **Introduce a variable system to control execution flow, with a minimal design** — use a variable system to express positions/parameters during execution (offsets for path-type reads, stored values); minimal design: all variables are string, with a built-in last-line variable.
 
-> **用 parser trait 约束类型系统，实现变量控制与计算，提供简单 expr 降低代码成本**——parser trait 统一类型约束（parse / try_parse），支撑变量求值与表达式计算；提供极简 expr（数字 | `$tail` ± N），避免自造复杂表达式引擎。
+> **Use a parser trait to constrain the type system, implement variable control and computation, and provide a simple expr to lower code cost** — the parser trait unifies type constraints (parse / try_parse), supporting variable evaluation and expression computation; provide a minimal expr (number | `$tail` ± N) to avoid building a complex expression engine.
 
-> **提供 pre parse 实现 checkhealth 预检**——表达式在 case 跑前可 try_parse 预检，语法错误在 checkhealth 阶段暴露，不求值。
+> **Provide pre-parse for checkhealth preflight** — expressions can be preflighted with try_parse before the case runs; syntax errors surface during the checkhealth phase, without evaluation.
 
-## 系统定义
+## System definition
 
-observe 路径类 target 的 `lines`（文件访问位置）与 store 的 value（变量设置）共用同一套 表达式 + 变量 + parser + 类型 机制。
+The `lines` (file access position) of observe path-type targets and store's value (variable setting) share the same expression + variable + parser + type mechanism.
 
-**为什么需要**（变量系统控制执行流）：
+**Why it is needed** (the variable system controls execution flow):
 
 ```text
 ① 增量读：store 记住上次位置，后续 ($cursor, $tail] 读新增（不用每次全量）
@@ -24,9 +24,9 @@ observe 路径类 target 的 `lines`（文件访问位置）与 store 的 value�
 ③ 免硬编码：位置/偏移用变量表达，改一处（store）多处生效
 ```
 
-## 读取（observe 的路径类 target）
+## Reading (observe path-type targets)
 
-observe 的路径类 target（context / effects）可带 `lines` 直接读取文件内容（read_file 融合进 observe）：
+observe's path-type targets (context / effects) can carry `lines` to directly read file content (read_file fused into observe):
 
 ```text
 { "observe": [
@@ -35,7 +35,7 @@ observe 的路径类 target（context / effects）可带 `lines` 直接读取文
   ] }
 ```
 
-`lines` 开闭区间（含/不含端点）：
+`lines` interval notation (inclusive/exclusive endpoints):
 
 ```text
 [a, b]   闭区间（含 a、b）
@@ -44,9 +44,9 @@ observe 的路径类 target（context / effects）可带 `lines` 直接读取文
 (a, b)   全开（不含 a、b）
 ```
 
-## 表达式
+## Expressions
 
-端点表达式：`数字 | $tail ± N`（一层加减，非递归）
+Endpoint expression: `数字 | $tail ± N` (one level of addition/subtraction, non-recursive)
 
 ```text
 50            → 数字
@@ -55,31 +55,31 @@ $tail-49      → 相对末行偏移
 ($tail-N, $tail]  → 倒数 N 行（开区间计数，无负索引）
 ```
 
-**空白**：`lines` 支持任意空格（parser 跳过空白），如 `[50, 100]`、`$tail - 50`、`[ $tail-50 , $tail ]` 均有效。
+**Whitespace**: `lines` allows arbitrary spaces (the parser skips whitespace), so `[50, 100]`, `$tail - 50`, and `[ $tail-50 , $tail ]` are all valid.
 
-## 变量
+## Variables
 
-变量全 string：
+All variables are string:
 
-- `$tail`：预定义（末行号，系统提供值）。**绑定规则**：lines 求值时 = 被读目标文件的末行号（context → context.jsonl，effects → effect.jsonl）；store 求值时 = context.jsonl 末行号（context 是 case 的主时间轴文件）
-- 用户变量：`store` step 设置
+- `$tail`: predefined (last line number, system-provided value). **Binding rule**: when evaluating lines = the last line number of the target file being read (context → context.jsonl, effects → effect.jsonl); when evaluating store = the last line number of context.jsonl (context is the case's main timeline file)
+- User variables: set by the `store` step
 
 ```text
 { "store": { "<name>": { "type": "expr|var|int|str", "value": "<字符串>" } } }
 ```
 
-`type` 选 parser，`value` 为输入字符串；求值后经 to_string 存变量（全 string）。
+`type` selects the parser, `value` is the input string; after evaluation it is stored via to_string (all string).
 
-store 的 type：
+store types:
 
-| type | parser | 语义 |
+| type | parser | semantics |
 |---|---|---|
-| `expr` | ExprParser | 表达式求值（数字 \| `$name` \| `$name` ± N）→ i64 |
-| `var`  | VarIntParser | 纯变量引用（`$name`，不带偏移）→ i64：$tail 取系统值；用户变量取其存值（须可解析为 i64，否则报错） |
-| `int`  | IntParser | 数字字面量 → i64 |
-| `str`  | — | 字符串直存（不做解析） |
+| `expr` | ExprParser | expression evaluation (number \| `$name` \| `$name` ± N) → i64 |
+| `var`  | VarIntParser | pure variable reference (`$name`, no offset) → i64: $tail takes the system value; user variables take their stored value (must be parseable as i64, otherwise error) |
+| `int`  | IntParser | numeric literal → i64 |
+| `str`  | — | string stored as-is (no parsing) |
 
-变量引用：`$name`，支持 ± 整数偏移：
+Variable reference: `$name`, supports ± integer offset:
 
 ```text
 $tail          末行号
@@ -88,11 +88,11 @@ $cursor-49     用户变量偏移
 $tail+10       预定义变量偏移
 ```
 
-lines 端点：`数字 | $name | $name ± N`。
+lines endpoints: `数字 | $name | $name ± N`.
 
-### 运用示例（steps）
+### Usage example (steps)
 
-一个 case 里变量跨 step 的真实运用——`store` 记住读取窗口起点，后续 `observe` 用变量读取，中间夹真实操作：
+A real cross-step use of variables in a case — `store` remembers the read-window start, and a later `observe` reads with variables, with real operations in between:
 
 ```json
 "steps": [
@@ -130,11 +130,11 @@ pub trait Parser<'a> {
 }
 ```
 
-> **try_parse 实现注**：本语法极薄（数字 | `$name` ± N，一层加减），语法校验与求值同路径、
-> 无侧效应（求值是纯函数），故 try_parse = parse 后丢弃结果；预检场景变量环境用
-> 「名字已知的占位值」构造，从而引用有效性与语法在同一遍被检查。
+> **try_parse implementation note**: this grammar is extremely thin (number | `$name` ± N, one level of addition/subtraction), syntax validation and evaluation share the same path,
+> and there are no side effects (evaluation is a pure function), so try_parse = parse then discard the result; in preflight scenarios the variable environment is constructed with
+> "placeholder values whose names are known", so reference validity and syntax are checked in the same pass.
 
-4 个 parser（input 统一 string）：
+4 parsers (input uniformly string):
 
 ```text
 RangeParser   区间外壳（开闭 + 逗号 + 两个端点）→ LinesRange
@@ -143,7 +143,7 @@ VarIntParser  纯变量引用（$name，不带偏移）→ i64 行号
 IntParser     数字字面量（store type=int）→ i64
 ```
 
-RangeParser 输出 `LinesRange`（区间结构）：
+RangeParser outputs `LinesRange` (the interval structure):
 
 ```text
 { lb: '[' | '(' , from: <表达式>, to: <表达式>, rb: ']' | ')' }
@@ -151,9 +151,9 @@ RangeParser 输出 `LinesRange`（区间结构）：
   from/to 经 ExprParser 求值为行号
 ```
 
-## 类型系统
+## Type system
 
-独立领域类型（非 Rust 类型）：
+Independent domain types (not Rust types):
 
 ```text
 Int     整数（行号、偏移）
@@ -163,9 +163,9 @@ Str     字符串（原始值）
 Range   区间（两个端点 + 开闭标记）
 ```
 
-**DirectToString**（独立模块，与 parser 无关）：界定哪些类型能直接转 string。已实现可转：`Int`（i64 → `"73"`）、`Var`（→ `"$name"`）、`Range`（LinesRange → `{lb}{from},{to}{rb}`，如 `"(49,73]"`）……未实现的类型存变量时拒绝（Rust 泛型约束编译期保证）。
+**DirectToString** (an independent module, unrelated to parser): defines which types can be directly converted to string. Implemented conversions: `Int` (i64 → `"73"`), `Var` (→ `"$name"`), `Range` (LinesRange → `{lb}{from},{to}{rb}`, e.g. `"(49,73]"`) ... types not implemented are rejected when stored as variables (guaranteed at compile time by Rust generic bounds).
 
-**完整链路**（表达式 → string 变量）：
+**Complete chain** (expression → string variable):
 
 ```text
 "$tail-49"（字符串）
@@ -177,7 +177,7 @@ Range   区间（两个端点 + 开闭标记）
 
 ## checkhealth
 
-pre parse 预检（静态校验，不执行 case）：
+pre-parse preflight (static validation, does not execute the case):
 
 ```text
 ① 表达式 try_parse    语法合法

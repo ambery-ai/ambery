@@ -1,69 +1,69 @@
-# AGENTS.md — 文档标准
+# AGENTS.md — Documentation standards
 
-> 职责边界（哪份文档写什么）归 `docs-spec.md`；本文档只管"怎么写"。改动任何文档前，先通读本文件与 `docs-spec.md`。
+> Responsibility boundaries (which document says what) belong to `docs-spec.md`; this file only governs "how to write". Before changing any document, read this file and `docs-spec.md` first.
 
-## 文档结构
+## Document structure
 
-- 文档的主题与树位置固定其范围：以适当细节描述自身主题；对子级只按目的、职责与高层行为描述，细节链接到归属者。
-- 文档类型不拓宽范围；引用文档只对自己主题详尽。测试机制、fixture、harness 属于最低归属层，高层文档只链接。
+- A document's topic and tree position fix its scope: describe its own topic with appropriate detail; for children, describe only purpose, responsibility, and high-level behavior, and link details to their owner.
+- Document type does not broaden scope; a referenced document is only exhaustive about its own topic. Test mechanisms, fixtures, and harness belong to the lowest ownership layer; higher-level documents only link.
 
-## 职责层级
+## Responsibility layers
 
-one home per fact —— 一个主题只在一份文档完整陈述；他处提到同一主题时只链接，不重复内容。
+one home per fact — a topic is fully stated in only one document; when mentioned elsewhere, only link and do not repeat content.
 
-| 层级 | 职责 | 不属于这里 |
+| Layer | Responsibility | Not here |
 |---|---|---|
-| `docs-spec.md` | 导航：`docs/*.md` 与 `concepts.md` 的职责地图、准入边界 | 写作规则（→ 本文件）、文档正文 |
-| `docs/*.md` | 契约正文：每份一个主题（docs-spec 职责地图定义） | 其他文档的主题（→ 链接） |
-| `concepts.md` | 概念模型：领域术语与分层 | 实现机制（→ `docs/`） |
-| `spec.md` | 技术栈与架构约束 | 运行机制（→ `docs/`） |
-| `reports/` | 调研结论：证据 + 结论 | 过程记录、契约正文 |
-| `dev/issues.md` | 问题跟踪 | 解决方案叙述（→ `docs/`） |
-| 根 `README.md` | 项目入口：是什么、quickstart、平台矩阵 | 架构细节（→ `docs/`） |
-| 根 `VISION.md` | 项目愿景：手写一页纸 | 设计细节（→ `docs/`） |
-| 本文件 | 全仓文档写作标准 | 职责地图（→ `docs-spec.md`） |
+| `docs-spec.md` | Navigation: responsibility map and admission boundaries for `docs/*.md` and `concepts.md` | Writing rules (→ this file), document body |
+| `docs/*.md` | Contract body: one topic per file (defined by the docs-spec responsibility map) | Other documents' topics (→ link) |
+| `concepts.md` | Concept model: domain terms and layering | Implementation mechanisms (→ `docs/`) |
+| `spec.md` | Tech stack and architecture constraints | Runtime mechanisms (→ `docs/`) |
+| `reports/` | Research conclusions: evidence + conclusion | Process records, contract body |
+| `dev/issues.md` | Issue tracking | Solution narratives (→ `docs/`) |
+| Root `README.md` | Project entry: what it is, quickstart, platform matrix | Architecture details (→ `docs/`) |
+| Root `VISION.md` | Project vision: one handwritten page | Design details (→ `docs/`) |
+| This file | Repo-wide documentation writing standard | Responsibility map (→ `docs-spec.md`) |
 
-放置规则：已决问题 → `dev/issues.md`；未决 → 开发 ticket / `docs/post-0.1.0.md`；调研 → `reports/`；契约 → `docs/`；概念 → `concepts.md`；约束 → `spec.md`；入口 → `README.md`。
+Placement rules: decided issues → `dev/issues.md`; undecided → development ticket / `docs/post-0.1.0.md`; research → `reports/`; contracts → `docs/`; concepts → `concepts.md`; constraints → `spec.md`; entry → `README.md`.
 
-公开文档集 = 上表全部（README / VISION 待创建）。`drafts/`、`user-goals.md`、`ideas.md`、`debug-lessons.md`、`mem.md` 不公开，不进入公开仓库。
+The public document set = all rows of the table above (README / VISION to be created). `drafts/`, `user-goals.md`, `ideas.md`, `debug-lessons.md`, and `mem.md` are not public and do not enter the public repo.
 
-## 写作规则
+## Writing rules
 
-- 写当前状态，不写变更史：避免 "previously/now/no longer"、PR、commit 与位置推移；命名现行机制。变更故事进 commit / PR。
-- 一行一段（编辑器 soft-wrap）；代码块、表格、列表保持格式。
-- 代码注释写完整契约，不写推理转录：保留行为、失败、时序、归属、例外、后果与非显然取向；删除叙述、测试走读、评审分析与代码复述。
-- 直陈事实，命名主体：写出具体的检查、类型、API、操作或行为，不用隐喻（已定义术语除外）。
-- 示例代码与实际实现一致，不得误导。
+- Write the current state, not change history: avoid "previously/now/no longer", PRs, commits, and positional drift; name the current mechanism. Change stories go into commits / PRs.
+- One paragraph per line (editor soft-wrap); code blocks, tables, and lists keep their formatting.
+- Code comments write the complete contract, not a reasoning transcript: keep behavior, failures, timing, ownership, exceptions, consequences, and non-obvious choices; delete narration, test walkthroughs, review analysis, and code restatement.
+- State facts directly and name the subject: write the concrete check, type, API, operation, or behavior; do not use metaphors (except defined terms).
+- Example code must match the actual implementation and must not mislead.
 
-## Slop 清单（写文档时猎杀）
+## Slop list (hunt when writing docs)
 
-- 同一规则在多个文档重复陈述：one home per fact，其余链接。
-- 叙述历史或战争故事："previously"、"now"、"no longer"、"used to"、"renamed"、PR、commit。
-- 实现状态标注（"implemented!"、"future:"）：状态会腐化；代码与仓库布局承载状态。
-- 手抄目录 / 清单（tests、packages、status）：源或生成器为准时，禁止手抄。
-- 推理转录：逐步实现叙述、显然分支的证明、测试走读、被否的局部替代方案。保留最终契约，删除推导路径。
-- 兄弟条目旁重复理由：理由只写一次，在归属能力 / 入口处。
-- 段落墙：一段载多条规则与括号附注 → 拆分或降级到归属处。
-- 强调通胀：bold / CAPS / "关键" 到处用 = 无强调；强调只留给改变行为的子句。
+- The same rule stated repeatedly in multiple documents: one home per fact, others link.
+- History or war-story narration: "previously", "now", "no longer", "used to", "renamed", PR, commit.
+- Implementation status markers ("implemented!", "future:"): status rots; code and repo layout carry status.
+- Hand-copied catalogs / lists (tests, packages, status): forbidden when a source or generator is authoritative.
+- Reasoning transcripts: step-by-step implementation narration, proofs of obvious branches, test walkthroughs, rejected local alternatives. Keep the final contract, delete the derivation path.
+- Repeated rationale next to sibling entries: rationale is written once, at the owning capability / entry.
+- Paragraph walls: a paragraph carrying multiple rules and parenthetical asides → split or demote to the owner.
+- Emphasis inflation: bold / CAPS / "key" everywhere = no emphasis; reserve emphasis for behavior-changing clauses.
 
-## 链接规则
+## Link rules
 
-- 仓库引用一律相对 Markdown 路径链接，禁止裸文件名。
-- 链接目标必须存在、锚点不得失效；改动被链接文档时检查引用。
+- Repo references always use relative Markdown path links; bare filenames are forbidden.
+- Link targets must exist and anchors must not break; check references when modifying a linked document.
 
-## 语言规则
+## Language rules
 
-- 语言方向 = 中文 / 英文双语（英文版实施为后续任务）；当前以中文为主。
-- 禁止第三语言混排。
-- 代码标识符、字符串、领域术语用英文。
+- Language direction = Chinese / English bilingual (the English version is implemented as a follow-up task); currently Chinese-first.
+- No third-language mixing.
+- Code identifiers, strings, and domain terms use English.
 
-## 代码引用文档规则
+## Code-to-document reference rules
 
-- 代码文件不得出现任何文档名引用（`docs/*.md`、`concepts`、`spec` 等）；注释只表达意思。
-- 文档导航由 `docs-spec.md` 承担；代码不承担到文档的链接。
+- Code files must not contain any document-name references (`docs/*.md`, `concepts`, `spec`, etc.); comments express meaning only.
+- Document navigation is borne by `docs-spec.md`; code bears no links to documents.
 
-## 强制流程
+## Mandatory process
 
-- 改动任何文档前：先读 `docs-spec.md`（职责）与本文档（标准）。
-- 文档改动与代码改动分开提交（原子提交粒度，便于审阅与回滚）。
-- README / VISION / CONTRIBUTING 的专项规则待其创建时补充。
+- Before changing any document: first read `docs-spec.md` (responsibilities) and this file (standards).
+- Commit document changes separately from code changes (atomic commit granularity, for review and rollback).
+- Specific rules for README / VISION / CONTRIBUTING will be added when those are created.

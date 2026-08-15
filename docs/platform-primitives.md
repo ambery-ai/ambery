@@ -1,27 +1,27 @@
-# Platform Primitives 设计
+# Platform Primitives Design
 
-平台特定能力的抽象组（不叫 adapter）：虚拟桌面切换等跨终端、跨组件复用的 OS 层能力。
+An abstraction group for platform-specific capabilities (not called adapter): OS-level capabilities such as virtual desktop switching that are reused across terminals and Components.
 
-> 概念定位见 `concepts.md` §15（Platform Primitives）。本文件定接口能力与各平台实现。
+> See `concepts.md` §15 (Platform Primitives) for the conceptual positioning. This document defines the interface capabilities and the per-platform implementations.
 
-## 能力接口
+## Capability Interface
 
-platform-primitives 是可实例化的一类东西——落成 Rust trait，各平台一个实现：
+platform-primitives is an instantiable kind of thing — expressed as a Rust trait, with one implementation per platform:
 
 ```rust
 pub trait PlatformPrimitives: Send + Sync {
-    /// 切到目标窗口所在虚拟桌面（读取前置 / 跳转共用）
+    /// Switch to the virtual desktop of the target window (shared by read precondition / jump)
     fn switch_vd(&self, hwnd: i64) -> bool;
 }
 ```
 
-## 消费者
+## Consumers
 
-- **terminal-adapter**（docs/terminal-adapter.md）：读取时目标窗口不可见（cloaked）→ 切桌面后读。切换是打断性动作，须经 fetch_terminal 的 `vd_switch` 显式同意门控（docs/hook.md §VD 切换能力），adapter 不自动切
+- **terminal-adapter** (docs/terminal-adapter.md): when the target window is invisible (cloaked) during a read → switch desktop and then read. Switching is an interruptive action and must be gated by explicit consent through fetch_terminal's `vd_switch` (docs/hook.md §VD switching capability); the adapter never switches automatically
 
-## 实现
+## Implementation
 
-| 平台 | 实现方式 | 能力 |
+| Platform | Implementation | Capability |
 |---|---|---|
-| Windows | COM（`IVirtualDesktopManager`） | 虚拟桌面切换 |
-| （其他平台按需） | — | — |
+| Windows | COM (`IVirtualDesktopManager`) | Virtual desktop switching |
+| (Other platforms as needed) | — | — |
