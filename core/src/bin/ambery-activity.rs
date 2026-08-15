@@ -228,18 +228,158 @@ fn line_brief(line: &str) -> String {
     truncate(line, 60)
 }
 
-/// CLI 选项（--dir 覆盖目录，--follow tail 新增）
+// ── Trajectory 模式：turn-aware 紧凑事件账本 ──
+// 参考 dsh 的 trajectory 概念：把平铺 JSONL 投影成
+// session 边界 + turn（Queue 放行一轮） + 归属事件三层结构。
+// 因果结构不靠行内文字推断，而靠 storage 里已有的一等事实：session 分界与 Queue 排队记录。
+
+/// 轨迹账本行：边界行与普通事件行同池，渲染时用缩进区分层级
+#[derive(Debug, Clone, PartialEq)]
+pub enum TrajectoryRow {
+    Session { id: String, ts: i64 },
+    Turn {
+        index: usize,
+        source: String,
+        role: String,
+        content: String,
+        ts: i64,
+    },
+    Event {
+        file: &'static str,
+        kind: String,
+        ts: i64,
+        summary: String,
+        /// 归属 turn（None = 首个 turn 之前的孤儿事件）
+        turn: Option<usize>,
+    },
+}
+
+#[derive(Debug, Default)]
+pub struct Trajectory {
+    pub rows: Vec<TrajectoryRow>,
+    pub turns: usize,
+    pub sessions: usize,
+}
+
+impl Trajectory {
+    /// 从 Activity 统一行集投影轨迹：
+    /// context `session` 行 = 会话边界；queue 行 = turn 边界；
+    /// 其余行按 ts 归属到最近一个已出现的 turn。无 queue 数据时，
+    /// context 的 user message 退化为 turn 边界（case 快照常见形态）。
+    pub fn from_activity(activity: &Activity) -> Self {
+        let has_queue = activity.rows.iter().any(|r| r.file == QUEUE_FILE);
+        let mut rows = Vec::new();
+        let mut turns = 0usize;
+        let mut sessions = 0usize;
+        let mut current_turn: Option<usize> = None;
+
+        for r in &activity.rows {
+            if r.file == CONTEXT_FILE && r.kind == "session" {
+                sessions += 1;
+                rows.push(TrajectoryRow::Session {
+                    id: r.summary.clone(),
+                    ts: r.ts,
+                });
+                continue;
+            }
+            let is_turn = r.file == QUEUE_FILE
+                || (!has_queue && r.file == CONTEXT_FILE && r.kind == "message/user");
+            if is_turn {
+                let index = turns;
+                turns += 1;
+                current_turn = Some(index);
+                rows.push(TrajectoryRow::Turn {
+                    index,
+                    source: r.kind.clone(),
+                    role: r
+                        .file
+                        .starts_with(QUEUE_FILE)
+                        .then(|| "input".to_string())
+                        .unwrap_or_else(|| "user".into()),
+                    content: r.summary.clone(),
+                    ts: r.ts,
+                });
+                continue;
+            }
+            rows.push(TrajectoryRow::Event {
+                file: r.file,
+                kind: r.kind.clone(),
+                ts: r.ts,
+                summary: r.summary.clone(),
+                turn: current_turn,
+            });
+        }
+        Self {
+            rows,
+            turns,
+            sessions,
+        }
+    }
+
+    /// 渲染为 TUI 行（结构边界保留，事件行可折叠）。
+    pub fn lines(&self, file: &str, filter: &str, fold: bool) -> Vec<String> {
+        self.rows
+            .iter()
+            .filter(|row| match row {
+                TrajectoryRow::Session { id, .. } => {
+                    (file == "all" || file == CONTEXT_FILE)
+                        && (filter.is_empty() || id.contains(filter))
+                }
+                TrajectoryRow::Turn { source, content, .. } => {
+                    (file == "all" || file == QUEUE_FILE)
+                        && (filter.is_empty()
+                            || source.contains(filter)
+                            || content.contains(filter))
+                }
+                TrajectoryRow::Event {
+                    file: f,
+                    kind,
+                    summary,
+                    ..
+                } => {
+                    !fold
+                        && (file == "all" || *f == file)
+                        && (filter.is_empty()
+                            || kind.contains(filter)
+                            || summary.contains(filter))
+                }
+            })
+            .map(|row| match row {
+                TrajectoryRow::Session { id, ts } => format!("── session {id} @{ts}"),
+                TrajectoryRow::Turn {
+                    index,
+                    source,
+                    content,
+                    ts,
+                    ..
+                } => format!("▸ turn {} [{}] {} @{ts}", index + 1, source, content),
+                TrajectoryRow::Event {
+                    file,
+                    kind,
+                    ts,
+                    summary,
+                    ..
+                } => format!("   · {ts} [{file}] {kind} {summary}"),
+            })
+            .collect()
+    }
+}
+
+/// CLI 选项（--dir 覆盖目录，--follow tail 新增，--trajectory 轨迹账本）
 struct Options {
     dir: PathBuf,
     follow: bool,
     /// --dump：非交互，纯文本打印全部行（脚本/管道用；默认是 TUI）
     dump: bool,
+    /// --trajectory：turn-aware 紧凑轨迹账本（session/turn/event 三层）
+    trajectory: bool,
 }
 
 fn parse_args() -> Options {
     let mut dir = ambery_core::paths::storage_dir();
     let mut follow = false;
     let mut dump = false;
+    let mut trajectory = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
@@ -250,10 +390,11 @@ fn parse_args() -> Options {
             }
             "--follow" | "-f" => follow = true,
             "--dump" | "-d" => dump = true,
+            "--trajectory" | "-t" => trajectory = true,
             _ => {}
         }
     }
-    Options { dir, follow, dump }
+    Options { dir, follow, dump, trajectory }
 }
 
 fn main() {
@@ -266,6 +407,13 @@ fn main() {
                     println!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary);
                 }
                 eprintln!("({} rows from {})", a.rows.len(), opt.dir.display());
+            } else if opt.trajectory {
+                // trajectory：dsh 轨迹账本形态——session 边界 / turn 边界 / 归属事件
+                let traj = Trajectory::from_activity(&a);
+                if let Err(e) = run_trajectory_tui(opt.dir, traj, opt.follow) {
+                    eprintln!("ambery-activity: {e}");
+                    std::process::exit(1);
+                }
             } else {
                 // TUI 为默认形态（TUI 交互界面）
                 if let Err(e) = run_tui(opt.dir, a, opt.follow) {
@@ -504,6 +652,199 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
     Ok(())
 }
 
+// ---- Trajectory TUI：turn-aware 轨迹账本 ----
+
+struct TrajectoryTui {
+    trajectory: Trajectory,
+    file_idx: usize,
+    cursor: usize,
+    offset: usize,
+    filter: String,
+    filtering: bool,
+    follow: bool,
+    seen: usize,
+    fold: bool,
+    quit: bool,
+}
+
+impl TrajectoryTui {
+    fn new(trajectory: Trajectory, follow: bool) -> Self {
+        let seen = trajectory.rows.len();
+        Self {
+            trajectory,
+            file_idx: 0,
+            cursor: 0,
+            offset: 0,
+            filter: String::new(),
+            filtering: false,
+            follow,
+            seen,
+            fold: false,
+            quit: false,
+        }
+    }
+
+    fn lines(&self) -> Vec<String> {
+        self.trajectory
+            .lines(FILES[self.file_idx], &self.filter, self.fold)
+    }
+
+    fn move_cursor(&mut self, delta: isize) {
+        let len = self.lines().len();
+        if len == 0 {
+            self.cursor = 0;
+            return;
+        }
+        self.cursor = (self.cursor as isize + delta).clamp(0, len as isize - 1) as usize;
+    }
+
+    fn next_file(&mut self) {
+        self.file_idx = (self.file_idx + 1) % FILES.len();
+        self.cursor = 0;
+        self.offset = 0;
+    }
+
+    fn reload(&mut self, dir: &Path) {
+        if let Ok(a) = Activity::load(dir) {
+            let traj = Trajectory::from_activity(&a);
+            if traj.rows.len() > self.seen {
+                self.seen = traj.rows.len();
+                self.trajectory = traj;
+                if self.follow {
+                    let len = self.lines().len();
+                    if len > 0 {
+                        self.cursor = len - 1;
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std::io::Result<()> {
+    enable_raw_mode()?;
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    let mut tui = TrajectoryTui::new(trajectory, follow);
+
+    loop {
+        if tui.follow {
+            tui.reload(&dir);
+        }
+        let lines = tui.lines();
+        let area = terminal.get_frame().area();
+        let height = area.height.saturating_sub(4) as usize;
+        if tui.cursor < tui.offset {
+            tui.offset = tui.cursor;
+        } else if height > 0 && tui.cursor >= tui.offset + height {
+            tui.offset = tui.cursor + 1 - height;
+        }
+        let offset = tui.offset;
+        let cursor = tui.cursor;
+        let file_label = FILES[tui.file_idx];
+        let filter = tui.filter.clone();
+        let filtering = tui.filtering;
+        let follow = tui.follow;
+        let fold = tui.fold;
+
+        terminal.draw(|f| {
+            let chunks = Layout::default()
+                .direction(ratatui::layout::Direction::Vertical)
+                .constraints([
+                    Constraint::Length(2),
+                    Constraint::Min(1),
+                    Constraint::Length(2),
+                ])
+                .split(f.area());
+
+            let title = format!(
+                "ambery-activity trajectory  sessions={} turns={} rows={} file={} filter={}{}{}",
+                tui.trajectory.sessions,
+                tui.trajectory.turns,
+                lines.len(),
+                file_label,
+                filter,
+                if fold { "  [fold]" } else { "" },
+                if follow { "  [follow]" } else { "" }
+            );
+            f.render_widget(
+                Paragraph::new(title).block(Block::default().borders(Borders::BOTTOM)),
+                chunks[0],
+            );
+
+            let items: Vec<ListItem> = lines
+                .iter()
+                .skip(offset)
+                .take(height)
+                .map(|l| ListItem::new(l.clone()))
+                .collect();
+            let mut state = ListState::default();
+            if !lines.is_empty() {
+                state.select(Some(cursor.saturating_sub(offset)));
+            }
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::NONE))
+                .highlight_symbol("▶ ");
+            f.render_stateful_widget(list, chunks[1], &mut state);
+
+            let help = if filtering {
+                format!("/{}", filter)
+            } else {
+                "↑/↓ 滚动  Tab 切文件  / 筛选  x 折叠事件  f 跟随  q 退出".to_string()
+            };
+            f.render_widget(
+                Paragraph::new(help).block(Block::default().borders(Borders::TOP)),
+                chunks[2],
+            );
+        })?;
+
+        if event::poll(std::time::Duration::from_millis(200))? {
+            if let Event::Key(k) = event::read()? {
+                if tui.filtering {
+                    match k.code {
+                        KeyCode::Enter | KeyCode::Esc => tui.filtering = false,
+                        KeyCode::Backspace => {
+                            tui.filter.pop();
+                            tui.cursor = 0;
+                            tui.offset = 0;
+                        }
+                        KeyCode::Char(c) => {
+                            tui.filter.push(c);
+                            tui.cursor = 0;
+                            tui.offset = 0;
+                        }
+                        _ => {}
+                    }
+                } else {
+                    match k.code {
+                        KeyCode::Char('q') | KeyCode::Esc => tui.quit = true,
+                        KeyCode::Up => tui.move_cursor(-1),
+                        KeyCode::Down => tui.move_cursor(1),
+                        KeyCode::Tab => tui.next_file(),
+                        KeyCode::Char('/') => tui.filtering = true,
+                        KeyCode::Char('x') => {
+                            tui.fold = !tui.fold;
+                            tui.cursor = 0;
+                            tui.offset = 0;
+                        }
+                        KeyCode::Char('f') => tui.follow = !tui.follow,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if tui.quit {
+            break;
+        }
+    }
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -676,5 +1017,41 @@ mod tests {
             t.next_file();
         }
         assert_eq!(t.file_idx, 0);
+    }
+
+    fn trajectory_sample() -> Activity {
+        Activity {
+            rows: vec![
+                ActivityRow { file: CONTEXT_FILE, kind: "session".into(), ts: 1, summary: "s1".into() },
+                ActivityRow { file: QUEUE_FILE, kind: "user_chat".into(), ts: 2, summary: "用户问".into() },
+                ActivityRow { file: EFFECT_FILE, kind: "backend/render_component".into(), ts: 3, summary: r#"{"id":"c1"}"#.into() },
+                ActivityRow { file: CONTEXT_FILE, kind: "message/assistant".into(), ts: 4, summary: "回复".into() },
+            ],
+        }
+    }
+
+    #[test]
+    fn trajectory_groups_sessions_turns_and_events() {
+        let traj = Trajectory::from_activity(&trajectory_sample());
+        assert_eq!(traj.sessions, 1);
+        assert_eq!(traj.turns, 1);
+        assert_eq!(traj.rows.len(), 4);
+        assert!(matches!(&traj.rows[0], TrajectoryRow::Session { id, .. } if id == "s1"));
+        assert!(matches!(&traj.rows[1], TrajectoryRow::Turn { index: 0, source, .. } if source == "user_chat"));
+        // ts=3 的事件挂在 turn 0 名下
+        assert!(matches!(&traj.rows[2], TrajectoryRow::Event { turn: Some(0), .. }));
+        assert!(matches!(&traj.rows[3], TrajectoryRow::Event { turn: Some(0), .. }));
+    }
+
+    #[test]
+    fn trajectory_fold_hides_events_but_keeps_boundaries() {
+        let traj = Trajectory::from_activity(&trajectory_sample());
+        let flat = traj.lines("all", "", false);
+        assert_eq!(flat.len(), 4);
+        assert!(flat[0].contains("session s1"));
+        assert!(flat[1].contains("turn 1"));
+        let folded = traj.lines("all", "", true);
+        assert_eq!(folded.len(), 2, "{folded:?}");
+        assert!(!folded.iter().any(|l| l.contains("render_component")));
     }
 }

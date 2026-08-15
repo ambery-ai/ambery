@@ -32,6 +32,14 @@ TUI 交互界面（`ratatui`）。核心交互：
 - **筛选**：按 kind / role / 来源过滤
 - **跟随**（`--follow`）：tail 新写入的记录
 
+### Trajectory 形态（`--trajectory`）
+
+参考 dsh 的 trajectory 概念：平铺 JSONL 投影为 **turn-aware 紧凑轨迹账本**——保留因果结构而不是只给一行行日志。
+
+- `context.jsonl` 的 `session` 行 = 会话边界（较重规则）；`queue.jsonl` 每行 = 一个 turn 边界（Queue 放行一轮 = 一次触发）；其余行按 ts 归属到最近 turn，缩进为事件行。
+- 无 queue 数据时（case 快照常见），`context.jsonl` 的 user message 退化为 turn 边界。
+- `x` 折叠/展开全部事件行——只看 session/turn 骨架；`/` 筛选、Tab 切文件、`f` 跟随与普通形态一致。
+
 ### 实现
 
 Rust 独立 bin，复用 core 的 JSONL 记录类型（`ContextMessage` / `Effect` 等）。目录参数默认取 `storage_dir`（`AMBERY_STORAGE_DIR` 可覆盖），也支持显式传目录。
