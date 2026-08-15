@@ -293,3 +293,13 @@ chat 面板头部的 × 按钮（chat.ts `close.addEventListener("click", () => 
 2026-07-26 用户连续三提交否决并移除 dock（f45d2c2 pet 原地不动 → 4ed8ca8 删 dock 状态机+右键直切 chat:toggle → 5f8891b 删 Edge、chat 只走 engine.place(sse) 自定位），但 docs/view.md §状态机与 docs/chat-panel.md §唤出与关闭从未同步——文档仍是否决前的吸附设计。2026-08-06 agent 提交 d91768f（C10a）把过期文档当契约「落地」，吸附状态机重回代码（view.ts docked/setDock、pet.ts dockToNearestEdge 边缘瞬移、view:docked/undocked 事件、31a8ced 吸附停漂 CSS），用户 2026-08-10 重启 app 实测目击 pet 右键瞬移贴边的原始贴靠行为。影响：被否决的 OS 式贴靠复活，chat 唤出偏离「自己的定位」（engine.place）。建议：文档回归 7/26 否决语义（右键=chat:toggle、无吸附态、拖拽恒可用、chat 固定 sse 经 engine.place），代码全量移除 dock 命名。流程教训：文档与代码历史冲突时须先查历史裁决——用户 veto 优先于过期文档。
 
 2026-08-10 修复：原因——文档与代码历史脱节（7/26 否决只落在代码提交，docs 未同步），agent 审计时以过期文档为契约且未查历史 veto。修复——文档回归否决语义（view.md 手势与 Chat 唤出/chat-panel.md 唤出与布局/multi-window.md 窗口与事件表/window-positioning.md ChatPanel 固定 sse），代码全量移除 dock（view.ts 与 4ed8ca8 后状态逐行等价；chat.ts/chat-window.ts 固定 engine.place(sse)；pet.ts 双分支 chat:toggle；cdp-check 六断言重写，关键回归「右键唤出 pet 原地不动」）。验证：tsc 零错、vitest 19、CDP 17（含 pet 不瞬移断言）、token 守卫、rg 零残留、agent review PASS。
+
+## Windows 真机验证清单（0.1.0 前标注，本机 mac 不可验） (2026-08-16) — open
+
+以下改动在 mac/CI 上只覆盖了编译与协议层；Windows 真机未验证：
+
+1. **Tauri/UIA 改名后路径**：`ambery` product/crate/bin/env 全套改名后，Windows 上 Tauri 壳启动、tray、透明窗口、pet/card/chat/shelf 多窗口与 UIA sidecar 进程拉起需真机跑一遍。
+2. **sidecar 打包**：self-contained win-x64 的 `dotnet publish -c Release` 与 Tauri `externalBin` 打包布局未经 Windows 打包流水线实测。
+3. **install-hooks.ps1**：settings.json 缺失容错分支未经 PowerShell 实机执行（mac 无 pwsh）。
+4. **全局热键**：已明确 cut，无需验证。
+5. **调试链路**：`debug_brain.py` 经 HTTP brain 连通已在 mac 验证；Windows 下脑连 serve/frontend 仅需路径差异，不单独列验证项。
