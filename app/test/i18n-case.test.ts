@@ -53,13 +53,13 @@ it("切换 ui_language 即重渲染：chat placeholder 与 card chrome 跟随", 
     await vi.waitFor(() => expect(uiLanguage()).toBe("zh"));
   }
   const input = mount.querySelector(".chat-input") as HTMLInputElement;
-  expect(input.placeholder).toBe("和 pet 说话…");
+  expect(input.placeholder).toBe("和Ambery说话…");
   expect(mount.querySelector(".cmp-body button")?.textContent).toBe("复制");
 
   expect((await postConfig("ui_language", lang1)).ok).toBe(true);
   await vi.waitFor(() => expect(uiLanguage()).toBe(lang1));
   // chat placeholder 跟随（含 pet 名插值；名称不翻译）
-  const expected = lang1 === "en" ? "Talk to pet…" : "和 pet 说话…";
+  const expected = lang1 === "en" ? "Talk to Ambery…" : "和Ambery说话…";
   await vi.waitFor(() => expect(input.placeholder).toBe(expected));
   // card chrome 原地重贴（DOM 不重建）
   const expectedCopy = lang1 === "en" ? "Copy" : "复制";
@@ -88,8 +88,8 @@ it("pet 名称：Config name 流入 chat 标题/placeholder，改名即重贴（
   new ChatPanel(mount, bridge, store);
   const title = mount.querySelector(".chat-header span")!;
   const input = mount.querySelector(".chat-input") as HTMLInputElement;
-  // 默认名（用户定案不改）：pet
-  expect(title.textContent).toBe("pet");
+  // 默认名（改名轮定案）：Ambery
+  expect(title.textContent).toBe("Ambery");
   // 改名 → 标题与 placeholder 即当前名称
   expect((await postConfig("name", "監督ちゃん")).ok).toBe(true);
   await vi.waitFor(() => expect(title.textContent).toBe("監督ちゃん"));
