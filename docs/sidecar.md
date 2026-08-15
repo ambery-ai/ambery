@@ -8,6 +8,13 @@
 - **协议：stdio JSON Lines**——stdin 每行一个 JSON 请求，stdout 每行一个 JSON 响应。Rust `SidecarClient` 持进程句柄，Mutex 串行化请求（UIA 操作本身不可并行——切 Tab 是全局状态）。
 - 崩溃处理：每次请求检查进程存活，退出则重启一次再重试；仍失败返回 None（读通道降级回 Context，AmberyBackend 语义不变）。
 
+## 打包（已定案）
+
+- **self-contained win-x64，非单文件**：`sidecar.csproj` 固化 `RuntimeIdentifier=win-x64` / `SelfContained=true` / `PublishSingleFile=false`；用户机器无需 .NET 9 Desktop Runtime。
+- 发布命令：`dotnet publish sidecar/sidecar.csproj -c Release` → `sidecar/bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe`。
+- Tauri 侧：`app/src-tauri/tauri.conf.json` 的 `bundle.externalBin` 指向该 publish 路径；开启 `bundle.active` 后随包分发。
+- 路径发现优先级（`core/src/paths.rs`）：`AMBERY_SIDECAR` env > 当前 exe 旁 > 当前 exe 旁 `sidecar/` > Release publish > Debug。Windows 真机验证前，publish 布局未经打包流水线实测（标 `dev/issues.md`）。
+
 ## 命令集
 
 ```

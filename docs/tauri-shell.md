@@ -48,7 +48,7 @@ macOS / Linux
 当前隔离状态：
 
 - Tauri shell 的 Windows 专属依赖（`winvd` / `windows`）收进 `[target.'cfg(windows)'.dependencies]`；`window.rs` 的 pin/fight-back 与 `menu_window.rs` 的 `SetForegroundWindow` 由 `#[cfg(windows)]` 门控，非 Windows 目标为最小替代（tauri.conf.json 的 `alwaysOnTop` + `set_focus`）。
-- core 的 UIA sidecar 发现（`paths::sidecar_exe`）在非 Windows 目标恒为 `None`——不发现、不启动、不使用；sidecar 客户端是纯 std 进程通信代码，非 Windows 目标上无调用路径（Option 链天然降级，`sidecar_enabled=false`）。C# sidecar 目标为 `net9.0-windows`，不进入非 Windows 打包。
+- core 的 UIA sidecar 发现（`paths::sidecar_exe`）在非 Windows 目标恒为 `None`——不发现、不启动、不使用；sidecar 客户端是纯 std 进程通信代码，非 Windows 目标上无调用路径（Option 链天然降级，`sidecar_enabled=false`）。C# sidecar 目标为 `net9.0-windows` 且发布形态为 self-contained win-x64，不进入非 Windows 打包（docs/sidecar.md §打包）。
 - 残余验证边界：非 Windows 目标的 `cargo check --target` 需要交叉工具链（`ring` 经 reqwest 引入原生 C 构建），本机不可行；`cfg(not(windows))` 分支为最小 stub，正确性由评审保证，交叉编译验证待 CI。
 
 ## 模块拆分

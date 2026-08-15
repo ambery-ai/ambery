@@ -77,6 +77,7 @@
   },
   "bundle": {
     "active": false,
-    "icon": ["icons/icon.ico"]
+    "icon": ["icons/icon.ico"],
+    "externalBin": ["../../sidecar/bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe"]
   }
 }

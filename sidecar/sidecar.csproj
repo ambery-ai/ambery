@@ -8,6 +8,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <AssemblyName>ambery-uia-sidecar</AssemblyName>
+    <!-- 打包定案（docs/sidecar.md）：self-contained win-x64，用户无需 .NET 9 runtime。
+         非单文件：WPF/UIA 依赖保持常规布局，Tauri externalBin 直接引用 exe。 -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
   </PropertyGroup>
 
 </Project>
