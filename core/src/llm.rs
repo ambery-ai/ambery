@@ -278,6 +278,11 @@ pub trait Llm: Send + Sync {
         let summary = deterministic_summary(messages);
         async move { Ok((summary, None)) }
     }
+
+    /// 最近一次已降级失败（默认 None）。LlmBackend 覆写：run_trigger 取走后转 UI 错误帧。
+    fn take_last_error(&self) -> Option<String> {
+        None
+    }
 }
 
 /// 确定性摘要 stub（Compression 的 debug 回退：保证测试确定性）
@@ -761,7 +766,9 @@ fn parse_usage(v: &Value) -> Option<Usage> {
 
 use crate::LlmConfig;
 
-pub enum LlmBackend {
+type ErrorSlot = std::sync::Arc<std::sync::Mutex<Option<String>>>;
+
+enum LlmBackendInner {
     Debug(DebugAgent),
     OpenAi {
         client: OpenAiClient,
@@ -769,31 +776,70 @@ pub enum LlmBackend {
     },
 }
 
+pub struct LlmBackend {
+    inner: LlmBackendInner,
+    /// 最近一次 OpenAI 失败（初始化/调用），供 run_trigger 取走转成 UI 错误帧。
+    /// 取走后清空：一条失败对应一次可见反馈，不重复报旧错误。
+    last_error: ErrorSlot,
+}
+
 impl LlmBackend {
+    pub fn debug(agent: DebugAgent) -> Self {
+        Self {
+            inner: LlmBackendInner::Debug(agent),
+            last_error: std::sync::Arc::new(std::sync::Mutex::new(None)),
+        }
+    }
+
+    pub fn is_debug(&self) -> bool {
+        matches!(self.inner, LlmBackendInner::Debug(_))
+    }
+
+    pub fn poll_last_error(&self) -> Option<String> {
+        self.last_error.lock().ok()?.take()
+    }
+
+    fn record_error(&self, message: impl Into<String>) {
+        if let Ok(mut slot) = self.last_error.lock() {
+            *slot = Some(message.into());
+        }
+    }
+
     pub fn from_config(cfg: &LlmConfig) -> Self {
         if cfg.active == "debug" {
-            return Self::Debug(DebugAgent::default());
+            return Self::debug(DebugAgent::default());
         }
         match cfg.providers.get(&cfg.active) {
             Some(p) => match OpenAiClient::from_provider(p) {
-                Ok(client) => Self::OpenAi {
-                    client,
-                    fallback: DebugAgent::default(),
+                Ok(client) => Self {
+                    inner: LlmBackendInner::OpenAi {
+                        client,
+                        fallback: DebugAgent::default(),
+                    },
+                    last_error: std::sync::Arc::new(std::sync::Mutex::new(None)),
                 },
                 Err(err) => {
+                    let backend = Self::debug(DebugAgent::default());
                     eprintln!("[llm] provider「{}」初始化失败（{err}），回退 DebugAgent", cfg.active);
-                    Self::Debug(DebugAgent::default())
+                    backend.record_error(format!("provider「{}」初始化失败：{err}", cfg.active));
+                    backend
                 }
             },
             None => {
+                let backend = Self::debug(DebugAgent::default());
                 eprintln!("[llm] active=「{}」不在 providers 里，回退 DebugAgent", cfg.active);
-                Self::Debug(DebugAgent::default())
+                backend.record_error(format!("active=「{}」不在 providers 里", cfg.active));
+                backend
             }
         }
     }
 }
 
 impl Llm for LlmBackend {
+    fn take_last_error(&self) -> Option<String> {
+        self.poll_last_error()
+    }
+
     fn complete(
         &self,
         messages: &[ContextMessage],
@@ -801,15 +847,18 @@ impl Llm for LlmBackend {
         effort: Option<Effort>,
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         async move {
-            match self {
-                Self::Debug(agent) => agent.complete(messages, tools, effort).await,
-                Self::OpenAi { client, fallback } => match client.complete(messages, tools, effort).await {
-                    Ok(out) => Ok(out),
-                    Err(err) => {
-                        eprintln!("[llm] openai complete 失败（{err}），本轮回退 DebugAgent");
-                        fallback.complete(messages, tools, effort).await
+            match &self.inner {
+                LlmBackendInner::Debug(agent) => agent.complete(messages, tools, effort).await,
+                LlmBackendInner::OpenAi { client, fallback } => {
+                    match client.complete(messages, tools, effort).await {
+                        Ok(out) => Ok(out),
+                        Err(err) => {
+                            eprintln!("[llm] openai complete 失败（{err}），本轮回退 DebugAgent");
+                            self.record_error(format!("LLM 调用失败：{err}"));
+                            fallback.complete(messages, tools, effort).await
+                        }
                     }
-                },
+                }
             }
         }
     }
@@ -822,13 +871,16 @@ impl Llm for LlmBackend {
         on_delta: &(dyn Fn(&Delta) + Send + Sync),
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         async move {
-            match self {
-                Self::Debug(agent) => agent.complete_streaming(messages, tools, effort, on_delta).await,
-                Self::OpenAi { client, fallback } => {
+            match &self.inner {
+                LlmBackendInner::Debug(agent) => {
+                    agent.complete_streaming(messages, tools, effort, on_delta).await
+                }
+                LlmBackendInner::OpenAi { client, fallback } => {
                     match client.complete_streaming(messages, tools, effort, on_delta).await {
                         Ok(out) => Ok(out),
                         Err(err) => {
                             eprintln!("[llm] openai streaming 失败（{err}），本轮回退 DebugAgent");
+                            self.record_error(format!("LLM 调用失败：{err}"));
                             fallback.complete_streaming(messages, tools, effort, on_delta).await
                         }
                     }
@@ -842,15 +894,18 @@ impl Llm for LlmBackend {
         messages: &[ContextMessage],
     ) -> impl Future<Output = Result<(String, Option<Usage>), String>> + Send {
         async move {
-            match self {
-                Self::Debug(agent) => agent.summarize(messages).await,
-                Self::OpenAi { client, fallback } => match client.summarize(messages).await {
-                    Ok(s) => Ok(s),
-                    Err(err) => {
-                        eprintln!("[llm] openai summarize 失败（{err}），回退确定性 stub");
-                        fallback.summarize(messages).await
+            match &self.inner {
+                LlmBackendInner::Debug(agent) => agent.summarize(messages).await,
+                LlmBackendInner::OpenAi { client, fallback } => {
+                    match client.summarize(messages).await {
+                        Ok(s) => Ok(s),
+                        Err(err) => {
+                            eprintln!("[llm] openai summarize 失败（{err}），回退确定性 stub");
+                            self.record_error(format!("LLM 压缩摘要失败：{err}"));
+                            fallback.summarize(messages).await
+                        }
                     }
-                },
+                }
             }
         }
     }
@@ -1102,13 +1157,15 @@ mod tests {
 
     #[test]
     fn llm_backend_falls_back_to_debug() {
-        // active 不在 providers → Debug
+        // active 不在 providers → Debug（且错误可被 UI 读取）
         let cfg = LlmConfig {
             active: "nope".into(),
             providers: Default::default(),
         };
-        assert!(matches!(LlmBackend::from_config(&cfg), LlmBackend::Debug(_)));
-        // provider 存在但 env 未设 → Debug
+        let backend = LlmBackend::from_config(&cfg);
+        assert!(backend.is_debug());
+        assert!(backend.poll_last_error().is_some());
+        // provider 存在但 env 未设 → Debug（且初始化错误可被 UI 读取）
         let mut providers = std::collections::HashMap::new();
         providers.insert(
             "p".to_string(),
@@ -1126,6 +1183,8 @@ mod tests {
             active: "p".into(),
             providers,
         };
-        assert!(matches!(LlmBackend::from_config(&cfg2), LlmBackend::Debug(_)));
+        let backend = LlmBackend::from_config(&cfg2);
+        assert!(backend.is_debug());
+        assert!(backend.poll_last_error().is_some());
     }
 }

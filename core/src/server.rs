@@ -90,6 +90,7 @@ pub fn effect_json(e: &Effect) -> Value {
         Effect::CloseComponent(id) => json!({ "kind": "close_component", "id": id }),
         Effect::SetAutonomy { face, motion, ttl_ms, once } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms, "once": once }),
         Effect::ConfigChanged { .. } => json!({ "kind": "config" }),
+        Effect::LlmError { message } => json!({ "kind": "llm_error", "message": message }),
         Effect::AssistantDelta { content, reasoning_content } => json!({ "kind": "assistant_delta", "content": content, "reasoning_content": reasoning_content }),
         Effect::AssistantDone => json!({ "kind": "assistant_done" }),
     }
@@ -165,7 +166,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ambery-test-server-eff-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
+        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::debug(DebugAgent::silent()));
         let state = Arc::new(AppState::new(ov));
         let (ws_tx, _) = tokio::sync::broadcast::channel(4);
         let app = router(state, ws_tx);
@@ -196,7 +197,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ambery-test-server-pending-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
+        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::debug(DebugAgent::silent()));
         let state = Arc::new(AppState::new(ov));
         state.set_pending_notifications(3).await;
         let value = state.state_json().await;
@@ -212,7 +213,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ambery-test-server-no-debug-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
+        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::debug(DebugAgent::silent()));
         let state = Arc::new(AppState::new(ov));
         let (ws_tx, _) = tokio::sync::broadcast::channel(4);
         let app = router(state, ws_tx);
@@ -236,7 +237,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ambery-test-server-debug-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
+        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::debug(DebugAgent::silent()));
         let state = Arc::new(AppState::new(ov));
         let (ws_tx, _) = tokio::sync::broadcast::channel(4);
         let app = router(state, ws_tx);

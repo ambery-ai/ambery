@@ -28,6 +28,8 @@ pub enum Effect {
     },
     /// llm_changed=true 时 server 广播前重建 LlmBackend
     ConfigChanged { llm_changed: bool },
+    /// LLM 失败已降级 DebugAgent——显式 UI 错误帧（不再静默）
+    LlmError { message: String },
     /// 流式增量：LLM 回复片段——纯显示优化，不经 Queue/Context。
     /// 不走 effects Vec（实时性），经 effect_sink 旁路直推。
     AssistantDelta {
@@ -53,6 +55,7 @@ impl Effect {
             Effect::ConfigChanged { llm_changed } => {
                 ("config_changed", json!({ "llm_changed": llm_changed }))
             }
+            Effect::LlmError { message } => ("llm_error", json!({ "message": message })),
             Effect::AssistantDelta { content, reasoning_content } => (
                 "assistant_delta",
                 json!({ "content": content, "reasoning_content": reasoning_content }),
@@ -926,6 +929,9 @@ impl<L: Llm> AmberyBackend<L> {
                 .complete_streaming(&request, &tools, effort, &on_delta)
                 .await
                 .map_err(std::io::Error::other)?;
+            if let Some(message) = self.llm.take_last_error() {
+                effects.push(Effect::LlmError { message });
+            }
             // usage 真值留痕（#16：每轮一条，覆盖刷新 last_usage）
             if let Some(u) = out.usage {
                 self.harness.log_usage(u, ts)?;
@@ -1006,6 +1012,9 @@ impl<L: Llm> AmberyBackend<L> {
                     .complete_streaming(&request, &[], effort, &on_delta)
                     .await
                     .map_err(std::io::Error::other)?;
+                if let Some(message) = self.llm.take_last_error() {
+                    effects.push(Effect::LlmError { message });
+                }
                 if let Some(u) = out.usage {
                     self.harness.log_usage(u, ts)?;
                 }
@@ -2798,7 +2807,7 @@ mod tests {
 
     #[test]
     fn effect_kind_payload_exhaustive() {
-        // 穷尽 match 投影：6 变体全部有 kind/payload（新增变体 = effect_kind_payload 编译错）
+        // 穷尽 match 投影：7 变体全部有 kind/payload（新增变体 = effect_kind_payload 编译错）
         let cases: Vec<(Effect, &str)> = vec![
             (Effect::RenderComponent(json!({"id":"c"})), "render_component"),
             (Effect::CloseComponent("c".into()), "close_component"),
@@ -2807,6 +2816,7 @@ mod tests {
                 "set_autonomy",
             ),
             (Effect::ConfigChanged { llm_changed: false }, "config_changed"),
+            (Effect::LlmError { message: "boom".into() }, "llm_error"),
             (
                 Effect::AssistantDelta { content: Some("x".into()), reasoning_content: None },
                 "assistant_delta",
@@ -2818,6 +2828,28 @@ mod tests {
             assert_eq!(k, kind);
             assert!(payload.is_object());
         }
+    }
+
+    #[tokio::test]
+    async fn llm_init_failure_surfaces_error_effect() {
+        use crate::llm::LlmBackend;
+        // 初始化失败降级 DebugAgent 的同时，run_trigger 必须产出 LlmError（不再静音）
+        let dir = tmp_dir("llm-err");
+        let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let mut config = Config::default();
+        config.llm.active = "nope".into();
+        let backend = LlmBackend::from_config(&config.llm);
+        assert!(backend.is_debug());
+        let mut ov = AmberyBackend::new(harness, config, backend);
+        ov.enqueue(Role::User, "hi".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
+        let effects = ov.release_one(crate::queue::QueueInput {
+            role: Role::User,
+            content: "hi".into(),
+            source: crate::queue::QueueSource::UserChat,
+            ts: 1,
+        }, 0).await.unwrap();
+        assert!(effects.iter().any(|e| matches!(e, Effect::LlmError { .. })), "{effects:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

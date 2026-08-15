@@ -34,6 +34,7 @@ export class RemoteBridge implements Bridge {
   private closeListeners: ((id: string) => void)[] = [];
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
   private doneListeners: (() => void)[] = [];
+  private llmErrorListeners: ((message: string) => void)[] = [];
 
   /** 探测 debug server（ambery-case serve 完整 router）是否在跑（决定用 Remote 还是 Mock） */
   static async probe(timeoutMs = 800): Promise<boolean> {
@@ -74,6 +75,7 @@ export class RemoteBridge implements Bridge {
         config?: AppConfig;
         content?: string;
         reasoning_content?: string;
+        message?: string;
       };
       switch (msg.kind) {
         case "top_state":
@@ -108,6 +110,9 @@ export class RemoteBridge implements Bridge {
           break;
         case "assistant_done":
           this.doneListeners.forEach((cb) => cb());
+          break;
+        case "llm_error":
+          this.llmErrorListeners.forEach((cb) => cb(msg.message ?? "LLM 调用失败"));
           break;
       }
     });
@@ -186,6 +191,10 @@ export class RemoteBridge implements Bridge {
 
   onAssistantDone(cb: () => void): void {
     this.doneListeners.push(cb);
+  }
+
+  onLlmError(cb: (message: string) => void): void {
+    this.llmErrorListeners.push(cb);
   }
 
   // 设置面板（debug 全量 router 才有这两端点）

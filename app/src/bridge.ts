@@ -131,6 +131,8 @@ export interface Bridge {
   onAssistantDelta?(cb: (d: { content?: string; reasoning_content?: string }) => void): void;
   /** 可选：一轮回复完毕（loading 收尾，完整回复已写 Context） */
   onAssistantDone?(cb: () => void): void;
+  /** 可选：LLM 失败已降级——显式错误帧（不再静音） */
+  onLlmError?(cb: (message: string) => void): void;
   /** 可选：显式关闭卡片（Component 持续管理协议：action="close"） */
   onCloseComponent?(cb: (id: string) => void): void;
   /** 可选（TauriBridge）：Card 跨重启恢复——启动拉取全部存活卡片
@@ -402,6 +404,7 @@ class TauriBridge implements Bridge {
   private configListeners: ((cfg: AppConfig) => void)[] = [];
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
   private doneListeners: (() => void)[] = [];
+  private llmErrorListeners: ((message: string) => void)[] = [];
   private closeListeners: ((id: string) => void)[] = [];
   private cardsListeners: (() => void)[] = [];
 
@@ -420,6 +423,7 @@ class TauriBridge implements Bridge {
         state?: TopState;
         content?: string;
         reasoning_content?: string;
+        message?: string;
         id?: string;
       };
       if (!msg?.kind) return;
@@ -453,6 +457,9 @@ class TauriBridge implements Bridge {
           break;
         case "assistant_done":
           this.doneListeners.forEach((cb) => cb());
+          break;
+        case "llm_error":
+          this.llmErrorListeners.forEach((cb) => cb(msg.message ?? "LLM 调用失败"));
           break;
       }
     });
@@ -515,6 +522,9 @@ class TauriBridge implements Bridge {
   }
   onAssistantDone(cb: () => void): void {
     this.doneListeners.push(cb);
+  }
+  onLlmError(cb: (message: string) => void): void {
+    this.llmErrorListeners.push(cb);
   }
   onCloseComponent(cb: (id: string) => void): void {
     this.closeListeners.push(cb);

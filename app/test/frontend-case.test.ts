@@ -113,6 +113,14 @@ it("T4 #26：× 走 intentClose——userClosed + release（非 remove）+ 钩�
   expect(hook).toHaveBeenCalled(); // windowed 副作用钩子（requestRelease+adapter.hide）
 });
 
+it("T6 LLM 失败不再静音：llm_error effect 渲染错误帧卡片", async () => {
+  await emitEffect({ kind: "llm_error", message: "openai 超时" });
+  await poll(() => cardsById("llm-error").length === 1, "llm-error 卡片渲染");
+  const el = cardsById("llm-error")[0] as HTMLElement;
+  expect(el.textContent).toContain("LLM 调用失败");
+  expect(el.textContent).toContain("openai 超时");
+});
+
 it("T3b #25 压测：create→close→update 快速序列下同 id 不重复、不复活", async () => {
   const spec = { id: "stress", type: "text_card", title: "S", text: "v1" };
   // 快速连续 create→close→create→close→create（#25 原始复现形态）
