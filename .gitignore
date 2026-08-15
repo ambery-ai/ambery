@@ -14,3 +14,10 @@ __pycache__/
 
 # case 文件全本地（真实数据防泄露；人造回归资产也不共享）
 ambery-case/cases/
+
+# 本地工具与系统残留（发布卫生）
+.claude/
+.DS_Store
+.idea/
+*.bak
+.vite/
