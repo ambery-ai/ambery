@@ -43,6 +43,8 @@ jobs:
       - name: Design token guard
         working-directory: app
         run: node scripts/lint-tokens.mjs
+      - name: Bilingual doc pairing
+        run: node scripts/verify-i18n-pairs.mjs
 
       # 前端 headless case：ambery-case 内嵌 core 并拉起 vitest；
       # 全链路 mock/keyless，跨平台（mac/ubuntu 同路径）。
