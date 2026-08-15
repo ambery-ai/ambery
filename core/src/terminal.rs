@@ -3,7 +3,7 @@
 //!
 //! TerminalAdapter 向 Code CLI 实例提供「定位、读取、遗忘」统一接口——一个实现
 //! 对应一个终端类型（WtAdapter = wt 经 C# sidecar；MapAdapter = map 支撑终端，
-//! case 剧情与 /debug/terminal 注入共用）。多终端兼容 = Composite 按 locate 首中分发。
+//! case-runner 的 terminal/terminal_gone 剧情源）。多终端兼容 = Composite 按 locate 首中分发。
 //! PlatformPrimitives 是平台特定能力抽象组（虚拟桌面切换等 OS 层能力），
 //! 被 Terminal Adapter（目标不可见时切桌面后读）与跳转功能共用。
 
@@ -107,7 +107,7 @@ impl TerminalAdapter for WtAdapter {
 }
 
 /// MapAdapter：共享 map 支撑的终端适配器。case-runner 的 terminal/terminal_gone
-/// 剧情与 debug server 的 /debug/terminal 注入共用它当终端源。
+/// 剧情用它当终端源。
 /// 合成 hwnd 取负数段，与真实 hwnd 域隔离。
 pub struct MapAdapter {
     contents: Arc<Mutex<HashMap<String, String>>>,

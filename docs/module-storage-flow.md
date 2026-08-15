@@ -17,7 +17,7 @@
   ─────────────────────────────────────────────────────────
   数据层    Harness：Queue（queue.rs）│ Context（context.rs）│ EventBuffer（event_buffer.rs）│ agents
   ─────────────────────────────────────────────────────────
-  读通道    sidecar / MockTerminals（外部输入）
+  读通道    sidecar / MapAdapter（case-runner）（外部输入）
   ─────────────────────────────────────────────────────────
   存储层    JsonlStore（storage.rs）读写 storage/*；ConfigStore 读写 config.json
 
@@ -86,7 +86,7 @@
 ```mermaid
 flowchart TD
     subgraph L5[读通道]
-        RD["sidecar / MockTerminals"]
+        RD["sidecar / MapAdapter（case-runner）"]
     end
 
     subgraph L3[能力层]

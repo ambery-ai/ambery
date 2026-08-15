@@ -96,9 +96,9 @@ POST /hook
 - `session_start` → 实例注册（status=idle）+ Event Buffer 静默簿记「新实例 {instance} 已注册」——不触发，pet 不醒；下次 Queue 放行时附带入 Context
 - `stop` → 实例更新（status=idle）+ Queue system 输入「{instance} 完成（{len} 字）。评估是否通知。」→ 放行后写 Context → 触发
 
-## 读通道 mock（MapAdapter 注入面）
+## 读通道 MapAdapter（case-runner 剧情面）
 
-与 mock hook 对称的读通道模拟：`POST /debug/terminal {instance, content}` 注入「终端当前显示什么」（写 MapAdapter 共享 map，docs/terminal-adapter.md §实现），Timer 兜底扫描与 `fetch_terminal` 都读它。
+与 mock hook 对称的读通道模拟：case-runner 的 `terminal` step 写 MapAdapter 共享 map（`docs/terminal-adapter.md` §实现），Timer 兜底扫描与 `fetch_terminal` 都读它。生产/默认构建不含该注入面。
 
 ## Tauri IPC 协议（前后端通信）
 

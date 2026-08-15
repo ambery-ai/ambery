@@ -26,7 +26,6 @@ pub type EffectSender = Box<dyn Fn(Value) + Send + Sync>;
 pub struct AppState {
     ambery: Mutex<AmberyBackend<LlmBackend>>,
     pending_notifications: Mutex<usize>,
-    mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
     send: Mutex<Option<EffectSender>>,
     /// 外部自动载入的最近错误：
     /// 文件被移动/删除或加载失败时保持 live Config，错误在此暴露给反射 Config UI
@@ -36,14 +35,10 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(
-        ambery: AmberyBackend<LlmBackend>,
-        mock_terminals: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
-    ) -> Self {
+    pub fn new(ambery: AmberyBackend<LlmBackend>) -> Self {
         Self {
             ambery: Mutex::new(ambery),
             pending_notifications: Mutex::new(0),
-            mock_terminals,
             send: Mutex::new(None),
             config_error: Mutex::new(None),
             queue_notify: tokio::sync::Notify::new(),
@@ -66,7 +61,6 @@ impl AppState {
             }
         }));
     }
-    pub(crate) fn mock_terminals(&self) -> &Arc<std::sync::Mutex<std::collections::HashMap<String, String>>> { &self.mock_terminals }
     pub fn ambery(&self) -> &Mutex<AmberyBackend<LlmBackend>> { &self.ambery }
     /// 外部自动载入的最近错误（反射 Config UI 显示用）
     pub async fn config_error(&self) -> Option<String> { self.config_error.lock().await.clone() }
@@ -129,11 +123,17 @@ pub fn router(state: Arc<AppState>, ws_tx: tokio::sync::broadcast::Sender<String
                 })
             }
         }));
-    #[cfg(feature = "mock")]
-    let app = app
-        .route("/debug/terminal", post(crate::mock::post_debug_terminal))
-        .route("/debug/effect", post(crate::mock::post_debug_effect));
+    #[cfg(feature = "case-runner")]
+    let app = app.route("/debug/effect", post(post_debug_effect));
     app.layer(tower_http::cors::CorsLayer::permissive()).with_state(state_for_ws)
+}
+
+/// case-runner feature 专属：向 effect 下行总线注入任意 effect 消息。
+/// headless 前端 case 用确定性事件驱动 render/close/config（不经 LLM，不落 effect.jsonl）。
+#[cfg(feature = "case-runner")]
+async fn post_debug_effect(State(s): State<Arc<AppState>>, Json(msg): Json<Value>) -> impl IntoResponse {
+    s.broadcast_effect_json(msg).await;
+    Json(json!({ "ok": true }))
 }
 
 /// Tauri 模式薄 router：仅 `/hook`
@@ -154,7 +154,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
         let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
-        let state = Arc::new(AppState::new(ov, Default::default()));
+        let state = Arc::new(AppState::new(ov));
         let (ws_tx, _) = tokio::sync::broadcast::channel(4);
         let app = router(state, ws_tx);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -176,6 +176,55 @@ mod tests {
         assert_eq!(opened, 2, "两条 window_opened 落盘: {raw}");
         assert!(raw.contains("\"origin\":\"frontend\""));
         assert!(!raw.contains("window_closed"), "无 closed——#25 证据形态成立");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// release（默认 feature）不含 debug 注入面：/debug/effect 必须 404。
+    /// 该路由只在 case-runner feature 下存在（headless 前端 case 的确定性驱动面）。
+    #[cfg(not(feature = "case-runner"))]
+    #[tokio::test]
+    async fn debug_effect_route_absent_by_default() {
+        let dir = std::env::temp_dir().join(format!("ambery-test-server-no-debug-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
+        let state = Arc::new(AppState::new(ov));
+        let (ws_tx, _) = tokio::sync::broadcast::channel(4);
+        let app = router(state, ws_tx);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let r = reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}/debug/effect"))
+            .json(&json!({"kind":"window_opened","payload":{"window":"card-x"}}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), reqwest::StatusCode::NOT_FOUND, "release 不得暴露 /debug/effect");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// case-runner feature：/debug/effect 保留为 headless 前端 case 的确定性注入面。
+    #[cfg(feature = "case-runner")]
+    #[tokio::test]
+    async fn debug_effect_route_present_for_case_runner() {
+        let dir = std::env::temp_dir().join(format!("ambery-test-server-debug-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
+        let state = Arc::new(AppState::new(ov));
+        let (ws_tx, _) = tokio::sync::broadcast::channel(4);
+        let app = router(state, ws_tx);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let r = reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}/debug/effect"))
+            .json(&json!({"kind":"window_opened","payload":{"window":"card-x"}}))
+            .send()
+            .await
+            .unwrap();
+        assert!(r.status().is_success());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

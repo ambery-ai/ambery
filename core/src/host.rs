@@ -9,7 +9,7 @@ use crate::server::{
     spawn_timer_task, AppState,
 };
 use crate::terminal::{
-    Composite, MapAdapter, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter, ZellijAdapter,
+    Composite, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter, ZellijAdapter,
 };
 use crate::{Config, Harness};
 use serde_json::Value;
@@ -77,7 +77,6 @@ pub fn assemble_host(
             println!("sidecar enabled: {}", p.display());
         }
     }
-    let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
     let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
     if let Some(sc) = &sidecar {
         adapters.push(Arc::new(WtAdapter::new(sc.clone())));
@@ -87,14 +86,16 @@ pub fn assemble_host(
             crate::terminal::ProcessZellijRunner,
         ))));
     }
-    adapters.push(Arc::new(MapAdapter::new(mock.clone())));
-    ambery.terminal = Some(Arc::new(Composite::new(adapters)));
+    // 无可用读通道时保持 None（Hook 驱动核心体验不依赖 Terminal Adapter）
+    if !adapters.is_empty() {
+        ambery.terminal = Some(Arc::new(Composite::new(adapters)));
+    }
     if let Some(sc) = &sidecar {
         ambery.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
     }
 
     HostParts {
-        state: Arc::new(AppState::new(ambery, mock)),
+        state: Arc::new(AppState::new(ambery)),
         config_dir,
         tick_ms,
         timer_batch,

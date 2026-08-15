@@ -287,7 +287,7 @@ fn filter_cron(lines: Vec<String>, ids: &[String]) -> Vec<String> {
 }
 
 /// 实时 storage → 两段式 .case 文本：
-/// JSON 头（meta/config/steps）+ __section 分节 JSONL 原文；mock_terminals 不再有节
+/// JSON 头（meta/config/steps）+ __section 分节 JSONL 原文；终端共享 map 不再有节
 ///（读通道剧情由 steps 的 terminal/terminal_gone 表达，导出默认全 None）
 pub fn export(storage_dir: &std::path::Path, opts: &ExportOpts) -> String {
     // work_agents 默认过滤（隐私：含项目结构）；--keep-agents 显式保留（空节保留 marker，

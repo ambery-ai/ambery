@@ -467,7 +467,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
 
     // Terminal Adapter 装配：adapter_wt 开关门控（冷字段，
     // 装配期生效）——false = wt sidecar 完全不接入（无定位/读取/原语/启动扫描），
-    // Hook 驱动核心体验仍可用；MapAdapter 兜底（debug/terminal 注入）恒在
+    // Hook 驱动核心体验仍可用
     let sidecar = if ambery.config.terminal.adapter_wt {
         ambery_core::paths::sidecar_exe()
             .map(ambery_core::sidecar::SidecarClient::new)
@@ -478,21 +478,21 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let sidecar_for_sweep = sidecar.clone();
     ambery.sidecar_enabled = sidecar.is_some();
 
-    let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
     {
-        use ambery_core::terminal::{Composite, MapAdapter, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
+        use ambery_core::terminal::{Composite, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
         let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
         if let Some(sc) = &sidecar {
             adapters.push(Arc::new(WtAdapter::new(sc.clone())));
         }
-        adapters.push(Arc::new(MapAdapter::new(mock.clone())));
-        ambery.terminal = Some(Arc::new(Composite::new(adapters)));
+        if !adapters.is_empty() {
+            ambery.terminal = Some(Arc::new(Composite::new(adapters)));
+        }
         if let Some(sc) = &sidecar {
             ambery.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
         }
     }
 
-    let state = Arc::new(AppState::new(ambery, mock));
+    let state = Arc::new(AppState::new(ambery));
 
     // 启动扫描
     if let Some(sc) = sidecar_for_sweep.clone() {
@@ -587,8 +587,7 @@ mod ipc_tests {
         let harness = Harness::load(&dir, &dir, config.effective_compression_limit().unwrap_or(usize::MAX), 0).unwrap();
         let backend = LlmBackend::from_config(&config.llm);
         let ov = AmberyBackend::new(harness, config, backend);
-        let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
-        Arc::new(AppState::new(ov, mock))
+        Arc::new(AppState::new(ov))
     }
 
     fn ipc(cmd: &str) -> tauri::webview::InvokeRequest {

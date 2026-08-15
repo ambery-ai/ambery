@@ -18,8 +18,6 @@ pub mod i18n;
 pub mod lifecycle;
 pub mod llm;
 pub mod memory;
-#[cfg(feature = "mock")]
-pub mod mock;
 #[cfg(feature = "case-runner")]
 pub mod case;
 #[cfg(feature = "case-runner")]

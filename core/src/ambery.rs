@@ -89,7 +89,7 @@ pub struct AmberyBackend<L: Llm> {
     /// 等 OS 层能力；None = 无（fetch_terminal 的 vd_switch=true 路径报切换失败）
     pub primitives: Option<Arc<dyn crate::terminal::PlatformPrimitives>>,
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
-    /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据
+    /// 纯 MapAdapter（case-runner）下 None 只是「未注入」，不能当消亡证据
     pub sidecar_enabled: bool,
     /// 流式 delta 旁路：run_trigger 每收到 delta 即发——
     /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播

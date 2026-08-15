@@ -37,7 +37,7 @@ struct TimerWheel {
 
 扫描读通道 = Terminal Adapter（docs/terminal-adapter.md）：`locate(instance) → read(tab)` 读到当前 Terminal Content；读不到返回 None。各终端实现（WtAdapter / MapAdapter / Composite 分发）与装配门控（`terminal.adapter_*`）见该文档。
 
-- debug 注入面：`POST /debug/terminal {instance, content}` 写 MapAdapter 的共享 map，**模拟「终端当前显示什么」**。与 mock hook 对称：hook 模拟推通道，terminal 注入模拟读通道。
+- case-runner 剧情面：`terminal` step 写 MapAdapter 的共享 map，**模拟「终端当前显示什么」**。与 mock hook 对称：hook 模拟推通道，terminal 剧情模拟读通道。
 - `fetch_terminal` tool 读同一 adapter（读不到回退 Context 最新记录）——读通道只有一处。
 
 ## 扫描处理流程（变化检测的真实应用点）

@@ -80,8 +80,7 @@ mod tests {
         let harness = Harness::load(&dir, &dir, config.effective_compression_limit().unwrap_or(usize::MAX), 0).unwrap();
         let backend = LlmBackend::from_config(&config.llm);
         let ov = AmberyBackend::new(harness, config, backend);
-        let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
-        (Arc::new(AppState::new(ov, mock)), dir)
+        (Arc::new(AppState::new(ov)), dir)
     }
 
     fn mock_app() -> tauri::App<tauri::test::MockRuntime> {

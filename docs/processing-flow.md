@@ -34,7 +34,7 @@ effect.jsonl（独立动作流日志，{type:"effect", origin, kind, payload, ts
  ① Hook 触发（session_start / stop / notification / session_end）
       │
       ▼
- ② 读 Terminal Content（sidecar / MockTerminals）
+ ② 读 Terminal Content（sidecar / MapAdapter（case-runner））
       │
       ├──▶ 原文  ──────────────────────────▶ terminal-content.jsonl
       ▼
@@ -91,7 +91,7 @@ flowchart TD
         USER["User 输入"]
     end
 
-    HOOK --> READ["读 Terminal Content<br/>sidecar / MockTerminals"]
+    HOOK --> READ["读 Terminal Content<br/>sidecar / MapAdapter（case-runner）"]
     USER --> QLOG
 
     READ -->|"原文 写档"| TC["terminal-content.jsonl"]

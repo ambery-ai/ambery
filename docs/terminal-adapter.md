@@ -27,7 +27,7 @@ pub trait TerminalAdapter: Send + Sync {
 |---|---|---|---|
 | **WtAdapter** | 独立 C# 进程 | stdio JSONL 调 C#；UIA（CASCADIA/TermControl）定位+读取 | Windows |
 | **ZellijAdapter** | 进程内（Rust 直调 CLI） | `zellij action` 命令（list-tabs / rename-tab / query-tab-names…） | 跨平台 |
-| **MapAdapter** | 进程内（core 内建） | 共享 map（case 剧情与 `/debug/terminal` 注入共用的终端源） | 跨平台 |
+| **MapAdapter** | 进程内（core 内建） | 共享 map（case-runner 的 terminal/terminal_gone 剧情源） | 跨平台 |
 | **Composite** | 进程内（core 内建） | 多 adapter 分发：locate 首中记录路由、read 回到产出 adapter、forget 广播 | 跨平台 |
 
 WtAdapter 保持独立进程形态——UIA 读取依赖 .NET 程序集，Rust 无法直接接 UIA TextPattern，故独立 exe。ZellijAdapter 调 CLI 即可，Rust 原生执行，无独立进程。
