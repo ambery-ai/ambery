@@ -10,6 +10,15 @@ use crate::ambery::AmberyBackend;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// window_* effect 快照条目（前端窗口层动作投影）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowSnapshot {
+    pub kind: String,
+    pub window: String,
+    pub ts: i64,
+    pub detail: Value,
+}
+
 /// 概念结构观测快照（内容级）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaseObserve {
@@ -39,6 +48,8 @@ pub struct CaseObserve {
     pub cards: Vec<CardSnapshot>,
     /// 动作流（从 effect.jsonl 读）：后端副作用 + 前端非只读调用
     pub effects: Vec<crate::EffectRecord>,
+    /// window_* 动作投影（前端窗口层；含 close/render 不变量校验输入）
+    pub windows: Vec<WindowSnapshot>,
 }
 
 /// 观测当前概念结构：模块快照走 Observable 投影，
@@ -54,6 +65,8 @@ pub fn observe<L: Llm>(ov: &AmberyBackend<L>) -> CaseObserve {
         .rev()
         .find(|m| m.role == crate::context::Role::Assistant)
         .and_then(|m| m.content.clone());
+    let effects = h.read_effects().unwrap_or_default();
+    let windows = window_snapshots(&effects);
     CaseObserve {
         agents: h.agents.observe(),
         panorama,
@@ -77,8 +90,62 @@ pub fn observe<L: Llm>(ov: &AmberyBackend<L>) -> CaseObserve {
         memory: h.memory.observe(),
         cron: h.cron.observe(),
         cards: h.cards.observe(),
-        effects: h.read_effects().unwrap_or_default(),
+        effects,
+        windows,
     }
+}
+
+/// window_* 动作投影：window_opened/closed/visible/hidden/moved/resized/focused/drag
+pub fn window_snapshots(effects: &[crate::EffectRecord]) -> Vec<WindowSnapshot> {
+    effects
+        .iter()
+        .filter(|e| e.kind.starts_with("window_"))
+        .filter_map(|e| {
+            Some(WindowSnapshot {
+                kind: e.kind.clone(),
+                window: e.payload["window"].as_str()?.to_string(),
+                ts: e.ts,
+                detail: e.payload.clone(),
+            })
+        })
+        .collect()
+}
+
+/// window 目标不变量：已关闭窗口的 render_component 必须伴随新的 window_opened。
+/// 只约束出现在 window_* 流中的窗口（DOM/browser 模式无窗口流则不适用）。
+pub fn window_invariant_violations(effects: &[crate::EffectRecord]) -> Vec<String> {
+    use std::collections::HashMap;
+    let mut closed_since_open: HashMap<String, bool> = HashMap::new();
+    let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut violations = Vec::new();
+    for e in effects {
+        match e.kind.as_str() {
+            "window_opened" | "window_closed" => {
+                let Some(window) = e.payload["window"].as_str() else {
+                    continue;
+                };
+                known.insert(window.to_string());
+                closed_since_open.insert(
+                    window.to_string(),
+                    e.kind.as_str() == "window_closed",
+                );
+            }
+            "render_component" => {
+                let Some(id) = e.payload["spec"]["id"].as_str() else {
+                    continue;
+                };
+                let window = format!("card-{id}");
+                if known.contains(&window) && closed_since_open.get(&window) == Some(&true) {
+                    violations.push(format!(
+                        "window {window}: close 后 render_component 未伴随新 window_opened（ts={}）",
+                        e.ts
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    violations
 }
 
 // ── 两段式 .case 格式──
@@ -357,7 +424,7 @@ pub fn pre_parse_check(case: &CaseFile) -> Vec<String> {
     use crate::eval::{ExprParser, IntParser, Parser, RangeParser, VarEnv, VarIntParser};
     const TARGETS: &[&str] = &[
         "agents", "panorama", "context", "filtered_content", "queue", "event_buffer",
-        "usage", "effects", "answer", "memory", "cron", "cards",
+        "usage", "effects", "answer", "memory", "cron", "cards", "window",
     ];
     let mut failures = vec![];
     // 已 store 的用户变量名（预检环境用占位值：引用有效性与语法在同一遍检查）
@@ -553,7 +620,7 @@ mod tests {
         let text = head(
             r#"[
             { "load": {} },
-            { "observe": [{"target":"context","lines":"($tail-50,$tail]"}] },
+            { "observe": [{"target":"context","lines":"($tail-50,$tail]"},{"target":"window"}] },
             { "store": { "cursor": { "type": "expr", "value": "$tail" } } },
             { "observe": [{"target":"context","lines":"($cursor,$tail]"},{"target":"effects"}] },
             { "store": { "n": { "type": "int", "value": "42" }, "s": { "type": "str", "value": "$任意" } } }
@@ -561,6 +628,33 @@ mod tests {
         );
         let case = parse(&text).unwrap();
         assert_eq!(pre_parse_check(&case), Vec::<String>::new());
+    }
+
+    #[test]
+    fn window_snapshots_and_close_render_invariant() {
+        let mk = |origin: crate::EffectOrigin, kind: &str, payload: Value, ts: i64| {
+            crate::EffectRecord {
+                origin,
+                kind: kind.into(),
+                payload,
+                ts,
+            }
+        };
+        let effects = vec![
+            mk(crate::EffectOrigin::Frontend, "window_opened", serde_json::json!({"window":"card-x"}), 1),
+            mk(crate::EffectOrigin::Backend, "render_component", serde_json::json!({"spec":{"id":"x"}}), 2),
+            mk(crate::EffectOrigin::Frontend, "window_closed", serde_json::json!({"window":"card-x"}), 3),
+            mk(crate::EffectOrigin::Backend, "render_component", serde_json::json!({"spec":{"id":"x"}}), 4),
+            mk(crate::EffectOrigin::Frontend, "window_opened", serde_json::json!({"window":"card-x"}), 5),
+            mk(crate::EffectOrigin::Backend, "render_component", serde_json::json!({"spec":{"id":"x"}}), 6),
+        ];
+        let snaps = window_snapshots(&effects);
+        assert_eq!(snaps.len(), 3);
+        assert_eq!(snaps[0].kind, "window_opened");
+        let violations = window_invariant_violations(&effects);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].contains("card-x"), "{}", violations[0]);
+        assert!(violations[0].contains("ts=4"), "{}", violations[0]);
     }
 
     #[test]

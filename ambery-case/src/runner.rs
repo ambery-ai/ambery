@@ -248,6 +248,21 @@ fn print_observe(
                 };
                 print_path_slice("context", &path, &item.lines, vars, &format!("行 | {tok}"));
             }
+            "window" => {
+                println!("window: {} 条窗口动作", obs.windows.len());
+                for w in &obs.windows {
+                    println!("  {} {} @{}", w.kind, w.window, w.ts);
+                }
+                let violations = ambery_core::case::window_invariant_violations(&obs.effects);
+                if violations.is_empty() {
+                    println!("window invariant: ok");
+                } else {
+                    for v in violations {
+                        println!("window invariant: FAIL {v}");
+                    }
+                    std::process::exit(1);
+                }
+            }
             "effects" => {
                 // 路径类：无 lines → 文件指针+摘要（条数）；带 lines → 切片原文
                 let path = storage_dir.join(ambery_core::EFFECT_FILE);

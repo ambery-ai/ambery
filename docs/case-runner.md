@@ -40,7 +40,8 @@ case-runner 的观测范围覆盖前端 TS 能力：headless JS runtime 跑真�
 | effect | 观测方式 |
 |---|---|
 | `render_component` / `close_component`（后端） | 沙盒 effect.jsonl |
-| `window_opened` / `window_closed` / `window_visible` / `window_hidden` / `window_moved` / `window_resized`（前端窗口层） | mock 窗口层经动作层产生 window_* effect 入动作流 |
+| `window_opened` / `window_closed` / `window_visible` / `window_hidden` / `window_moved` / `window_resized`（前端窗口层） | 已实现：headless/browser 窗口层经 `tauri_runtime_actions` 产生 window_* effect，经 RemoteBridge `POST /effect` 入动作流（`app/test/window-case.test.ts`） |
+| `window`（observe target） | 已实现：打印窗口动作序列，并断言不变量——已关闭窗口的 `render_component` 必须伴随新的 `window_opened`，违反即 FAIL |
 | 前端非窗口逻辑（store / 窗口接线） | `frontend-case.test.ts`（headless JS + mock 窗口层） |
 
 ### 前端读取架构（store 收敛 + invoke 规则）
