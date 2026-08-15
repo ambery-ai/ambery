@@ -528,9 +528,51 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     state.wire_effect_sink().await;
     // Tauri 模式：前端走 IPC（TauriBridge），HTTP 仅留 /hook（外部 hook 脚本，进程外不可走 command）
     let app = hook_router(state);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:47600").await.expect("bind 47600");
-    eprintln!("ambery-core listening on http://127.0.0.1:47600");
+    let port = match hook_port_value(std::env::var("AMBERY_PORT").ok().as_deref()) {
+        Ok(port) => port,
+        Err(err) => {
+            eprintln!("[ambery-core] {err}");
+            std::process::exit(1);
+        }
+    };
+    let listener = match bind_hook_listener(port).await {
+        Ok(listener) => listener,
+        Err(err) => {
+            eprintln!("[ambery-core] {err}");
+            std::process::exit(1);
+        }
+    };
+    eprintln!("ambery-core listening on http://127.0.0.1:{port}");
     axum::serve(listener, app).await.expect("serve core");
+}
+
+/// Tauri 模式 hook 端口：默认 47600（hook 脚本投递契约），AMBERY_PORT 显式覆盖。
+/// 不做随机回退——换端口必须伴随 hook 配置同步，否则外部投递静默失效。
+const DEFAULT_HOOK_PORT: u16 = 47600;
+
+fn hook_port_value(env: Option<&str>) -> Result<u16, String> {
+    let Some(raw) = env else { return Ok(DEFAULT_HOOK_PORT) };
+    let port: u16 = raw.parse().map_err(|_| {
+        format!("AMBERY_PORT 值无效：{raw:?}（需要 1..=65535 的端口号）")
+    })?;
+    if port == 0 {
+        return Err("AMBERY_PORT 值无效：0（hook 契约需要固定端口，不能用随机端口）".into());
+    }
+    Ok(port)
+}
+
+async fn bind_hook_listener(port: u16) -> Result<tokio::net::TcpListener, String> {
+    let addr = format!("127.0.0.1:{port}");
+    tokio::net::TcpListener::bind(&addr).await.map_err(|err| {
+        if err.kind() == std::io::ErrorKind::AddrInUse {
+            format!(
+                "端口 {port} 已被占用（{err}）。hook 脚本依赖固定端口，不能静默换端口；\
+                 请关闭占用进程，或设置 AMBERY_PORT 换端口并同步更新 hook 脚本配置。"
+            )
+        } else {
+            format!("绑定 {addr} 失败：{err}")
+        }
+    })
 }
 
 // ── #9.5 二分测试：invoke 是否到达 handler + State 是否提取成功（tauri::test mock runtime）──
@@ -554,7 +596,15 @@ mod ipc_tests {
             cmd: cmd.into(),
             callback: tauri::ipc::CallbackFn(0),
             error: tauri::ipc::CallbackFn(1),
-            url: "http://tauri.localhost".parse().unwrap(),
+            // Tauri mock runtime origin 平台差异（tauri::test 文档同款）：
+            // Windows/Android 用 http://tauri.localhost，其余用 tauri://localhost
+            url: if cfg!(any(windows, target_os = "android")) {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .unwrap(),
             body: tauri::ipc::InvokeBody::default(),
             headers: Default::default(),
             invoke_key: tauri::test::INVOKE_KEY.to_string(),
@@ -806,5 +856,24 @@ mod ipc_tests {
         // handler 到达但返回 "not ready" 错误（证明 invoke 链路通，只是 state 未就绪）
         let err = resp.expect_err("state 未注入时应返回错误");
         assert!(err.to_string().contains("not ready"), "意外错误: {err}");
+    }
+
+    #[test]
+    fn hook_port_env_parsing_is_explicit() {
+        assert_eq!(hook_port_value(None), Ok(DEFAULT_HOOK_PORT));
+        assert_eq!(hook_port_value(Some("47601")), Ok(47601));
+        assert!(hook_port_value(Some("0")).is_err(), "0 不是合法监听端口");
+        assert!(hook_port_value(Some("not-a-port")).is_err());
+    }
+
+    #[tokio::test]
+    async fn hook_listener_bind_conflict_returns_readable_error() {
+        // 先占一个真实 loopback 端口，再对同端口请求绑定——错误必须可读而非 panic
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = occupied.local_addr().unwrap().port();
+        let err = bind_hook_listener(port).await.expect_err("同端口应报错");
+        assert!(err.contains("已被占用"), "错误不可读: {err}");
+        assert!(err.contains(&port.to_string()), "错误未带端口: {err}");
+        assert!(err.contains("AMBERY_PORT"), "错误未给换端口指引: {err}");
     }
 }

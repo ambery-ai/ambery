@@ -34,7 +34,7 @@ append-only、永不改写；请求上下文只是日志的投影。目标：**O
 concepts §12。启动配置：timer 参数、compression 阈值与保留目标、系统/用户表情池、
 LLM profiles + active 选择器、view_scale、set_autonomy_default_ttl_ms、stop_hook_mode、
 theme/themes、ui_language/harness_language、name、工具调用预算。
-（hook 端口不是 Config 字段：Tauri 模式固定 127.0.0.1:47600；debug 二进制经 `AMBERY_PORT` 覆盖。）
+（hook 端口不是 Config 字段：默认 127.0.0.1:47600，`AMBERY_PORT` 显式覆盖——换端口须同步 hook 配置；docs/core-server.md §端口语义。）
 
 - 写：bootstrap 写默认 / 统一 Config 修改入口写回。读：启动加载 + 运行中外部文件自动载入。
 - key 本体只在环境变量（provider 的 `api_key_env`），不入文件。
