@@ -9,13 +9,13 @@
 ```
 来源                 入队点                              内容形态
 ────────────────────────────────────────────────────────────
-hook_stop_hint      overseer.rs:1213   stop queue_only 产物（hint）
-hook_stop_content   overseer.rs:1213   stop auto_read 产物（filter 后全量）
-hook_stop_report    overseer.rs:1213   stop message 产物（汇报原文）
-hook_user_prompt    overseer.rs:1154   "[观察] 用户在 {name} 输入：<prompt>"
-hook_notification   overseer.rs:1158   "[通知] {name}：<message>"
-mock_hook           overseer.rs:1290   debug/测试注入
-timer_scan          overseer.rs:1449   "[扫描] {name} 更新（{len} 字）"
+hook_stop_hint      ambery.rs:1213   stop queue_only 产物（hint）
+hook_stop_content   ambery.rs:1213   stop auto_read 产物（filter 后全量）
+hook_stop_report    ambery.rs:1213   stop message 产物（汇报原文）
+hook_user_prompt    ambery.rs:1154   "[观察] 用户在 {name} 输入：<prompt>"
+hook_notification   ambery.rs:1158   "[通知] {name}：<message>"
+mock_hook           ambery.rs:1290   debug/测试注入
+timer_scan          ambery.rs:1449   "[扫描] {name} 更新（{len} 字）"
 cron_tick           server.rs:521      cron 计划到期消息
 ```
 
@@ -78,7 +78,7 @@ OpenAI 的 role:"system" 承载：请求头 + hook 输入 + autonomy 状态
 ## Event Buffer 附带入
 
 ```
-输入: "terminal-overseer·0a41f6ea 完成（1472 字）。评估是否通知。"
+输入: "ambery·0a41f6ea 完成（1472 字）。评估是否通知。"
 Event Buffer 积压: [
   "用户关闭了 text_card「构建结果」"
   "用户勾选了 todobox 条目「跑测试」"
@@ -88,7 +88,7 @@ Event Buffer 积压: [
 
 ┌─────────────────────────────────────────────────────────────┐
 │ Context 写入:                                                  │
-│   system: "terminal-overseer·0a41f6ea 完成（1472 字）。          │
+│   system: "ambery·0a41f6ea 完成（1472 字）。          │
 │            评估是否通知。                                        │
 │            Component 交互事件：                                  │
 │            - 用户关闭了 text_card「构建结果」                     │
@@ -126,9 +126,9 @@ Queue 放行: "unknown·414117ff 请求注意：Claude is waiting for your input
 
 ── Event Buffer 空时 ──
 
-Queue 放行: "terminal-overseer·0a41f6ea 完成。评估是否通知。"
+Queue 放行: "ambery·0a41f6ea 完成。评估是否通知。"
   Event Buffer: (空)
 
-  Context: [+ system "terminal-overseer·0a41f6ea 完成。评估是否通知。"]
+  Context: [+ system "ambery·0a41f6ea 完成。评估是否通知。"]
   LLM:     → silence
 ```

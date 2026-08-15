@@ -5,10 +5,10 @@
 ## 布局：两个域
 
 ```
-%USERPROFILE%\.config\terminal-overseer\   （OVERSEER_CONFIG_DIR 可覆盖，core/paths.rs 解析）
+%USERPROFILE%\.config\ambery\   （AMBERY_CONFIG_DIR 可覆盖，core/paths.rs 解析）
   config.json              # Config 域：启动配置（concepts §12）
-  AGENTS.md                # Config 域：ペット身份提示词——配置性质，非 session 数据
-  storage/                 # Storage 域：世界状态 + 上下文日志（OVERSEER_STORAGE_DIR 可覆盖，concepts §13）
+  AGENTS.md                # Config 域：pet 身份提示词——配置性质，非 session 数据
+  storage/                 # Storage 域：世界状态 + 上下文日志（AMBERY_STORAGE_DIR 可覆盖，concepts §13）
     queue.jsonl            # Queue 输入排队记录（concepts §10c）
     terminal-content.jsonl # Terminal Content 原文存档（Filter 前）
     context.jsonl          # 统一全保真日志：对话 + Autonomy + 请求头快照 + 归一全文 + 压缩边界
@@ -34,14 +34,14 @@ append-only、永不改写；请求上下文只是日志的投影。目标：**O
 concepts §12。启动配置：timer 参数、compression 阈值与保留目标、系统/用户表情池、
 LLM profiles + active 选择器、view_scale、set_autonomy_default_ttl_ms、stop_hook_mode、
 theme/themes、ui_language/harness_language、name、工具调用预算。
-（hook 端口不是 Config 字段：Tauri 模式固定 127.0.0.1:47600；debug 二进制经 `OVERSEER_PORT` 覆盖。）
+（hook 端口不是 Config 字段：Tauri 模式固定 127.0.0.1:47600；debug 二进制经 `AMBERY_PORT` 覆盖。）
 
 - 写：bootstrap 写默认 / 统一 Config 修改入口写回。读：启动加载 + 运行中外部文件自动载入。
 - key 本体只在环境变量（provider 的 `api_key_env`），不入文件。
 
 ## AGENTS.md（Config 域）
 
-ペット身份提示词，与 base_prompt 拼接进**每轮现拼的请求头**（不落 Context）。
+pet 身份提示词，与 base_prompt 拼接进**每轮现拼的请求头**（不落 Context）。
 
 - bootstrap：不存在则写内置默认（仅一次）；用户可手编。
 - **每次 LLM 请求装配时现读**（热生效：改完下一次请求就用）；运行中读不到时保持已加载的 live 内容，并在反射 Config UI 显示加载错误；不以默认内容覆盖。
@@ -152,7 +152,7 @@ append-only queue.jsonl 逐条留痕入队输入——它是**排队轨迹**，�
 - `cards/`：持久 Component / 工作产物；一个 `<id>.card.json` 文件就是一个 Card。文件为完整 JSON，其 Component 内容、Surface 意图与空间布局同位（文件契约见 docs/components.md §Card 文件）。
 - `AGENTS.md`：整个工作空间的导航信息；`index.md` 与 `AGENTS.md` 默认只读。它们不是 Config 域中用作系统提示词的 `AGENTS.md`。
 
-notes 可用 `cards/<id>.card.json` 稳定相对路径引用 Card；Card 不是普通 note，不参与 note 索引，也不经 `read_memory` / `write_memory` 管理。Memory Workspace 跨重启保留，服务整个 Overseer 的跨项目理解与工作产物，不是 Context、压缩摘要或 Terminal Content 的副本。
+notes 可用 `cards/<id>.card.json` 稳定相对路径引用 Card；Card 不是普通 note，不参与 note 索引，也不经 `read_memory` / `write_memory` 管理。Memory Workspace 跨重启保留，服务整个 Ambery 的跨项目理解与工作产物，不是 Context、压缩摘要或 Terminal Content 的副本。
 
 #### ⟡ 一致性剖析
 

@@ -1,5 +1,5 @@
 // Component（concepts §5，设计 docs/components.md）：
-// ペット经 call_component 调用，以 View 为中心向合适方位偏移弹出；
+// pet 经 call_component 调用，以 View 为中心向合适方位偏移弹出；
 // 用户交互写 Event Buffer（bridge.pushEvent），不写 Queue user role。
 //
 // multi-window 模式（windowed=true）：卡片在窗口内自然流式布局，窗口外部定位；

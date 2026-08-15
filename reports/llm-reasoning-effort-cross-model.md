@@ -1,13 +1,13 @@
 # LLM 跨模型推理 effort / thinking 预算 —— 统一语义档位的调研报告
 
 - 日期：2026-08-06
-- 调研范围：为 terminal-overseer 设计"领域层 effort: low|medium|high + provider 适配层翻译"方案，查证各主流端点（Anthropic / OpenAI / DeepSeek / Gemini / Ollama 等）的 thinking / reasoning 参数 wire 形态，以及成熟框架与 agent 产品（LiteLLM / OpenRouter / Vercel AI SDK / LangChain / Claude Code / Cline / opencode / OpenClaw）如何做跨模型统一。
+- 调研范围：为 ambery 设计"领域层 effort: low|medium|high + provider 适配层翻译"方案，查证各主流端点（Anthropic / OpenAI / DeepSeek / Gemini / Ollama 等）的 thinking / reasoning 参数 wire 形态，以及成熟框架与 agent 产品（LiteLLM / OpenRouter / Vercel AI SDK / LangChain / Claude Code / Cline / opencode / OpenClaw）如何做跨模型统一。
 
 ---
 
 ## 0. 一句话结论
 
-2026 年的业界共识就是**"领域层统一语义档位 + provider 适配层翻译"**：Vercel AI SDK 的顶层 `reasoning` 参数、OpenRouter 的 `reasoning` 对象、OpenClaw 的 `thinkingDefault`、Cline 的 `reasoning` 结构都采用"一个跨模型档位，各端翻译成自己的 wire 参数"，并且在"不支持的端点"上采用**就近归并 + 告警（coerce to nearest + warn）**而非报错。terminal-overseer 候选的 3 档 `low|medium|high` 是所有端点的最小公倍数子集，方向正确、可落地。
+2026 年的业界共识就是**"领域层统一语义档位 + provider 适配层翻译"**：Vercel AI SDK 的顶层 `reasoning` 参数、OpenRouter 的 `reasoning` 对象、OpenClaw 的 `thinkingDefault`、Cline 的 `reasoning` 结构都采用"一个跨模型档位，各端翻译成自己的 wire 参数"，并且在"不支持的端点"上采用**就近归并 + 告警（coerce to nearest + warn）**而非报错。ambery 候选的 3 档 `low|medium|high` 是所有端点的最小公倍数子集，方向正确、可落地。
 
 ---
 
@@ -104,7 +104,7 @@ none < minimal < low < medium < high < xhigh < max
 | OpenRouter | 7 | none/minimal/low/medium/high/xhigh/max |
 | OpenClaw | 9 | off/minimal/low/medium/high/xhigh/adaptive/max/ultra |
 | Cline | 3 | low/medium/high（另有 budgetTokens） |
-| terminal-overseer 候选 | 3 | low/medium/high |
+| ambery 候选 | 3 | low/medium/high |
 
 ### 2.2 Vercel AI SDK / AI Gateway（最接近"领域层统一"的范本）
 
@@ -136,7 +136,7 @@ none < minimal < low < medium < high < xhigh < max
 ### 2.5 LangChain（无统一抽象，每 provider 各写各的）
 
 - 无跨模型统一档位。Python `BaseChatOpenAI.reasoning_effort` 支持 `minimal/low/medium/high`；Google 集成用 `thinking_budget`；langchain-aws 的 `reasoning_effort` 甚至还是待实现 feature request。
-- 结论：LangChain 走"每 provider 各自字段"，**不做领域层归一**——这正是 terminal-overseer 想避免的老路。
+- 结论：LangChain 走"每 provider 各自字段"，**不做领域层归一**——这正是 ambery 想避免的老路。
 - URL：https://reference.langchain.com/python/langchain-openai/chat_models/base/BaseChatOpenAI/reasoning_effort
 
 ### 2.6 agent 产品：Claude Code / Cline / opencode / OpenClaw
@@ -163,7 +163,7 @@ none < minimal < low < medium < high < xhigh < max
 
 ---
 
-## 3. 对 terminal-overseer 的建议
+## 3. 对 ambery 的建议
 
 ### 3.1 现状核对（代码事实，2026-08-06）
 

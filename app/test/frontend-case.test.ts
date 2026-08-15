@@ -1,6 +1,6 @@
 // 前端进 case 首套（docs/case-runner.md §前端进 case，壳类比落地形态）：
 // 真前端模块（store / RemoteBridge / pet main 浏览器分支 / ChatPanel / ComponentManager）
-// × case-runner 内嵌真 core（overseer-case frontend 拉起本进程，RemoteBridge 连）。
+// × case-runner 内嵌真 core（ambery-case frontend 拉起本进程，RemoteBridge 连）。
 // 断言对象：store 基线与回读、Queue 放行回读、#25 同 id 不重复/不复活（DOM 层）、
 // #26 统一关闭、windowed ComponentManager 不订全局流。
 // shell 窗口决策（ensure/close_card_window，Rust 权威注册表）由壳 cargo 测试覆盖；

@@ -1,4 +1,4 @@
-# 定位 Terminal Overseer 所有窗口的位置和状态
+# 定位 Ambery 所有窗口的位置和状态
 param([switch]$Highlight)
 
 Add-Type @'
@@ -18,8 +18,8 @@ public class LocateWin {
 }
 '@
 
-$ovPid = (Get-Process terminal-overseer -ErrorAction SilentlyContinue | Select-Object -First 1).Id
-if (-not $ovPid) { Write-Host "terminal-overseer not running"; exit 1 }
+$ovPid = (Get-Process ambery -ErrorAction SilentlyContinue | Select-Object -First 1).Id
+if (-not $ovPid) { Write-Host "ambery not running"; exit 1 }
 
 # 用 List 而非 @()：.NET delegate 回调内 $windows 是局部变量，+= 只写局部副本；
 # List 是引用类型，.Add() 直接操作同一实例

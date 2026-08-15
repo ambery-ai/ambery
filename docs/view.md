@@ -14,7 +14,7 @@
 
 pet 名称是正式 Config 中的稳定身份值（字段 `name`）。所有需要称呼 pet 的 UI 与后续 Harness 身份文案都读取当前名称；既有 Chat 历史和已经生成的 Card 不回写。
 
-- Config 首次初始化时写入正式默认名 **`ペット`**（不按语言区分默认名，名称本身不参与翻译）。
+- Config 首次初始化时写入正式默认名 **`Ambery`**（不按语言区分默认名，名称本身不参与翻译）。
 - 初始化完成后，名称与 UI / Harness 语言独立：后续切换任一语言绝不自动改名。
 - 名称不标记 `no_llm_visible`。本地用户与 LLM 都可经各自已有的 Config 入口显式读取、修改；LLM 修改仍受现有 query → update、校验、持久化与审计管道约束。校验：非空、≤ 64 字符。
 - 不提供“按当前 Harness 语言重置默认名称”操作；语言切换不是改名操作。
@@ -41,7 +41,7 @@ pet **无吸附态**（边缘吸附是 OS 式原始贴靠，与本应用自有�
 
 ## Component 锚点
 
-Component 以 View 中心为锚点，向指定方位偏移弹出（方位由ペット经 `call_component` 指定）。View 移动时，已弹出的 Component 以相对 pet 偏移跟随（docs/window-follow.md：engine 占区 + 布局记忆；`auto` 方位由 engine 按屏幕剩余空间现算）。方位几何细节见 docs/components.md。
+Component 以 View 中心为锚点，向指定方位偏移弹出（方位由 pet 经 `call_component` 指定）。View 移动时，已弹出的 Component 以相对 pet 偏移跟随（docs/window-follow.md：engine 占区 + 布局记忆；`auto` 方位由 engine 按屏幕剩余空间现算）。方位几何细节见 docs/components.md。
 
 ## Surface 入口（pet 手势）
 

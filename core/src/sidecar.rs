@@ -102,12 +102,12 @@ mod tests {
     use super::*;
 
     /// 需要真实 sidecar exe + WT 窗口（手动跑）：
-    /// `set OVERSEER_SIDECAR=...\overseer-uia-sidecar.exe && cargo test -- --ignored`
+    /// `set AMBERY_SIDECAR=...\ambery-uia-sidecar.exe && cargo test -- --ignored`
     #[test]
     #[ignore = "需要真实 sidecar exe 与 WT 窗口，手动跑"]
     fn sidecar_read_real() {
         use crate::terminal::{TerminalAdapter, WtAdapter};
-        let exe = std::env::var("OVERSEER_SIDECAR").expect("OVERSEER_SIDECAR not set");
+        let exe = std::env::var("AMBERY_SIDECAR").expect("AMBERY_SIDECAR not set");
         let adapter = WtAdapter::new(std::sync::Arc::new(SidecarClient::new(exe)));
         // 任取一个已知存在的 tab 名片段（环境相关，打印人工核对）
         let text = adapter

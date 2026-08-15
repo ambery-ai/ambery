@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using System.Windows.Automation;
 
-namespace TerminalOverseer;
+namespace AmberyUiaPrototype;
 
 class Program
 {
@@ -22,7 +22,7 @@ class Program
     static async Task Main(string[] args)
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
-        Console.WriteLine($"👀 Terminal Overseer 启动");
+        Console.WriteLine($"👀 Ambery 启动");
         Console.WriteLine($"   轮询: {POLL_INTERVAL_MS / 1000}s × {STABLE_THRESHOLD} 次稳定 → 判定完成");
         Console.WriteLine("   按 Ctrl+C 退出\n");
 

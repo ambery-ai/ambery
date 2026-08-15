@@ -4,9 +4,9 @@
 
 ## 进程模型
 
-- sidecar 是独立 console exe（.NET 9，`UseWPF` 引入 UIA 程序集），Tauri sidecar 模式随包分发；debug 阶段由 case-runner 经 `OVERSEER_SIDECAR=<exe路径>` 启动。
+- sidecar 是独立 console exe（.NET 9，`UseWPF` 引入 UIA 程序集），Tauri sidecar 模式随包分发；debug 阶段由 case-runner 经 `AMBERY_SIDECAR=<exe路径>` 启动。
 - **协议：stdio JSON Lines**——stdin 每行一个 JSON 请求，stdout 每行一个 JSON 响应。Rust `SidecarClient` 持进程句柄，Mutex 串行化请求（UIA 操作本身不可并行——切 Tab 是全局状态）。
-- 崩溃处理：每次请求检查进程存活，退出则重启一次再重试；仍失败返回 None（读通道降级回 Context，OverseerBackend 语义不变）。
+- 崩溃处理：每次请求检查进程存活，退出则重启一次再重试；仍失败返回 None（读通道降级回 Context，AmberyBackend 语义不变）。
 
 ## 命令集
 
@@ -60,8 +60,8 @@ VD 切换不作为后台路径，但作为 **agent 显式能力开放**（开放
 
 ## 常驻与拉起（简化语义）
 
-app 启动自动发现 exe 并启用（`OVERSEER_SIDECAR` env > 仓库约定位置），进程惰性拉起（首次请求 spawn）。**死了即弃，下次请求现拉起**（冷启实测 ~200ms）——无保活预检、无心跳；每次请求最多两次尝试，仍失败返回 None（读通道降级回 Context，OverseerBackend 语义不变）。
+app 启动自动发现 exe 并启用（`AMBERY_SIDECAR` env > 仓库约定位置），进程惰性拉起（首次请求 spawn）。**死了即弃，下次请求现拉起**（冷启实测 ~200ms）——无保活预检、无心跳；每次请求最多两次尝试，仍失败返回 None（读通道降级回 Context，AmberyBackend 语义不变）。
 
 ## 同步阻塞的取舍
 
-`TerminalAdapter` 的 locate/read 是同步 trait 调用，SidecarClient 内部 std::process + Mutex 阻塞读写（一次读 ≈ 200-500ms），会短暂阻塞 tokio worker 线程。debug 可接受；优化方向（`spawn_blocking` 或专用线程）见 issues.md 未决。
+`TerminalAdapter` 的 locate/read 是同步 trait 调用，SidecarClient 内部 std::process + Mutex 阻塞读写（一次读 ≈ 200-500ms），会短暂阻塞 tokio worker 线程。debug 可接受；优化方向（`spawn_blocking` 或专用线程）。

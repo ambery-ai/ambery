@@ -1,9 +1,9 @@
 //! step 执行器（docs/case-runner.md §steps）。
 
-use overseer_core::case::CaseObserve;
-use overseer_core::context::{Role, ToolCall};
-use overseer_core::llm::Llm;
-use overseer_core::overseer::{Effect, OverseerBackend};
+use ambery_core::case::CaseObserve;
+use ambery_core::context::{Role, ToolCall};
+use ambery_core::llm::Llm;
+use ambery_core::ambery::{Effect, AmberyBackend};
 
 /// load：storage 已于启动时 replay（占位，保持步骤可见性）
 pub fn exec_load() {
@@ -36,25 +36,25 @@ pub fn exec_terminal_gone(
 /// 值类直接给当前值；路径类（context/effects）无 lines 给文件指针+摘要，
 /// 带 lines 打印文件切片原文（含行号；表达式求值见 docs/case-eval-system.md）
 pub fn exec_observe<L: Llm>(
-    ov: &OverseerBackend<L>,
-    items: &[overseer_core::case::ObserveItem],
+    ov: &AmberyBackend<L>,
+    items: &[ambery_core::case::ObserveItem],
     vars: &std::collections::HashMap<String, String>,
 ) {
-    let obs = overseer_core::case::observe(ov);
+    let obs = ambery_core::case::observe(ov);
     print_observe(&obs, items, vars, ov.harness.storage_dir());
 }
 
 /// store：设用户变量（value 经对应 parser 求值 → to_string → 存 string）。
 /// $tail 绑定规则（case-eval-system.md §变量）：store 求值 = context.jsonl 末行号。
 pub fn exec_store<L: Llm>(
-    ov: &OverseerBackend<L>,
-    map: &std::collections::HashMap<String, overseer_core::case::StoreValue>,
+    ov: &AmberyBackend<L>,
+    map: &std::collections::HashMap<String, ambery_core::case::StoreValue>,
     vars: &mut std::collections::HashMap<String, String>,
 ) {
-    let tail = read_file_lines(&ov.harness.storage_dir().join(overseer_core::CONTEXT_FILE)).len() as i64;
-    let env = overseer_core::eval::VarEnv { tail, vars: vars.clone() };
+    let tail = read_file_lines(&ov.harness.storage_dir().join(ambery_core::CONTEXT_FILE)).len() as i64;
+    let env = ambery_core::eval::VarEnv { tail, vars: vars.clone() };
     for (name, sv) in map {
-        match overseer_core::eval::eval_store(&env, &sv.ty, &sv.value) {
+        match ambery_core::eval::eval_store(&env, &sv.ty, &sv.value) {
             Ok(v) => {
                 println!("[OK] store ${name} = {v}（{}: {:?}）", sv.ty, sv.value);
                 vars.insert(name.clone(), v);
@@ -77,8 +77,8 @@ fn read_file_lines(path: &std::path::Path) -> Vec<String> {
 /// 读 → Some 走 handle_timer_scan（变化检测入队）；None → closed；最后放行。
 /// horizon = 模拟一个 interval+stagger 已流逝（case 不等墙钟）。
 /// 返回 (到期扫描数, 判 closed 数)
-pub async fn exec_timer_scan<L: Llm>(ov: &mut OverseerBackend<L>, _ts: i64) -> (usize, usize) {
-    let horizon = overseer_core::server::now_ms()
+pub async fn exec_timer_scan<L: Llm>(ov: &mut AmberyBackend<L>, _ts: i64) -> (usize, usize) {
+    let horizon = ambery_core::server::now_ms()
         + ov.config.timer.interval_ms
         + ov.config.timer.stagger_ms
         + 1;
@@ -87,7 +87,7 @@ pub async fn exec_timer_scan<L: Llm>(ov: &mut OverseerBackend<L>, _ts: i64) -> (
     let mut closed = 0;
     for inst in due {
         let content = ov.read_terminal(&inst);
-        let ts = overseer_core::server::now_ms();
+        let ts = ambery_core::server::now_ms();
         match content {
             Some(c) => ov
                 .handle_timer_scan(&inst, &c, ts)
@@ -105,7 +105,7 @@ pub async fn exec_timer_scan<L: Llm>(ov: &mut OverseerBackend<L>, _ts: i64) -> (
 
 /// hook：mock hook 事件注入（按事件分层）→ 放行
 pub async fn exec_hook<L: Llm>(
-    ov: &mut OverseerBackend<L>,
+    ov: &mut AmberyBackend<L>,
     event: &str,
     name: &str,
     project: &str,
@@ -119,18 +119,18 @@ pub async fn exec_hook<L: Llm>(
 }
 
 /// trigger：放行全部待放行输入
-pub async fn exec_trigger<L: Llm>(ov: &mut OverseerBackend<L>) {
+pub async fn exec_trigger<L: Llm>(ov: &mut AmberyBackend<L>) {
     print_effects(ov.drain_queue(0).await.expect("drain"));
 }
 
 /// user：用户消息入队 → 放行
-pub async fn exec_user<L: Llm>(ov: &mut OverseerBackend<L>, text: &str, ts: i64) {
-    ov.enqueue(Role::User, text.to_string(), overseer_core::queue::QueueSource::UserChat, ts).expect("enqueue");
+pub async fn exec_user<L: Llm>(ov: &mut AmberyBackend<L>, text: &str, ts: i64) {
+    ov.enqueue(Role::User, text.to_string(), ambery_core::queue::QueueSource::UserChat, ts).expect("enqueue");
     print_effects(ov.drain_queue(0).await.expect("drain"));
 }
 
 /// tool_call：绕过 LLM 直接执行
-pub async fn exec_tool_call<L: Llm>(ov: &mut OverseerBackend<L>, name: &str, args: &str, id: &str) {
+pub async fn exec_tool_call<L: Llm>(ov: &mut AmberyBackend<L>, name: &str, args: &str, id: &str) {
     let call = ToolCall {
         id: id.to_string(),
         name: name.to_string(),
@@ -150,7 +150,7 @@ fn print_effects(effects: Vec<Effect>) {
 /// 内容级 observe 输出（docs/case-runner.md §observe 输出）
 fn print_observe(
     obs: &CaseObserve,
-    items: &[overseer_core::case::ObserveItem],
+    items: &[ambery_core::case::ObserveItem],
     vars: &std::collections::HashMap<String, String>,
     storage_dir: &std::path::Path,
 ) {
@@ -211,8 +211,8 @@ fn print_observe(
                 println!("cron: {} 个持久化计划", obs.cron.len());
                 for e in &obs.cron {
                     let schedule = match e.schedule {
-                        overseer_core::cron::Schedule::At(ts) => format!("at {ts}"),
-                        overseer_core::cron::Schedule::EveryMs(ms) => format!("every {ms}ms"),
+                        ambery_core::cron::Schedule::At(ts) => format!("at {ts}"),
+                        ambery_core::cron::Schedule::EveryMs(ms) => format!("every {ms}ms"),
                     };
                     let next = e
                         .next_due
@@ -241,7 +241,7 @@ fn print_observe(
             }
             "context" => {
                 // 路径类：无 lines → 文件指针+摘要（行首 token 标注，#16）；带 lines → 切片原文
-                let path = storage_dir.join(overseer_core::CONTEXT_FILE);
+                let path = storage_dir.join(ambery_core::CONTEXT_FILE);
                 let tok = match &obs.usage {
                     Some(u) => format!("真值 {} + est 增量 {}", u.prompt_tokens, obs.context_est_delta),
                     None => format!("est 全量 {}", obs.context_est_delta),
@@ -250,7 +250,7 @@ fn print_observe(
             }
             "effects" => {
                 // 路径类：无 lines → 文件指针+摘要（条数）；带 lines → 切片原文
-                let path = storage_dir.join(overseer_core::EFFECT_FILE);
+                let path = storage_dir.join(ambery_core::EFFECT_FILE);
                 print_path_slice("effects", &path, &item.lines, vars, "条");
             }
             other => println!("(未知 observe 项: {other})"),
@@ -271,9 +271,9 @@ fn print_path_slice(
     match lines {
         None => println!("{name}: {} | {tail} {summary}", path.display()),
         Some(expr) => {
-            let env = overseer_core::eval::VarEnv { tail, vars: vars.clone() };
-            use overseer_core::eval::Parser;
-            let parsed = (overseer_core::eval::RangeParser { env: &env }).parse(expr.as_str());
+            let env = ambery_core::eval::VarEnv { tail, vars: vars.clone() };
+            use ambery_core::eval::Parser;
+            let parsed = (ambery_core::eval::RangeParser { env: &env }).parse(expr.as_str());
             match parsed {
                 Ok((range, rest)) if rest.is_empty() => match range.resolve(tail) {
                     Some((start, end)) => {

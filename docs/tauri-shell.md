@@ -19,7 +19,7 @@ pet 初始种子 116×40（运行时被 pet-window-size.md 公式重算），cha
 ## 前端适配
 
 - 每个窗口加载 `index.html`，`main.ts` 按窗口 label 路由到 `pet.ts` / `menu.ts` / `chat-window.ts` / `shelf.ts` / `card-window.ts`
-- 各窗口独立连接 overseer-core（Tauri IPC；浏览器调试走 RemoteBridge HTTP+WS），读取经前端 store 收敛（docs/case-runner.md §前端读取架构）
+- 各窗口独立连接 ambery-core（Tauri IPC；浏览器调试走 RemoteBridge HTTP+WS），读取经前端 store 收敛（docs/case-runner.md §前端读取架构）
 - pet 拖拽走 IPC `window.setPosition()`，同时 emit `"pet:moved"` 事件
 - chat/cards 窗口经 positioning engine 请求位置（pet 持有 engine，`engine:place` / `engine:moved` 协议）
 

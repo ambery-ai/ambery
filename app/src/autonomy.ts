@@ -1,5 +1,5 @@
 // Autonomy（concepts §4，设计 docs/autonomy.md）：
-// 默认行为由顶层状态规则推导（不经 LLM）；ペット可经 set_autonomy 覆盖，TTL 到期回落。
+// 默认行为由顶层状态规则推导（不经 LLM）；pet 可经 set_autonomy 覆盖，TTL 到期回落。
 
 import type { AppConfig, Motion, TopState } from "./bridge";
 import type { Store } from "./store";

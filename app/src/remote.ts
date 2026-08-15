@@ -1,4 +1,4 @@
-// RemoteBridge：前端经 HTTP+WS loopback 连 overseer-core（docs/agent-loop.md §协议）。
+// RemoteBridge：前端经 HTTP+WS loopback 连 ambery-core（docs/agent-loop.md §协议）。
 // 浏览器调试模式与 Tauri 内嵌模式共用同一协议，前端代码不变（docs/harness.md 末节）。
 
 import type {
@@ -14,10 +14,10 @@ import type {
 } from "./bridge";
 
 // 端口：默认 47600（生产/浏览器调试）；case-runner 拉起 TS 测试进程时经
-// __OVERSEER_PORT__ 注入独立端口避让生产（docs/case-runner.md §壳类比；
+// __AMBERY_PORT__ 注入独立端口避让生产（docs/case-runner.md §壳类比；
 // 该全局必须在导入本模块前设置——app/test/shim.ts 顶部）
 const PORT =
-  (globalThis as Record<string, unknown>).__OVERSEER_PORT__ ?? "47600";
+  (globalThis as Record<string, unknown>).__AMBERY_PORT__ ?? "47600";
 const BASE = `http://127.0.0.1:${PORT}`;
 const WS_URL = `ws://127.0.0.1:${PORT}/ws`;
 
@@ -36,7 +36,7 @@ export class RemoteBridge implements Bridge {
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
   private doneListeners: (() => void)[] = [];
 
-  /** 探测 debug server（overseer-case serve 完整 router）是否在跑（决定用 Remote 还是 Mock） */
+  /** 探测 debug server（ambery-case serve 完整 router）是否在跑（决定用 Remote 还是 Mock） */
   static async probe(timeoutMs = 800): Promise<boolean> {
     try {
       const r = await fetch(`${BASE}/state`, {

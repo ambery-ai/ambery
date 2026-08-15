@@ -7,7 +7,7 @@
 ## 做法
 
 1. PowerShell 脚本验证：枚举所有 `CASCADIA_HOSTING_WINDOW_CLASS` 窗口 → 遍历 TabItem → SelectionItemPattern.Select() 切换 → TextPattern.DocumentRange.GetText(-1) 读取
-2. C# 控制台程序 `terminal-overseer.exe`：定时轮询 + 哈希对比 + 稳定检测
+2. C# 控制台程序 `ambery.exe`：定时轮询 + 哈希对比 + 稳定检测
 
 ## 结果
 

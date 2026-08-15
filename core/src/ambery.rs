@@ -1,4 +1,4 @@
-//! OverseerBackend（concepts §1）：触发循环 + tool 执行 + hook 处理（docs/agent-loop.md）。
+//! AmberyBackend（concepts §1）：触发循环 + tool 执行 + hook 处理（docs/agent-loop.md）。
 
 use crate::content::RecordSource;
 use crate::filter::{Change, Filter};
@@ -73,7 +73,7 @@ fn strip_glyphs(t: &str) -> String {
     t.trim_start_matches(['✳', ' ']).trim().to_string()
 }
 
-pub struct OverseerBackend<L: Llm> {
+pub struct AmberyBackend<L: Llm> {
     pub harness: Harness,
     pub config: Config,
     llm: L,
@@ -164,7 +164,7 @@ fn node_type_name(ty: &crate::config::reflect::NodeType) -> &'static str {
     }
 }
 
-impl<L: Llm> OverseerBackend<L> {
+impl<L: Llm> AmberyBackend<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
         let timers = TimerWheel::new(config.timer.interval_ms, config.timer.stagger_ms);
         // 工具调用预算（冷字段，启动时捕获）
@@ -557,7 +557,7 @@ impl<L: Llm> OverseerBackend<L> {
         }
     }
 
-    /// llm_changed 后由 server 重建具体 LlmBackend 注入（overseer 泛型擦除不认识它）
+    /// llm_changed 后由 server 重建具体 LlmBackend 注入（ambery 泛型擦除不认识它）
     pub fn replace_llm(&mut self, llm: L) {
         self.llm = llm;
     }
@@ -1944,26 +1944,26 @@ mod tests {
     use crate::llm::{DebugAgent, LlmOutput};
 
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("overseer-test-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-test-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
 
     /// 沉默 mock：不注入任何反应的测试用
-    fn make_overseer(tag: &str) -> OverseerBackend<DebugAgent> {
-        make_overseer_with(tag, DebugAgent::silent())
+    fn make_ambery(tag: &str) -> AmberyBackend<DebugAgent> {
+        make_ambery_with(tag, DebugAgent::silent())
     }
 
-    fn make_overseer_with(tag: &str, agent: DebugAgent) -> OverseerBackend<DebugAgent> {
+    fn make_ambery_with(tag: &str, agent: DebugAgent) -> AmberyBackend<DebugAgent> {
         let dir = tmp_dir(tag);
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        OverseerBackend::new(harness, Config::default(), agent)
+        AmberyBackend::new(harness, Config::default(), agent)
     }
 
     #[tokio::test]
     async fn effort_resolved_from_source_with_config_override() {
         // docs/effort.md §档位来源：user_chat→low、hook_stop_content→high、其余→medium
-        let mut ov = make_overseer("eff1");
+        let mut ov = make_ambery("eff1");
         use crate::llm::Effort;
         use crate::queue::QueueSource as S;
         assert_eq!(ov.resolve_effort(S::UserChat), Some(Effort::Low));
@@ -1983,10 +1983,10 @@ mod tests {
     #[tokio::test]
     async fn effort_keyword_rewrite_only_for_user_chat() {
         // docs/effort.md §匹配关键词：user_chat 命中关键词 → 本次临时改写；多命中取最长
-        let mut ov = make_overseer("eff2");
+        let mut ov = make_ambery("eff2");
         use crate::llm::Effort;
         use crate::queue::QueueSource as S;
-        let ask = |ov: &mut OverseerBackend<DebugAgent>, text: &str| {
+        let ask = |ov: &mut AmberyBackend<DebugAgent>, text: &str| {
             ov.enqueue(Role::User, text.into(), S::UserChat, 1).unwrap();
             // 静默 mock 不产生 assistant 回复——末条即该 user 消息
             ov.harness.queue.release().unwrap();
@@ -2012,7 +2012,7 @@ mod tests {
     #[tokio::test]
     async fn queue_source_annotated_per_entry_point() {
         // docs/concrete-insight.md §Queue 中的 System 消息来源：入队点逐一标注
-        let mut ov = make_overseer("qsrc");
+        let mut ov = make_ambery("qsrc");
         // user_prompt hook → HookUserPrompt
         ov.handle_real_hook("user_prompt", "sess-1111-2222", "/tmp/p", Some("claude"), Some("干这个"), None, None, 1)
             .await
@@ -2031,7 +2031,7 @@ mod tests {
             "{sources:?}"
         );
         // queue.jsonl 落盘携带 source（docs/storage.md）；直接拼路径——tmp_dir() 会清空目录
-        let dir = std::env::temp_dir().join(format!("overseer-test-qsrc-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-test-qsrc-{}", std::process::id()));
         let raw = std::fs::read_to_string(dir.join(crate::QUEUE_FILE)).unwrap();
         assert!(raw.contains("\"source\":\"hook_user_prompt\""), "{raw}");
         assert!(raw.contains("\"source\":\"hook_notification\""), "{raw}");
@@ -2042,20 +2042,20 @@ mod tests {
     async fn queue_source_stop_three_modes() {
         // stop 三模式来源分标（docs/harness.md §Queue 规则 2）
         // queue_only（默认）→ hint；message → report；auto_read 读成功 → content
-        let mut ov = make_overseer("qsrc-hint");
+        let mut ov = make_ambery("qsrc-hint");
         ov.handle_real_hook("session_start", "s0a00000-1", "/tmp/p", Some("claude"), None, None, None, 1).await.unwrap();
         ov.handle_real_hook("stop", "s0a00000-1", "/tmp/p", Some("claude"), None, None, Some("修完了"), 2).await.unwrap();
         assert_eq!(ov.harness.queue.iter().next().unwrap().source, crate::queue::QueueSource::HookStopHint);
         let _ = std::fs::remove_dir_all(tmp_dir("qsrc-hint"));
 
-        let mut ov = make_overseer("qsrc-report");
+        let mut ov = make_ambery("qsrc-report");
         ov.config.stop_hook_mode = "message".into();
         ov.handle_real_hook("session_start", "s0a00000-1", "/tmp/p", Some("claude"), None, None, None, 1).await.unwrap();
         ov.handle_real_hook("stop", "s0a00000-1", "/tmp/p", Some("claude"), None, None, Some("修了 3 个文件"), 2).await.unwrap();
         assert_eq!(ov.harness.queue.iter().next().unwrap().source, crate::queue::QueueSource::HookStopReport);
         let _ = std::fs::remove_dir_all(tmp_dir("qsrc-report"));
 
-        let mut ov = make_overseer("qsrc-content");
+        let mut ov = make_ambery("qsrc-content");
         ov.config.stop_hook_mode = "auto_read".into();
         let map = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::from([(
             "p·s0a00000".to_string(),
@@ -2115,7 +2115,7 @@ mod tests {
     async fn tab_lifecycle_locate_writeback_and_forget() {
         // docs/hook.md §定位缓存 + §事件分层：session_start 定位探测回写、
         // session_end closed 快照 tab=null + 清定位缓存
-        let mut ov = make_overseer("tab-lifecycle");
+        let mut ov = make_ambery("tab-lifecycle");
         let adapter = stub_adapter(Some(crate::TabRef { hwnd: 100, index: 2 }), None);
         ov.terminal = Some(adapter.clone());
         // session_start：注册 + 定位探测回写 tab 快照
@@ -2144,7 +2144,7 @@ mod tests {
     #[tokio::test]
     async fn call_component_validates_direction_entries_chart() {
         // toolset.md §call_component 校验列：direction 方位集 + entries/chart 结构
-        let mut ov = make_overseer("cmp-validate");
+        let mut ov = make_ambery("cmp-validate");
         let call = |id: &str, args: serde_json::Value| ToolCall { id: id.into(), name: "call_component".into(), arguments: args.to_string() };
         let (r, _) = ov.execute_tool(&call("t1", json!({"spec":{"id":"a","type":"text_card","title":"t","text":"x","direction":"up"}}))).await;
         assert_eq!(r["ok"], json!(false), "{r}");
@@ -2163,7 +2163,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_terminal_ok_flag_consistent() {
         // toolset.md §fetch_terminal：成功与失败形态自洽（ok 字段恒在）
-        let mut ov = make_overseer("fetch-ok");
+        let mut ov = make_ambery("fetch-ok");
         // Filter 按实例 kind（docs/filter.md）：未注册实例 kind 缺失，读取被拒绝
         let call = ToolCall { id: "f".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost","vd_switch":false}).to_string() };
         let (r, _) = ov.execute_tool(&call).await;
@@ -2179,12 +2179,12 @@ mod tests {
 
     #[test]
     fn pet_name_flows_into_system_prompt_and_validates() {
-        // 默认名（用户定案不改）：ペット
-        let ov = make_overseer("petname");
-        assert_eq!(ov.config.name, "ペット");
+        // 默认名（用户定案不改）：pet
+        let ov = make_ambery("petname");
+        assert_eq!(ov.config.name, "Ambery");
         // 拼装请求头读取当前名称（{name} 占位替换）
         let head = ov.assemble_system_prompt();
-        assert!(head.contains("你是 ペット"), "{head}");
+        assert!(head.contains("你是 pet"), "{head}");
         assert!(!head.contains("{name}"), "{head}");
         // 改名 → 下一次拼装即当前名称（身份文案热读取）；空名/超长名原子拒绝
         let mut ov = ov;
@@ -2203,7 +2203,7 @@ mod tests {
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
         let mut config = Config::default();
         config.harness_language = "en".into();
-        let mut ov = OverseerBackend::new(harness, config, DebugAgent::silent());
+        let mut ov = AmberyBackend::new(harness, config, DebugAgent::silent());
         // 工具说明：下一次交互的请求构建现查表
         let tools = crate::llm::tool_set(crate::i18n::Lang::of(&ov.config.harness_language));
         let sleep = tools.iter().find(|t| t.name == "sleep").unwrap();
@@ -2231,7 +2231,7 @@ mod tests {
             .join("\n");
         assert!(q.contains("requests attention: need eyes"), "{q}");
         // zh 对照：默认语言事件文字中文
-        let mut ov2 = make_overseer("i18n-zh");
+        let mut ov2 = make_ambery("i18n-zh");
         ov2.handle_real_hook("session_start", "sid-0000-2222", "/tmp/demo", Some("claude"), None, None, None, 1000)
             .await
             .unwrap();
@@ -2291,7 +2291,7 @@ mod tests {
             ]),
             silence(),
         ]);
-        let mut ov = make_overseer_with("notify", agent);
+        let mut ov = make_ambery_with("notify", agent);
         let long = "x".repeat(120);
         ov.handle_hook("stop", "ft", "proj", &long, 1).await.unwrap();
         let effects = ov.drain_queue(0).await.unwrap();
@@ -2310,7 +2310,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_short_content_silence() {
-        let mut ov = make_overseer("silence");
+        let mut ov = make_ambery("silence");
         ov.handle_hook("stop", "oss", "proj", "清理了 2 行注释", 1).await.unwrap();
         let effects = ov.drain_queue(0).await.unwrap();
         assert!(effects.is_empty());
@@ -2324,7 +2324,7 @@ mod tests {
     async fn session_start_silent_bookkeeping() {
         // 定案（concepts §9b / docs/agent-loop.md mock 契约）：session_start = 静默簿记，
         // pet 不醒——注册 Idle + EventBuffer，不进 Context 不触发 LLM
-        let mut ov = make_overseer("register");
+        let mut ov = make_ambery("register");
         ov.handle_hook("session_start", "new-feature", "proj", "启动画面", 1)
             .await
             .unwrap();
@@ -2348,7 +2348,7 @@ mod tests {
             calls(vec![("fetch_terminal", json!({"instance": "ft", "vd_switch": false}))]),
             say("[debug] 查到：全文"),
         ]);
-        let mut ov = make_overseer_with("fetch", agent);
+        let mut ov = make_ambery_with("fetch", agent);
         let long = "y".repeat(100);
         ov.handle_hook("stop", "ft", "proj", &long, 1).await.unwrap();
         ov.drain_queue(0).await.unwrap(); // stop 放行（脚本帧 1 沉默）
@@ -2369,7 +2369,7 @@ mod tests {
     #[tokio::test]
     async fn event_buffer_attached_on_release() {
         // 定案（concepts §10e）：放行 system 输入时 Event Buffer 附带合并为一条消息
-        let mut ov = make_overseer("merge");
+        let mut ov = make_ambery("merge");
         ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
         ov.harness.event_buffer.push("用户勾选了 todobox 条目「跑测试」");
         ov.enqueue(Role::System, "ft 完成。评估是否通知。".into(), crate::queue::QueueSource::MockHook, 1)
@@ -2396,7 +2396,7 @@ mod tests {
     async fn event_buffer_keeps_user_role_clean() {
         // 定案（concepts §10e 末句）：与 user role 严格分离——user 输入放行时
         // buffer 以独立 system 消息先行附带，不污染 user 消息
-        let mut ov = make_overseer("merge-user");
+        let mut ov = make_ambery("merge-user");
         ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
         ov.enqueue(Role::User, "那个 bug 怎么回事？".into(), crate::queue::QueueSource::UserChat, 1)
             .unwrap();
@@ -2417,7 +2417,7 @@ mod tests {
     #[tokio::test]
     async fn plain_user_message_replies() {
         let agent = scripted(vec![say("[debug] 收到：你好")]);
-        let mut ov = make_overseer_with("reply", agent);
+        let mut ov = make_ambery_with("reply", agent);
         ov.harness
             .append_context(ContextMessage::new(Role::User, "你好", 1))
             .unwrap();
@@ -2430,7 +2430,7 @@ mod tests {
 
     #[tokio::test]
     async fn hook_content_is_filtered_before_decision() {
-        let mut ov = make_overseer("filter");
+        let mut ov = make_ambery("filter");
         // 原文很长但全是噪音 + 4 字内容 → 归一后 4 字 → 沉默
         let raw = format!(
             "● 完成\n✻ Crunched for 12s\n⏵⏵ bypass permissions on (shift+tab to cycle)\n{}",
@@ -2454,7 +2454,7 @@ mod tests {
             )]),
             silence(),
         ]);
-        let mut ov = make_overseer_with("timer-sub", agent);
+        let mut ov = make_ambery_with("timer-sub", agent);
         ov.handle_hook("session_start", "cship", "proj", "旧内容", 1)
             .await
             .unwrap();
@@ -2479,7 +2479,7 @@ mod tests {
 
     #[tokio::test]
     async fn timer_scan_minor_stays_silent() {
-        let mut ov = make_overseer("timer-min");
+        let mut ov = make_ambery("timer-min");
         ov.handle_hook("session_start", "cship", "proj", "内容不变", 1)
             .await
             .unwrap();
@@ -2497,10 +2497,10 @@ mod tests {
 
     #[tokio::test]
     async fn head_includes_agents_md() {
-        let ov = make_overseer("head-md");
+        let ov = make_ambery("head-md");
         let head = ov.assemble_system_prompt();
         // bootstrap 写入的默认身份提示词拼进了请求头（§12：Config 引用数据运行时拼装）
-        assert!(head.contains("# AGENTS.md — ペット"));
+        assert!(head.contains("# AGENTS.md — pet"));
         assert!(head.contains("## 颜文字映射"));
         // 请求头只装稳定提示词：实例状态走 diff 事件，不进请求头
         assert!(!head.contains("## 当前实例状态"));
@@ -2513,14 +2513,14 @@ mod tests {
         // 重启丢——同目录重开后首轮 scan 对相同内容也报 Substantive（接受的代价）
         let dir = tmp_dir("prev-loss");
         {
-            let mut ov = make_overseer("prev-loss");
+            let mut ov = make_ambery("prev-loss");
             // 先注册（kind=claude）：Filter 按实例 kind，未注册实例扫描内容被拒绝
             ov.handle_hook("session_start", "ft", "p", "", 0).await.unwrap();
             ov.handle_timer_scan("ft", "相同内容", 1).await.unwrap();
         }
-        // 同目录重开（Harness replay + 新 OverseerBackend：prev 为空）
+        // 同目录重开（Harness replay + 新 AmberyBackend：prev 为空）
         let harness = Harness::load(&dir, &dir, 100_000, 9).unwrap();
-        let mut ov = OverseerBackend::new(harness, Config::default(), DebugAgent::silent());
+        let mut ov = AmberyBackend::new(harness, Config::default(), DebugAgent::silent());
         ov.handle_timer_scan("ft", "相同内容", 2).await.unwrap();
         // 相同内容仍判 Substantive → 入队一条扫描注入（prev 丢失的直接证据）
         let injected = ov
@@ -2536,7 +2536,7 @@ mod tests {
 
     #[tokio::test]
     async fn hook_archives_raw_before_filter() {
-        let mut ov = make_overseer("raw-archive");
+        let mut ov = make_ambery("raw-archive");
         // 原文含噪音 → terminal-content.jsonl 存 filter 前全文，context.jsonl 存归一后
         let raw = format!("● 完成\n✻ Crunched for 12s\n{}", "─".repeat(100));
         ov.handle_hook("stop", "ft", "proj", &raw, 1).await.unwrap();
@@ -2568,7 +2568,7 @@ mod tests {
     #[tokio::test]
     async fn autonomy_logged_and_appended_to_request_end() {
         let frames = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
-        let mut ov = make_overseer_with("autonomy", capturing(frames.clone()));
+        let mut ov = make_ambery_with("autonomy", capturing(frames.clone()));
         ov.run_trigger(1, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         // 请求帧：首条 = 现拼请求头，末条 = Autonomy 状态（concepts §4）
         let f = &frames.lock().unwrap()[0];
@@ -2592,7 +2592,7 @@ mod tests {
 
     #[tokio::test]
     async fn head_written_only_on_change() {
-        let mut ov = make_overseer("head-diff");
+        let mut ov = make_ambery("head-diff");
         ov.run_trigger(1, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         ov.run_trigger(2, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         let storage = ov.harness.storage_dir().to_path_buf();
@@ -2604,7 +2604,7 @@ mod tests {
         };
         assert_eq!(count(), 1); // 不变不写
         // AGENTS.md 热编辑 → 请求头变化 → 第二条 head 快照
-        std::fs::write(ov.harness.config_dir().join(AGENTS_MD_FILE), "# 改过的ペット").unwrap();
+        std::fs::write(ov.harness.config_dir().join(AGENTS_MD_FILE), "# 改过的 pet").unwrap();
         ov.run_trigger(3, crate::queue::QueueSource::MockHook, 0).await.unwrap();
         assert_eq!(count(), 2);
         let _ = std::fs::remove_dir_all(tmp_dir("head-diff"));
@@ -2613,7 +2613,7 @@ mod tests {
     #[tokio::test]
     async fn pending_notifications_drives_notify_key() {
         let frames = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
-        let mut ov = make_overseer_with("notify-key", capturing(frames.clone()));
+        let mut ov = make_ambery_with("notify-key", capturing(frames.clone()));
         ov.run_trigger(1, crate::queue::QueueSource::MockHook, 2).await.unwrap();
         let f = &frames.lock().unwrap()[0];
         assert_eq!(f.last().unwrap(), "[face: notify, motion: bounce]");
@@ -2631,7 +2631,7 @@ mod tests {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
             context_window: Some(10), compression_reserve: Some(0), effort_wire: None,
         });
-        let mut ov = OverseerBackend::new(harness, config, DebugAgent::silent());
+        let mut ov = AmberyBackend::new(harness, config, DebugAgent::silent());
         ov.harness
             .upsert_agent(AgentEntry {
                 hash: "h1".into(),
@@ -2668,7 +2668,7 @@ mod tests {
 
     #[tokio::test]
     async fn tab_gone_marks_closed_and_exits_panorama() {
-        let mut ov = make_overseer("closed");
+        let mut ov = make_ambery("closed");
         ov.handle_hook("session_start", "ft", "proj", "启动", 1)
             .await
             .unwrap();
@@ -2692,7 +2692,7 @@ mod tests {
 
     #[tokio::test]
     async fn hook_resets_timer_wheel() {
-        let mut ov = make_overseer("timer-reset");
+        let mut ov = make_ambery("timer-reset");
         ov.handle_hook("session_start", "a", "proj", "x", 1000)
             .await
             .unwrap();
@@ -2704,7 +2704,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_autonomy_face_key_resolves_to_body() {
-        let mut ov = make_overseer("face-key");
+        let mut ov = make_ambery("face-key");
         let call = ToolCall {
             id: "c1".into(),
             name: "set_autonomy".into(),
@@ -2736,7 +2736,7 @@ mod tests {
     #[tokio::test]
     async fn set_autonomy_once_contract() {
         // once 契约（docs/autonomy.md）：once 与 ttlMs 同传直接拒绝；单传 once 透传 effect
-        let mut ov = make_overseer("once");
+        let mut ov = make_ambery("once");
         let conflict = ToolCall {
             id: "c1".into(),
             name: "set_autonomy".into(),
@@ -2764,7 +2764,7 @@ mod tests {
     async fn streaming_delta_flows_to_sink() {
         // 默认回落路径（docs/streaming.md）：complete 一次性 → 全文单 delta → AssistantDone
         let agent = scripted(vec![say("流式回复全文")]);
-        let mut ov = make_overseer_with("stream", agent);
+        let mut ov = make_ambery_with("stream", agent);
         let got = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Effect>::new()));
         let got2 = got.clone();
         ov.effect_sink = Some(std::sync::Arc::new(move |e: &Effect| {
@@ -2815,7 +2815,7 @@ mod tests {
     #[tokio::test]
     async fn execute_tool_records_component_effects() {
         // execute_tool 记录点：render/close 进 effect.jsonl（backend origin）
-        let mut ov = make_overseer("eff-rec");
+        let mut ov = make_ambery("eff-rec");
         let create = ToolCall {
             id: "c1".into(),
             name: "call_component".into(),
@@ -2837,7 +2837,7 @@ mod tests {
         assert_eq!(recs[1].payload["id"], json!("card1"));
         // 行形态：{"type":"effect","origin":"backend",...}
         // （tmp_dir 辅助会清空目录，这里只拼路径不再调它）
-        let dir = std::env::temp_dir().join(format!("overseer-test-eff-rec-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-test-eff-rec-{}", std::process::id()));
         let raw = std::fs::read_to_string(dir.join(crate::EFFECT_FILE)).unwrap();
         assert!(raw.contains("\"type\":\"effect\""));
         assert!(raw.contains("\"origin\":\"backend\""));
@@ -2847,7 +2847,7 @@ mod tests {
     #[tokio::test]
     async fn config_changed_recorded_once_via_tool() {
         // 单变体单记录点：经 execute_tool 的 edit_config 不双写（快照门禁走完整 query→update 协议）
-        let mut ov = make_overseer("eff-cfg");
+        let mut ov = make_ambery("eff-cfg");
         let query = ToolCall {
             id: "q1".into(),
             name: "edit_config".into(),
@@ -2878,7 +2878,7 @@ mod tests {
     #[test]
     fn frontend_effect_reporting_channel() {
         // record_frontend_effect（record_effect command / POST /effect 共用单点）
-        let ov = make_overseer("eff-fe");
+        let ov = make_ambery("eff-fe");
         ov.record_frontend_effect("window_opened", json!({ "window": "card-x" }));
         ov.record_frontend_effect("window_moved", json!({ "window": "card-x", "x": 1, "y": 2, "count": 7 }));
         let recs = ov.harness.read_effects().unwrap();
@@ -2892,7 +2892,7 @@ mod tests {
     #[tokio::test]
     async fn enqueue_user_records_user_message_once() {
         // user 入队 = user_message/frontend（单点覆盖端点与 case user step）；system 输入不进
-        let mut ov = make_overseer("eff-user");
+        let mut ov = make_ambery("eff-user");
         ov.enqueue(Role::User, "你好".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.enqueue(Role::System, "hook 输入".into(), crate::queue::QueueSource::MockHook, 2).unwrap();
         let recs = ov.harness.read_effects().unwrap();
@@ -2907,7 +2907,7 @@ mod tests {
     async fn streaming_records_delta_and_done() {
         // run_trigger sink 记录点：delta 全量 + done 收尾都进 effect.jsonl
         let agent = scripted(vec![say("回复全文")]);
-        let mut ov = make_overseer_with("eff-stream", agent);
+        let mut ov = make_ambery_with("eff-stream", agent);
         ov.enqueue(Role::User, "问".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let recs = ov.harness.read_effects().unwrap();
@@ -2921,7 +2921,7 @@ mod tests {
     async fn no_sink_no_delta_no_panic() {
         // 未接 sink 时流式路径静默无副作用（debug/测试模式默认）
         let agent = scripted(vec![say("你好")]);
-        let mut ov = make_overseer_with("stream-none", agent);
+        let mut ov = make_ambery_with("stream-none", agent);
         ov.enqueue(Role::User, "hi".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         assert_eq!(
@@ -2934,7 +2934,7 @@ mod tests {
     #[tokio::test]
     async fn call_component_continuous_management() {
         // 持续管理协议（docs/components.md）：同 id = 原地更新，close action 显式关闭
-        let mut ov = make_overseer("cmp-mgmt");
+        let mut ov = make_ambery("cmp-mgmt");
         let mk = |text: &str| crate::context::ToolCall {
             id: "c1".into(),
             name: "call_component".into(),
@@ -2980,7 +2980,7 @@ mod tests {
     async fn call_component_close_action_outside_spec() {
         // #23：LLM 把 action="close" 放在 args 顶层（与 spec 并列）时，
         // 回退识别为 close，而不是当成空 update 渲染空卡
-        let mut ov = make_overseer("cmp-close-outside");
+        let mut ov = make_ambery("cmp-close-outside");
         let create = crate::context::ToolCall {
             id: "c1".into(),
             name: "call_component".into(),
@@ -3008,7 +3008,7 @@ mod tests {
         let dir = tmp_dir(tag);
         {
             let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
-            let mut ov = OverseerBackend::new(harness, Config::default(), DebugAgent::silent());
+            let mut ov = AmberyBackend::new(harness, Config::default(), DebugAgent::silent());
             let call = crate::context::ToolCall {
                 id: "c1".into(),
                 name: "call_component".into(),
@@ -3019,7 +3019,7 @@ mod tests {
         } // ov drop（模拟进程退出）
         // 第二次 load 不清目录 = 进程重启
         let harness2 = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let ov2 = OverseerBackend::new(harness2, Config::default(), DebugAgent::silent());
+        let ov2 = AmberyBackend::new(harness2, Config::default(), DebugAgent::silent());
         assert!(ov2.harness.cards.contains_key("todo-1"), "重启后注册表从文件恢复");
         assert_eq!(ov2.harness.cards["todo-1"].meta.title, "清单");
         let _ = std::fs::remove_dir_all(&dir);
@@ -3034,7 +3034,7 @@ mod tests {
             reasoning_content: Some("先想三步再答".into()),
             usage: None,
         });
-        let mut ov = make_overseer_with("reason-keep", agent);
+        let mut ov = make_ambery_with("reason-keep", agent);
         ov.enqueue(Role::User, "问".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let last = ov.harness.context.messages().last().unwrap();
@@ -3054,7 +3054,7 @@ mod tests {
             reasoning_content: None,
             usage: Some(big),
         });
-        let mut ov = make_overseer_with("compress-truth", agent);
+        let mut ov = make_ambery_with("compress-truth", agent);
         ov.config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
             context_window: Some(100), compression_reserve: Some(0), effort_wire: None,
@@ -3077,7 +3077,7 @@ mod tests {
     #[tokio::test]
     async fn compression_triggers_on_est_fallback_without_usage() {
         // #16 兜底：DebugAgent 默认无 usage → 全量 est 触发（现状路径）
-        let mut ov = make_overseer("compress-est");
+        let mut ov = make_ambery("compress-est");
         ov.config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
             context_window: Some(50), compression_reserve: Some(0), effort_wire: None,
@@ -3099,7 +3099,7 @@ mod tests {
     async fn real_hook_stop_three_modes() {
         let sid = "dddd3333-4444-5555";
         // B（默认 queue_only）：hint 形态
-        let mut ov = make_overseer("rh5");
+        let mut ov = make_ambery("rh5");
         let _ = ov
             .handle_real_hook("stop", sid, r"/tmp/p", Some("claude"), None, None, Some("修了 3 个文件"), 1000)
             .await
@@ -3110,7 +3110,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(tmp_dir("rh5"));
 
         // C（message）：汇报原文直达
-        let mut ov = make_overseer("rh6");
+        let mut ov = make_ambery("rh6");
         ov.config.stop_hook_mode = "message".into();
         let _ = ov
             .handle_real_hook("stop", sid, r"/tmp/p", Some("claude"), None, None, Some("修了 3 个文件"), 1000)
@@ -3122,7 +3122,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(tmp_dir("rh6"));
 
         // A（auto_read）：读通道全量,Context 更新
-        let mut ov = make_overseer("rh7");
+        let mut ov = make_ambery("rh7");
         ov.config.stop_hook_mode = "auto_read".into();
         // MapAdapter：只有正确实例名可定位可读（等价原闭包的 inst 断言）
         let map = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::from([(
@@ -3144,7 +3144,7 @@ mod tests {
 
     #[tokio::test]
     async fn startup_sweep_full_flow() {
-        let mut ov = make_overseer("sweep");
+        let mut ov = make_ambery("sweep");
         // 预置一具占位尸体（标题已消失）
         ov.harness
             .upsert_agent(AgentEntry {
@@ -3219,7 +3219,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_terminal_vd_switch_semantics() {
         // 必填:忘传报错教学
-        let mut ov = make_overseer("vd1");
+        let mut ov = make_ambery("vd1");
         let call = ToolCall { id: "c1".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"x"}).to_string() };
         let (r, _) = ov.execute_tool(&call).await;
         assert!(r["error"].as_str().unwrap_or("").contains("vd_switch 必填"), "{r}");
@@ -3230,7 +3230,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(tmp_dir("vd1"));
 
         // true + 切换成功:重读命中（先注册实例——Filter 按实例 kind，未注册读取被拒）
-        let mut ov = make_overseer("vd2");
+        let mut ov = make_ambery("vd2");
         ov.handle_real_hook("session_start", "x0x00000-1", "/tmp/p", Some("claude"), None, None, None, 1)
             .await
             .unwrap();
@@ -3270,7 +3270,7 @@ mod tests {
 
     #[tokio::test]
     async fn real_hook_first_sight_registers_silently() {
-        let mut ov = make_overseer("rh1");
+        let mut ov = make_ambery("rh1");
         ov.handle_real_hook(
                 "session_start",
                 "3f8a2c1e-9b7d-4e5f-a6c1-02d4e6f8a9b0",
@@ -3300,7 +3300,7 @@ mod tests {
 
     #[tokio::test]
     async fn real_hook_late_start_self_heals() {
-        let mut ov = make_overseer("rh2");
+        let mut ov = make_ambery("rh2");
         // backend 当时不在线,start 丢失:初见恰好是 stop(register-on-first-sight)
         let _ = ov
             .handle_real_hook(
@@ -3335,7 +3335,7 @@ mod tests {
 
     #[tokio::test]
     async fn real_hook_resume_upserts_no_duplicate() {
-        let mut ov = make_overseer("rh3");
+        let mut ov = make_ambery("rh3");
         for ts in [1000, 5000] {
             let _ = ov
                 .handle_real_hook(
@@ -3359,7 +3359,7 @@ mod tests {
 
     #[tokio::test]
     async fn real_hook_prompt_processing_and_session_end_closed() {
-        let mut ov = make_overseer("rh4");
+        let mut ov = make_ambery("rh4");
         let sid = "cccc2222-3333-4444";
         let _ = ov
             .handle_real_hook("session_start", sid, r"/tmp/p", Some("claude"), None, None, None, 1000)
@@ -3391,7 +3391,7 @@ mod tests {
     #[tokio::test]
     async fn edit_config_updates_and_persists() {
         // 完整协议：query(view=object) 读整池 → 下一 response update 完整 map（docs/config.md）
-        let mut ov = make_overseer("cfg");
+        let mut ov = make_ambery("cfg");
         let query = ToolCall {
             id: "q1".into(),
             name: "edit_config".into(),
@@ -3431,7 +3431,7 @@ mod tests {
     async fn edit_config_oversize_object_query_leaves_no_snapshot() {
         // H1 回归：view=object 超 1KiB 护栏被拒时快照不入册——LLM 没拿到完整当前值，
         // update 门禁不得凭错误 result 放行
-        let mut ov = make_overseer("oversize");
+        let mut ov = make_ambery("oversize");
         // 本地管道充气 user 池使 view=object 超 1KiB
         for i in 0..8 {
             ov.apply_config_by_path(
@@ -3466,7 +3466,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_config_snapshot_gating() {
-        let mut ov = make_overseer("snap");
+        let mut ov = make_ambery("snap");
         let upd = |id: &str| ToolCall {
             id: id.into(),
             name: "edit_config".into(),
@@ -3535,7 +3535,7 @@ mod tests {
         cfg.max_tool_calls_in_one_response = 3;
         cfg.max_tool_calls_per_turn = 50;
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let mut ov = OverseerBackend::new(harness, cfg, agent);
+        let mut ov = AmberyBackend::new(harness, cfg, agent);
         ov.enqueue(Role::User, "x".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let results: Vec<String> = ov.harness.context.messages().iter()
@@ -3553,7 +3553,7 @@ mod tests {
         cfg.max_tool_calls_in_one_response = 10;
         cfg.max_tool_calls_per_turn = 4;
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let mut ov = OverseerBackend::new(harness, cfg, agent);
+        let mut ov = AmberyBackend::new(harness, cfg, agent);
         ov.enqueue(Role::User, "x".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         let msgs = ov.harness.context.messages();
@@ -3571,7 +3571,7 @@ mod tests {
     #[tokio::test]
     async fn cron_tools_and_sleep_via_execute_tool() {
         // cron_create/cron_delete/sleep（docs/cron.md）
-        let mut ov = make_overseer("crontool");
+        let mut ov = make_ambery("crontool");
         let c = ToolCall {
             id: "c1".into(),
             name: "cron_create".into(),
@@ -3610,7 +3610,7 @@ mod tests {
     async fn memory_tools_round_trip_via_execute_tool() {
         // read_memory/write_memory（docs/memory.md）：write 必附 description；
         // 省略 name 读 index.md 导航；Memory 根在 storage 下持久化
-        let mut ov = make_overseer("memtool");
+        let mut ov = make_ambery("memtool");
         let w = ToolCall {
             id: "w1".into(),
             name: "write_memory".into(),
@@ -3647,7 +3647,7 @@ mod tests {
             calls(vec![("edit_config", json!({ "action": "update", "path": "view_scale", "value": 0.5 }))]),
             say("已调整缩放"),
         ]);
-        let mut ov = make_overseer_with("proto", agent);
+        let mut ov = make_ambery_with("proto", agent);
         ov.enqueue(Role::User, "把缩放调到 0.5".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
         ov.drain_queue(0).await.unwrap();
         assert_eq!(ov.config.view_scale, 0.5);
@@ -3663,7 +3663,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_config_grep_and_query_views() {
-        let mut ov = make_overseer("views");
+        let mut ov = make_ambery("views");
         // grep：命中 path 与中文 desc；按 path 排序；不返回 value
         let grep = ToolCall {
             id: "g1".into(),
@@ -3709,7 +3709,7 @@ mod tests {
     #[tokio::test]
     async fn kaomoji_pools_invariants_enforced_on_update() {
         // 两池校验（docs/config.md §表情池）：写入管道原子拒绝违反不变量的 candidate
-        let mut ov = make_overseer("pools");
+        let mut ov = make_ambery("pools");
         // ① 交集为空：user 池新增与 system 重复的 key → 拒绝
         assert!(ov
             .apply_config_by_path("kaomoji.user.idle", json!({"face": "x", "motion": "still"}))
@@ -3734,7 +3734,7 @@ mod tests {
 
     #[test]
     fn apply_config_by_path_hot_apply_and_persist() {
-        let mut ov = make_overseer("apply");
+        let mut ov = make_ambery("apply");
         let out = ov
             .apply_config_by_path("compression_reserve_default", json!(5000))
             .unwrap();
@@ -3748,7 +3748,7 @@ mod tests {
 
     #[test]
     fn apply_config_by_path_validates_and_reports_restart() {
-        let mut ov = make_overseer("apply2");
+        let mut ov = make_ambery("apply2");
         // serde 验证失败
         assert!(ov.apply_config_by_path("compression_reserve_default", json!("oops")).is_err());
         // 动态 enum 校验
@@ -3764,7 +3764,7 @@ mod tests {
 
     #[test]
     fn apply_config_by_path_readonly_rejected() {
-        let mut ov = make_overseer("apply3");
+        let mut ov = make_ambery("apply3");
         ov.config.read_only = true;
         assert!(ov.apply_config_by_path("compression_reserve_default", json!(1)).is_err());
         let _ = std::fs::remove_dir_all(tmp_dir("apply3"));
@@ -3774,7 +3774,7 @@ mod tests {
     async fn edit_config_null_write_semantics() {
         // null 语义（docs/config.md §update 与 null）：叶子写 null = 回自身 default；
         // object/map/动态 entry 拒绝 null 更新
-        let mut ov = make_overseer("null-write");
+        let mut ov = make_ambery("null-write");
         ov.apply_config_by_path("view_scale", json!(0.7)).unwrap();
         ov.apply_config_by_path("view_scale", Value::Null).unwrap();
         assert_eq!(ov.config.view_scale, 1.0); // 回 default
@@ -3788,7 +3788,7 @@ mod tests {
     async fn edit_config_rejects_no_llm_visible_subtree() {
         // LLM 受限投影（docs/config.md）：llm 整棵子树对 edit_config 统一拒绝；
         // 本地管道（apply_config_by_path = CLI/面板入口）不受投影限制
-        let mut ov = make_overseer("proj");
+        let mut ov = make_ambery("proj");
         for path in ["llm.active", "llm.providers.deepseek.model", "llm"] {
             let call = ToolCall {
                 id: "c".into(),

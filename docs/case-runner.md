@@ -29,7 +29,7 @@ Storage 快照驱动的回归测试与概念观测工具；兼承接 CLI 决策�
 case = storage 快照 + meta，无内嵌断言。runner 不判对错——它观测概念结构的行为：
 Context 能否 replay、panorama 包含谁、timer scan 产出了什么、queue/event_buffer 状态如何。
 
-**边界隔离**：runner 只读写一次性沙盒（`%TEMP%\overseer-case-<case_id>/`，开跑即重建）：storage 快照、运行期追加、config 落盘全部在沙盒内；生产 storage/config **永不写**。**headless**：绝不启动真实 OS 界面（窗口/显示器/输入），前端/OS 层永不在 case 观测范围。唯一例外：real LLM 模式只读生产 config 的 llm 段（providers）+ 经 env key 发网络请求。debug 模式零网络、完全确定性。
+**边界隔离**：runner 只读写一次性沙盒（`%TEMP%\ambery-case-<case_id>/`，开跑即重建）：storage 快照、运行期追加、config 落盘全部在沙盒内；生产 storage/config **永不写**。**headless**：绝不启动真实 OS 界面（窗口/显示器/输入），前端/OS 层永不在 case 观测范围。唯一例外：real LLM 模式只读生产 config 的 llm 段（providers）+ 经 env key 发网络请求。debug 模式零网络、完全确定性。
 
 ## 前端 headless 观测
 
@@ -67,13 +67,13 @@ case-runner 的观测范围覆盖前端 TS 能力：headless JS runtime 跑真�
 
 ### 运行形态（headless JS + RemoteBridge）
 
-`overseer-case frontend` 子命令内嵌 core，拉起 node + vitest + jsdom 子进程（沙盒 storage/config；bind 0 取空闲端口避让生产 47600）；真实前端模块经 RemoteBridge 连内嵌 core，`shim.ts` 提供 mock 窗口层；`frontend-case.test.ts` 首套，覆盖 store 基线与回读、Queue 放行回读、同 id 不重复/不复活（DOM 层）、统一关闭、windowed 不订全局流。
+`ambery-case frontend` 子命令内嵌 core，拉起 node + vitest + jsdom 子进程（沙盒 storage/config；bind 0 取空闲端口避让生产 47600）；真实前端模块经 RemoteBridge 连内嵌 core，`shim.ts` 提供 mock 窗口层；`frontend-case.test.ts` 首套，覆盖 store 基线与回读、Queue 放行回读、同 id 不重复/不复活（DOM 层）、统一关闭、windowed 不订全局流。
 
 接入观测的形态（§壳类比）：
 
 ```
 headless 前端 case =
-  case-runner（`overseer-case frontend`：内嵌 core，拉起 vitest 子进程）
+  case-runner（`ambery-case frontend`：内嵌 core，拉起 vitest 子进程）
   + 真实前端模块（vitest + jsdom）：store / RemoteBridge / pet 浏览器分支 / ChatPanel / ComponentManager
   + RemoteBridge（createBridge 无 __TAURI_INTERNALS__ 时自动选中，HTTP+WS 连内嵌 core）
   + shim.ts：端口接线 + core 就绪等待 + 沙盒 effect.jsonl 读取 + MockWindow 注册表（不拦截 Tauri API）
@@ -84,11 +84,11 @@ webview 必须挂真实窗口，Tauri/wry 无 headless webview（见 wry discuss
 
 ## 布局
 
-workspace 根 `Cargo.toml`（members：core / observe-derive / overseer-case；exclude app/src-tauri 壳独立构建）：
+workspace 根 `Cargo.toml`（members：core / observe-derive / ambery-case；exclude app/src-tauri 壳独立构建）：
 
 ```
-overseer-case/                    ← workspace member
-├── Cargo.toml                    ← deps: overseer-core (features=["case-runner"])
+ambery-case/                    ← workspace member
+├── Cargo.toml                    ← deps: ambery-core (features=["case-runner"])
 ├── cases/                        ← .case 文件（两段式），一个 case 一个文件（gitignore）
 │   └── closed-stale-cache.case
 ├── src/
@@ -99,7 +99,7 @@ overseer-case/                    ← workspace member
 ```
 
 ```
-overseer-core (feature "case-runner"):
+ambery-core (feature "case-runner"):
   src/
     case.rs                       ← 两段式解析 + CaseStep/meta + CaseObserve 组装 + pre_parse_check
     eval.rs                       ← 求值引擎（Parser trait/四 parser/变量/类型/DirectToString，case-eval-system.md）
@@ -108,7 +108,7 @@ overseer-core (feature "case-runner"):
 observe-derive/                   ← proc-macro（derive(Observe)，case-runner feature 可选依赖）
 ```
 
-> step 执行器在 overseer-case（binary 侧）而非 core：沙盒/终端剧情状态/打印是 CLI 关注点；
+> step 执行器在 ambery-case（binary 侧）而非 core：沙盒/终端剧情状态/打印是 CLI 关注点；
 > core 只承载概念（解析/求值/观测），保持库纯粹。
 
 ## Case 文件格式（两段式，`.case` 后缀）
@@ -269,9 +269,9 @@ panorama:
   实例全景同步（归零重 diff，1 个存活实例）：
   - timer-probe [Processing] project=filter-test
 
-context: %TEMP%/overseer-case-x/context.jsonl | 12 行 | 3100 tokens（真值 3000 + est 增量 100）
+context: %TEMP%/ambery-case-x/context.jsonl | 12 行 | 3100 tokens（真值 3000 + est 增量 100）
 
-effects: %TEMP%/overseer-case-x/effect.jsonl | 4 条
+effects: %TEMP%/ambery-case-x/effect.jsonl | 4 条
 
 context: …/context.jsonl | 切片 [74,122]（共 122 行）   ← 带 lines "($cursor,$tail]" 时
   74: {"type":"message","role":"user","content":"…","ts":…}
@@ -325,16 +325,16 @@ step 构造读通道剧情。手修完成 → 立即跑 case health 验证。
 
 ```bash
 # 从当前 storage 导出场景（--keep-agents 显式保留 work_agents；默认隐私过滤）
-overseer-case export --case-id closed-stale-cache \
+ambery-case export --case-id closed-stale-cache \
   --instances timer-probe,full-body-check \
   --keep-last 1 --keep-agents --trim-context
 
 # 预览行数
-overseer-case export --case-id closed-stale-cache --instances timer-probe --dry-run
+ambery-case export --case-id closed-stale-cache --instances timer-probe --dry-run
 # → work_agents: 2 行, context: 45 行（已 trim）, queue: 8 行（dry-run 预览，未生成 case）
 
 # 验证 case 合法性
-overseer-case cases/closed-stale-cache.case --health
+ambery-case cases/closed-stale-cache.case --health
 # → PASS
 ```
 
@@ -367,18 +367,18 @@ overseer-case cases/closed-stale-cache.case --health
 ## CLI
 
 ```
-overseer-case <case>                    # 执行所有 steps，observe 输出到 stdout
-overseer-case <case> --step-num 2       # 仅执行到第 N 步（含 observe）
-overseer-case <case> --health           # 验证 case 合法性
-overseer-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主（浏览器调试 RemoteBridge；docs/core-server.md）
-overseer-case frontend [--brain-addr <url> | --silent] # 前端 headless 模式：内嵌 core + 拉起 vitest 子进程（§壳类比）
-overseer-case export [--storage DIR] [--instances a,b] [--window 30m] \
+ambery-case <case>                    # 执行所有 steps，observe 输出到 stdout
+ambery-case <case> --step-num 2       # 仅执行到第 N 步（含 observe）
+ambery-case <case> --health           # 验证 case 合法性
+ambery-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主（浏览器调试 RemoteBridge；docs/core-server.md）
+ambery-case frontend [--brain-addr <url> | --silent] # 前端 headless 模式：内嵌 core + 拉起 vitest 子进程（§壳类比）
+ambery-case export [--storage DIR] [--instances a,b] [--window 30m] \
               [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] \
               [--keep-memory --memory name-a,AGENTS] [--keep-cron --cron-ids id-a,id-b] \
               [--dedup] [--dry-run] [--case-id ID]   # 从实时 storage 导出 case（stdout）
 ```
 
-`serve` / `frontend` 共享 `core::host` 装配骨架（Config/Harness/LLM/Terminal Adapter → AppState → 完整 router）；端口默认 47600、`OVERSEER_PORT` 覆盖（frontend 默认 bind 0 取空闲端口避让生产）。llm `active=debug` 时两者都必须显式给 `--brain-addr` 或 `--silent`（同 §LLM 模式 debug 决策源规则）。
+`serve` / `frontend` 共享 `core::host` 装配骨架（Config/Harness/LLM/Terminal Adapter → AppState → 完整 router）；端口默认 47600、`AMBERY_PORT` 覆盖（frontend 默认 bind 0 取空闲端口避让生产）。llm `active=debug` 时两者都必须显式给 `--brain-addr` 或 `--silent`（同 §LLM 模式 debug 决策源规则）。
 
 ## 用例：debug_brain.py 当 LLM（debug 模式）
 
@@ -389,7 +389,7 @@ debug_brain.py 是本地 OpenAI 兼容 HTTP 服务器（docs/debug-agent.md）�
 python scripts/debug_brain.py --port 47777
 
 # 终端 2：case-runner debug 模式，--brain-addr 连它
-overseer-case <case> --brain-addr http://127.0.0.1:47777
+ambery-case <case> --brain-addr http://127.0.0.1:47777
 ```
 
 - debug 模式必须显式给 `--brain-addr <url>` 或 `--silent`，缺省报错（本文 §LLM 模式）。
@@ -399,13 +399,13 @@ overseer-case <case> --brain-addr http://127.0.0.1:47777
 
 ```bash
 # workspace 根（推荐）
-cargo run -p overseer-case -- overseer-case/cases/closed-stale-cache.case          # 执行所有 steps
-cargo run -p overseer-case -- overseer-case/cases/closed-stale-cache.case --health # case 合法性校验
+cargo run -p ambery-case -- ambery-case/cases/closed-stale-cache.case          # 执行所有 steps
+cargo run -p ambery-case -- ambery-case/cases/closed-stale-cache.case --health # case 合法性校验
 
 # crate 内亦可（workspace 感知）
-cd overseer-case
+cd ambery-case
 cargo build
 cargo run -- cases/closed-stale-cache.case
 ```
 
-`overseer-core` 需 `case-runner` feature 编译：`cargo build --features case-runner`（`overseer-case` 已自动启用）。
+`ambery-core` 需 `case-runner` feature 编译：`cargo build --features case-runner`（`ambery-case` 已自动启用）。

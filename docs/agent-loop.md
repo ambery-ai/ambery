@@ -23,7 +23,7 @@ struct LlmOutput { content: Option<String>, tool_calls: Vec<ToolCall> }
 
 **Config v2（多 profile + active 选择器）**：providers 存各家 `base_url/model/api_key_env/temperature`，切换只改 `active` 不丢配置；key 本体只在环境变量里。首次启动 config.json 不存在时写入默认预设（deepseek/moonshot/zhipu/openai/ollama 公开厂商）；私有 provider 由用户自行加入本地 config.json。
 
-**thinking 模型的 reasoning_content 回传要求**：thinking 模型开 thinking 模式时，历史消息里任何带 `tool_calls` 的 assistant 消息**必须带回 `reasoning_content` 字段**，否则 400（空串可过，`thinking:{type:"disabled"}` 不被接受）。因此 ContextMessage 持久化 `reasoning_content`（旧记录无此字段，回放补空串），OverseerBackend 在每轮 assistant tool_calls 消息上存思维链。
+**thinking 模型的 reasoning_content 回传要求**：thinking 模型开 thinking 模式时，历史消息里任何带 `tool_calls` 的 assistant 消息**必须带回 `reasoning_content` 字段**，否则 400（空串可过，`thinking:{type:"disabled"}` 不被接受）。因此 ContextMessage 持久化 `reasoning_content`（旧记录无此字段，回放补空串），AmberyBackend 在每轮 assistant tool_calls 消息上存思维链。
 
 **记录 ≠ 回放**：纯文本回复的 reasoning_content **同样全保真落盘**（context.jsonl 可审计、debug/case 可查思维链），但**不回放**——deepseek 官方要求多轮不回传 reasoning（每轮思维一次性），build_body 只在 tool_calls 分支写 reasoning_content，纯文本回复不花 token、无 400 风险。
 
@@ -35,7 +35,7 @@ struct LlmOutput { content: Option<String>, tool_calls: Vec<ToolCall> }
 
 ## Tool Set 协议（concepts §10a）
 
-九个 function definitions，CLI 风格命名，OverseerBackend 执行后以 `tool` role message 追加 result：
+九个 function definitions，CLI 风格命名，AmberyBackend 执行后以 `tool` role message 追加 result：
 
 | tool | 参数 | 执行 | result |
 |---|---|---|---|
@@ -74,7 +74,7 @@ struct LlmOutput { content: Option<String>, tool_calls: Vec<ToolCall> }
 
 当本 turn 预算耗尽，已执行与未执行 calls 的 tool results 照常写入 Context；后端随后以空 tools 正常请求一次 LLM，使其基于这些结果生成最终文字回复。该收尾请求不追加特殊 system 记录，也不能再发起 tool call；回复后本 turn 正常结束。
 
-**沉默语义**（设计决定）：LLM 返回空 content 且无 tool_calls = 决定沉默——Context 不追加任何 assistant 消息（「ペット可以醒了、读了、觉得不需要打扰，沉默」concepts §9b）。
+**沉默语义**（设计决定）：LLM 返回空 content 且无 tool_calls = 决定沉默——Context 不追加任何 assistant 消息（「pet 可以醒了、读了、觉得不需要打扰，沉默」concepts §9b）。
 
 ## Mock Hook 契约（HTTP）
 
@@ -86,7 +86,7 @@ POST /hook
 {
   "event": "session_start" | "stop",
   "instance": "demo-webapp",        // Code CLI 实例名（tab 名）
-  "project": "terminal-overseer",       // 项目名
+  "project": "ambery",       // 项目名
   "content": "……",                      // stop 时：模拟读到的 Terminal Content（真实由 sidecar 读）
   "last_assistant_message": "……"        // stop 时：模拟 hook payload 自带字段
 }

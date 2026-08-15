@@ -8,9 +8,9 @@
 |---|---|---|
 | `locate.ps1` | 枚举进程下所有窗口（定位/验证窗口相关改动） | 直接运行 |
 | `run-vite-dev.ps1` | vite dev 常驻 runner（崩溃自动重启） | 后台常驻 |
-| `overseer-activity` | 读取 storage JSONL 的活动查看器（core 独立 bin） | 见下 |
+| `ambery-activity` | 读取 storage JSONL 的活动查看器（core 独立 bin） | 见下 |
 
-## overseer-activity — storage 活动查看器
+## ambery-activity — storage 活动查看器
 
 读取 Storage 目录下 JSONL 文件（docs/storage.md），TUI 交互查看内部消息流。用于开发/调试时观察系统实际写下的内容。
 
@@ -34,4 +34,4 @@ TUI 交互界面（`ratatui`）。核心交互：
 
 ### 实现
 
-Rust 独立 bin，复用 core 的 JSONL 记录类型（`ContextMessage` / `Effect` 等）。目录参数默认取 `storage_dir`（`OVERSEER_STORAGE_DIR` 可覆盖），也支持显式传目录。
+Rust 独立 bin，复用 core 的 JSONL 记录类型（`ContextMessage` / `Effect` 等）。目录参数默认取 `storage_dir`（`AMBERY_STORAGE_DIR` 可覆盖），也支持显式传目录。

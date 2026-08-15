@@ -41,7 +41,7 @@ it("IME 组合输入中 Enter 只确认候选不误发送；Shift+Enter 换行�
   const { mount } = await makePanel();
   const input = mount.querySelector<HTMLTextAreaElement>(".chat-input")!;
   const sendBtn = mount.querySelector<HTMLButtonElement>(".chat-send")!;
-  // 共享 core（overseer-case frontend 单例）：context 可能已有其他文件的消息——断言用相对计数
+  // 共享 core（ambery-case frontend 单例）：context 可能已有其他文件的消息——断言用相对计数
   const bubbles = () => mount.querySelectorAll(".chat-user").length;
   const base = bubbles();
   input.value = "にほんご";
@@ -99,7 +99,7 @@ it("发送失败：文字退回输入框 + 错误行 + 重试路径", async () =
 });
 
 it("滚动意图：跟随贴底；滚离后新消息只提示不抢视口；点提示回底清零", async () => {
-  // 共享 core（overseer-case frontend 单例）：先归一 UI 语言为 zh，防文件序影响
+  // 共享 core（ambery-case frontend 单例）：先归一 UI 语言为 zh，防文件序影响
   await fetch(`${coreBase()}/config`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

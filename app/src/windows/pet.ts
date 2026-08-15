@@ -1,4 +1,4 @@
-// Pet 窗口入口（docs/multi-window.md）：ペット + Autonomy + 位置广播 + 动画窗口自适应
+// Pet 窗口入口（docs/multi-window.md）：pet + Autonomy + 位置广播 + 动画窗口自适应
 // 窗口尺寸走 docs/pet-window-size.md：纯函数公式 + 六入口 + 中心锚定（钉基准中心，非窗口几何中心）
 import { Autonomy } from "../autonomy";
 import { BrowserMockBridge, createBridge, type AppConfig, type Motion } from "../bridge";
@@ -526,5 +526,5 @@ export async function main() {
     debug.flushEventBuffer = () => bridge.debugFlushEventBuffer();
     debug.appendMessage = (role: any, content: any) => bridge.debugAppendMessage(role, content);
   }
-  window.__overseer = debug as any;
+  window.__ambery = debug as any;
 }

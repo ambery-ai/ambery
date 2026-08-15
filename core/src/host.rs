@@ -1,9 +1,9 @@
 //! 共享宿主装配（docs/case-runner.md §壳类比）：debug 宿主的统一骨架——
 //! Config/Harness/LLM/Terminal Adapter 装配 → AppState → 完整 router。
-//! overseer-case serve / frontend 共用；Tauri 壳自带窗口管理分歧，不复用本骨架。
+//! ambery-case serve / frontend 共用；Tauri 壳自带窗口管理分歧，不复用本骨架。
 
 use crate::llm::LlmBackend;
-use crate::overseer::OverseerBackend;
+use crate::ambery::AmberyBackend;
 use crate::server::{
     now_ms, router, spawn_config_watcher, spawn_cron_task, spawn_queue_consumer,
     spawn_timer_task, AppState,
@@ -26,8 +26,8 @@ pub struct HostParts {
 }
 
 /// 装配宿主（docs/case-runner.md §壳类比「进程主体内嵌 core」）：
-/// Config（OVERSEER_CONFIG_DIR 可覆盖，`adjust_config` 给调用方一次注入机会，
-/// 如 serve 的 brain provider）→ Harness（OVERSEER_STORAGE_DIR）→
+/// Config（AMBERY_CONFIG_DIR 可覆盖，`adjust_config` 给调用方一次注入机会，
+/// 如 serve 的 brain provider）→ Harness（AMBERY_STORAGE_DIR）→
 /// LLM（`wrap_backend` 给调用方一次换入决策源的机会；serve/frontend 传恒等）→
 /// Terminal Adapter（WtAdapter 受 adapter_wt 门控 + MapAdapter 兜底 → Composite；
 /// primitives 经 sidecar 交付）。
@@ -40,13 +40,13 @@ pub fn assemble_host(
     let mut config = Config::load_or_default(&config_dir);
     adjust_config(&mut config);
     // debug 宿主可用环境变量缩短 Timer 参数便于观察（真实值由 Config 定义）
-    if let Some(n) = std::env::var("OVERSEER_TIMER_INTERVAL_MS").ok().and_then(|v| v.parse().ok()) {
+    if let Some(n) = std::env::var("AMBERY_TIMER_INTERVAL_MS").ok().and_then(|v| v.parse().ok()) {
         config.timer.interval_ms = n;
     }
-    if let Some(n) = std::env::var("OVERSEER_TIMER_STAGGER_MS").ok().and_then(|v| v.parse().ok()) {
+    if let Some(n) = std::env::var("AMBERY_TIMER_STAGGER_MS").ok().and_then(|v| v.parse().ok()) {
         config.timer.stagger_ms = n;
     }
-    let tick_ms: u64 = std::env::var("OVERSEER_TIMER_TICK_MS")
+    let tick_ms: u64 = std::env::var("AMBERY_TIMER_TICK_MS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(config.timer.tick_ms as u64);
@@ -61,19 +61,19 @@ pub fn assemble_host(
     .expect("load harness");
     println!("llm: active=「{}」", config.llm.active);
     let backend = wrap_backend(LlmBackend::from_config(&config.llm));
-    let mut overseer = OverseerBackend::new(harness, config, backend);
+    let mut ambery = AmberyBackend::new(harness, config, backend);
 
     // Terminal Adapter 装配（docs/terminal-adapter.md）：adapter_wt 开关门控（冷字段）
-    let sidecar = if overseer.config.terminal.adapter_wt {
+    let sidecar = if ambery.config.terminal.adapter_wt {
         crate::paths::sidecar_exe()
             .map(crate::sidecar::SidecarClient::new)
             .map(Arc::new)
     } else {
         None
     };
-    overseer.sidecar_enabled = sidecar.is_some();
+    ambery.sidecar_enabled = sidecar.is_some();
     if let Some(p) = crate::paths::sidecar_exe() {
-        if overseer.sidecar_enabled {
+        if ambery.sidecar_enabled {
             println!("sidecar enabled: {}", p.display());
         }
     }
@@ -82,19 +82,19 @@ pub fn assemble_host(
     if let Some(sc) = &sidecar {
         adapters.push(Arc::new(WtAdapter::new(sc.clone())));
     }
-    if overseer.config.terminal.adapter_zellij {
+    if ambery.config.terminal.adapter_zellij {
         adapters.push(Arc::new(ZellijAdapter::new(Arc::new(
             crate::terminal::ProcessZellijRunner,
         ))));
     }
     adapters.push(Arc::new(MapAdapter::new(mock.clone())));
-    overseer.terminal = Some(Arc::new(Composite::new(adapters)));
+    ambery.terminal = Some(Arc::new(Composite::new(adapters)));
     if let Some(sc) = &sidecar {
-        overseer.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
+        ambery.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
     }
 
     HostParts {
-        state: Arc::new(AppState::new(overseer, mock)),
+        state: Arc::new(AppState::new(ambery, mock)),
         config_dir,
         tick_ms,
         timer_batch,
@@ -125,6 +125,6 @@ pub async fn serve_host(parts: HostParts, port: u16) {
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .unwrap_or_else(|e| panic!("bind {addr}: {e}"));
-    println!("overseer-core debug listening on http://{addr}");
+    println!("ambery-core debug listening on http://{addr}");
     axum::serve(listener, app).await.expect("serve");
 }

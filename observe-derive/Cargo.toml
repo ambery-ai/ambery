@@ -1,5 +1,5 @@
 [package]
-name = "overseer-observe-derive"
+name = "ambery-observe-derive"
 version = "0.1.0"
 edition = "2021"
 

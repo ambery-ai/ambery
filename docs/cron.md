@@ -50,7 +50,7 @@ append-only 事件行，replay 折叠为当前计划集：
 - **entries**：持久化计划（上节），server 后台任务每 500ms 轮询 due → 到点 message 作 `system` 输入入 Queue（与 hook 同构，fire-and-forget 唤醒单消费者）。
 - **waiters**：sleep 的非持久化一次性等待（崩溃丢失可接受，与 Queue 未放行输入同理）；注册返回 oneshot，调度轮询到点通知。
 
-waiters 经独立共享句柄访问（不经过 OverseerBackend 锁）——sleep 占用 Queue 串行点等待时，调度任务必须仍能到点唤醒它（无死锁）。
+waiters 经独立共享句柄访问（不经过 AmberyBackend 锁）——sleep 占用 Queue 串行点等待时，调度任务必须仍能到点唤醒它（无死锁）。
 
 ## sleep
 

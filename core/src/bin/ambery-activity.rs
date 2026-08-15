@@ -1,10 +1,10 @@
-//! overseer-activity（docs/tools.md §overseer-activity）：storage 活动查看器。
+//! ambery-activity（docs/tools.md §ambery-activity）：storage 活动查看器。
 //! 读取 Storage 目录下 JSONL 文件（docs/storage.md），交互查看内部消息流。
-//! 目录参数默认取 `storage_dir`（`OVERSEER_STORAGE_DIR` 可覆盖），也支持显式传目录。
+//! 目录参数默认取 `storage_dir`（`AMBERY_STORAGE_DIR` 可覆盖），也支持显式传目录。
 
-use overseer_core::context::ContextMessage;
-use overseer_core::queue::QueueInput;
-use overseer_core::{
+use ambery_core::context::ContextMessage;
+use ambery_core::queue::QueueInput;
+use ambery_core::{
     AgentEntry, ContextLine, EffectRecord, TerminalContentRecord, CONTEXT_FILE, EFFECT_FILE,
     QUEUE_FILE, TERMINAL_CONTENT_FILE, WORK_AGENTS_FILE,
 };
@@ -198,7 +198,7 @@ fn read_work_agents(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
 
 fn read_cron(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
     let mut rows = Vec::new();
-    for line in read_lines(dir, overseer_core::cron::CRON_FILE)? {
+    for line in read_lines(dir, ambery_core::cron::CRON_FILE)? {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
@@ -215,7 +215,7 @@ fn read_cron(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
             _ => line_brief(&line),
         };
         rows.push(ActivityRow {
-            file: overseer_core::cron::CRON_FILE,
+            file: ambery_core::cron::CRON_FILE,
             kind: op,
             ts,
             summary,
@@ -228,7 +228,7 @@ fn line_brief(line: &str) -> String {
     truncate(line, 60)
 }
 
-/// CLI 选项（docs/tools.md §overseer-activity：--dir 覆盖目录，--follow tail 新增）
+/// CLI 选项（docs/tools.md §ambery-activity：--dir 覆盖目录，--follow tail 新增）
 struct Options {
     dir: PathBuf,
     follow: bool,
@@ -237,7 +237,7 @@ struct Options {
 }
 
 fn parse_args() -> Options {
-    let mut dir = overseer_core::paths::storage_dir();
+    let mut dir = ambery_core::paths::storage_dir();
     let mut follow = false;
     let mut dump = false;
     let mut args = std::env::args().skip(1);
@@ -269,13 +269,13 @@ fn main() {
             } else {
                 // TUI 为默认形态（docs/tools.md §形态：TUI 交互界面）
                 if let Err(e) = run_tui(opt.dir, a, opt.follow) {
-                    eprintln!("overseer-activity: {e}");
+                    eprintln!("ambery-activity: {e}");
                     std::process::exit(1);
                 }
             }
         }
         Err(e) => {
-            eprintln!("overseer-activity: {}: {e}", opt.dir.display());
+            eprintln!("ambery-activity: {}: {e}", opt.dir.display());
             std::process::exit(1);
         }
     }
@@ -301,7 +301,7 @@ const FILES: &[&str] = &[
     EFFECT_FILE,
     TERMINAL_CONTENT_FILE,
     WORK_AGENTS_FILE,
-    overseer_core::cron::CRON_FILE,
+    ambery_core::cron::CRON_FILE,
 ];
 
 struct Tui {
@@ -427,7 +427,7 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                 .split(f.area());
 
             let title = format!(
-                "overseer-activity  file={}  rows={}  filter={}{}",
+                "ambery-activity  file={}  rows={}  filter={}{}",
                 file_label,
                 view.len(),
                 filter,
@@ -511,7 +511,7 @@ mod tests {
 
     fn tmp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "overseer-activity-test-{}-{}",
+            "ambery-activity-test-{}-{}",
             tag,
             std::process::id()
         ));
@@ -558,7 +558,7 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            dir.join(overseer_core::cron::CRON_FILE),
+            dir.join(ambery_core::cron::CRON_FILE),
             r#"{"op":"create","id":"c1","schedule":{"every_ms":1000},"message":"提醒","ts":7}"#
                 .to_string()
                 + "\n",
@@ -577,7 +577,7 @@ mod tests {
         assert!(files.contains(EFFECT_FILE));
         assert!(files.contains(TERMINAL_CONTENT_FILE));
         assert!(files.contains(WORK_AGENTS_FILE));
-        assert!(files.contains(overseer_core::cron::CRON_FILE));
+        assert!(files.contains(ambery_core::cron::CRON_FILE));
         let _ = fs::remove_dir_all(&dir);
     }
 

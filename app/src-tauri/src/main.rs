@@ -1,13 +1,13 @@
-//! Tauri 壳（docs/multi-window.md）：三独立窗口（pet + chat + menu）+ 内嵌 overseer-core。
+//! Tauri 壳（docs/multi-window.md）：三独立窗口（pet + chat + menu）+ 内嵌 ambery-core。
 //! 前端通信走 Tauri IPC（docs/core-server.md），仅 /hook 保留 HTTP。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use overseer_core::llm::LlmBackend;
-use overseer_core::overseer::OverseerBackend;
-use overseer_core::context::Role;
-use overseer_core::server::{now_ms, hook_router, spawn_queue_consumer, spawn_timer_task, AppState};
-use overseer_core::{Config, Harness};
+use ambery_core::llm::LlmBackend;
+use ambery_core::ambery::AmberyBackend;
+use ambery_core::context::Role;
+use ambery_core::server::{now_ms, hook_router, spawn_queue_consumer, spawn_timer_task, AppState};
+use ambery_core::{Config, Harness};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::Emitter;
@@ -56,7 +56,7 @@ fn wait_state(ts: &TauriState) -> Result<Arc<AppState>, String> {
 #[tauri::command]
 async fn get_state(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let ov = s.overseer().lock().await;
+    let ov = s.ambery().lock().await;
     Ok(json!({
         "instances": ov.harness.agents.iter().map(|a| json!({"id":a.hash,"name":a.name,"status":a.status})).collect::<Vec<_>>(),
         "pendingNotifications": 0
@@ -66,7 +66,7 @@ async fn get_state(state: tauri::State<'_, SharedTauriState>) -> Result<Value, S
 #[tauri::command]
 async fn get_context(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let ov = s.overseer().lock().await;
+    let ov = s.ambery().lock().await;
     Ok(json!(ov.harness.context.messages()))
 }
 
@@ -74,8 +74,8 @@ async fn get_context(state: tauri::State<'_, SharedTauriState>) -> Result<Value,
 async fn append_user(state: tauri::State<'_, SharedTauriState>, text: String) -> Result<Value, String> {
     let s = wait_state(&state)?;
     {
-        let mut ov = s.overseer().lock().await;
-        ov.enqueue(Role::User, text, overseer_core::queue::QueueSource::UserChat, now_ms()).map_err(|e| e.to_string())?;
+        let mut ov = s.ambery().lock().await;
+        ov.enqueue(Role::User, text, ambery_core::queue::QueueSource::UserChat, now_ms()).map_err(|e| e.to_string())?;
     }
     // 生产者只入队，放行由消费者任务驱动（concepts §10c）
     s.queue_notify.notify_one();
@@ -96,7 +96,7 @@ async fn push_event(
     state_snapshot: Option<Value>,
 ) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let mut ov = s.overseer().lock().await;
+    let mut ov = s.ambery().lock().await;
     // 结构化事实 → 文本（lifecycle 语义单源，docs/i18n.md §Harness 内部语言）
     let ev = json!({
         "action": action,
@@ -106,8 +106,8 @@ async fn push_event(
         "target": target,
         "checked": checked,
     });
-    let desc = overseer_core::lifecycle::user_action_desc(
-        overseer_core::i18n::Lang::of(&ov.config.harness_language),
+    let desc = ambery_core::lifecycle::user_action_desc(
+        ambery_core::i18n::Lang::of(&ov.config.harness_language),
         &ev,
     );
     // 动作流记录（docs/effect-reporting.md §kind）：前端 push_event = interaction/frontend
@@ -117,10 +117,10 @@ async fn push_event(
         if let Some(cid) = card_id.as_deref() {
             let ts = now_ms();
             if let Some(entry) = ov.harness.cards_remove(cid) {
-                let lc = overseer_core::lifecycle::DefaultLifecycle::for_lang(
-                    overseer_core::i18n::Lang::of(&ov.config.harness_language),
+                let lc = ambery_core::lifecycle::DefaultLifecycle::for_lang(
+                    ambery_core::i18n::Lang::of(&ov.config.harness_language),
                 );
-                use overseer_core::lifecycle::Lifecycle;
+                use ambery_core::lifecycle::Lifecycle;
                 ov.harness.event_buffer.push(lc.user_close_line(&entry.meta));
                 let alive = ov.harness.cards.len();
                 ov.harness.event_buffer.push(lc.closed_line(&entry.meta, alive, ts));
@@ -139,7 +139,7 @@ async fn push_event(
 async fn get_config(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     eprintln!("[tauri-cmd] get_config called");
     let s = wait_state(&state)?;
-    let ov = s.overseer().lock().await;
+    let ov = s.ambery().lock().await;
     let cfg = &ov.config;
     Ok(json!({ "kaomoji": cfg.kaomoji, "setAutonomyDefaultTtlMs": cfg.set_autonomy_default_ttl_ms, "viewScale": cfg.view_scale, "badgeStyle": cfg.badge_style, "badgeSide": cfg.badge_side, "theme": cfg.theme, "themes": cfg.themes, "uiLanguage": cfg.ui_language, "name": cfg.name }))
 }
@@ -148,9 +148,9 @@ async fn get_config(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
 #[tauri::command]
 async fn export_theme(state: tauri::State<'_, SharedTauriState>, name: String) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let ov = s.overseer().lock().await;
+    let ov = s.ambery().lock().await;
     let root = ov.harness.config_dir().to_path_buf();
-    match overseer_core::config::theme::export_theme(&root, &ov.config, &name) {
+    match ambery_core::config::theme::export_theme(&root, &ov.config, &name) {
         Ok(path) => {
             // 写文件副作用，端点记录（docs/effect-reporting.md §通道）
             ov.record_frontend_effect("theme_export", json!({ "name": name.as_str() }));
@@ -166,20 +166,20 @@ async fn export_theme(state: tauri::State<'_, SharedTauriState>, name: String) -
 async fn import_theme(state: tauri::State<'_, SharedTauriState>, file: String) -> Result<Value, String> {
     let s = wait_state(&state)?;
     let root = {
-        let ov = s.overseer().lock().await;
+        let ov = s.ambery().lock().await;
         ov.harness.config_dir().to_path_buf()
     };
-    let (name, value) = match overseer_core::config::theme::import_theme(&root, &file) {
+    let (name, value) = match ambery_core::config::theme::import_theme(&root, &file) {
         Ok(r) => r,
         Err(e) => return Ok(json!({ "ok": false, "error": e })),
     };
     let path = format!("themes.{name}");
-    let mut ov = s.overseer().lock().await;
+    let mut ov = s.ambery().lock().await;
     match ov.apply_config_by_path(&path, value) {
         Ok(outcome) => {
             ov.record_frontend_effect("config_update", json!({ "path": path.as_str() }));
             drop(ov);
-            overseer_core::server::finish_config_outcome(&s, outcome).await;
+            ambery_core::server::finish_config_outcome(&s, outcome).await;
             Ok(json!({ "ok": true, "name": name }))
         }
         Err(e) => Ok(json!({ "ok": false, "error": e })),
@@ -189,15 +189,15 @@ async fn import_theme(state: tauri::State<'_, SharedTauriState>, file: String) -
 #[tauri::command]
 async fn get_config_schema(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let ov = s.overseer().lock().await;
+    let ov = s.ambery().lock().await;
     let restart = ov.restart_required();
     let load_error = s.config_error().await;
     Ok(json!({
-        "version": overseer_core::config::migrate::CURRENT_VERSION,
+        "version": ambery_core::config::migrate::CURRENT_VERSION,
         "readOnly": ov.config.read_only,
         "restartRequired": restart,
         "loadError": load_error,
-        "nodes": overseer_core::config::reflect::config_nodes(&ov.config),
+        "nodes": ambery_core::config::reflect::config_nodes(&ov.config),
     }))
 }
 
@@ -205,14 +205,14 @@ async fn get_config_schema(state: tauri::State<'_, SharedTauriState>) -> Result<
 #[tauri::command]
 async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, value: Value) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let mut ov = s.overseer().lock().await;
+    let mut ov = s.ambery().lock().await;
     match ov.apply_config_by_path(&path, value) {
         Ok(outcome) => {
             // 动作流记录（docs/effect-reporting.md §kind）：前端设置面板 = config_update/frontend
             ov.record_frontend_effect("config_update", json!({ "path": path.as_str() }));
             let restart = outcome.restart_required.clone();
             drop(ov);
-            overseer_core::server::finish_config_outcome(&s, outcome).await;
+            ambery_core::server::finish_config_outcome(&s, outcome).await;
             Ok(json!({ "ok": true, "restartRequired": restart }))
         }
         Err(e) => Ok(json!({ "ok": false, "error": e })),
@@ -225,11 +225,11 @@ async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, val
 #[tauri::command]
 async fn list_cards(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let ov = s.overseer().lock().await;
+    let ov = s.ambery().lock().await;
     let cards_dir = ov.harness.cards_dir();
     let mut out = vec![];
     for (id, e) in &ov.harness.cards {
-        if let Some(component) = overseer_core::cards::read_component(&cards_dir, id) {
+        if let Some(component) = ambery_core::cards::read_component(&cards_dir, id) {
             out.push(json!({
                 "component": component,
                 "user_closed": e.user_closed,
@@ -246,7 +246,7 @@ async fn list_cards(state: tauri::State<'_, SharedTauriState>) -> Result<Value, 
 #[tauri::command]
 async fn update_card_layout(state: tauri::State<'_, SharedTauriState>, id: String, offset: (i64, i64)) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let mut ov = s.overseer().lock().await;
+    let mut ov = s.ambery().lock().await;
     match ov.harness.cards_write_layout(&id, offset) {
         Ok(()) => {
             ov.record_frontend_effect("card_layout", json!({ "id": id.as_str(), "manual": true }));
@@ -262,7 +262,7 @@ async fn update_card_layout(state: tauri::State<'_, SharedTauriState>, id: Strin
 #[tauri::command]
 async fn set_card_user_closed(state: tauri::State<'_, SharedTauriState>, id: String, user_closed: bool) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let mut ov = s.overseer().lock().await;
+    let mut ov = s.ambery().lock().await;
     match ov.harness.cards_write_user_closed(&id, user_closed) {
         Ok(()) => {
             ov.record_frontend_effect(
@@ -279,7 +279,7 @@ async fn set_card_user_closed(state: tauri::State<'_, SharedTauriState>, id: Str
 #[tauri::command]
 async fn record_effect(state: tauri::State<'_, SharedTauriState>, kind: String, payload: Option<Value>) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let ov = s.overseer().lock().await;
+    let ov = s.ambery().lock().await;
     ov.record_frontend_effect(&kind, payload.unwrap_or(Value::Null));
     Ok(json!({ "ok": true }))
 }
@@ -345,7 +345,7 @@ async fn ensure_card_window<R: tauri::Runtime>(
             Some(CardWinState::Alive) => {
                 if let Some(w) = app.get_webview_window(&label) {
                     let _ = w.emit("card:spec", spec);
-                    let ov = s.overseer().lock().await;
+                    let ov = s.ambery().lock().await;
                     ov.record_frontend_effect("event_emit", json!({ "event": "card:spec", "target": label.as_str() }));
                     return Ok(json!({ "result": "reused" }));
                 }
@@ -379,7 +379,7 @@ async fn ensure_card_window<R: tauri::Runtime>(
         .map_err(|e| e.to_string())?;
     registry.0.lock().unwrap().insert(label.clone(), CardWinState::Alive);
     {
-        let ov = s.overseer().lock().await;
+        let ov = s.ambery().lock().await;
         ov.record_frontend_effect("window_opened", json!({ "window": label.as_str() }));
     }
     // 页面 JS listener 注册在 load 之后；沿用 500ms 经验延迟推 spec（窗已毁则 emit 静默失败）
@@ -415,7 +415,7 @@ async fn close_card_window<R: tauri::Runtime>(
     wait_window_gone(&app, &label).await;
     registry.0.lock().unwrap().remove(&label);
     let s = wait_state(&state)?;
-    let ov = s.overseer().lock().await;
+    let ov = s.ambery().lock().await;
     ov.record_frontend_effect("window_closed", json!({ "window": label.as_str() }));
     Ok(json!({ "result": "closed" }))
 }
@@ -453,50 +453,50 @@ fn main() {
 }
 
 async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
-    let config = Config::load_or_default(&overseer_core::paths::config_root());
+    let config = Config::load_or_default(&ambery_core::paths::config_root());
     let harness = Harness::load_with_lang(
-        &overseer_core::paths::storage_dir(),
-        &overseer_core::paths::config_root(),
+        &ambery_core::paths::storage_dir(),
+        &ambery_core::paths::config_root(),
         config.effective_compression_limit().unwrap_or(usize::MAX),
         now_ms(),
-        overseer_core::i18n::Lang::of(&config.harness_language),
+        ambery_core::i18n::Lang::of(&config.harness_language),
     ).expect("load harness");
     let backend = LlmBackend::from_config(&config.llm);
     let (timer_tick, timer_batch) = (config.timer.tick_ms, config.timer.batch);
-    let mut overseer = OverseerBackend::new(harness, config, backend);
+    let mut ambery = AmberyBackend::new(harness, config, backend);
 
     // Terminal Adapter 装配（docs/terminal-adapter.md）：adapter_wt 开关门控（冷字段，
     // 装配期生效）——false = wt sidecar 完全不接入（无定位/读取/原语/启动扫描），
     // Hook 驱动核心体验仍可用；MapAdapter 兜底（/debug/terminal 注入）恒在
-    let sidecar = if overseer.config.terminal.adapter_wt {
-        overseer_core::paths::sidecar_exe()
-            .map(overseer_core::sidecar::SidecarClient::new)
+    let sidecar = if ambery.config.terminal.adapter_wt {
+        ambery_core::paths::sidecar_exe()
+            .map(ambery_core::sidecar::SidecarClient::new)
             .map(Arc::new)
     } else {
         None
     };
     let sidecar_for_sweep = sidecar.clone();
-    overseer.sidecar_enabled = sidecar.is_some();
+    ambery.sidecar_enabled = sidecar.is_some();
 
     let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<String, String>::new()));
     {
-        use overseer_core::terminal::{Composite, MapAdapter, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
+        use ambery_core::terminal::{Composite, MapAdapter, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
         let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
         if let Some(sc) = &sidecar {
             adapters.push(Arc::new(WtAdapter::new(sc.clone())));
         }
         adapters.push(Arc::new(MapAdapter::new(mock.clone())));
-        overseer.terminal = Some(Arc::new(Composite::new(adapters)));
+        ambery.terminal = Some(Arc::new(Composite::new(adapters)));
         if let Some(sc) = &sidecar {
-            overseer.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
+            ambery.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
         }
     }
 
-    let state = Arc::new(AppState::new(overseer, mock));
+    let state = Arc::new(AppState::new(ambery, mock));
 
     // 启动扫描
     if let Some(sc) = sidecar_for_sweep.clone() {
-        let mut ov = state.overseer().lock().await;
+        let mut ov = state.ambery().lock().await;
         if let Err(e) = ov.startup_sweep(&move |req| sc.call(req), now_ms()).await {
             eprintln!("startup sweep: {e}");
         }
@@ -505,9 +505,9 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     spawn_timer_task(state.clone(), timer_tick, timer_batch);
     spawn_queue_consumer(state.clone());
     // 外部文件自动载入（docs/config.md §外部文件自动载入）
-    overseer_core::server::spawn_config_watcher(state.clone(), overseer_core::paths::config_root());
+    ambery_core::server::spawn_config_watcher(state.clone(), ambery_core::paths::config_root());
     // Cron 调度任务（concepts §10g，docs/cron.md）
-    overseer_core::server::spawn_cron_task(state.clone());
+    ambery_core::server::spawn_cron_task(state.clone());
 
     // 注入 Tauri managed state
     *state_mgr.0.lock().unwrap() = Some(state.clone());
@@ -529,7 +529,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     // Tauri 模式：前端走 IPC（TauriBridge），HTTP 仅留 /hook（外部 hook 脚本，进程外不可走 command）
     let app = hook_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:47600").await.expect("bind 47600");
-    eprintln!("overseer-core listening on http://127.0.0.1:47600");
+    eprintln!("ambery-core listening on http://127.0.0.1:47600");
     axum::serve(listener, app).await.expect("serve core");
 }
 
@@ -539,12 +539,12 @@ mod ipc_tests {
     use super::*;
 
     fn build_harness_state(tag: &str) -> Arc<AppState> {
-        let dir = std::env::temp_dir().join(format!("overseer-ipc-test-{tag}"));
+        let dir = std::env::temp_dir().join(format!("ambery-ipc-test-{tag}"));
         let _ = std::fs::remove_dir_all(&dir);
         let config = Config::load_or_default(&dir);
         let harness = Harness::load(&dir, &dir, config.effective_compression_limit().unwrap_or(usize::MAX), 0).unwrap();
         let backend = LlmBackend::from_config(&config.llm);
-        let ov = OverseerBackend::new(harness, config, backend);
+        let ov = AmberyBackend::new(harness, config, backend);
         let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         Arc::new(AppState::new(ov, mock))
     }
@@ -576,7 +576,7 @@ mod ipc_tests {
         let state = build_harness_state("list-cards");
         // 落两张卡：一张正常、一张用户已隐藏（user_closed）
         {
-            let mut ov = state.overseer().lock().await;
+            let mut ov = state.ambery().lock().await;
             ov.harness
                 .cards_upsert(&json!({"id":"todo-1","type":"todobox","title":"清单","items":[{"text":"a","done":false}]}), 1000)
                 .unwrap();
@@ -601,7 +601,7 @@ mod ipc_tests {
         assert_eq!(todo["layout"]["manual"], json!(true));
         let note = arr.iter().find(|c| c["component"]["id"] == "note-2").unwrap();
         assert_eq!(note["user_closed"], json!(true));
-        let dir = std::env::temp_dir().join("overseer-ipc-test-list-cards");
+        let dir = std::env::temp_dir().join("ambery-ipc-test-list-cards");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -610,7 +610,7 @@ mod ipc_tests {
         let app = mock_app_with_commands();
         let state = build_harness_state("layout");
         {
-            let mut ov = state.overseer().lock().await;
+            let mut ov = state.ambery().lock().await;
             ov.harness
                 .cards_upsert(&json!({"id":"todo-1","type":"todobox","title":"清单","items":[{"text":"a","done":false}]}), 1000)
                 .unwrap();
@@ -625,7 +625,7 @@ mod ipc_tests {
         let body = resp.unwrap().deserialize::<Value>().unwrap();
         assert_eq!(body["ok"], json!(true), "{body}");
         // 文件 _meta.layout 已回写
-        let dir = std::env::temp_dir().join("overseer-ipc-test-layout");
+        let dir = std::env::temp_dir().join("ambery-ipc-test-layout");
         let raw: Value = serde_json::from_str(
             &std::fs::read_to_string(dir.join("memory/cards/todo-1.card.json")).unwrap(),
         )
@@ -648,7 +648,7 @@ mod ipc_tests {
         let app = mock_app_with_commands();
         let state = build_harness_state("visibility");
         {
-            let mut ov = state.overseer().lock().await;
+            let mut ov = state.ambery().lock().await;
             ov.harness
                 .cards_upsert(&json!({"id":"todo-1","type":"todobox","title":"清单","items":[{"text":"a","done":false}]}), 1000)
                 .unwrap();
@@ -661,7 +661,7 @@ mod ipc_tests {
         req.body = tauri::ipc::InvokeBody::Json(json!({ "id": "todo-1", "userClosed": true }));
         let resp = tauri::test::get_ipc_response(&window, req);
         assert_eq!(resp.unwrap().deserialize::<Value>().unwrap()["ok"], json!(true));
-        let dir = std::env::temp_dir().join("overseer-ipc-test-visibility");
+        let dir = std::env::temp_dir().join("ambery-ipc-test-visibility");
         let raw: Value = serde_json::from_str(
             &std::fs::read_to_string(dir.join("memory/cards/todo-1.card.json")).unwrap(),
         )
@@ -689,10 +689,10 @@ mod ipc_tests {
         let resp = tauri::test::get_ipc_response(&window, ipc("toggle_pet"));
         assert!(resp.is_ok(), "toggle_pet invoke 失败: {resp:?}");
         // 复合入口逐动作记录：不能合成一条 toggle（docs/effect-reporting.md §一动作一记录）
-        let dir = std::env::temp_dir().join("overseer-ipc-test-toggle");
+        let dir = std::env::temp_dir().join("ambery-ipc-test-toggle");
         let mut content = String::new();
         for _ in 0..60 {
-            content = std::fs::read_to_string(dir.join(overseer_core::EFFECT_FILE)).unwrap_or_default();
+            content = std::fs::read_to_string(dir.join(ambery_core::EFFECT_FILE)).unwrap_or_default();
             let hits = ["window_hidden", "window_visible", "event_emit"]
                 .iter()
                 .filter(|k| content.contains(*k))
@@ -756,10 +756,10 @@ mod ipc_tests {
         let r = call("ensure_card_window", json!({ "id": "a//b", "spec": spec }));
         assert_eq!(r["result"], json!("error"), "{r}");
         // effect 流含 window_opened / window_closed
-        let dir = std::env::temp_dir().join("overseer-ipc-test-ensure");
+        let dir = std::env::temp_dir().join("ambery-ipc-test-ensure");
         let mut content = String::new();
         for _ in 0..40 {
-            content = std::fs::read_to_string(dir.join(overseer_core::EFFECT_FILE)).unwrap_or_default();
+            content = std::fs::read_to_string(dir.join(ambery_core::EFFECT_FILE)).unwrap_or_default();
             if content.contains("window_opened") && content.contains("window_closed") { break; }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }

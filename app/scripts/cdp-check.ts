@@ -78,7 +78,7 @@ passed++;
 // store 驱动的渲染链：callComponent → card 出现（onRenderComponent 事件面不经 store）
 await check(
   "callComponent 渲染 card",
-  `(() => { window.__overseer.callComponent({id:"t1",type:"text_card",title:"T",text:"hello"}); return !!document.querySelector(".component"); })()`,
+  `(() => { window.__ambery.callComponent({id:"t1",type:"text_card",title:"T",text:"hello"}); return !!document.querySelector(".component"); })()`,
 );
 
 // C5 token 生效：卡片底色来自 var(--ov-card-bg)（rgba(30,30,46,0.96)）
@@ -91,7 +91,7 @@ await check(
 await check(
   "chart 调色板经 token 解析",
   `(() => {
-    window.__overseer.callComponent({id:"c1",type:"data_chart",title:"C",chart:{kind:"line",labels:["a","b"],series:[{name:"s",data:[1,2]}]}});
+    window.__ambery.callComponent({id:"c1",type:"data_chart",title:"C",chart:{kind:"line",labels:["a","b"],series:[{name:"s",data:[1,2]}]}});
     const circle = document.querySelector(".cmp-chart circle");
     return circle && getComputedStyle(circle).fill;
   })()`,
@@ -125,7 +125,7 @@ await check(
     const btn = ov.querySelector("button");
     btn.click();
     await new Promise((r) => setTimeout(r, 100));
-    const cards = await window.__overseer_debug_cards ?? null;
+    const cards = await window.__ambery_debug_cards ?? null;
     return true; // 占位，下面直接断言 DOM 隐藏
   })()`,
 );
@@ -137,7 +137,7 @@ await check(
 // store.onContext：appendMessage → chat 打开后渲染 + badge 计数
 await check(
   "context 变化经 store 通知（badge 计数）",
-  `(() => { window.__overseer.appendMessage("assistant", "回复来了"); return document.getElementById("pet-badge").textContent; })()`,
+  `(() => { window.__ambery.appendMessage("assistant", "回复来了"); return document.getElementById("pet-badge").textContent; })()`,
   "1",
 );
 
@@ -252,7 +252,7 @@ await check(
     const panel = document.getElementById("chat-panel");
     const history = panel.querySelector(".chat-history");
     // 灌入足够消息使历史可滚
-    for (let i = 0; i < 30; i++) window.__overseer.appendMessage("assistant", "历史消息 " + i);
+    for (let i = 0; i < 30; i++) window.__ambery.appendMessage("assistant", "历史消息 " + i);
     await new Promise((r) => setTimeout(r, 300));
     if (history.scrollHeight <= history.clientHeight) return "不可滚动，跳过断言几何";
     // 滚到中部（阅读历史）
@@ -260,7 +260,7 @@ await check(
     history.dispatchEvent(new Event("scroll"));
     await new Promise((r) => setTimeout(r, 50));
     const topBefore = history.scrollTop;
-    window.__overseer.appendMessage("assistant", "滚离后的新消息");
+    window.__ambery.appendMessage("assistant", "滚离后的新消息");
     await new Promise((r) => setTimeout(r, 300));
     const pill = panel.querySelector(".chat-pill");
     if (pill.hidden || !pill.textContent.includes("1")) return "pill 未提示: " + pill.textContent + " hidden=" + pill.hidden;

@@ -50,5 +50,5 @@ terminal.adapter_zellij: bool  // 启用 zellij 适配器
 // 未列出的 adapter 默认 false；全 false = 无终端访问，Hook 驱动核心体验仍可用
 ```
 
-WtAdapter 路径沿用约定（env `OVERSEER_SIDECAR` > 仓库约定路径）；ZellijAdapter 用默认会话。
+WtAdapter 路径沿用约定（env `AMBERY_SIDECAR` > 仓库约定路径）；ZellijAdapter 用默认会话。
 

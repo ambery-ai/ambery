@@ -14,7 +14,7 @@ pub struct ToolDef {
     pub parameters: Value,
 }
 
-/// Tool Set（concepts §10a）：ペット的权限边界，仅此九个
+/// Tool Set（concepts §10a）：pet 的权限边界，仅此九个
 /// （call_component / fetch_terminal / set_autonomy / edit_config /
 ///   read_memory / write_memory / cron_create / cron_delete / sleep）
 /// 说明文案按 Harness 语言现查表（docs/i18n.md：切换从下一次 LLM 交互起生效）；

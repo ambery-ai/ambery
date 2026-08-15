@@ -7,9 +7,9 @@
 ## 链路形态
 
 ```
-Claude Code 事件 → settings.json "command" hook → overseer-hook.ps1
+Claude Code 事件 → settings.json "command" hook → ambery-hook.ps1
   → 读 stdin JSON payload → 输出 sessionTitle（定位标记）+ POST /hook（fire-and-forget）
-OverseerBackend → register-on-first-sight → 按事件分层处理
+AmberyBackend → register-on-first-sight → 按事件分层处理
 内容一律走读通道补（sidecar UIA），hook 只当触发信号（docs/sidecar.md）
 ```
 
@@ -93,13 +93,13 @@ backend 启动一次性：list_windows → list_tabs，按 **claude 检测规则
 
 ## sidecar 常驻（简化语义）
 
-app 启动自动发现 exe 并启用（路径发现：`OVERSEER_SIDECAR` env > 仓库约定位置 sidecar/bin/…/overseer-uia-sidecar.exe），进程惰性拉起（首次请求时 spawn）。**死了即弃，下次请求现拉起**（冷启实测 ~200ms）——无管道保活预检、无心跳，客户端实现 ~55 行。崩溃处理 = 每次请求最多两次尝试（拉一次、重试一次），仍失败返回 None（读通道降级回 Context）。
+app 启动自动发现 exe 并启用（路径发现：`AMBERY_SIDECAR` env > 仓库约定位置 sidecar/bin/…/ambery-uia-sidecar.exe），进程惰性拉起（首次请求时 spawn）。**死了即弃，下次请求现拉起**（冷启实测 ~200ms）——无管道保活预检、无心跳，客户端实现 ~55 行。崩溃处理 = 每次请求最多两次尝试（拉一次、重试一次），仍失败返回 None（读通道降级回 Context）。
 
 ## 安装 / 卸载（scripts/install-hooks.ps1）
 
-- **install**：hook 脚本复制到 `~/.claude/hooks/overseer-hook.ps1`；`~/.claude/settings.json` 追加 SessionStart / UserPromptSubmit / Stop / SessionEnd / Notification 五条 command 条目（**追加**，不动用户现有 hook）；改前备份 `settings.json.bak`
+- **install**：hook 脚本复制到 `~/.claude/hooks/ambery-hook.ps1`；`~/.claude/settings.json` 追加 SessionStart / UserPromptSubmit / Stop / SessionEnd / Notification 五条 command 条目（**追加**，不动用户现有 hook）；改前备份 `settings.json.bak`
 - **uninstall**：按标记移除五条条目 + 删脚本，settings 其余部分原样
-- hook 脚本进仓库（`scripts/overseer-hook.ps1`，通用无隐私）；**真实样本/实测数据不进仓库**（隐私，实测归用户）
+- hook 脚本进仓库（`scripts/ambery-hook.ps1`，通用无隐私）；**真实样本/实测数据不进仓库**（隐私，实测归用户）
 
 ## 显式不做
 

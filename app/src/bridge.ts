@@ -1,4 +1,4 @@
-// Bridge：前端与 Overseer 内核之间的唯一边界。
+// Bridge：前端与 Ambery 内核之间的唯一边界。
 // Tauri 模式走 IPC（后续 Tauri 壳迭代接入），浏览器测试模式走内存 mock，
 // 使全部显示逻辑可在 Chrome DevTools 中直接驱动验证。
 
@@ -107,7 +107,7 @@ export interface Bridge {
   getConfig(): Promise<AppConfig>;
   getTopState(): Promise<TopState>;
   onTopStateChanged(cb: (s: TopState) => void): void;
-  /** Overseer → UI：渲染 Component（ペット call_component 的执行结果） */
+  /** Ambery → UI：渲染 Component（pet call_component 的执行结果） */
   onRenderComponent(cb: (spec: ComponentSpec) => void): void;
   /** UI → Harness：Component 交互事件写入 Event Buffer（concepts §10e）。
    *  前端只上报结构化事实；自然语言文本由 core 按 Harness 语言现写
@@ -121,11 +121,11 @@ export interface Bridge {
   getContext(): Promise<ContextMessage[]>;
   appendUserMessage(text: string): Promise<boolean>;
   onContextChanged(cb: (msgs: ContextMessage[]) => void): void;
-  /** 可选（RemoteBridge）：Overseer 推送 set_autonomy（ペット的 tool call 结果） */
+  /** 可选（RemoteBridge）：Ambery 推送 set_autonomy（pet 的 tool call 结果） */
   onSetAutonomy?(
     cb: (args: { face?: string; motion?: Motion; ttlMs?: number; once?: boolean }) => void,
   ): void;
-  /** 可选（RemoteBridge）：Overseer 推送 Config 变更（edit_config 的结果） */
+  /** 可选（RemoteBridge）：Ambery 推送 Config 变更（edit_config 的结果） */
   onConfigChanged?(cb: (cfg: AppConfig) => void): void;
   /** 可选：流式增量（docs/streaming.md）——assistant 回复片段，纯显示优化 */
   onAssistantDelta?(cb: (d: { content?: string; reasoning_content?: string }) => void): void;
@@ -216,7 +216,7 @@ function mockActionDesc(ev: UserActionEvent): string {
   }
 }
 
-// ── Chrome DevTools 调试驱动接口（window.__overseer） ──
+// ── Chrome DevTools 调试驱动接口（window.__ambery） ──
 
 export interface DebugApi {
   setInstanceStatus(name: string, status: CodeCliStatus): void;
@@ -229,19 +229,19 @@ export interface DebugApi {
     face: string | null;
     motion: string;
   };
-  /** 模拟ペット的 call_component tool call */
+  /** 模拟 pet 的 call_component tool call */
   callComponent(spec: ComponentSpec): void;
   /** 读取 Event Buffer 当前内容（不写 Queue user role，concepts §10e） */
   eventBuffer(): string[];
   /** 模拟 LLM 触发时合并注入后清空 Buffer */
   flushEventBuffer(): string[];
-  /** 模拟ペット回复 / Overseer 注入 system 消息（真实链路由 Rust Harness 写入） */
+  /** 模拟 pet 回复 / Ambery 注入 system 消息（真实链路由 Rust Harness 写入） */
   appendMessage(role: ContextMessage["role"], content: string): void;
 }
 
 declare global {
   interface Window {
-    __overseer?: DebugApi;
+    __ambery?: DebugApi;
   }
 }
 
@@ -370,7 +370,7 @@ export class BrowserMockBridge implements Bridge {
     for (const cb of this.listeners) cb(snapshot);
   }
 
-  /** 模拟 Hook 触发后 Overseer 更新的实例状态（真实链路后续由 Rust 内核喂入） */
+  /** 模拟 Hook 触发后 Ambery 更新的实例状态（真实链路后续由 Rust 内核喂入） */
   debugSetInstanceStatus(name: string, status: CodeCliStatus) {
     const inst = this.state.instances.find((i) => i.name === name);
     if (inst) inst.status = status;
@@ -543,7 +543,7 @@ class TauriBridge implements Bridge {
   }
 }
 
-/** Tauri 模式 → TauriBridge（原生 IPC）；浏览器 → overseer-core 在跑用 RemoteBridge，否则内存 mock */
+/** Tauri 模式 → TauriBridge（原生 IPC）；浏览器 → ambery-core 在跑用 RemoteBridge，否则内存 mock */
 export async function createBridge(): Promise<Bridge> {
   if ("__TAURI_INTERNALS__" in window) {
     const { invoke } = await import("@tauri-apps/api/core");

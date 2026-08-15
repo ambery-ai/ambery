@@ -49,7 +49,7 @@ pub struct CronEntry {
     pub next_due: Option<i64>,
 }
 
-/// sleep 等待者共享句柄（独立锁，不经 OverseerBackend 锁——sleep 持 Queue 串行点
+/// sleep 等待者共享句柄（独立锁，不经 AmberyBackend 锁——sleep 持 Queue 串行点
 /// 等待时，调度任务经此句柄到点唤醒，docs/cron.md §调度实现）
 #[derive(Clone)]
 pub struct WaiterHandle {
@@ -264,7 +264,7 @@ mod tests {
     use super::*;
 
     fn tmp(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("overseer-cron-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("ambery-cron-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }

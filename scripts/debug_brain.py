@@ -9,9 +9,9 @@
   python scripts/debug_brain.py --port 47777   # --port 可选，默认 47777
 
   # 另开终端（debug 模式 case 回放）：
-  overseer-case <case> --brain-addr http://127.0.0.1:47777
+  ambery-case <case> --brain-addr http://127.0.0.1:47777
   # 或 serve 宿主：
-  overseer-case serve --brain-addr http://127.0.0.1:47777
+  ambery-case serve --brain-addr http://127.0.0.1:47777
 
 内置最小阈值决策源：请求最后一条消息匹配「{name} 完成，Context 已更新（N 字）」
 （hook_stop_content，i18n hook.stop.updated）且 N ≥ 80 → 回通知 tool（call_component

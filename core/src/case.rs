@@ -6,7 +6,7 @@ use crate::observe::{
     AgentSnapshot, CardSnapshot, CronSnapshot, FilteredContentSnapshot, MemoryNoteSnapshot,
     MessageSnapshot, Observable,
 };
-use crate::overseer::OverseerBackend;
+use crate::ambery::AmberyBackend;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -43,7 +43,7 @@ pub struct CaseObserve {
 
 /// 观测当前概念结构：模块快照走 Observable 投影（docs/observability.md），
 /// 派生项（panorama / context_est_delta / answer）手写组装。
-pub fn observe<L: Llm>(ov: &OverseerBackend<L>) -> CaseObserve {
+pub fn observe<L: Llm>(ov: &AmberyBackend<L>) -> CaseObserve {
     let h = &ov.harness;
     let panorama = crate::panorama(&h.agents);
     let context_est_delta = h.context.est_tokens_since(h.last_usage_msg_len);
@@ -565,10 +565,10 @@ mod tests {
 
     #[test]
     fn observe_includes_memory_and_cron() {
-        let dir = std::env::temp_dir().join(format!("overseer-case-obs-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-case-obs-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let mut ov = OverseerBackend::new(
+        let mut ov = AmberyBackend::new(
             harness,
             crate::config::Config::default(),
             crate::llm::DebugAgent::silent(),

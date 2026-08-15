@@ -10,7 +10,7 @@ import { Store } from "../src/store";
 import { applyTheme, wireTheme, KNOWN_TOKENS } from "../src/theme";
 
 beforeAll(async () => {
-  await waitCore(); // case-runner 内嵌 core（overseer-case frontend 拉起本进程）
+  await waitCore(); // case-runner 内嵌 core（ambery-case frontend 拉起本进程）
 }, 60000);
 
 it("parity：KNOWN_TOKENS == styles.css :root 的 --ov-* 定义", () => {

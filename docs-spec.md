@@ -72,7 +72,7 @@
 - `case-runner.md` — Storage 快照回归与概念观测基础设施
 - `case-eval-system.md` — case 表达式求值系统
 - `observability.md` — 可观测性基座：编译期强制所有概念模块可观测
-- `tools.md` — 开发工具集合：tools/ 目录脚本工具与 core 独立 bin 工具（locate / run-vite / overseer-activity）
+- `tools.md` — 开发工具集合：tools/ 目录脚本工具与 core 独立 bin 工具（locate / run-vite / ambery-activity）
 
 ### 路线图
 
@@ -84,10 +84,10 @@
 
 - **版本信息**——docs 不写任何版本号或版本范围（如"X 属 0.1.0 前/后"）。版本边界由统一发布规划定义；单个能力文档不临时自定版本归属。
 - **状态标注**——docs 不写易变的状态（当前契约 / 待落地 / 未决等）。被取代的历史方案删除或在原文标注历史，不以维护中的状态字段表达。
-- **不引用内部 issue**——docs 不引用内部问题编号（#N、issue-xxx、issues #N）：问题跟踪归 `issues.md`，文档只陈述当前状态与契约，不把内部问题编号当证据或锚点；外部上游引用（如上游 issue / discussion 编号）允许。
+- **不引用内部 issue**——docs 不引用内部问题编号（#N、issue-xxx、issues #N）：问题跟踪归 `dev/issues.md`，文档只陈述当前状态与契约，不把内部问题编号当证据或锚点；外部上游引用（如上游 issue / discussion 编号）允许。
 - **调研与论证过程**——该进 `reports/`，docs 只记录已收敛的结论；调研的来龙去脉不属于设计契约。
 - **单次会话的过程回顾**（grill 回顾等）——该进 `drafts/`，不是设计契约。
-- **待落地/未决实现清单**——执行项进开发 ticket（本轮修复），未来项进 `docs/post-0.1.0.md`（路线图）；不沉淀进文档冒充实现依据，也不在 `issues.md` 平铺公开未决。
+- **待落地/未决实现清单**——执行项进开发 ticket（本轮修复），未来项进 `docs/post-0.1.0.md`（路线图）；不沉淀进文档冒充实现依据，也不在 `dev/issues.md` 平铺公开未决。
 - **后续能力**——0.1.0 后的新能力统一写入 `docs/post-0.1.0.md`，只作路线图、每项一段简单陈述；正式设计开启时再拆独立文档。
 
 以上通用原则同样约束 `concepts.md`（领域概念文档）。

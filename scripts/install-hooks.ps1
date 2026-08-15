@@ -1,4 +1,4 @@
-﻿# install-hooks.ps1（docs/hook.md §安装/卸载）：把 overseer-hook 挂进 ~/.claude/settings.json。
+﻿# install-hooks.ps1（docs/hook.md §安装/卸载）：把 ambery-hook 挂进 ~/.claude/settings.json。
 #   powershell -File scripts/install-hooks.ps1            # 安装（幂等，改前备份）
 #   powershell -File scripts/install-hooks.ps1 -Uninstall # 卸载（只移除我们的条目）
 param([switch]$Uninstall)
@@ -6,9 +6,9 @@ param([switch]$Uninstall)
 $ErrorActionPreference = "Stop"
 $hooksDir = "$env:USERPROFILE\.claude\hooks"
 $settingsPath = "$env:USERPROFILE\.claude\settings.json"
-$scriptSrc = Join-Path $PSScriptRoot "overseer-hook.ps1"
-$scriptDst = Join-Path $hooksDir "overseer-hook.ps1"
-$marker = "overseer-hook.ps1"
+$scriptSrc = Join-Path $PSScriptRoot "ambery-hook.ps1"
+$scriptDst = Join-Path $hooksDir "ambery-hook.ps1"
+$marker = "ambery-hook.ps1"
 $events = @("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Notification")
 
 $settings = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -26,7 +26,7 @@ if ($Uninstall) {
     }
     $settings | ConvertTo-Json -Depth 20 | Out-File $settingsPath -Encoding UTF8
     Remove-Item $scriptDst -ErrorAction SilentlyContinue
-    Write-Host "uninstalled: overseer hook entries removed, script deleted"
+    Write-Host "uninstalled: ambery hook entries removed, script deleted"
     exit 0
 }
 

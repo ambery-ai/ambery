@@ -76,7 +76,7 @@ static TABLE: &[(&str, &str, &str)] = &[
      "Wait, then continue the planned tool sequence (shares the Harness scheduler with Cron): the tool result returns after ms; the Queue serial point stays occupied meanwhile; 0 ≤ ms ≤ 300000 (5 minutes); not persisted"),
     ("tool.sleep.ms", "等待毫秒数（0-300000）", "Milliseconds to wait (0-300000)"),
 
-    // ── 系统 prompt 段头（overseer.rs assemble_system_prompt）──
+    // ── 系统 prompt 段头（ambery.rs assemble_system_prompt）──
     ("prompt.kaomoji-header",
      "## 颜文字映射（你的面部表情词汇表：仅用于 set_autonomy 工具，严禁写进对话文本）",
      "## Kaomoji mapping (your facial-expression vocabulary: for the set_autonomy tool only; never write these into chat text)"),
@@ -96,7 +96,7 @@ static TABLE: &[(&str, &str, &str)] = &[
     ("ev.verb-unchecked", "取消勾选了", "unchecked"),
     ("ev.todo-add", "用户新增了 {type} 条目「{text}」", "User added the {type} item \"{text}\""),
 
-    // ── Hook / 事件簿记与注入（overseer.rs）──
+    // ── Hook / 事件簿记与注入（ambery.rs）──
     ("hook.register", "+ {name} 注册 → 存活 {alive}", "+ {name} registered → alive {alive}"),
     ("hook.closed", "− {name} 关闭 → 存活 {alive}", "− {name} closed → alive {alive}"),
     ("hook.closed-timer", "− {name} 关闭（Timer 判死）→ 存活 {alive}", "− {name} closed (Timer sweep) → alive {alive}"),
@@ -110,7 +110,7 @@ static TABLE: &[(&str, &str, &str)] = &[
     ("timer.scan.updated", "{name} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。", "{name}: fallback sweep found changes; Context updated ({len} chars). Evaluate whether to notify."),
     ("hook.sweep-cloaked", "（有窗口对其他桌面不可读，可开 WT「全桌面显示」）", " (some windows are unreadable from other desktops; consider enabling WT \"show on all desktops\")"),
 
-    // ── 工具执行错误反馈（overseer.rs execute_tool 等）──
+    // ── 工具执行错误反馈（ambery.rs execute_tool 等）──
     ("err.grep-pattern", "grep 需要 pattern（string）", "grep requires pattern (string)"),
     ("err.regex", "regex 非法：{e}", "invalid regex: {e}"),
     ("err.query-path", "query 需要 path（精确点分路径）", "query requires path (exact dot-separated path)"),

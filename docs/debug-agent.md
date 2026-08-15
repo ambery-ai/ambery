@@ -14,7 +14,7 @@ DebugAgent 是**纯 mock，零逻辑**。它不做任何判断——不解析消
 | 来源 | 构造 | 用途 |
 |---|---|---|
 | 沉默 | `DebugAgent::silent()`（Default） | OpenAi 失败降级兜底；不需要反应的测试 |
-| 脚本闭包 | `DebugAgent::new(move \|msgs\| …)` | 测试：按调用序弹出预定返回（overseer.rs 测试的 `scripted()` 辅助函数） |
+| 脚本闭包 | `DebugAgent::new(move \|msgs\| …)` | 测试：按调用序弹出预定返回（ambery.rs 测试的 `scripted()` 辅助函数） |
 | HTTP brain | `debug_brain.py`（OpenAI 兼容 `/chat/completions`） | 人/外部脚本当 LLM，手动驱动真实 Harness 链路（case-runner debug 模式 `--brain-addr` 连） |
 
 `LlmBackend::from_config` 的 debug 分支默认沉默；case-runner 检测到

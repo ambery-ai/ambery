@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "terminal-overseer",
+  "productName": "ambery",
   "version": "0.1.0",
-  "identifier": "dev.overseer.terminal",
+  "identifier": "dev.ambery.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5199",
@@ -12,7 +12,7 @@
     "windows": [
       {
         "label": "pet",
-        "title": "Terminal Overseer",
+        "title": "Ambery",
         "url": "index.html",
         "width": 116,
         "height": 40,

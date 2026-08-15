@@ -229,8 +229,8 @@ fn strip_desc_comment(content: &str) -> Option<(String, String)> {
 }
 
 /// 旧版 bootstrap 默认 AGENTS.md（仅用于识别未改过的自动生成文件并收敛）
-const OLD_DEFAULT_AGENTS_MD: &str = "# Memory（Overseer 持久化理解 buffer）\n\n\
-     本目录是ペット的长期记忆根（扁平、无子目录，concepts §10f）。普通记忆是同层短小 .md 文件；\n\
+const OLD_DEFAULT_AGENTS_MD: &str = "# Memory（Ambery 持久化理解 buffer）\n\n\
+     本目录是 pet 的长期记忆根（扁平、无子目录，concepts §10f）。普通记忆是同层短小 .md 文件；\n\
      `index.md` 自动汇总所有普通记忆的名称与描述（请勿手编，会被下一次 write 覆盖）。\n\n\
      读写规则：`read_memory` 读记忆（省略 name = 读 index.md 导航）；`write_memory` 整篇新建/覆盖，\n\
      必须附 description（进 index.md）。本文件与 index.md 默认只读；无删除 tool——记忆经同名覆盖演进，\n\
@@ -239,8 +239,8 @@ const OLD_DEFAULT_AGENTS_MD: &str = "# Memory（Overseer 持久化理解 buffer�
 /// Memory 工作空间默认 AGENTS.md（docs/i18n.md：bootstrap 时刻的 Harness 语言生成）
 fn default_agents_md_lang(lang: crate::i18n::Lang) -> String {
     match lang {
-        crate::i18n::Lang::En => "# Memory Workspace (Overseer persistent workspace)\n\n\
-             This directory is ペット's persistent workspace (concepts §10f): `notes/` holds long-term\n\
+        crate::i18n::Lang::En => "# Memory Workspace (Ambery persistent workspace)\n\n\
+             This directory is pet's persistent workspace (concepts §10f): `notes/` holds long-term\n\
              understanding (small .md files; frontmatter must carry a description); `cards/` holds\n\
              persistent work products (Component / Card files, not managed via read_memory / write_memory).\n\
              `index.md` auto-summarizes names and descriptions of notes/ (do not hand-edit; the next write\n\
@@ -251,8 +251,8 @@ fn default_agents_md_lang(lang: crate::i18n::Lang) -> String {
              evolve by same-name overwrite; if deletion is truly needed, the user or the backend manages\n\
              notes/ files directly. See docs/memory.md.\n"
             .into(),
-        crate::i18n::Lang::Zh => "# Memory Workspace（Overseer 持久工作空间）\n\n\
-             本目录是ペット的持久工作空间（concepts §10f）：`notes/` 放长期理解（短小 .md，frontmatter 必带\n\
+        crate::i18n::Lang::Zh => "# Memory Workspace（Ambery 持久工作空间）\n\n\
+             本目录是 pet 的持久工作空间（concepts §10f）：`notes/` 放长期理解（短小 .md，frontmatter 必带\n\
              description）；`cards/` 放持久工作产物（Component / Card 文件，不经 read_memory / write_memory 管理）。\n\
              `index.md` 自动汇总 notes/ 的名称与描述（请勿手编，会被下一次 write 覆盖）。\n\n\
              读写规则：`read_memory` 读记忆（省略 name = 读 index.md 导航）；`write_memory` 整篇新建/覆盖 notes/\n\
@@ -267,7 +267,7 @@ mod tests {
     use super::*;
 
     fn tmp(tag: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("overseer-mem-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("ambery-mem-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }

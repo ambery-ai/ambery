@@ -4,7 +4,7 @@
 
 ## 调用协议（call_component）
 
-ペット经 Tool Set 发起，OverseerBackend 转发给 UI 渲染。**`call_component` 管理整条生命周期（创建/更新/关闭）**——同一 id 首次创建、后续原地更新、显式关闭。
+pet 经 Tool Set 发起，AmberyBackend 转发给 UI 渲染。**`call_component` 管理整条生命周期（创建/更新/关闭）**——同一 id 首次创建、后续原地更新、显式关闭。
 
 Tool schema 以 `anyOf` 声明每种类型的完整字段（各家 LLM provider 均支持嵌套 `anyOf`，无需 `oneOf`/`const`）：
 
@@ -27,10 +27,10 @@ type ComponentSpec =
       items: { text: string; done: boolean }[] };
 ```
 
-- `id` 由ペット生成（如 `cmp-001`），同一 id 重复调用 = **原地更新**（而非 toggle 关闭）。创建和更新共享同一 spec 结构。
+- `id` 由 pet 生成（如 `cmp-001`），同一 id 重复调用 = **原地更新**（而非 toggle 关闭）。创建和更新共享同一 spec 结构。
 - 关闭 card：`spec.action = "close"`（此时只需 `id`，忽略其余字段）。两级兼容：LLM 把 `action` 放在 args 顶层（与 `spec` 并列）时后端同样识别为关闭。
 - `direction` 省略或 `auto` 时按「屏幕剩余空间最大的方位」自动选择。
-- 文本量级约束（见 §渲染）是 system prompt 对ペット的约束，渲染层不做硬校验。
+- 文本量级约束（见 §渲染）是 system prompt 对 pet 的约束，渲染层不做硬校验。
 
 #### ⟡ 一致性剖析
 
@@ -95,7 +95,7 @@ Card 文件以完整 JSON 持久化：`component` 是 Agent 正常读取与更�
 - 卡片结构：header（title + 关闭按钮 ×）+ body（按类型渲染）。
 - `data_chart` 用内联 SVG（无依赖）：line=polyline，bar=rect，pie=path；hover 详情用 SVG `<title>` 原生 tooltip。
 - `git_display` 的 diff 用 `<details>` 折叠。
-- 五种类型的文本量级约束（system prompt 对ペット的约束，渲染层不硬校验）：
+- 五种类型的文本量级约束（system prompt 对 pet 的约束，渲染层不硬校验）：
 
 | 类型 | 描述 | 文本量级 | 交互 |
 |---|---|---|---|

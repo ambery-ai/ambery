@@ -243,7 +243,7 @@ fn filter_queue(lines: Vec<String>, opts: &ExportOpts) -> Vec<String> {
 /// 选 notes/<name>.md；index.md 不可选（CLI 层已拦），沙盒按已选普通记忆重建。
 /// 选中名不存在 → 警告并跳过（不阻断其余导出）。
 fn select_memory(storage_dir: &std::path::Path, names: &[String]) -> Vec<(String, String)> {
-    let mem_root = storage_dir.join(overseer_core::memory::MEMORY_DIR);
+    let mem_root = storage_dir.join(ambery_core::memory::MEMORY_DIR);
     let mut out: Vec<(String, String)> = vec![];
     // AGENTS.md 导航优先（先于 notes 出现，扫读时先见地图）
     if names.iter().any(|n| n == "AGENTS") {
@@ -254,7 +254,7 @@ fn select_memory(storage_dir: &std::path::Path, names: &[String]) -> Vec<(String
         }
     }
     for name in names.iter().filter(|n| n.as_str() != "AGENTS") {
-        if !overseer_core::memory::valid_name(name) || overseer_core::memory::RESERVED.contains(&name.as_str()) {
+        if !ambery_core::memory::valid_name(name) || ambery_core::memory::RESERVED.contains(&name.as_str()) {
             eprintln!("[export] 警告：--memory 名 '{name}' 不合法（文件名 grammar/保留名），跳过");
             continue;
         }
@@ -448,7 +448,7 @@ mod tests {
     #[test]
     fn keep_agents_gated() {
         // 默认不导出 work_agents（隐私）；--keep-agents 显式保留完整节
-        let dir = std::env::temp_dir().join(format!("overseer-export-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-export-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -487,7 +487,7 @@ mod tests {
 
     /// 造带 memory/cron 的 storage 目录
     fn storage_with_memory_cron(tag: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("overseer-export-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-export-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let notes = dir.join("memory/notes");
         std::fs::create_dir_all(&notes).unwrap();

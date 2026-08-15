@@ -16,7 +16,7 @@ pub(crate) fn record<R: tauri::Runtime>(app: &AppHandle<R>, kind: &'static str, 
             eprintln!("[effect] state 未就绪，跳过记录 {kind}");
             return;
         };
-        s.overseer().lock().await.record_frontend_effect(kind, payload);
+        s.ambery().lock().await.record_frontend_effect(kind, payload);
     });
 }
 
@@ -67,19 +67,19 @@ pub fn emit_event<R: tauri::Runtime>(app: &AppHandle<R>, event: &'static str, pa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use overseer_core::llm::LlmBackend;
-    use overseer_core::overseer::OverseerBackend;
-    use overseer_core::server::AppState;
-    use overseer_core::{Config, Harness};
+    use ambery_core::llm::LlmBackend;
+    use ambery_core::ambery::AmberyBackend;
+    use ambery_core::server::AppState;
+    use ambery_core::{Config, Harness};
     use std::sync::Arc;
 
     fn harness_state(tag: &str) -> (Arc<AppState>, std::path::PathBuf) {
-        let dir = std::env::temp_dir().join(format!("overseer-actions-test-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-actions-test-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let config = Config::load_or_default(&dir);
         let harness = Harness::load(&dir, &dir, config.effective_compression_limit().unwrap_or(usize::MAX), 0).unwrap();
         let backend = LlmBackend::from_config(&config.llm);
-        let ov = OverseerBackend::new(harness, config, backend);
+        let ov = AmberyBackend::new(harness, config, backend);
         let mock = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         (Arc::new(AppState::new(ov, mock)), dir)
     }
@@ -94,7 +94,7 @@ mod tests {
     /// 轮询等 effect.jsonl 出现目标子串（记录任务异步落盘；超时即 None）
     fn wait_effect_file(dir: &std::path::Path, needle: &str) -> Option<String> {
         for _ in 0..60 {
-            let content = std::fs::read_to_string(dir.join(overseer_core::EFFECT_FILE)).unwrap_or_default();
+            let content = std::fs::read_to_string(dir.join(ambery_core::EFFECT_FILE)).unwrap_or_default();
             if content.contains(needle) {
                 return Some(content);
             }

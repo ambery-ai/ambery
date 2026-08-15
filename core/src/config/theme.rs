@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn export_import_roundtrip() {
-        let dir = std::env::temp_dir().join(format!("overseer-theme-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-theme-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let c = config_with_theme("my-theme");
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn import_rejects_future_version() {
-        let dir = std::env::temp_dir().join(format!("overseer-theme-fut-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-theme-fut-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(THEME_DIR)).unwrap();
         std::fs::write(
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn import_rejects_bad_token_and_bad_name() {
-        let dir = std::env::temp_dir().join(format!("overseer-theme-bad-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-theme-bad-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(THEME_DIR)).unwrap();
         std::fs::write(

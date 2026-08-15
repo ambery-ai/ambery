@@ -1,9 +1,9 @@
-﻿# overseer-hook.ps1（docs/hook.md）：Claude Code command hook → terminal-overseer。
+﻿# ambery-hook.ps1（docs/hook.md）：Claude Code command hook → ambery。
 # stdin 读 payload JSON；SessionStart/UserPromptSubmit 向 stdout 输出 sessionTitle（定位标记）；
 # 所有事件 fire-and-forget POST 到 127.0.0.1:47600/hook（失败静默，绝不阻塞 Claude）。
 # 隐私边界：只转发 session_id/cwd/kind/prompt/message/last_assistant_message，不读 transcript。
 $ErrorActionPreference = "Stop"
-$logFile = "$env:USERPROFILE\.claude\hooks\overseer-errors.log"
+$logFile = "$env:USERPROFILE\.claude\hooks\ambery-errors.log"
 
 function sid8([string]$sid) { if ($sid.Length -ge 8) { $sid.Substring(0, 8) } else { $sid } }
 function projectOf([string]$cwd) {
@@ -14,7 +14,7 @@ function postHook([hashtable]$body) {
     try {
         $json = $body | ConvertTo-Json -Compress
         # 临时文件传 body：PS5.1 管道会给 UTF8 加 BOM（server 400 的根因）；PS 原生命令行又吃内层引号
-        $tmp = [IO.Path]::Combine($env:TEMP, "overseer-hook-$PID.json")
+        $tmp = [IO.Path]::Combine($env:TEMP, "ambery-hook-$PID.json")
         [IO.File]::WriteAllText($tmp, $json, (New-Object System.Text.UTF8Encoding($false)))
         curl.exe -s -m 3 -X POST http://127.0.0.1:47600/hook -H "Content-Type: application/json" -d "@$tmp" | Out-Null
         Remove-Item $tmp -ErrorAction SilentlyContinue

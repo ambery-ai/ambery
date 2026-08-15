@@ -28,7 +28,7 @@ config.json（历史 payload）
 - `version` 是文件级控制字段，不属于 Config descriptor tree，不适用本 grammar。
 
 ```text
-config_root/                   # Windows: %USERPROFILE%\.config\terminal-overseer\
+config_root/                   # Windows: %USERPROFILE%\.config\ambery\
   config.json                  # Config 持久化（Config::save，pretty JSON；保存时注入 version）
   config.bak/config-v0NN.json  # 版本替换前的对称备份
   AGENTS.md                    # 身份提示词；Harness::load 缺失时 bootstrap 默认
@@ -371,7 +371,7 @@ r 来自更早的 LLM response
 | 入口 | 形态 |
 |---|---|
 | LLM `edit_config` | 受 `no_llm_visible` 过滤的 `grep / query / update` |
-| `overseer-cli` | `list` / `get <path>` / `set <path> <value>` / `schema`；默认走 HTTP 以热生效和广播，`--offline` 直写文件兜底；零 per-field 子命令 |
+| `ambery-cli` | `list` / `get <path>` / `set <path> <value>` / `schema`；默认走 HTTP 以热生效和广播，`--offline` 直写文件兜底；零 per-field 子命令 |
 | 设置面板 | 第 4 个 webview 窗口；右键托盘弹出、失焦关闭；完整 schema 的机械渲染器，底部提供“显示/隐藏”“退出” |
 
 Server API：`GET /config/schema` 返回节点列表、`readOnly` 与 version；`POST /config {path, value}` 完成验证、热应用、persist、`config_changed` 广播，并返回 `restartRequired`；另有既存的 `GET /config` 前端运行时视图（kaomoji、viewScale 等），不在本设计中改变。三个修改入口共享这条统一管道，验证只能有一份。

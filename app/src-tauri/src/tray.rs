@@ -10,7 +10,7 @@ use crate::menu_window;
 pub fn init_tray(app: &AppHandle, pet: &WebviewWindow) -> tauri::Result<()> {
     let _tray = TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
-        .tooltip("terminal-overseer  右键 = 设置")
+        .tooltip("ambery  右键 = 设置")
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Right,

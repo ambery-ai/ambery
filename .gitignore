@@ -13,4 +13,4 @@ target/
 __pycache__/
 
 # case 文件全本地（真实数据防泄露；人造回归资产也不共享）
-overseer-case/cases/
+ambery-case/cases/

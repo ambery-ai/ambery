@@ -250,16 +250,16 @@ fn execute_edit_config(input: EditConfigInput, config: &mut Config, schema_nodes
 LLM 从不知道 config 结构到成功修改的典型路径：
 
 ```
-1. ペット: edit_config({action:"search", query:"定时"})
+1. pet: edit_config({action:"search", query:"定时"})
    → {matches: [{path:"timer_interval_ms", desc:"Timer 兜底扫描间隔", value:300000},
                 {path:"timer_stagger_ms", desc:"Timer 错峰窗口", value:30000},
                 {path:"timer_tick_ms",    desc:"Timer 主循环粒度", value:60000}]}
 
-2. ペット: edit_config({action:"query", path:"timer_interval_ms"})
+2. pet: edit_config({action:"query", path:"timer_interval_ms"})
    → {path:"timer_interval_ms", type:{kind:"int", min:-1}, desc:"Timer 兜底扫描间隔",
        value:300000}
 
-3. ペット: edit_config({action:"update", path:"timer_interval_ms", value:600000})
+3. pet: edit_config({action:"update", path:"timer_interval_ms", value:600000})
    → {ok:true, restartRequired:[]}  // 热生效，无需重启
 ```
 
@@ -351,4 +351,4 @@ LLM 从不知道 config 结构到成功修改的典型路径：
 2. **明确满足项目约束**：`action` 必填 enum 彻底消除"缺参切换模式"的隐式语义空间，"不做特殊规则"原则得以成立；search→query→update 三步实现"渐进披露，按需查"，LLM 每步都有反馈，不猜测
 3. **最小增量改动**：不拆分工具数量（4 工具不变），不改变 `edit_config` 命名，值写入完全复用现有 `set_by_path` + serde 反序列化管道，零额外验证代码
 
-**下一步**（如需落地）：将 `edit_config` 的 `input_schema` 从当前 `{path, value: open}` 替换为上述带 `action` + `allOf/if-then` 的完整 schema，在 `overseer.rs` 的 tool 执行分支按 `action` 分派。
+**下一步**（如需落地）：将 `edit_config` 的 `input_schema` 从当前 `{path, value: open}` 替换为上述带 `action` + `allOf/if-then` 的完整 schema，在 `ambery.rs` 的 tool 执行分支按 `action` 分派。

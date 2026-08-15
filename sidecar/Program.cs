@@ -6,7 +6,7 @@ using System.Text.Json.Nodes;
 using System.Windows.Automation;
 using System.Runtime.InteropServices;
 
-namespace OverseerSidecar;
+namespace Ambery.UiaSidecar;
 
 class Program
 {

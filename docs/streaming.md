@@ -45,7 +45,7 @@ LLM SSE chunk ─→ parse ─→ Effect::AssistantDelta { content?, reasoning_c
 | `Llm` trait | 新增 `complete_streaming(on_delta)` 方法，默认回退一次性回调 |
 | `OpenAiClient` | override：设 `stream: true` → `resp.chunk()` → SSE 解析 |
 | `Effect` | 新增 `AssistantDelta { content, reasoning_content }` + `AssistantDone` |
-| `OverseerBackend` | `effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>`，run_trigger 内每收到 delta 即推 |
+| `AmberyBackend` | `effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>`，run_trigger 内每收到 delta 即推 |
 | `Bridge` | 新增 `onAssistantDelta(cb)` + `onAssistantDone(cb)` |
 | `RemoteBridge` | WS handler 新 case：`assistant_delta` / `assistant_done` |
 | `chat.ts` | 收到 delta 直接追加 DOM，收到 done 时移除 loading 气泡 |

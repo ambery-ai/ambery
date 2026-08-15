@@ -1,5 +1,5 @@
 {
-  "name": "terminal-overseer-app",
+  "name": "ambery-app",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,8 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "pretest": "cargo build -p overseer-case --manifest-path ../Cargo.toml",
-    "test": "..\\target\\debug\\overseer-case.exe frontend --silent"
+    "pretest": "cargo build -p ambery-case --manifest-path ../Cargo.toml",
+    "test": "..\\target\\debug\\ambery-case.exe frontend --silent"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",

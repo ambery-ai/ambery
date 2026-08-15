@@ -100,7 +100,7 @@ Card 和 Chat panel 窗口目前无标题栏无法被单独拖动，只能通过
 
 2026-07-30 reopen——用户从 pet 汇报中发现三个实例仍为 Processing。打回原因：首次修复只覆盖「扫描判定」环节，**调度盲区**未覆盖——`timers.reset` 的唯一调用点是 hook 事件，无 hook 实例（僵尸）从不进入 TimerWheel 调度集，`due()` 永不返回它们，判定逻辑根本没有执行机会。case 复现链：case-runner timer_scan 对齐生产 due 路径后跑僵尸切片，`0 scanned`、僵尸保持 Processing、panorama 3 存活（复现成功，证明 case 能抓住此 bug）。
 
-2026-07-30 修复——①启动批量调度：OverseerBackend::new 对投影中全部存活实例批量 reset 入 TimerWheel（无 hook 实例也进兜底扫描集）；②mark_instance_closed 同名连坐：读通道按 name 读取，同名实例在读取侧不可区分，判死须同判（原只闭最新一条，同名僵尸漏网）。case 验证：修复后僵尸切片 3 实例全闭、panorama 空；82 测试绿。生产重启后三个真实僵尸随首个 timer 周期判死。
+2026-07-30 修复——①启动批量调度：AmberyBackend::new 对投影中全部存活实例批量 reset 入 TimerWheel（无 hook 实例也进兜底扫描集）；②mark_instance_closed 同名连坐：读通道按 name 读取，同名实例在读取侧不可区分，判死须同判（原只闭最新一条，同名僵尸漏网）。case 验证：修复后僵尸切片 3 实例全闭、panorama 空；82 测试绿。生产重启后三个真实僵尸随首个 timer 周期判死。
 
 2026-07-30 二次修复（metrics case 跑红实锤第二层）——判死只改注册表、零 diff 事件，LLM 的全景认知停在旧快照：case 问「有几个运行中实例」，判死后仍答 3（应答 0），且簿记挂「Component 交互事件」低权威标签下模型不采信。修复：①mark_instance_closed 补 EventBuffer 簿记；②生命周期簿记（+注册/−关闭/−关闭(Timer 判死)）全量带 post-count「→ 存活 N」——backend 投影现算，LLM 直接读数免对账（用户定案：每条事件带数字变化）；③簿记按 hash（同名连坐递减序列自然正确）。case 跑绿：answer 3→0。
 
@@ -136,7 +136,7 @@ card/chat 窗口从自动布局位置 A 拖到 B 后，新位置只生效于当�
 
 ## #13 pet 隐藏后新 card 窗口仍然弹出 (2026-07-29) — fixed
 
-托盘切换为隐藏后（pet/chat 隐藏、cards:hide 广播已发出的存量窗口），后续 ペット call_component 触发的新 card 窗口仍然会创建并显示。隐藏状态应对 card 窗口全局生效：隐藏期间新 card 不弹出（延迟到恢复显示时呈现，或直接抑制创建）。
+托盘切换为隐藏后（pet/chat 隐藏、cards:hide 广播已发出的存量窗口），后续 pet call_component 触发的新 card 窗口仍然会创建并显示。隐藏状态应对 card 窗口全局生效：隐藏期间新 card 不弹出（延迟到恢复显示时呈现，或直接抑制创建）。
 
 **
 
@@ -210,7 +210,7 @@ card/chat 窗口的 CSS `box-shadow` 超出窗口物理尺寸后被 Tauri 裁剪
 
 ***
 
-**触发场景**: ペット通过 call_component 弹出内容较长的 card（如 2000 字 text_card、20 条 git log、大量 todobox 条目）。
+**触发场景**: pet 通过 call_component 弹出内容较长的 card（如 2000 字 text_card、20 条 git log、大量 todobox 条目）。
 
 **表现**: Card 高度无上限——`card-window.ts` 按 `offsetHeight` 测量值直接设窗口尺寸，CSS `.component` 有 `max-width: 480px` 但无 `max-height`，长内容导致窗口纵向撑出屏幕边界，内容底部不可见、也无法滚动。
 
@@ -236,7 +236,7 @@ pet 拖到桌面底部后右键唤出 chat，chat 没有出现在可见范围内
 
 ***
 
-**触发场景**: ペット通过 call_component 关闭卡片时，LLM 将 `action: "close"` 放在 `spec` 对象外面（与 `spec` 并列在 args 顶层）。
+**触发场景**: pet 通过 call_component 关闭卡片时，LLM 将 `action: "close"` 放在 `spec` 对象外面（与 `spec` 并列在 args 顶层）。
 
 **表现**: `execute_tool` 第 822 行 `spec.get("action")` 返回 None → 跳过 close 分支 → 落回 create/update 路径 → `spec` 只剩 `{id}` 无 type → 卡片已存在进 else 分支 → 返回 `{"updated":"demo_line"}` + `RenderComponent({"id":"demo_line"})` → 空 spec 渲染出空卡片窗口。
 

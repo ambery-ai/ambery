@@ -43,7 +43,7 @@ struct TimerWheel {
 ## 扫描处理流程（变化检测的真实应用点）
 
 ```
-tick（server 后台任务，默认 60s（config `timer.tick_ms`；case-runner 可经 OVERSEER_TIMER_TICK_MS 覆盖））
+tick（server 后台任务，默认 60s（config `timer.tick_ms`；case-runner 可经 AMBERY_TIMER_TICK_MS 覆盖））
   → due(now, batch)
   → adapter locate+read（读不到 None 则跳过；sidecar 在链时判死 closed，docs/storage.md）
   → 原文存 terminal-content.jsonl → Filter.digest 归一

@@ -9,7 +9,7 @@
 
   表现层    前端窗口：pet / chat / card-* / menu（Tauri，非 headless）
   ─────────────────────────────────────────────────────────
-  编排层    OverseerBackend（overseer.rs）
+  编排层    AmberyBackend（ambery.rs）
             handle_hook │ handle_timer_scan │ run_trigger │ execute_tool │ drain_queue
   ─────────────────────────────────────────────────────────
   能力层    Filter（filter.rs）│ LLM（llm.rs）│ Timer（timer.rs）
@@ -55,7 +55,7 @@
                                          ▼
                                   ┌────────────┐
                                   │  编排层     │  execute_tool
-                                  │ Overseer-  │
+                                  │ Ambery-  │
                                   └──┬─────┬───┘
                                      │     │
                            result    │     │  effect
@@ -104,7 +104,7 @@ flowchart TD
     end
 
     subgraph L2[编排层]
-        OB["OverseerBackend"]
+        OB["AmberyBackend"]
     end
 
     subgraph L1[表现层]

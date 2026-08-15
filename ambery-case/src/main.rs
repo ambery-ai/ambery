@@ -1,10 +1,10 @@
-//! overseer-case CLI（docs/case-runner.md）：两段式 .case 回放、step 执行与概念观测。
+//! ambery-case CLI（docs/case-runner.md）：两段式 .case 回放、step 执行与概念观测。
 
-use overseer_core::case::CaseFile;
-use overseer_core::llm::LlmBackend;
-use overseer_core::overseer::OverseerBackend;
-use overseer_core::server::now_ms;
-use overseer_core::{Config, LlmProvider};
+use ambery_core::case::CaseFile;
+use ambery_core::llm::LlmBackend;
+use ambery_core::ambery::AmberyBackend;
+use ambery_core::server::now_ms;
+use ambery_core::{Config, LlmProvider};
 use std::sync::Arc;
 
 mod export;
@@ -58,10 +58,10 @@ fn apply_decision(config: &mut Config, brain_addr: Option<&str>, silent: bool) {
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("usage: overseer-case <case.case> [--step-num N] [--health] [--brain-addr <url> | --silent]");
-        eprintln!("       overseer-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主（docs/case-runner.md §壳类比）");
-        eprintln!("       overseer-case frontend [--brain-addr <url> | --silent] # 前端进 case：内嵌 core + 拉起 vitest");
-        eprintln!("       overseer-case export [--storage DIR] [--instances a,b] [--window 30m]");
+        eprintln!("usage: ambery-case <case.case> [--step-num N] [--health] [--brain-addr <url> | --silent]");
+        eprintln!("       ambery-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主（docs/case-runner.md §壳类比）");
+        eprintln!("       ambery-case frontend [--brain-addr <url> | --silent] # 前端进 case：内嵌 core + 拉起 vitest");
+        eprintln!("       ambery-case export [--storage DIR] [--instances a,b] [--window 30m]");
         eprintln!("              [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] [--dedup] [--dry-run] [--case-id ID]");
         eprintln!("              [--keep-memory --memory name-a,AGENTS] [--keep-cron --cron-ids id-a,id-b]");
         std::process::exit(2);
@@ -80,20 +80,20 @@ async fn main() {
     if args[1] == "serve" {
         let (brain, silent) = parse_decision(&args[2..]);
         let needs_decision =
-            Config::load_or_default(&overseer_core::paths::config_root()).llm.active == "debug";
+            Config::load_or_default(&ambery_core::paths::config_root()).llm.active == "debug";
         if needs_decision && brain.is_none() && !silent {
             eprintln!("USAGE: llm active=debug 的 serve 必须显式 --brain-addr <url> 或 --silent（docs/debug-agent.md）");
             std::process::exit(2);
         }
-        let parts = overseer_core::host::assemble_host(
+        let parts = ambery_core::host::assemble_host(
             |c| apply_decision(c, brain.as_deref(), silent),
             |b| b,
         );
-        let port: u16 = std::env::var("OVERSEER_PORT")
+        let port: u16 = std::env::var("AMBERY_PORT")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(47600);
-        overseer_core::host::serve_host(parts, port).await;
+        ambery_core::host::serve_host(parts, port).await;
         return;
     }
     let case_path = &args[1];
@@ -106,7 +106,7 @@ async fn main() {
     let (brain_addr, silent) = parse_decision(&args[2..]);
 
     let text = std::fs::read_to_string(case_path).expect("read case file");
-    let case = match overseer_core::case::parse(&text) {
+    let case = match ambery_core::case::parse(&text) {
         Ok(c) => c,
         Err(e) => {
             // 缺 llm_mode / 非法值 / no_case_visible 等不合法：health 模式 FAIL 退出 1，否则报错退出
@@ -119,11 +119,11 @@ async fn main() {
     // 或 --silent；real 模式禁止携带（brain 是 debug 专用决策源）。health 静态检查豁免
     if !health_mode {
         match case.meta.llm_mode {
-            overseer_core::case::LlmMode::Debug if brain_addr.is_none() && !silent => {
+            ambery_core::case::LlmMode::Debug if brain_addr.is_none() && !silent => {
                 eprintln!("USAGE: debug 模式必须显式给 --brain-addr <url> 或 --silent（docs/case-runner.md §用例）");
                 std::process::exit(2);
             }
-            overseer_core::case::LlmMode::Real if brain_addr.is_some() || silent => {
+            ambery_core::case::LlmMode::Real if brain_addr.is_some() || silent => {
                 eprintln!("USAGE: real LLM 模式不接受 --brain-addr/--silent");
                 std::process::exit(2);
             }
@@ -155,17 +155,17 @@ async fn main() {
         }
         println!("── step {}: {} ──", i + 1, step.name());
         match step {
-            overseer_core::case::CaseStep::Observe { observe: items } => {
+            ambery_core::case::CaseStep::Observe { observe: items } => {
                 runner::exec_observe(&ov, items, &vars);
             }
-            overseer_core::case::CaseStep::Store { store } => {
+            ambery_core::case::CaseStep::Store { store } => {
                 runner::exec_store(&ov, store, &mut vars);
             }
-            overseer_core::case::CaseStep::Cmd { .. } => runner::exec_load(),
-            overseer_core::case::CaseStep::Cmd2 { .. } => {
+            ambery_core::case::CaseStep::Cmd { .. } => runner::exec_load(),
+            ambery_core::case::CaseStep::Cmd2 { .. } => {
                 runner::exec_timer_scan(&mut ov, pick_ts(None)).await;
             }
-            overseer_core::case::CaseStep::Cmd3 { hook } => {
+            ambery_core::case::CaseStep::Cmd3 { hook } => {
                 let event = hook["event"].as_str().expect("hook.event");
                 let name = hook["name"].as_str().unwrap_or("");
                 let project = hook["project"].as_str().unwrap_or("");
@@ -173,25 +173,25 @@ async fn main() {
                 let ts = pick_ts(hook.get("ts"));
                 runner::exec_hook(&mut ov, event, name, project, content, ts).await;
             }
-            overseer_core::case::CaseStep::Cmd4 { .. } => {
+            ambery_core::case::CaseStep::Cmd4 { .. } => {
                 runner::exec_trigger(&mut ov).await;
             }
-            overseer_core::case::CaseStep::Cmd5 { user } => {
+            ambery_core::case::CaseStep::Cmd5 { user } => {
                 let text = user["text"].as_str().expect("user.text");
                 let ts = pick_ts(user.get("ts"));
                 runner::exec_user(&mut ov, text, ts).await;
             }
-            overseer_core::case::CaseStep::Cmd6 { tool_call } => {
+            ambery_core::case::CaseStep::Cmd6 { tool_call } => {
                 let name = tool_call.first().expect("tool_call[0] = name");
                 let args = tool_call.get(1).map(String::as_str).unwrap_or("{}");
                 runner::exec_tool_call(&mut ov, name, args, &format!("case-{i}")).await;
             }
-            overseer_core::case::CaseStep::Terminal { terminal } => {
+            ambery_core::case::CaseStep::Terminal { terminal } => {
                 let instance = terminal["instance"].as_str().expect("terminal.instance");
                 let content = terminal["content"].as_str().unwrap_or("");
                 runner::exec_terminal(&terminals, instance, content);
             }
-            overseer_core::case::CaseStep::TerminalGone { terminal_gone } => {
+            ambery_core::case::CaseStep::TerminalGone { terminal_gone } => {
                 let instance = terminal_gone["instance"].as_str().expect("terminal_gone.instance");
                 runner::exec_terminal_gone(&terminals, instance);
             }
@@ -199,13 +199,13 @@ async fn main() {
     }
 }
 
-/// case → 可执行 OverseerBackend（tmp storage 快照 + debug/real LLM + 可变读通道）
+/// case → 可执行 AmberyBackend（tmp storage 快照 + debug/real LLM + 可变读通道）
 fn setup(
     case: &CaseFile,
     brain_addr: Option<&str>,
     silent: bool,
-) -> (OverseerBackend<LlmBackend>, SharedTerminals) {
-    let tmp = std::env::temp_dir().join(format!("overseer-case-{}", case.meta.case_id));
+) -> (AmberyBackend<LlmBackend>, SharedTerminals) {
+    let tmp = std::env::temp_dir().join(format!("ambery-case-{}", case.meta.case_id));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).expect("create tmp dir");
 
@@ -216,7 +216,7 @@ fn setup(
     // memory 节：Markdown 原文按相对路径落盘；index.md 不进 case——
     // Harness bootstrap 按已选普通记忆在沙盒重建（docs/case-runner.md §数据节）
     for f in &case.memory {
-        let path = tmp.join(overseer_core::memory::MEMORY_DIR).join(&f.path);
+        let path = tmp.join(ambery_core::memory::MEMORY_DIR).join(&f.path);
         std::fs::create_dir_all(path.parent().expect("memory file parent")).expect("memory dir");
         std::fs::write(&path, &f.content).expect("write memory file");
     }
@@ -226,7 +226,7 @@ fn setup(
     if let Some(obj) = case.config.as_object() {
         let mut cv = serde_json::to_value(&config).expect("config to value");
         for (k, v) in obj {
-            overseer_core::config::reflect::set_by_path(&mut cv, k, v.clone())
+            ambery_core::config::reflect::set_by_path(&mut cv, k, v.clone())
                 .unwrap_or_else(|e| eprintln!("[case] config {k} 写入失败: {e}"));
         }
         config = serde_json::from_value(cv).expect("config from value");
@@ -234,15 +234,15 @@ fn setup(
     // LLM 模式（docs/case-runner.md §LLM 模式）：meta.llm_mode 两种平级——
     // debug 强制沉默（确定性）；real 合并生产 providers（子集校验）+ env key 现成
     match case.meta.llm_mode {
-        overseer_core::case::LlmMode::Debug => {
+        ambery_core::case::LlmMode::Debug => {
             if brain_addr.is_none() && !silent {
                 // health 烟测路径（不经 LLM 调用）：沉默即可
                 config.llm.active = "debug".into();
             }
             apply_decision(&mut config, brain_addr, silent);
         }
-        overseer_core::case::LlmMode::Real => {
-            let prod = Config::load_or_default(&overseer_core::paths::config_root());
+        ambery_core::case::LlmMode::Real => {
+            let prod = Config::load_or_default(&ambery_core::paths::config_root());
             let declared = config.llm.active.clone();
             // case 不携带 providers（no_case_visible 已在 parse 拒绝）→ 全量取生产
             config.llm.providers = prod.llm.providers;
@@ -260,14 +260,14 @@ fn setup(
         }
     }
 
-    let harness = overseer_core::Harness::load(&tmp, &tmp, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms())
+    let harness = ambery_core::Harness::load(&tmp, &tmp, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms())
         .expect("load harness");
     let backend = LlmBackend::from_config(&config.llm);
-    let mut ov = OverseerBackend::new(harness, config, backend);
+    let mut ov = AmberyBackend::new(harness, config, backend);
 
     // 读通道：MapAdapter（空 map 起步 = tab 不复存在），terminal/terminal_gone step 写剧情
     let terminals: SharedTerminals = Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
-    ov.terminal = Some(Arc::new(overseer_core::terminal::MapAdapter::new(terminals.clone())));
+    ov.terminal = Some(Arc::new(ambery_core::terminal::MapAdapter::new(terminals.clone())));
     (ov, terminals)
 }
 
@@ -275,18 +275,18 @@ fn setup(
 /// 一次性沙盒 env → 内嵌 core（serve 同款装配，独立端口避让生产）→ 拉起 vitest
 /// 子进程（env 继承端口与沙盒目录）→ 退出码透传
 async fn run_frontend(brain: Option<String>, silent: bool) {
-    let dir = std::env::temp_dir().join(format!("overseer-case-frontend-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ambery-case-frontend-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create frontend sandbox");
     // env 对本进程（assemble_host 经 paths:: 读取）与 vitest 子进程（继承）同时生效
-    std::env::set_var("OVERSEER_STORAGE_DIR", &dir);
-    std::env::set_var("OVERSEER_CONFIG_DIR", &dir);
+    std::env::set_var("AMBERY_STORAGE_DIR", &dir);
+    std::env::set_var("AMBERY_CONFIG_DIR", &dir);
     let needs_decision = Config::load_or_default(&dir).llm.active == "debug";
     if needs_decision && brain.is_none() && !silent {
         eprintln!("USAGE: llm active=debug 的 frontend 必须显式 --brain-addr <url> 或 --silent（docs/debug-agent.md）");
         std::process::exit(2);
     }
-    let parts = overseer_core::host::assemble_host(
+    let parts = ambery_core::host::assemble_host(
         |c| apply_decision(c, brain.as_deref(), silent),
         |b| b,
     );
@@ -294,7 +294,7 @@ async fn run_frontend(brain: Option<String>, silent: bool) {
     let port = std::net::TcpListener::bind("127.0.0.1:0")
         .and_then(|l| l.local_addr().map(|a| a.port()))
         .expect("probe free port");
-    tokio::spawn(overseer_core::host::serve_host(parts, port));
+    tokio::spawn(ambery_core::host::serve_host(parts, port));
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app");
     let mut cmd = tokio::process::Command::new(if cfg!(windows) { "cmd" } else { "npx" });
     if cfg!(windows) {
@@ -304,7 +304,7 @@ async fn run_frontend(brain: Option<String>, silent: bool) {
     }
     let status = cmd
         .current_dir(&app_dir)
-        .env("OVERSEER_PORT", port.to_string())
+        .env("AMBERY_PORT", port.to_string())
         .status()
         .await
         .expect("spawn vitest");
@@ -317,7 +317,7 @@ fn health(text: &str, case: &CaseFile) {
     let mut ok = true;
     // 1. 数据区每行（含 marker 行）是合法 JSONL；marker 行形态校验
     for line in text.lines() {
-        if line.starts_with(overseer_core::case::SECTION_MARKER) {
+        if line.starts_with(ambery_core::case::SECTION_MARKER) {
             if serde_json::from_str::<serde_json::Value>(line).is_err() {
                 eprintln!("FAIL: marker 行非法 JSON: {line}");
                 ok = false;
@@ -384,10 +384,10 @@ fn health(text: &str, case: &CaseFile) {
     }
     // 4. replay 烟测：Harness::load 不 panic + observe 可执行（health 不经 LLM，沉默装配）
     let (ov, _t) = setup(case, None, false);
-    let _ = overseer_core::case::observe(&ov);
+    let _ = ambery_core::case::observe(&ov);
     // 5. pre-parse 预检（docs/case-eval-system.md §checkhealth，静态不执行）：
     //    表达式 try_parse / 变量引用有效 / store 类型合法 / 类型可落 / observe target 合法
-    for f in overseer_core::case::pre_parse_check(case) {
+    for f in ambery_core::case::pre_parse_check(case) {
         eprintln!("FAIL: pre-parse: {f}");
         ok = false;
     }
@@ -417,7 +417,7 @@ fn run_export(args: &[String]) {
     let has = |flag: &str| args.iter().any(|a| a == flag);
     let storage_dir = opt_val("--storage")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(overseer_core::paths::storage_dir);
+        .unwrap_or_else(ambery_core::paths::storage_dir);
     let case_id = opt_val("--case-id").unwrap_or_else(|| {
         format!("export-{}", std::process::id())
     });

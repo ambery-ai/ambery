@@ -6,7 +6,7 @@
 
 | label | 尺寸 | 用途 | 何时可见 |
 |---|---|---|---|
-| `pet` | 116×40（初始种子；运行时被 docs/pet-window-size.md 公式重算） | ペット + 颜文字 + 拖拽 | 始终 |
+| `pet` | 116×40（初始种子；运行时被 docs/pet-window-size.md 公式重算） | pet + 颜文字 + 拖拽 | 始终 |
 | `chat` | 320×380 | 聊天面板 | 唤出时（右键 toggle：chat:toggle） |
 | `menu` | 380×560 | 设置面板（schema 驱动，docs/config.md） | 托盘右键弹出，失焦隐藏 |
 | `shelf` | pet×3（钳制 180–480×120–240） | Cards Shelf（Card 管理瞬时弹出层，非 Surface，docs/view.md） | pet 中键：遮挡 pet 向右上弹出，中键/失焦即关 |
@@ -18,7 +18,7 @@
 
 ## 数据通道
 
-各窗口独立连接 overseer-core（Tauri IPC；effect 事件为后端下行总线）：
+各窗口独立连接 ambery-core（Tauri IPC；effect 事件为后端下行总线）：
 
 | 窗口 | 订阅 | 发送 |
 |---|---|---|

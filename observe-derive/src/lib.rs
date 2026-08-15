@@ -1,6 +1,6 @@
 //! derive(Observe)：聚合覆盖断言（docs/observability.md）。
 //! 作用在聚合体 struct（Harness）上，生成 `__observe_coverage` 方法——每个字段必须
-//! 实现 `overseer_core::observe::Observable`，或显式 `#[observe(skip = "理由")]` 跳过，
+//! 实现 `ambery_core::observe::Observable`，或显式 `#[observe(skip = "理由")]` 跳过，
 //! 否则 E0277（编译期强制所有模块可观测）。
 
 use proc_macro::TokenStream;
@@ -63,7 +63,7 @@ pub fn derive_observe(input: TokenStream) -> TokenStream {
             #[doc(hidden)]
             #[allow(dead_code)]
             fn __observe_coverage(&self) {
-                fn require<T: ::overseer_core::observe::Observable>(_: &T) {}
+                fn require<T: ::ambery_core::observe::Observable>(_: &T) {}
                 #(#checks)*
             }
         }

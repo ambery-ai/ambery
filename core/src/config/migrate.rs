@@ -69,7 +69,7 @@ pub fn check() {
 /// 旧版内置 base_prompt 原文（你改过的不会被碰）：随 {name} 占位收敛一次性升级
 /// （docs/view.md §名称——身份文案读取当前名称；同 memory.rs OLD_DEFAULT 收敛先例）
 const OLD_DEFAULT_BASE_PROMPT: &str =
-    "你是ペット，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。";
+    "你是 pet，Ambery 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。";
 
 fn upgrade_base_prompt_default(cfg: &mut Config) -> bool {
     if cfg.base_prompt == OLD_DEFAULT_BASE_PROMPT {

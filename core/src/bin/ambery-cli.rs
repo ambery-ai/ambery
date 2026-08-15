@@ -1,16 +1,16 @@
-//! overseer-cli（docs/config.md「修改入口」）：Config 的声明式 CLI。
+//! ambery-cli（docs/config.md「修改入口」）：Config 的声明式 CLI。
 //! 零 per-field 代码——list/get/set/schema 四命令全是 schema 节点的薄渲染。
 //! 默认走 HTTP（热生效 + 广播）；--offline 直写文件兜底（server 未运行时使用）。
 
 use clap::{Parser, Subcommand};
-use overseer_core::config::reflect;
-use overseer_core::Config;
+use ambery_core::config::reflect;
+use ambery_core::Config;
 use serde_json::Value;
 
 const DEFAULT_BASE: &str = "http://127.0.0.1:47600";
 
 #[derive(Parser)]
-#[command(name = "overseer-cli", about = "Terminal Overseer 配置 CLI（docs/config.md）")]
+#[command(name = "ambery-cli", about = "Ambery 配置 CLI（docs/config.md）")]
 struct Cli {
     /// 直写 config.json（server 未运行时；无热生效/广播）
     #[arg(long, global = true)]
@@ -54,7 +54,7 @@ async fn run(cli: Cli) -> Result<String, String> {
 // ---------- online（HTTP 薄客户端，与托盘面板同一数据源） ----------
 
 fn base() -> String {
-    std::env::var("OVERSEER_ADDR").unwrap_or_else(|_| DEFAULT_BASE.into())
+    std::env::var("AMBERY_ADDR").unwrap_or_else(|_| DEFAULT_BASE.into())
 }
 
 async fn fetch_schema(client: &reqwest::Client) -> Result<Value, String> {
@@ -122,7 +122,7 @@ async fn run_online(cmd: Cmd) -> Result<String, String> {
 // ---------- offline（直写文件兜底） ----------
 
 fn run_offline(cmd: Cmd) -> Result<String, String> {
-    let dir = overseer_core::paths::config_root();
+    let dir = ambery_core::paths::config_root();
     let cfg = Config::load_or_default(&dir);
     match cmd {
         Cmd::Schema => {
@@ -151,7 +151,7 @@ fn run_offline(cmd: Cmd) -> Result<String, String> {
                 serde_json::from_value(v).map_err(|e| format!("验证失败: {e}"))?;
             // 统一 validation（docs/config.md §统一修改入口：验证只能有一份——
             // offline 直写同样跑 meta validators，原子拒绝）
-            let verrs = overseer_core::config::meta::validate_for_update(
+            let verrs = ambery_core::config::meta::validate_for_update(
                 &serde_json::to_value(&new).map_err(|e| e.to_string())?,
                 &path,
             );

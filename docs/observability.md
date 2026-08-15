@@ -47,7 +47,7 @@ CronScheduler → `Vec<CronSnapshot>`。
 ```rust
 impl Harness {
     fn __observe_coverage(&self) {
-        fn require<T: ::overseer_core::observe::Observable>(_: &T) {}
+        fn require<T: ::ambery_core::observe::Observable>(_: &T) {}
         require(&self.queue);      // 每个非 skip 字段一行
         require(&self.context);
         // ...
@@ -58,8 +58,8 @@ impl Harness {
 - 字段类型未实现 `Observable` → **E0277**，报错位置指向 derive 处（该字段）。
 - 显式跳过：`#[observe(skip = "理由")]`——理由是必填字符串，review 可见、grep 可查。
 - derive 宏名 `Observe`（聚合断言）与 trait 名 `Observable`（模块投影）刻意区分。
-- 宏展开内引用 `::overseer_core::observe::Observable`；core 内用
-  `extern crate self as overseer_core;` 别名让该路径在 crate 内外都解析（serde 同款手法）。
+- 宏展开内引用 `::ambery_core::observe::Observable`；core 内用
+  `extern crate self as ambery_core;` 别名让该路径在 crate 内外都解析（serde 同款手法）。
 
 ### Harness 字段覆盖表
 

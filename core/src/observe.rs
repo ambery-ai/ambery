@@ -5,7 +5,7 @@
 //! ## 验收：聚合体含未实现 Observable 的字段 → E0277
 //!
 //! ```compile_fail,E0277
-//! #[derive(overseer_observe_derive::Observe)]
+//! #[derive(ambery_observe_derive::Observe)]
 //! struct H { queue: String }
 //! ```
 
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn memory_projection() {
-        let dir = std::env::temp_dir().join(format!("overseer-obs-mem-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-obs-mem-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let m = crate::memory::Memory::bootstrap(&dir).unwrap();
         assert!(m.observe().is_empty());
@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn cards_projection() {
         let mut cards = std::collections::HashMap::new();
-        let dir = std::env::temp_dir().join(format!("overseer-obs-cards-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-obs-cards-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         crate::cards::upsert(
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn cron_projection() {
-        let dir = std::env::temp_dir().join(format!("overseer-obs-cron-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ambery-obs-cron-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut c = crate::cron::CronScheduler::load(&dir).unwrap();
         let id = c.create(crate::cron::Schedule::EveryMs(60_000), "日报", 1000).unwrap();

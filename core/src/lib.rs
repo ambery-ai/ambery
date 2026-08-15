@@ -1,10 +1,10 @@
-//! Harness（concepts §10，docs/harness.md）：ペット和 OverseerBackend 共享的数据层。
+//! Harness（concepts §10，docs/harness.md）：pet 和 AmberyBackend 共享的数据层。
 //! Queue（输入排队）/ Context（消息数组）/ Content 存档 / Event Buffer / agents 注册表
 //! + JSONL Storage replay。
 
-// derive 宏展开内引用 ::overseer_core 路径（docs/observability.md），
+// derive 宏展开内引用 ::ambery_core 路径（docs/observability.md），
 // 别名让 crate 内外（含 doctest/下游）都能解析（serde 同款手法）
-extern crate self as overseer_core;
+extern crate self as ambery_core;
 
 pub mod cards;
 pub mod config;
@@ -26,7 +26,7 @@ pub mod case;
 pub mod eval;
 #[cfg(feature = "case-runner")]
 pub mod observe;
-pub mod overseer;
+pub mod ambery;
 pub mod paths;
 pub mod queue;
 pub mod server;
@@ -79,7 +79,7 @@ impl EffectOrigin {
         }
     }
 }
-/// AGENTS.md（通用约定名）：ペット的身份提示词，与 base_prompt 拼接进 system prompt。
+/// AGENTS.md（通用约定名）：pet 的身份提示词，与 base_prompt 拼接进 system prompt。
 /// Config 域：存 config 根目录而非 storage（docs/storage.md）
 pub const AGENTS_MD_FILE: &str = "AGENTS.md";
 
@@ -175,7 +175,7 @@ pub fn agent_hash(name: &str, project: &str, first_seen: i64) -> String {
 
 /// derive Observe（docs/observability.md）：每个字段必须实现 Observable 或显式
 /// skip 写理由——新增概念模块不声明可观测性即 E0277（编译期强制覆盖）。
-#[cfg_attr(feature = "case-runner", derive(overseer_observe_derive::Observe))]
+#[cfg_attr(feature = "case-runner", derive(ambery_observe_derive::Observe))]
 pub struct Harness {
     /// Queue（concepts §10c）：输入串行化关口，只装待放行输入
     pub queue: Queue,
@@ -461,7 +461,7 @@ fn apply_agent(agents: &mut Vec<AgentEntry>, entry: AgentEntry) {
     }
 }
 
-/// 默认 AGENTS.md（ペット身份提示词，concepts §2/§13；用户可直接改，运行时热生效）。
+/// 默认 AGENTS.md（pet 身份提示词，concepts §2/§13；用户可直接改，运行时热生效）。
 /// 以首启时刻的 Harness 语言生成（docs/i18n.md）；此后作为已生成内容不被改写。
 /// 身份行用 {name} 占位——拼装请求头时替换为当前 pet 名称（docs/view.md §名称）
 pub fn default_agents_md(lang: i18n::Lang) -> String {
@@ -469,7 +469,7 @@ pub fn default_agents_md(lang: i18n::Lang) -> String {
         i18n::Lang::En => r#"# AGENTS.md — {name}
 
 ## Identity
-You are {name} (pet), the human interface of the Terminal Overseer system. Overseer makes decisions; you express them.
+You are {name} (pet), the human interface of the Ambery system. Ambery makes decisions; you express them.
 
 ## Responsibilities
 - Watch all Code CLI instances: who finished, who made real progress, who errored (instance register/finish events are injected into the conversation; a panorama sync follows compression or restart).
@@ -486,7 +486,7 @@ You are {name} (pet), the human interface of the Terminal Overseer system. Overs
         i18n::Lang::Zh => r#"# AGENTS.md — {name}
 
 ## 身份
-你是 {name}（宠物），Terminal Overseer 监工系统的人机界面。Overseer 做决策，你做表达。
+你是 {name}（宠物），Ambery 监工系统的人机界面。Ambery 做决策，你做表达。
 
 ## 职责
 - 盯着所有 Code CLI 实例：谁跑完了、谁有实质进展、谁出错了（实例注册/完成事件会注入对话，压缩或重启后有全景同步）。
@@ -511,7 +511,7 @@ mod tests {
 
     fn tmp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "overseer-test-{}-{}",
+            "ambery-test-{}-{}",
             tag,
             std::process::id()
         ));
@@ -635,12 +635,12 @@ mod tests {
         let md = std::fs::read_to_string(dir.join(AGENTS_MD_FILE)).unwrap();
         // 默认身份提示词用 {name} 占位（docs/view.md §名称：拼装时替换为当前 pet 名称）
         assert!(md.contains("# AGENTS.md — {name}"));
-        assert!(md.contains("Terminal Overseer"));
+        assert!(md.contains("Ambery"));
         // 用户改过的内容不被覆盖
-        std::fs::write(dir.join(AGENTS_MD_FILE), "# 自定义ペット").unwrap();
+        std::fs::write(dir.join(AGENTS_MD_FILE), "# 自定义 pet").unwrap();
         Harness::load(&dir, &dir, 1000, 0).unwrap();
         let md2 = std::fs::read_to_string(dir.join(AGENTS_MD_FILE)).unwrap();
-        assert_eq!(md2, "# 自定义ペット");
+        assert_eq!(md2, "# 自定义 pet");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

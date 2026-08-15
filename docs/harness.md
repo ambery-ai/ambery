@@ -47,7 +47,7 @@ struct AgentEntry {
 2. **每条输入带来源字段**：来源 = 触发这次输入的语义原因（`user_chat` / `hook_stop_hint` / `hook_stop_content` / `hook_stop_report` / `hook_user_prompt` / `hook_notification` / `mock_hook` / `timer_scan` / `cron_tick`，完整集合与入队点见 `docs/concrete-insight.md §Queue 中的 System 消息来源`）。来源是驱动 effort 档位、优先级等按来源定行为机制的一等公民；`release_one` 把它传进 `run_trigger`，工具循环内后续调用沿用。
 3. **串行放行 + 双队列**：每条输入放行后，必须等整轮处理完毕（输入写 Context → LLM → tool 执行 → 输出写 Context）才放行下一条——不可并行调用 LLM。输入到来时若正在处理中，在 Queue 中排队等待。Queue 分两队：`high_q` 装 `user_chat`（用户直接问 pet），`normal_q` 装其余全部；放行时 `high_q` 非空先放 `high_q`（FIFO），空则放 `normal_q`（FIFO）——用户直接问 pet 时优先处理，两队列内部各自保持到达顺序。
 4. system prompt **不是** Queue 输入也不是 Context 消息——它是每次 LLM 调用时现拼的请求头（base_prompt + AGENTS.md + 系统表情池；用户表情池按需查询），内容稳定、天然 cache 友好，不落盘（head 快照见 docs/storage.md）。
-5. Hook 触发 → OverseerBackend 向 Queue 注入 `system` 输入（如「config-service 完成（4958 字）。评估是否通知。」）。
+5. Hook 触发 → AmberyBackend 向 Queue 注入 `system` 输入（如「config-service 完成（4958 字）。评估是否通知。」）。
 6. **diff 事件化**：实例注册/状态翻转的簿记事件不走 Queue——走 Event Buffer 静默附带（§10e）；LLM 从 Context 中的事件流重建全景，不按轮注入快照。
 
 ## Event Buffer 规则（concepts §10e）
@@ -61,7 +61,7 @@ struct AgentEntry {
 ## Context 规则（concepts §10b）
 
 - Context = 完整消息数组（OpenAI messages 对齐）：Queue 放行写输入，LLM 回复写 assistant，tool 执行写 tool——LLM 请求的上下文源，也是完整对话的持久化存档。
-- 终端内容：Hook 触发 → OverseerBackend 读 Terminal Content → **原文先存 terminal-content.jsonl** → Filter → 归一结果更新内存变化检测基准；放行后注入 Context 的是评估提示（「{name} 完成，Context 已更新（N 字）。评估是否通知。」形态）——归一全文本身不进 Queue/Context。
+- 终端内容：Hook 触发 → AmberyBackend 读 Terminal Content → **原文先存 terminal-content.jsonl** → Filter → 归一结果更新内存变化检测基准；放行后注入 Context 的是评估提示（「{name} 完成，Context 已更新（N 字）。评估是否通知。」形态）——归一全文本身不进 Queue/Context。
 - 归一全文**不持久化**：变化检测的 prev（每实例上次归一全文）存内存（重启丢）；「那个 bug 具体怎么回事」类追问与 `fetch_terminal` 回退从 terminal-content.jsonl 原文 digest 现算。
 - Autonomy 状态记录（type=autonomy）每轮一条也写 context.jsonl；装配请求时取最新一条挂请求末端（concepts §4 / docs/storage.md）。
 
@@ -87,7 +87,7 @@ struct AgentEntry {
 
 Memory 是 Harness 管理、Agent 主动维护的**持久化理解 buffer**：它替代 Agent 依赖文件系统记录理解，不是 Context、压缩摘要或终端内容存档。它在跨 turn、压缩与重启后保留；后端、用户与 Agent 都可管理，其中 Agent 通过 `read_memory` / `write_memory` 调整。
 
-- Memory 是整个 Overseer 共享的一套理解，不按被监工 project 隔离；它可记录跨项目计划、工作关系与用户协作偏好。
+- Memory 是整个 Ambery 共享的一套理解，不按被监工 project 隔离；它可记录跨项目计划、工作关系与用户协作偏好。
 - 持久化形态为一个 Memory Workspace（notes/ 长期理解 + cards/ 持久工作产物）：目录结构、索引、写入规则与只读契约见 docs/memory.md。
 
 两个 tool 的参数 schema、校验与返回结构、index/AGENTS.md 生成契约见 **docs/memory.md**（已定稿）。
@@ -120,7 +120,7 @@ Queue 放行一条输入（附带 Event Buffer 合并为一条）
   → Compression 检查（Context 超阈值 → 专项摘要 + shaking + 归零重 diff）
   → 附加 Autonomy 状态到请求末端
   → call LLM（请求 = 请求头 + Context 全部消息 + Autonomy 状态）
-  → loop: assistant tool_calls → OverseerBackend 执行 → tool result 追加 Context → 再做 Compression 检查 → 再 call
+  → loop: assistant tool_calls → AmberyBackend 执行 → tool result 追加 Context → 再做 Compression 检查 → 再 call
   → assistant content 追加 Context
   → Queue 放行下一条
 ```
@@ -130,4 +130,4 @@ Queue 放行一条输入（附带 Event Buffer 合并为一条）
 Tauri 模式：前端与 core 通信走 **Tauri 原生 IPC**（`#[tauri::command]` + `invoke()` + `app_handle.emit()` + `listen()`）。
 仅外部 hook 脚本保留 HTTP `POST /hook`（进程外跨进程调，Tauri command 不可达）。
 
-浏览器调试模式：core 以 `overseer-case serve` 完整 router 宿主运行（docs/core-server.md），前端通过 thin HTTP+WS loopback 直连。
+浏览器调试模式：core 以 `ambery-case serve` 完整 router 宿主运行（docs/core-server.md），前端通过 thin HTTP+WS loopback 直连。

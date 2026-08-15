@@ -18,6 +18,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "ambery-case"
+version = "0.1.0"
+dependencies = [
+ "ambery-core",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "ambery-core"
+version = "0.1.0"
+dependencies = [
+ "ambery-observe-derive",
+ "axum",
+ "clap",
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "regex",
+ "reqwest",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sys-locale",
+ "tokio",
+ "tower-http",
+]
+
+[[package]]
+name = "ambery-observe-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1254,45 +1293,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7bb71e1b3fa6ca1c61f383464aaf2bb0e2f8e772a1f01d486832464de363b951"
 dependencies = [
  "num-traits",
-]
-
-[[package]]
-name = "overseer-case"
-version = "0.1.0"
-dependencies = [
- "overseer-core",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "overseer-core"
-version = "0.1.0"
-dependencies = [
- "axum",
- "clap",
- "crossterm",
- "futures-util",
- "overseer-observe-derive",
- "ratatui",
- "regex",
- "reqwest",
- "schemars",
- "serde",
- "serde_json",
- "sys-locale",
- "tokio",
- "tower-http",
-]
-
-[[package]]
-name = "overseer-observe-derive"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]

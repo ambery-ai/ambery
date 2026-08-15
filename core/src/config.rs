@@ -69,8 +69,8 @@ pub struct Config {
     /// 语言），切换从下一次新的 LLM 交互起生效，不改写既有 Context/历史
     #[serde(default = "default_harness_language")]
     pub harness_language: String,
-    /// pet 名称（docs/view.md §名称）：稳定身份值。首次初始化写入正式默认名（ペット，
-    /// 用户定案不改、不按语言区分）；此后与语言独立，不自动改名、不参与翻译。
+    /// pet 名称（docs/view.md §名称）：稳定身份值。首次初始化写入正式默认名（Ambery，
+    /// 不按语言区分）；此后与语言独立，不自动改名、不参与翻译。
     /// 不标 no_llm_visible：本地用户与 LLM 经各自 Config 入口读写
     #[serde(default = "default_pet_name")]
     pub name: String,
@@ -307,9 +307,9 @@ fn default_harness_language() -> String {
     PROJECT_DEFAULT_LANGUAGE.into()
 }
 
-/// pet 正式默认名（docs/view.md §名称，用户定案「不改」）：ペット——不按语言区分
+/// pet 正式默认名（docs/view.md §名称）：Ambery——不按语言区分
 pub fn default_pet_name() -> String {
-    "ペット".into()
+    "Ambery".into()
 }
 
 /// Compression 保留目标默认（docs/harness.md §Compression 字段表）：24
@@ -529,7 +529,7 @@ impl Default for Config {
             // {name} 占位：拼装 system prompt 时替换为当前 pet 名称（docs/view.md §名称——
             // 身份文案读取当前名称；改名不回写历史/已生成内容，但请求头拼装跟当前名）
             base_prompt:
-                "你是 {name}，Terminal Overseer 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
+                "你是 {name}，Ambery 的看板宠物。根据系统状态决定通知或沉默，用 tool_calls 行动。"
                     .into(),
             view_scale: default_view_scale(),
             badge_style: default_badge_style(),

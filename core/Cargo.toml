@@ -1,5 +1,5 @@
 [package]
-name = "overseer-core"
+name = "ambery-core"
 version = "0.1.0"
 edition = "2021"
 
@@ -21,7 +21,7 @@ crossterm = "0.29"
 [lib]
 path = "src/lib.rs"
 
-[dependencies.overseer-observe-derive]
+[dependencies.ambery-observe-derive]
 path = "../observe-derive"
 optional = true
 
@@ -30,4 +30,4 @@ default = ["mock"]
 # mock 面（core/src/mock.rs）：真实 hook 接入后删此 feature 及模块
 mock = []
 # case-runner（docs/case-runner.md）：storage 快照回放与概念观测
-case-runner = ["dep:overseer-observe-derive"]
+case-runner = ["dep:ambery-observe-derive"]

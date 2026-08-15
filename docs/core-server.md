@@ -31,11 +31,11 @@ Tauri 原生 IPC（不经过 47600）：
 
 ## debug 模式完整 router
 
-case-runner 以完整 `router()` 启动（`overseer-case serve`，浏览器调试 RemoteBridge 消费，docs/case-runner.md §CLI）：`/state` `/context` `/queue/user` `/events` `/config` `/config/schema` `/effect` `/ws`，另有：
+case-runner 以完整 `router()` 启动（`ambery-case serve`，浏览器调试 RemoteBridge 消费，docs/case-runner.md §CLI）：`/state` `/context` `/queue/user` `/events` `/config` `/config/schema` `/effect` `/ws`，另有：
 
 - `GET /cards`、`POST /cards/layout`、`POST /cards/user_closed`——与 Tauri command `list_cards` / `update_card_layout` / `set_card_user_closed` 同一 core 逻辑（双运输层共享），供 RemoteBridge 消费（TS 子进程 / 浏览器调试）
 - `POST /debug/effect`（mock feature）——向 effect 下行总线注入任意 effect 消息，headless 测试确定性驱动 render/close/config 事件，不经 LLM
-- 端口默认 47600，`OVERSEER_PORT` 可覆盖（沙盒用独立端口避让生产）；storage/config 目录经 `OVERSEER_STORAGE_DIR` / `OVERSEER_CONFIG_DIR` 隔离
+- 端口默认 47600，`AMBERY_PORT` 可覆盖（沙盒用独立端口避让生产）；storage/config 目录经 `AMBERY_STORAGE_DIR` / `AMBERY_CONFIG_DIR` 隔离
 
 ## 相关文档
 

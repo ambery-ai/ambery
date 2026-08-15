@@ -8,7 +8,7 @@
 
 ## 表达式模型
 
-ペット的外在表现 = `Expression { face: string, motion: Motion }`，`Motion = still | float | bounce | shake`。
+pet 的外在表现 = `Expression { face: string, motion: Motion }`，`Motion = still | float | bounce | shake`。
 
 - `face`：颜文字，渲染在 View 内。
 - `motion`：View 的运动模式，CSS animation 实现，两种运行模式（Tauri/浏览器）一致。
@@ -33,7 +33,7 @@
 
    映射表存于 Config 的 `kaomoji.system` 与 `kaomoji.user` 两池；按 key 在两池并集中唯一解析。`idle` / `processing` / `notify` 必须存在于并集，系统默认推导与 `set_autonomy(key)` 都按此解析。两池均可由 agent 按 `query(view=object) → update(完整 map)` 管理；系统池默认不要修改，且它是尺寸扫描来源。池间 validation 见 docs/config.md。状态 key 与 concepts §4 的示例一致：Processing → `(ˇωˇ」∠)_` + 缓慢浮动，有通知 → `✧*｡٩(ˊᗜˋ*)و✧*｡` + 跳动。
 
-2. **ペット主动覆盖**：`set_autonomy` tool call。
+2. **pet 主动覆盖**：`set_autonomy` tool call。
 
 ## set_autonomy 语义
 
@@ -47,10 +47,10 @@ set_autonomy(key?: string, motion?: Motion, ttlMs?: number, once?: boolean)
 - `once: true` 时从 `MotionDef.durationMs` 自动取持续时间；它与 motion 的四向 overflow 同属动画注册表，必须和 CSS `animation-duration` 同步。动画 CSS 仍循环，TTL 到期后回落默认状态，由此收束为一次性动作。
 - `once: true` 与显式 `ttlMs` 同时传入直接拒绝，避免两套持续时间语义冲突。
 - 全部参数省略（或 `ttlMs: 0`）→ 立即清除覆盖，回落默认。
-- 覆盖期间实例状态变化不中断覆盖（ペット的表达优先），TTL 到期后回落默认。
+- 覆盖期间实例状态变化不中断覆盖（pet 的表达优先），TTL 到期后回落默认。
 
 ## 与 LLM 侧的关系
 
-Autonomy 是自有引擎，独立于 OverseerBackend。状态格式 `[face: key, motion: key]`，约 6-7 token，每轮附加到请求末端。持久于 Context（每轮一条记录），不落 Queue。
+Autonomy 是自有引擎，独立于 AmberyBackend。状态格式 `[face: key, motion: key]`，约 6-7 token，每轮附加到请求末端。持久于 Context（每轮一条记录），不落 Queue。
 
 注意：LLM 通过 Context 的 diff 事件感知 Code CLI 实例状态变化（见 docs/harness.md），两者数据来源不同，互不依赖，不要混淆。
