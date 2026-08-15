@@ -51,6 +51,10 @@ macOS / Linux
 - core 的 UIA sidecar 发现（`paths::sidecar_exe`）在非 Windows 目标恒为 `None`——不发现、不启动、不使用；sidecar 客户端是纯 std 进程通信代码，非 Windows 目标上无调用路径（Option 链天然降级，`sidecar_enabled=false`）。C# sidecar 目标为 `net9.0-windows` 且发布形态为 self-contained win-x64，不进入非 Windows 打包（docs/sidecar.md §打包）。
 - 残余验证边界：非 Windows 目标的 `cargo check --target` 需要交叉工具链（`ring` 经 reqwest 引入原生 C 构建），本机不可行；`cfg(not(windows))` 分支为最小 stub，正确性由评审保证，交叉编译验证待 CI。
 
+## 全局唤起快捷键
+
+**0.1.0 明确 cut**（docs/post-0.1.0.md）：不实现全局快捷键；托盘/手势是当前唯一唤起路径。
+
 ## 模块拆分
 
 `src-tauri/src/`：
