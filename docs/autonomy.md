@@ -1,56 +1,56 @@
-# Autonomy 设计
+# Autonomy Design
 
-> 概念定义见 concepts.md §4。本文档定表达式模型、默认映射表与覆盖语义。
+> Concept definition: see concepts.md §4. This document fixes the expression model, the default mapping table, and override semantics.
 
-## 本文档范围
+## Scope
 
-本文定义表情状态、默认推导、覆盖语义与表情池解析；Config 的通用 validation 与持久化机制见 `docs/config.md`。
+This document defines expression states, default derivation, override semantics, and kaomoji pool resolution; for general Config validation and persistence mechanisms, see `docs/config.md`.
 
-## 表达式模型
+## Expression model
 
-pet 的外在表现 = `Expression { face: string, motion: Motion }`，`Motion = still | float | bounce | shake`。
+pet's external appearance = `Expression { face: string, motion: Motion }`, `Motion = still | float | bounce | shake`.
 
-- `face`：颜文字，渲染在 View 内。
-- `motion`：View 的运动模式，CSS animation 实现，两种运行模式（Tauri/浏览器）一致。
+- `face`: kaomoji (emoticon), rendered inside the View.
+- `motion`: the View's motion pattern, implemented with CSS animation; the two runtime modes (Tauri/browser) are identical.
 
-## Config 字段
+## Config fields
 
-| 字段 | 生效 | agent 访问 | 行为 |
+| field | effective | agent access | behavior |
 |---|---|---|---|
-| `kaomoji.system` | 热 | 可见、可修改；默认不要修改 | 下一项运行操作起参与默认状态与 `set_autonomy(key)` 的两池并集解析；立即重新扫描系统池、重算 pet 尺寸与固定障碍区；当前覆盖或状态 key 不再存在时回落默认状态 |
-| `kaomoji.user` | 热 | 可见、可修改 | 下一项运行操作起参与默认状态与 `set_autonomy(key)` 的两池并集解析；当前覆盖或状态 key 不再存在时回落默认状态 |
-| `set_autonomy_default_ttl_ms` | 热 | 可见、可修改 | 下一次 `set_autonomy` 省略 `ttlMs` 时即取新默认值（前端现读运行时投影） |
+| `kaomoji.system` | hot | visible, modifiable; by default do not modify | from the next runtime operation, participates in the two-pool union resolution of the default state and `set_autonomy(key)`; immediately re-scans the system pool and recomputes pet size and the fixed obstacle area; falls back to the default state when the current override or state key no longer exists |
+| `kaomoji.user` | hot | visible, modifiable | from the next runtime operation, participates in the two-pool union resolution of the default state and `set_autonomy(key)`; falls back to the default state when the current override or state key no longer exists |
+| `set_autonomy_default_ttl_ms` | hot | visible, modifiable | the next time `set_autonomy` omits `ttlMs`, the new default value is used (the frontend reads the runtime projection) |
 
-## 两路控制
+## Two-path control
 
-1. **默认行为（不经 LLM）**：按颜文字映射表输出当前表情与动作。规则（优先级从高到低）：
+1. **Default behavior (without the LLM)**: outputs the current expression and motion according to the kaomoji mapping table. Rules (priority from high to low):
 
-   | 条件 | 状态 key | 默认 face | 默认 motion |
+   | condition | state key | default face | default motion |
    |---|---|---|---|
-   | 有未决通知 | `notify` | `✧*｡٩(ˊᗜˋ*)و✧*｡` | bounce |
-   | 任一实例 Processing | `processing` | `(ˇωˇ」∠)_` | float |
-   | 其他（全部 Idle / 无实例） | `idle` | `(´ω`)` | still |
+   | has pending notifications | `notify` | `✧*｡٩(ˊᗜˋ*)و✧*｡` | bounce |
+   | any instance Processing | `processing` | `(ˇωˇ」∠)_` | float |
+   | otherwise (all Idle / no instances) | `idle` | `(´ω`)` | still |
 
-   映射表存于 Config 的 `kaomoji.system` 与 `kaomoji.user` 两池；按 key 在两池并集中唯一解析。`idle` / `processing` / `notify` 必须存在于并集，系统默认推导与 `set_autonomy(key)` 都按此解析。两池均可由 agent 按 `query(view=object) → update(完整 map)` 管理；系统池默认不要修改，且它是尺寸扫描来源。池间 validation 见 docs/config.md。状态 key 与 concepts §4 的示例一致：Processing → `(ˇωˇ」∠)_` + 缓慢浮动，有通知 → `✧*｡٩(ˊᗜˋ*)و✧*｡` + 跳动。
+   The mapping table is stored in Config's two pools `kaomoji.system` and `kaomoji.user`; it is uniquely resolved by key in the union of the two pools. `idle` / `processing` / `notify` must exist in the union; both the system default derivation and `set_autonomy(key)` resolve against it. Both pools can be managed by the agent via `query(view=object) → update(完整 map)`; by default do not modify the system pool, and it is the source for size scanning. Cross-pool validation is in docs/config.md. The state keys match the concepts §4 examples: Processing → `(ˇωˇ」∠)_` + slow floating, notification → `✧*｡٩(ˊᗜˋ*)و✧*｡` + bouncing.
 
-2. **pet 主动覆盖**：`set_autonomy` tool call。
+2. **pet-initiated override**: the `set_autonomy` tool call.
 
-## set_autonomy 语义
+## set_autonomy semantics
 
 ```
 set_autonomy(key?: string, motion?: Motion, ttlMs?: number, once?: boolean)
 ```
 
-- `key` 可传状态 key 名（`idle`/`processing`/`notify`/自定义 key）：在两池并集中解析为映射表本体（仅解析 face，motion 不连带）。
-- 仅传参的字段被覆盖，其余保持默认输出。
-- `ttlMs` 省略时默认 60000ms；TTL 到期后回落到默认输出。
-- `once: true` 时从 `MotionDef.durationMs` 自动取持续时间；它与 motion 的四向 overflow 同属动画注册表，必须和 CSS `animation-duration` 同步。动画 CSS 仍循环，TTL 到期后回落默认状态，由此收束为一次性动作。
-- `once: true` 与显式 `ttlMs` 同时传入直接拒绝，避免两套持续时间语义冲突。
-- 全部参数省略（或 `ttlMs: 0`）→ 立即清除覆盖，回落默认。
-- 覆盖期间实例状态变化不中断覆盖（pet 的表达优先），TTL 到期后回落默认。
+- `key` may be a state key name (`idle`/`processing`/`notify`/custom key): it resolves in the union of the two pools to the mapping-table entry itself (only face is resolved; motion is not carried along).
+- Only the fields actually passed are overridden; the rest keep their default output.
+- When `ttlMs` is omitted, it defaults to 60000ms; after TTL expiry, output falls back to the default.
+- With `once: true`, the duration is taken automatically from `MotionDef.durationMs`; like motion's four-direction overflow, it belongs to the animation registry and must stay in sync with CSS `animation-duration`. The animation CSS still loops; after TTL expiry it falls back to the default state, thereby converging into a one-shot action.
+- `once: true` together with an explicit `ttlMs` is rejected outright, to avoid two conflicting sets of duration semantics.
+- All parameters omitted (or `ttlMs: 0`) → immediately clear the override and fall back to the default.
+- During an override, instance state changes do not interrupt the override (pet's expression takes precedence); after TTL expiry it falls back to the default.
 
-## 与 LLM 侧的关系
+## Relationship to the LLM side
 
-Autonomy 是自有引擎，独立于 AmberyBackend。状态格式 `[face: key, motion: key]`，约 6-7 token，每轮附加到请求末端。持久于 Context（每轮一条记录），不落 Queue。
+Autonomy is its own engine, independent of AmberyBackend. The state format `[face: key, motion: key]`, about 6-7 tokens, is appended to the end of each request. It persists in Context (one record per turn), not in Queue.
 
-注意：LLM 通过 Context 的 diff 事件感知 Code CLI 实例状态变化（见 docs/harness.md），两者数据来源不同，互不依赖，不要混淆。
+Note: the LLM perceives Code CLI instance state changes through Context diff events (see docs/harness.md); the two have different data sources and are mutually independent — do not confuse them.

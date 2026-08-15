@@ -1,36 +1,36 @@
-# Cron 设计
+# Cron Design
 
-> 概念定义见 concepts.md §10g。本文档定任务表示、持久化格式、到点行为与
-> cron_create / cron_delete / sleep 三个 tool 的调用契约。
+> Concept definitions are in concepts.md §10g. This document specifies task representation, persistence format, due behavior, and
+> the call contracts for the three tools cron_create / cron_delete / sleep.
 
-## 原则
+## Principles
 
-> **本文档范围**——本文定义 Cron 的任务模型、cron.jsonl 格式、调度实现与三个 tool 的参数/校验/返回；Cron 的概念定位与所有权见 concepts.md §10g / docs/harness.md §Cron；存储布局见 docs/storage.md §Cron。
+> **Scope of this document** — this document defines Cron's task model, cron.jsonl format, scheduling implementation, and the parameters/validation/returns of the three tools; for Cron's conceptual positioning and ownership see concepts.md §10g / docs/harness.md §Cron; for storage layout see docs/storage.md §Cron.
 
-> **设计常量**——sleep 上限与调度轮询粒度是实现常量（本文定义值），不进 Config。
+> **Design constants** — the sleep cap and the scheduling poll granularity are implementation constants (values defined in this document) and do not enter Config.
 
-> **不做特殊规则，用语义明确行为**——schedule 二选一显式给出；无 list tool 是既定边界（concepts §10a 只列两个 Cron tool），不发明隐式查询通道。
+> **No special rules; use semantics to make behavior explicit** — the schedule is given explicitly as one of two choices; having no list tool is an established boundary (concepts §10a lists only two Cron tools), and no implicit query channel is invented.
 
-## 任务表示
+## Task Representation
 
-Cron entry：
+Cron entry:
 
 ```json
 {
   "id": "a1b2c3d4",
-  "schedule": { "at": 1785600000000 }            // 一次性（epoch ms）
-              | { "every_ms": 86400000 },         // 间隔周期（锚定创建时刻）
+  "schedule": { "at": 1785600000000 }            // one-shot (epoch ms)
+              | { "every_ms": 86400000 },         // fixed interval (anchored to creation time)
   "message": "现在是每天夜间日报时间：请汇总今日各实例进展。"
 }
 ```
 
-- `schedule` 二选一：`at`（epoch ms 一次性）或 `every_ms`（固定间隔周期，首次到期 = 创建时刻 + every_ms）。cron 表达式不支持（需要 wall-clock 语义时再议）。
-- `message`：到点注入 Queue 的 `system` 输入内容（与 hook 内容同构，concepts §10c）。
-- payload 当前只有 message 形态；更复杂的到点动作由 Agent 被 message 唤醒后自行发起（sleep-then-act 场景由 `sleep` tool 表达，不走 Cron payload）。
+- `schedule` is one of two: `at` (one-shot epoch ms) or `every_ms` (fixed interval, first due = creation time + every_ms). Cron expressions are not supported (to be revisited when wall-clock semantics are needed).
+- `message`: the `system` input content injected into the Queue when due (isomorphic with hook content, concepts §10c).
+- The payload currently has only the message form; more complex due-time actions are initiated by the Agent itself after being woken by the message (sleep-then-act scenarios are expressed by the `sleep` tool, not through the Cron payload).
 
-## 持久化（cron.jsonl）
+## Persistence (cron.jsonl)
 
-append-only 事件行，replay 折叠为当前计划集：
+append-only event lines, folded by replay into the current schedule set:
 
 ```json
 {"op":"create","id":"a1b2c3d4","schedule":{"every_ms":86400000},"message":"日报","next_due":1785600000000,"ts":1785513600000}
@@ -38,71 +38,71 @@ append-only 事件行，replay 折叠为当前计划集：
 {"op":"delete","id":"a1b2c3d4","ts":1785600100000}
 ```
 
-- `create`：新建；`next_due` 初始 = at，或创建时刻 + every_ms。
-- `fire`：到点已发放。`every_ms` 重排 `next_due += every_ms`（多次 fire 逐次推进）；`at` 的 fire 行 `next_due: null`（完成态，不再调度，日志保留）。
-- `delete`：移除（tombstone）。
-- replay 折叠：create 插入、fire 更新 next_due、delete 移除；next_due 为 null 或 entry 不存在即不调度。
+- `create`: create; `next_due` initially = at, or creation time + every_ms.
+- `fire`: due and dispatched. `every_ms` reschedules `next_due += every_ms` (multiple fires advance one by one); the fire line of `at` has `next_due: null` (finished state, no longer scheduled, log retained).
+- `delete`: remove (tombstone).
+- replay folding: create inserts, fire updates next_due, delete removes; when next_due is null or the entry does not exist, it is not scheduled.
 
-## 调度实现（Cron 与 sleep 共用）
+## Scheduling Implementation (Shared by Cron and sleep)
 
-`CronScheduler`（core/src/cron.rs）是 Harness 的唯一调度实现，管两类任务：
+`CronScheduler` (core/src/cron.rs) is the only scheduling implementation in Harness, managing two kinds of tasks:
 
-- **entries**：持久化计划（上节），server 后台任务每 500ms 轮询 due → 到点 message 作 `system` 输入入 Queue（与 hook 同构，fire-and-forget 唤醒单消费者）。
-- **waiters**：sleep 的非持久化一次性等待（崩溃丢失可接受，与 Queue 未放行输入同理）；注册返回 oneshot，调度轮询到点通知。
+- **entries**: persisted schedules (previous section); the server background task polls every 500ms for due entries → due messages enter the Queue as `system` input (isomorphic with hook, fire-and-forget waking the single consumer).
+- **waiters**: sleep's non-persistent one-shot waits (loss on crash is acceptable, same as Queue-unadmitted input); registration returns a oneshot, and the scheduling poll notifies when due.
 
-waiters 经独立共享句柄访问（不经过 AmberyBackend 锁）——sleep 占用 Queue 串行点等待时，调度任务必须仍能到点唤醒它（无死锁）。
+waiters are accessed through an independent shared handle (not through the AmberyBackend lock) — while sleep occupies the Queue serialization point waiting, the scheduling task must still be able to wake it when due (no deadlock).
 
 ## sleep
 
-通过 Harness 调度器等待后继续既定工具序列：tool result 延迟返回，同一 response 的后续 tool call 在等到后继续。
+Wait through the Harness scheduler and then continue the planned tool sequence: the tool result returns late, and subsequent tool calls of the same response continue after the wait.
 
-| 参数 | 类型 | 必填 | 校验 |
+| Parameter | Type | Required | Validation |
 |---|---|---|---|
-| `ms` | integer | ✓ | 0 ≤ ms ≤ 300000（5 分钟，设计常量） |
+| `ms` | integer | ✓ | 0 ≤ ms ≤ 300000 (5 minutes, design constant) |
 
 **return**
 
-| 情况 | 返回 |
+| Case | Return |
 |---|---|
-| 等待结束 | `{"ok": true, "slept_ms": <ms>}` |
-| 参数错误 | `{"ok": false, "error": "…"}` |
+| Wait finished | `{"ok": true, "slept_ms": <ms>}` |
+| Parameter error | `{"ok": false, "error": "…"}` |
 
-语义边界：
+Semantic boundaries:
 
-- sleep 期间 Queue 串行点被占用（concepts §10c）——等待是 Agent 既定行为的一部分，时长上限防呆。
-- sleep 不持久化：崩溃即丢失，不补发。
-- `ms: 0` = 立即返回（让出当前执行点一次）。
+- During sleep the Queue serialization point is occupied (concepts §10c) — waiting is part of the Agent's planned behavior, and the duration cap prevents mistakes.
+- sleep is not persisted: it is lost on crash and not reissued.
+- `ms: 0` = return immediately (yield the current execution point once).
 
 ## cron_create
 
-创建持久化计划（Agent 调整 Cron 的入口；后端/用户可直接编辑 cron.jsonl 管理）。
+Create a persisted schedule (the Agent's entry point for adjusting Cron; backend/users may directly edit cron.jsonl to manage).
 
-| 参数 | 类型 | 必填 | 校验 |
+| Parameter | Type | Required | Validation |
 |---|---|---|---|
-| `schedule.at` | integer | 二选一 | epoch ms；须大于当前时刻；与 `every_ms` 同传拒绝 |
-| `schedule.every_ms` | integer | 二选一 | > 0 且 ≤ 2592000000（30 天，设计常量） |
-| `message` | string | ✓ | 非空（到点注入 Queue 的 system 输入） |
+| `schedule.at` | integer | one of two | epoch ms; must be later than the current time; passing it together with `every_ms` is rejected |
+| `schedule.every_ms` | integer | one of two | > 0 and ≤ 2592000000 (30 days, design constant) |
+| `message` | string | ✓ | non-empty (the `system` input injected into the Queue when due) |
 
 **return**
 
-| 情况 | 返回 |
+| Case | Return |
 |---|---|
-| 成功 | `{"ok": true, "id": "<id>"}`（id 短 hash；Agent 可经 write_memory 记录） |
-| 参数错误 | `{"ok": false, "error": "…"}` |
+| Success | `{"ok": true, "id": "<id>"}` (short hash id; the Agent may record it via write_memory) |
+| Parameter error | `{"ok": false, "error": "…"}` |
 
 ## cron_delete
 
-| 参数 | 类型 | 必填 | 校验 |
+| Parameter | Type | Required | Validation |
 |---|---|---|---|
-| `id` | string | ✓ | 存在的计划 id |
+| `id` | string | ✓ | id of an existing schedule |
 
 **return**
 
-| 情况 | 返回 |
+| Case | Return |
 |---|---|
-| 成功 | `{"ok": true, "deleted": "<id>"}` |
-| 未找到 | `{"ok": false, "error": "计划 '<id>' 不存在（cron 无 list tool；id 见 create 返回或 cron.jsonl）"}` |
+| Success | `{"ok": true, "deleted": "<id>"}` |
+| Not found | `{"ok": false, "error": "计划 '<id>' 不存在（cron 无 list tool；id 见 create 返回或 cron.jsonl）"}` |
 
-## 无 list tool（既定边界）
+## No list tool (established boundary)
 
-concepts §10a 只列 `cron_create` / `cron_delete`：Agent 经 create 返回的 id 管理自己的计划（可写入 Memory 长期记忆）；用户与后端可直接查看/编辑 cron.jsonl。不为 Agent 发明隐式查询通道。
+concepts §10a lists only `cron_create` / `cron_delete`: the Agent manages its own schedules via the id returned by create (and may write it to Memory long-term memory); users and the backend can directly view/edit cron.jsonl. No implicit query channel is invented for the Agent.

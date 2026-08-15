@@ -1,125 +1,125 @@
 # Processing Flow
 
-主处理流程（storage 布局 + 每步写什么日志）。同一视图的 ASCII 与 Mermaid 两版。
+Main processing flow (Storage layout + what log is written at each step). The same view in two versions, ASCII and Mermaid.
 
 ## ASCII
 
 ```
-═══════════════════ 存储布局 ═══════════════════
+═══════════════════ Storage Layout ═══════════════════
 
-  Config 域                              Storage 域
+  Config domain                          Storage domain
   %CONFIG_DIR%/                          %STORAGE_DIR%/
-  config.json      启动配置              queue.jsonl             Queue 排队轨迹
-  AGENTS.md        身份提示词            terminal-content.jsonl  终端原文（Filter 前）
-                                        context.jsonl           统一全保真日志
-                                        work-agents.jsonl       实例生命周期
-                                        effect.jsonl            前后端统一动作流
-                                        memory/                 工作空间（notes/ + cards/）
-                                        cron.jsonl              Cron 计划
+  config.json      launch config         queue.jsonl             Queue queueing trajectory
+  AGENTS.md        identity prompt       terminal-content.jsonl  terminal raw text (before Filter)
+                                         context.jsonl           unified full-fidelity log
+                                         work-agents.jsonl       instance lifecycle
+                                         effect.jsonl            frontend/backend unified action stream
+                                         memory/                 workspace (notes/ + cards/)
+                                         cron.jsonl              Cron schedule
 
-context.jsonl 的行 type（统一信封 {type, ts, ...}）：
-  message           对话消息（role/content/tool_calls/reasoning_content）
-  autonomy          表情状态 [face, motion]（每轮一条）
-  head              请求头快照（变化才写）
-  usage             token 真值（每次 LLM 调用）
-  compact_boundary  压缩边界
-  session           会话分界
-  （content 行型：归一全文不持久化，现算）
+context.jsonl line types (unified envelope {type, ts, ...}):
+  message           conversation message (role/content/tool_calls/reasoning_content)
+  autonomy          expression state [face, motion] (one per turn)
+  head              request head snapshot (written only on change)
+  usage             token ground truth (every LLM call)
+  compact_boundary  Compression boundary
+  session           session boundary
+  (content line type: normalized full text is not persisted; computed on demand)
 
-effect.jsonl（独立动作流日志，{type:"effect", origin, kind, payload, ts}）：
-  后端副作用（execute_tool / config / 流式 delta+done）+ 非只读 Tauri 运行时动作上报
+effect.jsonl (independent action-stream log, {type:"effect", origin, kind, payload, ts}):
+  backend side effects (execute_tool / config / streaming delta+done) + non-read-only Tauri runtime action reporting
 
-═══════════════════ 处理流程 + 每步写什么日志 ═══════════════════
+═══════════════════ Processing Flow + What Log Each Step Writes ═══════════════════
 
- ① Hook 触发（session_start / stop / notification / session_end）
+ ① hook fires (session_start / stop / notification / session_end)
       │
       ▼
- ② 读 Terminal Content（sidecar / MapAdapter（case-runner））
+ ② read Terminal Content (sidecar / MapAdapter (case-runner))
       │
-      ├──▶ 原文  ──────────────────────────▶ terminal-content.jsonl
+      ├──▶ raw text  ─────────────────────▶ terminal-content.jsonl
       ▼
- ③ Filter.digest → 归一全文（现算）
-      │        ▲ 同时读 prev（内存上次归一全文）做变化检测
+ ③ Filter.digest → normalized full text (computed on demand)
+      │        ▲ simultaneously read prev (last normalized full text in memory) for change detection
       ▼
- ④ 实质变化? ──是──▶ 注入 Queue（提示消息）──▶ queue.jsonl
+ ④ substantial change? ──yes──▶ inject into Queue (prompt message)──▶ queue.jsonl
       │                                              │
       ▼                                              ▼
-      （无变化：沉默）                         ⑤ Queue 放行
-                                                   │
-                                                   ▼
-                                              Context 写输入 ──▶ context.jsonl [message 行]
-                                                   │
-                                                   ▼
-                                             ⑥ LLM 请求（装配）
-                                                   │  head  ──▶ [head 行]
-                                                   │  autonomy ──▶ [autonomy 行]
-                                                   │  usage ──▶ [usage 行]
-                                                   ▼
-                                             ⑦ LLM 回复
-                                                   │  assistant 消息 ──▶ [message 行]
-                                                   ▼
-                                              ⑧ tool_calls ──▶ execute_tool
-                                                    │  result  ──▶ [message 行]（tool role）
-                                                    │  effects ──▶ effect.jsonl（全量）+ 发前端执行
+      (no change: silence)                      ⑤ Queue releases
+                                                    │
                                                     ▼
-                                             ⑨ 循环（⑦→⑧）直到无 tool_calls ──▶ 最终回复
-                                                   │
-                                                   ▼
-                                             ⑩ 压缩检查（超阈值）
-                                                   │  compact_boundary ──▶ [compact_boundary 行]
-                                                   ▼
-                                             ⑪ Queue 放行下一条
+                                               Context writes input ──▶ context.jsonl [message line]
+                                                    │
+                                                    ▼
+                                              ⑥ LLM request (assembly)
+                                                    │  head  ──▶ [head line]
+                                                    │  autonomy ──▶ [autonomy line]
+                                                    │  usage ──▶ [usage line]
+                                                    ▼
+                                              ⑦ LLM reply
+                                                    │  assistant message ──▶ [message line]
+                                                    ▼
+                                               ⑧ tool_calls ──▶ execute_tool
+                                                     │  result  ──▶ [message line] (tool role)
+                                                     │  effects ──▶ effect.jsonl (full) + dispatch to frontend
+                                                     ▼
+                                              ⑨ loop (⑦→⑧) until no tool_calls ──▶ final reply
+                                                    │
+                                                    ▼
+                                              ⑩ Compression check (over threshold)
+                                                    │  compact_boundary ──▶ [compact_boundary line]
+                                                    ▼
+                                              ⑪ Queue releases the next item
 
-═══════════════════ 数据流概要 ═══════════════════
+═══════════════════ Data Flow Summary ═══════════════════
 
-  终端文字 ─▶ [terminal-content.jsonl] 原文
-     ─▶ Filter ─▶ 归一全文（现算，不持久）
-     ─▶ 变化? ─▶ Queue ─▶ [message] Context ─▶ LLM ─▶ [message/head/autonomy/usage]
-     ─▶ tool 执行 ─▶ [message] result + effect.jsonl 动作流 ──▶ 前端
-  Tauri 运行时动作 ─▶ [effect.jsonl]（非只读动作上报，高频打包）
-  实例状态 ─▶ [work-agents.jsonl]
-  Queue 输入 ─▶ [queue.jsonl]
-  计划/记忆 ─▶ [cron.jsonl] / [memory/]
+  terminal text ─▶ [terminal-content.jsonl] raw
+     ─▶ Filter ─▶ normalized full text (computed on demand, not persisted)
+     ─▶ changed? ─▶ Queue ─▶ [message] Context ─▶ LLM ─▶ [message/head/autonomy/usage]
+     ─▶ tool execution ─▶ [message] result + effect.jsonl action stream ──▶ frontend
+  Tauri runtime action ─▶ [effect.jsonl] (non-read-only action reporting, high-frequency packed)
+  instance state ─▶ [work-agents.jsonl]
+  Queue input ─▶ [queue.jsonl]
+  schedule/memory ─▶ [cron.jsonl] / [memory/]
 ```
 
 ## Mermaid
 
 ```mermaid
 flowchart TD
-    subgraph 输入
-        HOOK["Hook 事件<br/>session_start / stop / notification / session_end"]
-        USER["User 输入"]
+    subgraph Input
+        HOOK["hook event<br/>session_start / stop / notification / session_end"]
+        USER["User input"]
     end
 
-    HOOK --> READ["读 Terminal Content<br/>sidecar / MapAdapter（case-runner）"]
+    HOOK --> READ["Read Terminal Content<br/>sidecar / MapAdapter (case-runner)"]
     USER --> QLOG
 
-    READ -->|"原文 写档"| TC["terminal-content.jsonl"]
-    READ --> FILTER["Filter.digest<br/>归一全文（现算）"]
-    FILTER --> DETECT{"变化检测<br/>prev 内存"}
+    READ -->|"raw text archived"| TC["terminal-content.jsonl"]
+    READ --> FILTER["Filter.digest<br/>normalized full text (computed on demand)"]
+    FILTER --> DETECT{"change detection<br/>prev in memory"}
 
-    DETECT -->|无变化| SILENT["沉默"]
-    DETECT -->|实质变化| ENQ["注入 Queue 提示消息"]
-    ENQ --> QLOG["queue.jsonl（排队轨迹）"]
+    DETECT -->|no change| SILENT["silence"]
+    DETECT -->|substantial change| ENQ["inject Queue prompt message"]
+    ENQ --> QLOG["queue.jsonl (queueing trajectory)"]
 
-    QLOG --> RELEASE["Queue 放行"]
-    RELEASE --> CTX["Context 追加"]
-    CTX -->|"写 message 行"| CL["context.jsonl"]
+    QLOG --> RELEASE["Queue release"]
+    RELEASE --> CTX["Context append"]
+    CTX -->|"write message line"| CL["context.jsonl"]
 
-    CL --> ASSEMBLE["LLM 请求<br/>head + autonomy + usage 装配"]
-    ASSEMBLE -->|"写 head/autonomy/usage 行"| CL
-    ASSEMBLE --> LLM["LLM 回复"]
-    LLM --> TOOLCALL{"有 tool_calls?"}
+    CL --> ASSEMBLE["LLM request<br/>head + autonomy + usage assembly"]
+    ASSEMBLE -->|"write head/autonomy/usage lines"| CL
+    ASSEMBLE --> LLM["LLM reply"]
+    LLM --> TOOLCALL{"has tool_calls?"}
 
-    TOOLCALL -->|是| EXEC["execute_tool"]
-    EXEC -->|"result 写 message 行"| CL
-    EXEC -->|"effect 写动作流"| EF["effect.jsonl"]
-    EXEC -->|"effect 下发"| FE["前端表现层"]
+    TOOLCALL -->|yes| EXEC["execute_tool"]
+    EXEC -->|"result writes message line"| CL
+    EXEC -->|"effect writes action stream"| EF["effect.jsonl"]
+    EXEC -->|"effect dispatch"| FE["frontend presentation layer"]
     EXEC --> ASSEMBLE
 
-    TOOLCALL -->|否| FINAL["最终回复"]
+    TOOLCALL -->|no| FINAL["final reply"]
     FINAL --> CL
-    FINAL --> COMPRESS["压缩检查"]
-    COMPRESS -->|超阈值| CB["compact_boundary 行"]
-    COMPRESS --> NEXT["放行下一条"]
+    FINAL --> COMPRESS["Compression check"]
+    COMPRESS -->|over threshold| CB["compact_boundary line"]
+    COMPRESS --> NEXT["release next item"]
 ```

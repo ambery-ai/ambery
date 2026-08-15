@@ -1,29 +1,29 @@
 # Concrete Insight
 
-真实数据 + 图演示概念链路。不写抽象描述。
+Real data + diagrams demonstrating the concept chain. No abstract descriptions.
 
-## Queue 中的 System 消息来源
+## System Message Sources in the Queue
 
-进入 Queue 的 System 消息按来源分类。来源字段是队列输入的一等公民（驱动 effort 档位与优先级等按来源定行为的机制）。
+System messages entering the Queue are classified by source. The source field is a first-class citizen of Queue input (it drives mechanisms that behave by source, such as effort tier and priority).
 
 ```
-来源                 入队点                              内容形态
+Source               Enqueue point                    Content form
 ────────────────────────────────────────────────────────────
-hook_stop_hint      ambery.rs:1213   stop queue_only 产物（hint）
-hook_stop_content   ambery.rs:1213   stop auto_read 产物（filter 后全量）
-hook_stop_report    ambery.rs:1213   stop message 产物（汇报原文）
-hook_user_prompt    ambery.rs:1154   "[观察] 用户在 {name} 输入：<prompt>"
-hook_notification   ambery.rs:1158   "[通知] {name}：<message>"
-mock_hook           ambery.rs:1290   debug/测试注入
-timer_scan          ambery.rs:1449   "[扫描] {name} 更新（{len} 字）"
-cron_tick           server.rs:521      cron 计划到期消息
+hook_stop_hint      ambery.rs:1213   stop queue_only product (hint)
+hook_stop_content   ambery.rs:1213   stop auto_read product (full amount after Filter)
+hook_stop_report    ambery.rs:1213   stop message product (report verbatim)
+hook_user_prompt    ambery.rs:1154   "[Observation] User input in {name}: <prompt>"
+hook_notification   ambery.rs:1158   "[Notice] {name}: <message>"
+mock_hook           ambery.rs:1290   debug/test injection
+timer_scan          ambery.rs:1449   "[Scan] {name} updated ({len} characters)"
+cron_tick           server.rs:521      cron scheduled due message
 ```
 
-Queue 中 System 消息 = 8 类来源。另有一类 User 消息（用户 chat 面板直接发送，server.rs:199）不属 System 分类，但同走 Queue 放行。来源与 effort 档位的映射见 `docs/effort.md`。
+In the Queue, System messages = 8 source categories. There is also one category of User messages (sent directly from the user chat panel, server.rs:199) that does not belong to the System classification but still goes through Queue admission. See `docs/effort.md` for the mapping between sources and effort tiers.
 
-## Context → LLM API 的 role 映射
+## Context → LLM API Role Mapping
 
-Queue 放行写进 Context 的每条消息带四种 role；组装 LLM 请求时（`core/src/llm.rs` `build_body`）映射为 OpenAI 的 role 字符串：
+Each message admitted by the Queue and written into Context carries one of the four roles; when assembling the LLM request (`core/src/llm.rs` `build_body`), they are mapped to OpenAI role strings:
 
 ```rust
 let role = match m.role {
@@ -34,101 +34,101 @@ let role = match m.role {
 };
 ```
 
-实际发送的 messages 是四类混合，`role: "system"` 同时承载三路不同性质的内容：
+The messages actually sent are a mixture of the four categories; `role: "system"` simultaneously carries three streams of content with different natures:
 
 ```
 [
-  { role: "system",  content: <请求头 head> },          ← 每轮现拼 base_prompt + AGENTS.md + 表情池
-  { role: "system",  content: <hook 输入原文> },         ← Queue 放行写进 Context 的那条
-  { role: "user",    content: "那个 bug 怎么回事？" },   ← 用户历史消息
-  { role: "assistant", content: "有大变更，挂卡片" },     ← pet 历史回复
-  { role: "tool",    tool_call_id: "...", ... },         ← 工具结果
-  { role: "system",  content: <autonomy 状态> },         ← 每轮追加的状态
+  { role: "system",  content: <request header head> },          ← assembled per round from base_prompt + AGENTS.md + kaomoji pool
+  { role: "system",  content: <hook input verbatim> },          ← the one admitted by the Queue and written into Context
+  { role: "user",    content: "Why is that bug happening?" },   ← user history message
+  { role: "assistant", content: "Big change, putting up a card" }, ← pet history reply
+  { role: "tool",    tool_call_id: "...", ... },                 ← tool result
+  { role: "system",  content: <autonomy state> },                ← state appended each round
 ]
 ```
 
 ```
-Queue 入队层面：hook/timer/cron 输入均为 System
-Context 组装后：system / user / assistant / tool 四类混发
-OpenAI 的 role:"system" 承载：请求头 + hook 输入 + autonomy 状态
+At Queue admission level: hook/timer/cron inputs are all System
+After Context assembly: system / user / assistant / tool four categories are mixed
+OpenAI role:"system" carries: request header + hook input + autonomy state
 ```
 
-## Queue 串行化时序
-
+## Queue Serialization Timing
 
 ```
-输入1: "config-service 完成（4958 字）。评估是否通知。"
-          ↓ Queue 放行
+Input 1: "config-service finished (4958 characters). Evaluate whether to notify."
+          ↓ Queue admits
 ┌─────────────────────────────────────────────────────────────┐
-│ Context:  [+ system "config-service 完成（4958 字）。评估是否通知。"] │
-│ LLM:  → assistant "有大变更，挂卡片"                           │
-│ Context:  [+ assistant "有大变更，挂卡片"]                     │
+│ Context:  [+ system "config-service finished (4958 characters). Evaluate whether to notify."] │
+│ LLM:  → assistant "Big change, putting up a card"           │
+│ Context:  [+ assistant "Big change, putting up a card"]     │
 └─────────────────────────────────────────────────────────────┘
-          ↓ 本轮结束
+          ↓ this round ends
 
-输入2: "anim-toolkit 完成（2021 字）。评估是否通知。"
-          ↓ Queue（等输入1 处理完才放行）
+Input 2: "anim-toolkit finished (2021 characters). Evaluate whether to notify."
+          ↓ Queue (waits until Input 1 is processed before admission)
 ┌─────────────────────────────────────────────────────────────┐
-│ Context:  [+ system "anim-toolkit 完成（2021 字）..."]   │
-│ LLM:  → silence（无实质变更，不通知）                            │
-│ Context:  无追加                                                │
+│ Context:  [+ system "anim-toolkit finished (2021 characters)..."]   │
+│ LLM:  → silence (no substantive change, do not notify)       │
+│ Context:  no append                                          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Event Buffer 附带入
+## Event Buffer Attachment
 
 ```
-输入: "ambery·0a41f6ea 完成（1472 字）。评估是否通知。"
-Event Buffer 积压: [
-  "用户关闭了 text_card「构建结果」"
-  "用户勾选了 todobox 条目「跑测试」"
+Input: "ambery·0a41f6ea finished (1472 characters). Evaluate whether to notify."
+Event Buffer backlog: [
+  "User closed text_card \"Build result\""
+  "User checked todobox item \"Run tests\""
 ]
 
-          ↓ Queue 放行（Event Buffer 附带合并）
+          ↓ Queue admits (Event Buffer attached and merged)
 
 ┌─────────────────────────────────────────────────────────────┐
-│ Context 写入:                                                  │
-│   system: "ambery·0a41f6ea 完成（1472 字）。          │
-│            评估是否通知。                                        │
-│            Component 交互事件：                                  │
-│            - 用户关闭了 text_card「构建结果」                     │
-│            - 用户勾选了 todobox 条目「跑测试」"                   │
-│                                                                │
-│ LLM:  → assistant "用户刚关了卡片还勾了 todo，先不打扰"            │
-│                                                                │
-│ Context:  [+ system] [+ assistant]                              │
+│ Context write:                                               │
+│   system: "ambery·0a41f6ea finished (1472 characters).      │
+│            Evaluate whether to notify.                       │
+│            Component interaction events:                     │
+│            - User closed text_card \"Build result\"          │
+│            - User checked todobox item \"Run tests\""        │
+│                                                              │
+│ LLM:  → assistant "The user just closed a card and checked   │
+│                    a todo, hold off for now"                 │
+│                                                              │
+│ Context:  [+ system] [+ assistant]                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 完整 turn（从 Input 到 Output）
+## Complete Turn (from Input to Output)
 
 ```
-── 第 1 个 turn ──
+── Turn 1 ──
 
-Queue 放行: "demo-webapp 完成（3800 字）。评估是否通知。"
-  + Event Buffer: "用户关闭了 text_card「摘要」"
+Queue admits: "demo-webapp finished (3800 characters). Evaluate whether to notify."
+  + Event Buffer: "User closed text_card \"Summary\""
 
   Context: [+ system "..."]
   LLM:     tool_calls: [
              set_autonomy { key: "notify", motion: "bounce" },
              call_component { id: "notify-ft", type: "text_card",
-               title: "ft 完成", text: "干完了" }
+               title: "ft done", text: "Done" }
            ]
   Context: [+ assistant (tool_calls)] [+ tool { ok: true }] [+ tool { ok: true, rendered: "notify-ft" }]
-  LLM:     → assistant "卡片已弹出 (´ω`)"
+  LLM:     → assistant "Card popped up (´ω`)"
 
-── 第 2 个 turn ──
+── Turn 2 ──
 
-Queue 放行: "unknown·414117ff 请求注意：Claude is waiting for your input"
+Queue admits: "unknown·414117ff requests attention: Claude is waiting for your input"
 
   Context: [+ system "..."]
-  LLM:     → assistant "有人等你输入，去看一下？"
+  LLM:     → assistant "Someone is waiting for your input, go take a look?"
 
-── Event Buffer 空时 ──
+── When the Event Buffer is empty ──
 
-Queue 放行: "ambery·0a41f6ea 完成。评估是否通知。"
-  Event Buffer: (空)
+Queue admits: "ambery·0a41f6ea finished. Evaluate whether to notify."
+  Event Buffer: (empty)
 
-  Context: [+ system "ambery·0a41f6ea 完成。评估是否通知。"]
+  Context: [+ system "ambery·0a41f6ea finished. Evaluate whether to notify."]
   LLM:     → silence
 ```

@@ -1,76 +1,76 @@
 # Case Runner
 
-Storage 快照驱动的回归测试与概念观测工具；兼承接 CLI 决策源（docs/debug-agent.md）与完整 router（docs/core-server.md）。
+Storage snapshot-driven regression testing and concept observation tool; also hosts the CLI decision source (docs/debug-agent.md) and the full router (docs/core-server.md).
 
-## 原则
+## Principles
 
-> **本文档范围**——本文只定义 runner 基础设施：运行机制、沙盒隔离、`.case` 格式、step、observe、health、导出与 CLI；不定义 agent 应具备的能力、能力计划或 Case 覆盖策略，见 `docs/capability-evaluation-project.md`。
+> **Scope of this document** — this document defines only the runner infrastructure: run mechanism, sandbox isolation, `.case` format, step, observe, health, export, and CLI; it does not define the capabilities an agent should have, capability planning, or Case coverage strategy — see `docs/capability-evaluation-project.md`.
 
-> **快照即真相**——case 的 data 节保留 JSONL 原文，行序/时间戳/字段不丢；细节见 §快照即真相。
+> **Snapshot is truth** — the case's data section preserves JSONL raw text; line order/timestamps/fields are not lost; details in §Snapshot is truth.
 
-> **边界隔离**——一次性沙盒（生产永不写）+ headless（不启动真实 OS 界面）；细节见 §边界隔离。
+> **Boundary isolation** — one-shot sandbox (production is never written) + headless (never starts a real OS UI); details in §Boundary isolation.
 
-> **前端 headless 观测**——观测边界与接入形态（headless JS + RemoteBridge 连 case-runner 内嵌 core + mock 窗口层，即 `app/test/` vitest 套件）；细节见 §前端 headless 观测。
+> **Frontend headless observation** — observation boundary and integration shape (headless JS + RemoteBridge connecting to the case-runner's embedded core + mock window layer, i.e. the `app/test/` vitest suite); details in §Frontend headless observation.
 
-> **壳类比**——case-runner 类比 Tauri 壳：进程主体内嵌 core（run_core 同款），按需拉起 TS 测试进程，TS 走 RemoteBridge 连内嵌 core——与「壳内嵌 core + 壳驱动 WebView」同构。对应 Tauri 多窗口（每窗口一个独立 Renderer），一个 TS 测试进程模拟一个窗口的 JS 运行时；多窗口场景用多个 TS 测试进程（多 node），各自经 RemoteBridge 连共享的内嵌 core。TS 不是常驻环境，是 case-runner 流程的一环。
+> **Shell analogy** — the case-runner is analogous to the Tauri shell: the process body embeds core (the same run_core), spawns a TS test process on demand, and TS connects to the embedded core via RemoteBridge — the same shape as "shell embeds core + shell drives WebView". Corresponding to Tauri multi-window (each window an independent Renderer), one TS test process simulates one window's JS runtime; multi-window scenarios use multiple TS test processes (multiple nodes), each connecting to the shared embedded core via RemoteBridge. TS is not a resident environment; it is one link in the case-runner flow.
 
-> **LLM 模式**——两种平级（debug / real），case 头部显式声明，无隐含默认；细节见 §LLM 模式。
+> **LLM modes** — two equal modes (debug / real), declared explicitly in the case header; no implicit default; details in §LLM modes.
 
-> **核心概念 5 个**——case / observe / chat(=user+real llm) / toolcall / worker 是第一类对象。
+> **5 core concepts** — case / observe / chat(=user+real llm) / toolcall / worker are first-class objects.
 
-> **可观测体系**——所有模块可观测、observe 两类输出、effects 进 observe；细节见 §可观测体系。
+> **Observability system** — all modules are observable, observe has two kinds of output, effects go into observe; details in §Observability system.
 
-> **Tauri 运行时动作可观测**——非只读 Tauri 运行时动作统一进 effect 流；细节见 §Tauri 运行时动作可观测。
+> **Tauri runtime actions observable** — non-readonly Tauri runtime actions uniformly enter the effect stream; details in §Tauri runtime actions observable.
 
-> **case 隐私边界**——case 绝不携带敏感信息（apikey / 项目名等）；细节见 §case 隐私。
+> **case privacy boundary** — a case never carries sensitive information (apikey / project names, etc.); details in §case privacy.
 
-## 哲学
+## Philosophy
 
-case = storage 快照 + meta，无内嵌断言。runner 不判对错——它观测概念结构的行为：
-Context 能否 replay、panorama 包含谁、timer scan 产出了什么、queue/event_buffer 状态如何。
+case = storage snapshot + meta, with no embedded assertions. The runner does not judge right or wrong — it observes the behavior of concept structures:
+whether Context can replay, whom panorama contains, what timer scan produced, what the queue/event_buffer states are.
 
-**边界隔离**：runner 只读写一次性沙盒（`%TEMP%\ambery-case-<case_id>/`，开跑即重建）：storage 快照、运行期追加、config 落盘全部在沙盒内；生产 storage/config **永不写**。**headless**：绝不启动真实 OS 界面（窗口/显示器/输入），前端/OS 层永不在 case 观测范围。唯一例外：real LLM 模式只读生产 config 的 llm 段（providers）+ 经 env key 发网络请求。debug 模式零网络、完全确定性。
+**Boundary isolation**: the runner only reads/writes a one-shot sandbox (`%TEMP%\ambery-case-<case_id>/`, rebuilt at start): storage snapshot, runtime appends, and config writes are all inside the sandbox; production storage/config is **never written**. **Headless**: never starts a real OS UI (windows/displays/input); the frontend/OS layer is never within the case observation scope. The only exception: real LLM mode only reads the llm section (providers) of the production config + sends network requests via env keys. debug mode has zero network and is fully deterministic.
 
-## 前端 headless 观测
+## Frontend headless observation
 
-case-runner 的观测范围覆盖前端 TS 能力：headless JS runtime 跑真实前端模块（vitest + jsdom）+ RemoteBridge 连内嵌 core + mock 窗口层（§运行形态）。
+The case-runner's observation scope covers frontend TS capabilities: a headless JS runtime runs real frontend modules (vitest + jsdom) + RemoteBridge connects to the embedded core + mock window layer (§Run shape).
 
-### 观测边界
+### Observation boundary
 
-| effect | 观测方式 |
+| effect | observation method |
 |---|---|
-| `render_component` / `close_component`（后端） | 沙盒 effect.jsonl |
-| `window_opened` / `window_closed` / `window_visible` / `window_hidden` / `window_moved` / `window_resized`（前端窗口层） | 已实现：headless/browser 窗口层经 `tauri_runtime_actions` 产生 window_* effect，经 RemoteBridge `POST /effect` 入动作流（`app/test/window-case.test.ts`） |
-| `window`（observe target） | 已实现：打印窗口动作序列，并断言不变量——已关闭窗口的 `render_component` 必须伴随新的 `window_opened`，违反即 FAIL |
-| 前端非窗口逻辑（store / 窗口接线） | `frontend-case.test.ts`（headless JS + mock 窗口层） |
+| `render_component` / `close_component` (backend) | sandbox effect.jsonl |
+| `window_opened` / `window_closed` / `window_visible` / `window_hidden` / `window_moved` / `window_resized` (frontend window layer) | implemented: the headless/browser window layer produces window_* effects via `tauri_runtime_actions`, entering the action stream via RemoteBridge `POST /effect` (`app/test/window-case.test.ts`) |
+| `window` (observe target) | implemented: prints the window action sequence and asserts invariants — a `render_component` for a closed window must be accompanied by a new `window_opened`; violation = FAIL |
+| frontend non-window logic (store / window wiring) | `frontend-case.test.ts` (headless JS + mock window layer) |
 
-### 前端读取架构（store 收敛 + invoke 规则）
+### Frontend read architecture (store convergence + invoke rules)
 
-**store 机制**（`app/src/store.ts`）：
-- 一个前端 store 持有 core 拥有的可读状态：`config` / `top_state` / `context` / `cards`；
-- store 由 bridge 读方法刷新（基线拉一次 + 事件提示时按需重拉/直写），组件只 `store.<getter>` 取基线 + `store.onX(cb)` 订阅变化，不直接调 Tauri API；
-- store 边界判据：**core 拥有 + 多窗口/组件读 + 变化驱动 UI + 体积可控**；前端局部瞬态（面板开关/输入框/拖拽中位置）与意图（invoke 写指令）不进 store。判据反例：设置面板 schema（menu 单消费者、体积大）不进 store，经 bridge `getConfigSchema()` 直读；
-- `BrowserMockBridge` 即「持有 + 通知」形态的 store；每窗口各自一份 store 实例，经各自 bridge 喂入。
+**store mechanism** (`app/src/store.ts`):
+- one frontend store holds readable state owned by core: `config` / `top_state` / `context` / `cards`;
+- the store is refreshed by bridge read methods (baseline pulled once + event-triggered on-demand re-pull/direct write); components only take the baseline via `store.<getter>` and subscribe to changes via `store.onX(cb)`, never calling Tauri APIs directly;
+- store boundary criterion: **owned by core + read by multiple windows/components + changes drive UI + size manageable**; frontend-local transient state (panel toggles/input boxes/dragging positions) and intents (invoke write commands) do not enter the store. Counterexample: the settings panel schema (single menu consumer, large) does not enter the store; it is read directly via bridge `getConfigSchema()`;
+- `BrowserMockBridge` is a store in the "hold + notify" shape; each window has its own store instance, fed through its own bridge.
 
-**invoke 规则**：
-- 读取 → 一律走 store（store 外读取走 bridge 读方法）；写入 → 一律走动作层（`tauri_runtime_actions.ts`）或 bridge 写方法；
-- 主代码逻辑不出现 `invoke("get_*")` / 裸 `invoke` 散调；
-- invoke 只允许出现在两个收口：**store 的刷新**（bridge 读方法实现）+ **动作层的写指令**。
+**invoke rules**:
+- reads → always go through the store (reads outside the store go through bridge read methods); writes → always go through the action layer (`tauri_runtime_actions.ts`) or bridge write methods;
+- main code logic must not contain `invoke("get_*")` / bare `invoke` scattered calls;
+- invoke is allowed only at two choke points: **store refresh** (bridge read method implementation) + **action-layer write commands**.
 
-### 窗口决策上提
+### Window decisions lifted up
 
-窗口存在性由 `ensure_card_window` / `close_card_window` command 决定，Rust 侧权威注册表（`CardWindowRegistry`）同步决策 create / reuse / close，返回 `opened` / `reused` / `closed` / `absent`。
+Window existence is decided by the `ensure_card_window` / `close_card_window` commands; the Rust-side authoritative registry (`CardWindowRegistry`) synchronously decides create / reuse / close and returns `opened` / `reused` / `closed` / `absent`.
 
-1. **关闭路径收口**：`close_card_window` 统一收口 agent close / shelf dismiss / 用户 × 三路径；destroy 不经 `onCloseRequested`，杜绝 preventDefault 僵尸。
-2. **移除走事件循环**：`destroy()` 经 dispatcher 分发后异步生效——瞬时视图仍有「将死窗口」窗口期。
-3. **`Closing` 状态吸收窗口期**：close 标 `Closing` → destroy → 等物理移除（兜底超时）→ 出表。
-4. **ensure 语义**：见 `Closing` 等其出表再重建；见 `Alive` 但注册表无窗则自愈重建。
+1. **Close path consolidated**: `close_card_window` consolidates the three paths agent close / shelf dismiss / user ×; destroy does not go through `onCloseRequested`, eliminating preventDefault zombies.
+2. **Removal goes through the event loop**: `destroy()` takes effect asynchronously after dispatcher dispatch — the instantaneous view still has a "dying window" window period.
+3. **`Closing` state absorbs the window period**: close marks `Closing` → destroy → wait for physical removal (fallback timeout) → leave the registry.
+4. **ensure semantics**: if `Closing`, wait for it to leave the registry before recreating; if `Alive` but the registry has no window, self-heal by recreating.
 
-### 运行形态（headless JS + RemoteBridge）
+### Run shape (headless JS + RemoteBridge)
 
-`ambery-case frontend` 子命令内嵌 core，拉起 node + vitest + jsdom 子进程（沙盒 storage/config；bind 0 取空闲端口避让生产 47600）；真实前端模块经 RemoteBridge 连内嵌 core，`shim.ts` 提供 mock 窗口层；`frontend-case.test.ts` 首套，覆盖 store 基线与回读、Queue 放行回读、同 id 不重复/不复活（DOM 层）、统一关闭、windowed 不订全局流。
+The `ambery-case frontend` subcommand embeds core and spawns node + vitest + jsdom subprocesses (sandbox storage/config; bind 0 picks a free port to avoid production 47600); real frontend modules connect to the embedded core via RemoteBridge; `shim.ts` provides the mock window layer; `frontend-case.test.ts` is the first suite, covering store baseline and read-back, Queue release read-back, same-id no-duplicate/no-revive (DOM layer), unified close, and windowed not subscribing to the global stream.
 
-接入观测的形态（§壳类比）：
+The shape integrated into observation (§Shell analogy):
 
 ```
 headless 前端 case =
@@ -81,11 +81,11 @@ headless 前端 case =
   断言面：DOM 状态 + store 投影 + 沙盒 effect.jsonl（/debug/effect 注入驱动，不落 jsonl）
 ```
 
-webview 必须挂真实窗口，Tauri/wry 无 headless webview（见 wry discussion #373）。
+A webview must be attached to a real window; Tauri/wry has no headless webview (see wry discussion #373).
 
-## 布局
+## Layout
 
-workspace 根 `Cargo.toml`（members：core / observe-derive / ambery-case；exclude app/src-tauri 壳独立构建）：
+Workspace root `Cargo.toml` (members: core / observe-derive / ambery-case; exclude app/src-tauri shell built independently):
 
 ```
 ambery-case/                    ← workspace member
@@ -109,24 +109,24 @@ ambery-core (feature "case-runner"):
 observe-derive/                   ← proc-macro（derive(Observe)，case-runner feature 可选依赖）
 ```
 
-> step 执行器在 ambery-case（binary 侧）而非 core：沙盒/终端剧情状态/打印是 CLI 关注点；
-> core 只承载概念（解析/求值/观测），保持库纯粹。
+> The step executor is on the ambery-case (binary) side, not in core: sandbox/terminal story state/printing are CLI concerns;
+> core only carries the concepts (parsing/evaluation/observation), keeping the library pure.
 
-## Case 文件格式（两段式，`.case` 后缀）
+## Case file format (two-section, `.case` suffix)
 
-**快照即真相**：case 的 data 节保留 JSONL 格式原文（不解析为对象），行序原样、时间戳精确、不丢字段。真实 storage 的某时刻切片导入 → 手工最小化 → 封存为 case；读通道状态（哪个实例屏幕上有内容、哪个 tab 已消亡）不由数据表达，**由 steps 剧情表达**。
+**Snapshot is truth**: the case's data section preserves JSONL raw format (not parsed into objects), line order as-is, timestamps exact, no fields lost. A moment-slice of real storage is imported → manually minimized → sealed as a case; read-channel state (which instance has content on screen, which tab has died) is not expressed by the data but **expressed by the steps story**.
 
-**JSON 头 + 纯 JSONL 数据区**。头部是正常 pretty JSON（meta / config / steps），
-数据区按 `{"__section":"=== name ==="}` marker 行分节，每节就是 JSONL **原文**——
-每行一条、零转义、可扫读可定点删改。文件整体**不是合法 JSON**（故用 `.case` 后缀，
-工具链不会当 JSON 误解析）。
+**JSON header + pure JSONL data area**. The header is normal pretty JSON (meta / config / steps),
+and the data area is sectioned by `{"__section":"=== name ==="}` marker lines; each section is JSONL **raw text** —
+one line per record, zero escaping, scannable and point-editable. The file as a whole is **not valid JSON** (hence the `.case` suffix,
+so tooling will not misparse it as JSON).
 
-> **灵感来源**：glTF 的 `.glb`（Binary glTF）——JSON chunk 描述结构，BIN chunk 原文
-> 载荷，JSON 不把二进制转义内嵌。本格式同构：JSON 头描述场景（meta/steps），JSONL
-> 节原文承载快照，而非把 JSONL 转义成一个巨大的 JSON 字符串。
+> **Inspiration**: glTF's `.glb` (Binary glTF) — a JSON chunk describes structure, and a BIN chunk carries raw
+> payload, without JSON escaping the binary inline. This format is isomorphic: the JSON header describes the scenario (meta/steps), and JSONL
+> sections carry the snapshot raw, instead of escaping JSONL into one giant JSON string.
 
-解析规则（唯一一条）：**首个 `{"__section":` 行（无缩进、行首）之前 = JSON 头；
-之后按 marker 行分节，数据行归当前节**。marker 行本身是合法 JSONL（零外来语法）。
+Parsing rule (the only one): **before the first `{"__section":` line (no indentation, at line start) = JSON header;
+after it, sections are divided by marker lines, and data lines belong to the current section**. The marker line itself is valid JSONL (zero foreign syntax).
 
 ```json
 {
@@ -153,113 +153,113 @@ observe-derive/                   ← proc-macro（derive(Observe)，case-runner
 {"__section":"=== queue ==="}
 ```
 
-#### ⟡ 一致性剖析
+#### ⟡ Consistency analysis
 
-Case 的 JSON 头只描述场景与步骤；Storage 快照必须按其真实格式作为原始载荷进入容器，而不是把 Markdown 等非 JSONL 文件转义塞入 JSON 字符串。JSONL 与 Markdown 分属各自原始区和边界规则，才能同时保持手工最小化、可读 diff 与文件级 replay。Case 若要验证某个持久概念，就应能够携带它的最小快照；导出以 inclusion bool 加类别过滤控制范围，避免“可观察”变成默认携带全部私人数据。
+The case's JSON header only describes the scenario and steps; the Storage snapshot must enter the container as raw payload in its real format, rather than escaping Markdown and other non-JSONL files into JSON strings. JSONL and Markdown belong to their own raw areas and boundary rules, so the format can simultaneously keep manual minimization, readable diffs, and file-level replay. If a case is to verify a persistent concept, it should be able to carry its minimal snapshot; export uses inclusion bool plus category filters to control scope, so that "observable" does not become carrying all private data by default.
 
-### 头部（JSON）
+### Header (JSON)
 
-| 字段 | 必填 | 说明 |
+| field | required | description |
 |------|------|------|
-| `meta.case_id` | ✓ | 唯一标识，建议 kebab-case |
+| `meta.case_id` | ✓ | unique identifier; kebab-case recommended |
 | `meta.created` | ✓ | ISO 8601 |
-| `meta.notes` | | 场景描述、预期行为、备注 |
-| `meta.llm_mode` | ✓ | debug / real（无默认，缺声明不合法；见 §LLM 模式） |
-| `config` | | 全字段覆盖（统一管道 apply_config_by_path 逐 path 应用） |
-| `steps` | | 线性 step 序列（见下） |
+| `meta.notes` | | scenario description, expected behavior, remarks |
+| `meta.llm_mode` | ✓ | debug / real (no default; a missing declaration is invalid; see §LLM modes) |
+| `config` | | full-field override (applied path by path through the unified apply_config_by_path pipeline) |
+| `steps` | | linear step sequence (see below) |
 
-#### LLM 模式
+#### LLM modes
 
-两种平级模式，无隐含默认；case 头部 meta 声明 `llm_mode`（debug / real）：
+Two equal modes, no implicit default; the case header meta declares `llm_mode` (debug / real):
 
-- `debug`：DebugAgent，零网络，决策由外部决策源注入（沉默 / 脚本 / CLI），保持确定性
-- `real`：OpenAI 兼容真实端点——「我需要真模型」是 case 的固有输入，记入 meta `llm_mode`；实际 provider 从生产 providers 合并（声明的 provider 必须是生产 providers 的**子集**，只能选生产已配置的，不能引入新 provider）；key 只取环境变量
+- `debug`: DebugAgent, zero network; decisions are injected by an external decision source (silence / script / CLI), keeping determinism
+- `real`: OpenAI-compatible real endpoint — "I need a real model" is an intrinsic input of the case, recorded in meta `llm_mode`; actual providers are merged from production providers (a declared provider must be a **subset** of production providers, only choosing ones already configured in production, not introducing new providers); keys come only from environment variables
 
-缺声明 `llm_mode` → case 不合法（报错），不隐含退回任一模式。metrics 类 case（token 影响 / 回答准确度）依赖 real；debug 下 user step 按决策源行为（沉默或脚本）。
+A missing `llm_mode` declaration → invalid case (error), with no implicit fallback to either mode. metrics-type cases (token impact / answer accuracy) depend on real; under debug, user steps follow the decision source's behavior (silence or script).
 
-**no_case_visible**：`llm.providers.*` 等敏感字段（含 base_url / api_key_env）在 case 里**禁止出现**——落盘/覆盖校验拒绝，case 绝不携带 apikey。
+**no_case_visible**: sensitive fields such as `llm.providers.*` (including base_url / api_key_env) are **forbidden** in a case — write/override validation rejects them, and a case never carries an apikey.
 
-`tool_call` 是**直接执行**后端 tool 的机械 step：它绕过 LLM，不写 assistant(tool_calls) / tool result 到 Context，也不模拟“更早 response 看见 query result”这一协议。因此它适合测试 tool 的独立执行效果，不适合验证 agent 的多 response 工具策略。
+`tool_call` is a mechanical step that **directly executes** a backend tool: it bypasses the LLM, does not write assistant(tool_calls) / tool result into Context, and does not simulate the protocol of "an earlier response saw the query result". It is therefore suitable for testing a tool's independent execution effect, not for verifying an agent's multi-response tool strategy.
 
-剧情中途改配置不需要专用 step——需要测试单次后端写入时，可用 `tool_call` 调 `edit_config`；它与 pet 的生产修改共用 Config 管道。需要测试 agent 先读后写、读取快照、预算或 tool result 链路时，使用显式 real / scripted LLM response，让 `run_trigger` 走完整 assistant tool_calls → Context tool result → 下一 response 流程，而不是拼接两个 `tool_call` steps。
+Changing config mid-story needs no dedicated step — when testing a single backend write, use `tool_call` to invoke `edit_config`; it shares the Config pipeline with pet's production modifications. When testing agent read-then-write, snapshot reads, budgets, or the tool result chain, use an explicit real / scripted LLM response so that `run_trigger` goes through the full assistant tool_calls → Context tool result → next response flow, rather than splicing two `tool_call` steps.
 
-### 数据节（Storage 快照）
+### Data sections (Storage snapshot)
 
-JSONL 节保留原文；每节均可为空——空节保留 marker，「刻意为空」与「忘了填」可区分。Memory / Cron 也可作为初始快照进入 case，但 export 默认不导出；必须同时经过显式 inclusion bool 与该类别的过滤器，才写入 case。
+JSONL sections preserve raw text; every section may be empty — an empty section keeps its marker, so "deliberately empty" is distinguishable from "forgot to fill". Memory / Cron may also enter the case as initial snapshots, but export does not export them by default; they are written to the case only after passing both an explicit inclusion bool and that category's filter.
 
-| 节 | 对应 storage 文件 | 导出边界 |
+| section | corresponding storage file | export boundary |
 |------|-------------------|----------|
-| `work_agents` | work-agents.jsonl | **默认过滤**；显式 inclusion + `--instances` 等过滤后才存在 |
-| `context` | context.jsonl | 常规快照过滤 |
-| `queue` | queue.jsonl（Queue 输入排队记录） | 常规快照过滤 |
-| `memory` | memory/ | **默认过滤**；`--keep-memory` + `--memory <name,...>`；仅选择的普通记忆与显式选择的 `AGENTS` 进入快照，`index.md` 在沙盒重建 |
-| `cron` | cron.jsonl | **默认过滤**；`--keep-cron` + `--cron-ids <id,...>`；每个选中 id 保留完整生命周期事件链 |
+| `work_agents` | work-agents.jsonl | **filtered by default**; exists only after explicit inclusion + filters such as `--instances` |
+| `context` | context.jsonl | regular snapshot filtering |
+| `queue` | queue.jsonl (Queue input queuing records) | regular snapshot filtering |
+| `memory` | memory/ | **filtered by default**; `--keep-memory` + `--memory <name,...>`; only selected normal memories and explicitly selected `AGENTS` enter the snapshot; `index.md` is rebuilt in the sandbox |
+| `cron` | cron.jsonl | **filtered by default**; `--keep-cron` + `--cron-ids <id,...>`; each selected id keeps the complete lifecycle event chain |
 
-memory 节是 Markdown 原文区（§一致性剖析：JSONL 与 Markdown 分属各自原始区和边界规则）：每个文件以 `{"__file":"<path>"}` 标记行开头（合法 JSONL，与 `__section` 同款标记哲学），其后到下一标记的行为该文件原文——空行保留、零转义。path 白名单：`AGENTS.md` 或 `notes/<name>.md`（保留名不可作 note 路径）；`index.md` 不进 case（沙盒按已选普通记忆重建），`cards/` 不经此节（契约另定）。原文行不得以 `{"__` 行首开头——与节/文件标记语法撞车会静默断文件，parse 直接拒绝。cards/ 不经此节（Card 文件契约见 docs/components.md §Card 文件；case 不携带卡片快照）。
+The memory section is a Markdown raw area (§Consistency analysis: JSONL and Markdown belong to their own raw areas and boundary rules): each file starts with a `{"__file":"<path>"}` marker line (valid JSONL, the same marker philosophy as `__section`), and the lines until the next marker are that file's raw text — blank lines preserved, zero escaping. Path whitelist: `AGENTS.md` or `notes/<name>.md` (reserved names cannot be note paths); `index.md` does not enter a case (the sandbox rebuilds it from selected normal memories), and `cards/` does not go through this section (contract defined separately). Raw lines must not begin with `{"__` at line start — colliding with section/file marker syntax would silently truncate the file; parse rejects it outright. cards/ does not go through this section (for the Card file contract, see docs/components.md §Card file; a case carries no card snapshots).
 
-### case 隐私
+### case privacy
 
-case 是可共享/归档的场景快照，隐私细节：
+A case is a shareable/archivable scenario snapshot; privacy details:
 
-- **LLM 模式记 meta**：`llm_mode`（debug / real）在 case 头部 meta，case 不携带 provider 配置 / key
-- **no_case_visible**：`llm.providers.*` 等敏感字段（含 base_url / api_key_env）在 case 里禁止出现（落盘/覆盖校验拒绝）——case 绝不携带 apikey
-- **work_agents 默认过滤**：含项目名 `project·sid8`（暴露项目结构），默认不导出；只有显式声明才存在
-- **Memory 默认过滤**：长期理解可能含跨项目事实与协作偏好；必须 `--keep-memory` + `--memory <name,...>` 双重显式选择。普通记忆按 name 选；Memory `AGENTS.md` 只有显式写 `AGENTS` 才保留原文；派生的 `index.md` 不导出，在沙盒按已选普通记忆重建
-- **Cron 默认过滤**：计划 message 可能含工作内容；必须 `--keep-cron` + `--cron-ids <id,...>` 双重显式选择。选中计划保留 create / fire / delete 完整生命周期事件，不能按时间窗裁断因果链
-- **context / queue 保留**：真实对话/输入快照（"快照即真相"），共享给信任方
-- 文档/示例不出现真实 provider 名（隐私）
+- **LLM mode recorded in meta**: `llm_mode` (debug / real) is in the case header meta; the case carries no provider config / keys
+- **no_case_visible**: sensitive fields such as `llm.providers.*` (including base_url / api_key_env) are forbidden in a case (write/override validation rejects them) — a case never carries an apikey
+- **work_agents filtered by default**: contains the project name `project·sid8` (exposes project structure); not exported by default; exists only when explicitly declared
+- **Memory filtered by default**: long-term understanding may contain cross-project facts and collaboration preferences; requires the double explicit selection `--keep-memory` + `--memory <name,...>`. Normal memories are selected by name; Memory `AGENTS.md` keeps raw text only when `AGENTS` is explicitly written; the derived `index.md` is not exported and is rebuilt in the sandbox from selected normal memories
+- **Cron filtered by default**: plan messages may contain work content; requires the double explicit selection `--keep-cron` + `--cron-ids <id,...>`. Selected plans keep the complete create / fire / delete lifecycle events; the causal chain must not be truncated by time windows
+- **context / queue kept**: real conversation/input snapshots ("snapshot is truth"), shared with trusted parties
+- docs/examples do not show real provider names (privacy)
 
 ### steps
 
-steps 是线性序列，每个 step 有类型 + 可选参数。runner 按序执行。
+steps are a linear sequence; each step has a type + optional parameters. The runner executes them in order.
 
-| step | 参数 | 作用 |
+| step | parameters | purpose |
 |------|------|------|
-| `load` | — | replay storage 快照，重建所有概念结构：Harness::load → 内存 queue/context/filtered_content/event_buffer/agents |
-| `terminal` | `{instance, content}` | 读通道剧情：设定该实例屏幕内容（timer_scan 时 terminal_reader 返回它） |
-| `terminal_gone` | `{instance}` | 读通道剧情：该实例 tab 消亡（terminal_reader 返回 None）——消亡是显式动词，扫读剧本一眼可见 |
-| `timer_scan` | — | 跑一轮 timer 周期：TimerWheel due 取到期实例 → Some 走 handle_timer_scan（变化检测入队）→ None 判 mark_instance_closed；最后 drain_queue 放行 |
-| `hook` | `{event, name, project, content, ts?}` | 注入 mock hook 事件：handle_hook（按事件分层：session_start 静默簿记 / stop 入队）→ drain_queue 放行 |
-| `trigger` | — | drain_queue：放行全部待放行输入 → LLM/effects |
-| `user` | `{text, ts?}` | 用户消息入队（enqueue user role）→ drain_queue 放行 |
-| `tool_call` | `[name, args_json]` | 绕过 LLM 直接执行 tool call：execute_tool → result + effects；不写 tool 协议消息，不能验证多 response 工具交互 |
-| `store` | `{"<name>": {"type":"expr\|var\|int\|str", "value":"<字符串>"}}` | 设用户变量：value 经对应 parser 求值 → to_string → 存 string（见 case-eval-system.md） |
-| `observe` | `[{"target":"agents"}, {"target":"context","lines":"[$tail-50,$tail]"}]` | 记录概念结构当前快照（统一对象列表；路径类 target 可带 lines 读取，见 case-eval-system.md） |
+| `load` | — | replay the storage snapshot and rebuild all concept structures: Harness::load → in-memory queue/context/filtered_content/event_buffer/agents |
+| `terminal` | `{instance, content}` | read-channel story: set that instance's screen content (timer_scan's terminal_reader returns it) |
+| `terminal_gone` | `{instance}` | read-channel story: that instance's tab dies (terminal_reader returns None) — death is an explicit verb, visible at a glance when scanning the script |
+| `timer_scan` | — | run one timer cycle: TimerWheel due takes due instances → Some goes to handle_timer_scan (change detection enqueues) → None judges mark_instance_closed; finally drain_queue releases |
+| `hook` | `{event, name, project, content, ts?}` | inject a mock hook event: handle_hook (by event layering: session_start silent booking / stop enqueues) → drain_queue releases |
+| `trigger` | — | drain_queue: release all pending inputs → LLM/effects |
+| `user` | `{text, ts?}` | user message enqueued (enqueue user role) → drain_queue releases |
+| `tool_call` | `[name, args_json]` | directly execute a tool call, bypassing the LLM: execute_tool → result + effects; does not write tool protocol messages; cannot verify multi-response tool interaction |
+| `store` | `{"<name>": {"type":"expr\|var\|int\|str", "value":"<字符串>"}}` | set user variables: value is evaluated by the corresponding parser → to_string → stored as string (see case-eval-system.md) |
+| `observe` | `[{"target":"agents"}, {"target":"context","lines":"[$tail-50,$tail]"}]` | record the current snapshot of concept structures (unified object list; path-type targets may carry lines reads, see case-eval-system.md) |
 
-读通道默认状态：未设定的实例一律返回 `None`（= tab 不复存在）。僵尸类 case 不需要
-任何 `terminal` step——默认全消亡，timer_scan 直接走 closed 判定。
+Read-channel default state: any instance not configured returns `None` (= tab no longer exists). Zombie-type cases need no
+`terminal` step — by default all are dead, and timer_scan goes straight to the closed judgment.
 
-### observe 输出
+### observe output
 
-**可观测体系**：所有概念模块都可观测（覆盖机制见 `docs/observability.md`）；observe 输出两类（值：agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + 现算 filtered_content；路径：context / effects 给文件指针+摘要）；effects 进 CaseObserve（穷尽 match 编译期强制）+ effect.jsonl 全量持久化（含 assistant_delta/done，docs/storage.md §effect.jsonl）；filtered_content 不持久化，从 terminal-content.jsonl 原文 digest 现算。
+**Observability system**: all concept modules are observable (for the coverage mechanism see `docs/observability.md`); observe outputs two kinds (values: agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + computed-on-demand filtered_content; paths: context / effects give file pointer + summary); effects go into CaseObserve (exhaustive match enforced at compile time) + full persistence in effect.jsonl (including assistant_delta/done, docs/storage.md §effect.jsonl); filtered_content is not persisted, computed on demand from the terminal-content.jsonl raw digest.
 
-**Tauri 运行时动作可观测**——`(Tauri runtime actions − readonly) ⊆ effects`：Tauri 运行时动作涵盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API；两侧所有非只读动作统一进 effect 流，只读调用走 observe 直接观测。
+**Tauri runtime actions observable** — `(Tauri runtime actions − readonly) ⊆ effects`: Tauri runtime actions cover WebView's `@tauri-apps/api` and the Rust shell's `tauri` API; all non-readonly actions on both sides uniformly enter the effect stream, and readonly calls are observed directly via observe.
 
-| 类别 | 例子 | 去向 |
+| category | example | destination |
 |---|---|---|
-| 非 readonly（有副作用） | WebView invoke 写（append_user / push_event / set_config）、WebviewWindow 创建/关闭、setSize / setPosition / emit；Rust 壳等价的窗口 show/hide/终结与 emit | → effect 流（调用侧记录到 core；一个运行时动作一条 effect，高频同类动作按规则打包） |
-| readonly（无副作用） | WebView invoke 查询（get_state / get_context / get_config / get_config_schema）、读显示器 / outerPosition / getByLabel、listen；Rust 壳查询 | → observe 观测（不进 effect） |
+| non-readonly (has side effects) | WebView invoke writes (append_user / push_event / set_config), WebviewWindow create/close, setSize / setPosition / emit; Rust shell equivalent window show/hide/termination and emit | → effect stream (recorded to core at the call site; one runtime action one effect; high-frequency same-kind actions are packed by rule) |
+| readonly (no side effects) | WebView invoke queries (get_state / get_context / get_config / get_config_schema), reading displays / outerPosition / getByLabel, listen; Rust shell queries | → observe observation (not into effect) |
 
-**子集表示**：非 readonly 的 Tauri runtime actions ⊂ effects；一次调用产生多个运行时动作时分别记为对应 effect，readonly 走 observe 值/路径观测。
+**Subset notation**: non-readonly Tauri runtime actions ⊂ effects; when one call produces multiple runtime actions, each is recorded as a corresponding effect, and readonly goes through observe value/path observation.
 
-每个 observe step 按请求项分节打印（内容级，全文不截断）：
+Each observe step prints per requested item in sections (content-level, full text untruncated):
 
-| observe 项 | 类别 | 产出内容 |
+| observe item | category | output content |
 |------------|------|----------|
-| `agents` | 值 | 全量 agent 条目，含 hash / name / project / status / last_seen |
-| `panorama` | 值 | `panorama()` 投影文本（非 Closed 实例摘要；无存活实例显示 `(无存活实例)`） |
-| `context` | 路径 | 无 lines：`文件路径 \| N 行 \| M tokens（真值 P + est 增量 D）`（真值锚点与 est 增量分开标注）；带 lines：context.jsonl 切片原文（含行号） |
-| `filtered_content` | 值（现算） | Filtered 内容存档全量（instance / source / 归一全文 / ts）——agent 实际读到的终端内容 |
-| `queue` | 值 | Queue 当前待放行输入（role / content） |
-| `event_buffer` | 值 | Event Buffer 当前积压原文 |
-| `usage` | 值 | 最近一次 LLM 调用真值（prompt_tokens / completion_tokens / ts；无真值显示 `(无)`）——「scan/回答对 token 的影响」的直接量规 |
-| `memory` | 值 | Memory index 摘要（条目 name / description / 总数）；不默认展开 Markdown 正文 |
-| `cron` | 值 | 当前持久化计划投影（id / schedule / message / next_due）；不含进程内、非持久化的 sleep waiter |
-| `cards` | 值 | Card 注册表投影（id / type / title / created / user_closed / layout 摘要）；不展开 component 全文（原文在沙盒 memory/cards/） |
-| `effects` | 路径 | 无 lines：`文件路径 \| N 条`；带 lines：effect.jsonl 切片原文（含行号，origin / kind / payload / ts） |
-| `answer` | 值 | 最后一条 assistant 消息原文（无则 `(无)`）——「回答准确度」扫读位 |
+| `agents` | value | all agent entries, including hash / name / project / status / last_seen |
+| `panorama` | value | `panorama()` projection text (non-Closed instance summary; with no live instances shows `(无存活实例)`) |
+| `context` | path | without lines: `文件路径 \| N 行 \| M tokens（真值 P + est 增量 D）` (truth anchor and est delta annotated separately); with lines: context.jsonl slice raw text (with line numbers) |
+| `filtered_content` | value (computed) | full Filtered content archive (instance / source / normalized full text / ts) — the terminal content the agent actually reads |
+| `queue` | value | Queue's currently pending inputs (role / content) |
+| `event_buffer` | value | Event Buffer's current backlog raw text |
+| `usage` | value | truth value of the most recent LLM call (prompt_tokens / completion_tokens / ts; no truth shows `(无)`) — the direct gauge for "scan/answer impact on tokens" |
+| `memory` | value | Memory index summary (entry name / description / total count); does not expand Markdown bodies by default |
+| `cron` | value | current persistent plan projection (id / schedule / message / next_due); excludes in-process, non-persistent sleep waiters |
+| `cards` | value | Card registry projection (id / type / title / created / user_closed / layout summary); does not expand component full text (raw text in sandbox memory/cards/) |
+| `effects` | path | without lines: `文件路径 \| N 条`; with lines: effect.jsonl slice raw text (with line numbers, origin / kind / payload / ts) |
+| `answer` | value | last assistant message raw text (none shows `(无)`) — the "answer accuracy" scan position |
 
-值类 target 带 lines 不合法（health pre-parse 静态拦截）。CLI 输出格式：
+Value-type targets with lines are invalid (statically intercepted by health pre-parse). CLI output format:
 
 ```
 ── observe @ step 4 ──
@@ -278,51 +278,51 @@ context: …/context.jsonl | 切片 [74,122]（共 122 行）   ← 带 lines "(
   74: {"type":"message","role":"user","content":"…","ts":…}
 ```
 
-## 导出工具：实时 storage → case
+## Export tool: live storage → case
 
-使用真实 storage 文件构造 case，通过细粒度过滤减少体量、最小化手修量。
+Construct cases from real storage files; reduce volume through fine-grained filtering and minimize manual repair.
 
-### 管线
+### Pipeline
 
 ```
 实时 storage → 过滤 → 最小化 → JSON 输出 → 手修 meta/notes → case health → 就绪
 ```
 
-### 过滤器参数
+### Filter parameters
 
-过滤阶段只控制哪些行进入 case，不修改行内容。`work_agents`、`context`、
-`queue` 跨文件联动过滤——以 `--instances` 为核心，波及所有包含 instance 引用的文件。
+The filtering stage only controls which lines enter the case and does not modify line content. `work_agents`, `context`, and
+`queue` filter in a cross-file linked manner — centered on `--instances`, affecting all files that contain instance references.
 
-| 参数 | 作用 |
+| parameter | purpose |
 |------|------|
-| `--instances a,b` | 只保留指定 instance 的行。work-agents：按 name 匹配；context/queue：按 content 中包含的 instance 标记过滤 |
-| `--window 30m` | 只保留相对最新行 N 分钟窗口内的行 |
-| `--before 1785164703801` | 只保留该 ts 之前的行 |
-| `--after 1785164651768` | 只保留该 ts 之后的行 |
-| `--keep-last N` | work-agents 每 hash / context 的 content 行每 instance 只保留最后 N 行 |
-| `--keep-agents` | 默认不导出 work_agents 节（含项目名，隐私）；显式指定才导出完整 work_agents 节 |
-| `--keep-memory` | 打开 Memory 导出资格；必须配合 `--memory <name,...>`，单独指定报错；不会默认带入任何 Memory 文件 |
-| `--memory name-a,AGENTS` | Memory 文件过滤器（仅与 `--keep-memory` 同用）：普通记忆按 name 选；保留值 `AGENTS` 可显式带入用户维护的 Memory 导航原文；`index.md` 不可选、不导出，在沙盒按已选普通记忆重建 |
-| `--keep-cron` | 打开 Cron 导出资格；必须配合 `--cron-ids <id,...>`，单独指定报错；不会默认带入任何计划 |
-| `--cron-ids id-a,id-b` | Cron 计划过滤器（仅与 `--keep-cron` 同用）：按计划 id 选择，选中 id 的 create / fire / delete 行完整保留，不受时间窗逐行裁断 |
-| `--trim-context` | 跨文件过滤后深度裁剪（需配合 --instances）：content 行只留保留实例（孤行清理）；message/queue 行按实例名提及过滤；autonomy/session/head/compact_boundary 装配留痕丢弃（case replay 不入内存；多 run 切片类 case 勿用） |
+| `--instances a,b` | keep only lines for the specified instances. work-agents: match by name; context/queue: filter by the instance markers contained in content |
+| `--window 30m` | keep only lines within the N-minute window relative to the latest line |
+| `--before 1785164703801` | keep only lines before this ts |
+| `--after 1785164651768` | keep only lines after this ts |
+| `--keep-last N` | work-agents per hash / context content lines per instance keep only the last N lines |
+| `--keep-agents` | by default the work_agents section is not exported (contains project name, privacy); only when explicitly specified export the full work_agents section |
+| `--keep-memory` | open Memory export eligibility; must be paired with `--memory <name,...>`, otherwise error; no Memory file is brought in by default |
+| `--memory name-a,AGENTS` | Memory file filter (only with `--keep-memory`): normal memories selected by name; the reserved value `AGENTS` can explicitly bring in the user-maintained Memory navigation raw text; `index.md` is not selectable and is not exported, rebuilt in the sandbox from selected normal memories |
+| `--keep-cron` | open Cron export eligibility; must be paired with `--cron-ids <id,...>`, otherwise error; no plan is brought in by default |
+| `--cron-ids id-a,id-b` | Cron plan filter (only with `--keep-cron`): select by plan id; the selected id's create / fire / delete lines are kept complete, not truncated line by line by time windows |
+| `--trim-context` | deep trim after cross-file filtering (requires --instances): content lines keep only retained instances (orphan line cleanup); message/queue lines filtered by instance-name mentions; autonomy/session/head/compact_boundary assembly traces dropped (case replay does not load them into memory; do not use for multi-run slice cases) |
 
-### 最小化参数
+### Minimization parameters
 
-最小化阶段在过滤后对行内容做瘦身（不改结构），减少手修量：
+The minimization stage slims line content after filtering (does not change structure) to reduce manual repair:
 
-| 参数 | 作用 |
+| parameter | purpose |
 |------|------|
-| `--dedup` | 相邻 content 完全相同的行只保留最早一条 |
-| `--strip-content N` | context 每行 content 截断到 N 字符（保留完整 ts、type、role 等元数据） |
-| `--dry-run` | 预览过滤后各文件行数，不生成 case 文件 |
+| `--dedup` | keep only the earliest one of adjacent content-identical lines |
+| `--strip-content N` | truncate each context line's content to N characters (full ts, type, role, and other metadata preserved) |
+| `--dry-run` | preview filtered per-file line counts without generating a case file |
 
-### 手修
+### Manual repair
 
-导出生成的 JSON 中，`data` 字段均可手改——删冗余行、增补注释、用 `terminal` / `terminal_gone`
-step 构造读通道剧情。手修完成 → 立即跑 case health 验证。
+In the exported JSON, the `data` fields are all hand-editable — delete redundant lines, add notes, and construct read-channel story with `terminal` / `terminal_gone`
+steps. After manual repair → immediately run case health validation.
 
-### 示例
+### Example
 
 ```bash
 # 从当前 storage 导出场景（--keep-agents 显式保留 work_agents；默认隐私过滤）
@@ -341,23 +341,23 @@ ambery-case cases/closed-stale-cache.case --health
 
 ## case health
 
-手修完成后强制运行，验证 case 在当前代码版本下是否合法。
+Mandatory after manual repair; verifies whether the case is valid under the current code version.
 
-### health 检查项
+### health checks
 
-1. **两段式可解析**：JSON 头是合法 JSON；marker 行符合 `{"__section":"=== name ==="}`（无缩进、行首）。
-   数据区按节分两类：JSONL 节（work_agents / context / queue / cron）每行（含 marker 行）可由
-   `serde_json::from_str` 解析；memory 节是 Markdown 原文区，按 `{"__file":...}` 标记分文件
-   （路径白名单与标记冲突由 parse 强制），不适用逐行 JSON 校验
-2. **Harness::load 不 panic**：所有 storage 行 replay 成功，无 schema 错误
-3. **概念结构完整**：
-   - Agent：每个 entry 有 hash / name / project / status
-   - Context：每行有 type / ts / content（message 型必有 role）
-   - Queue：每行有 role / ts
-4. **observe 可执行**：`observe()` 返回所有概念结构快照无 error
-5. **pre-parse 预检**（case-eval-system.md §checkhealth，静态不执行）：所有表达式（observe 的 lines / store 的 value）try_parse 语法合法；变量引用有效（`$tail` 预定义、用户变量使用前已 store）；store 类型合法（expr/var/int/str）；类型可落（Output 实现 DirectToString）；observe target 合法（可观测模块）
+1. **Two-section parseable**: the JSON header is valid JSON; marker lines conform to `{"__section":"=== name ==="}` (no indentation, line start).
+   The data area is divided into two kinds of sections: JSONL sections (work_agents / context / queue / cron) where every line (including marker lines) can be parsed by
+   `serde_json::from_str`; the memory section is a Markdown raw area, divided into files by `{"__file":...}` markers
+   (path whitelist and marker collision enforced by parse), not subject to per-line JSON validation
+2. **Harness::load does not panic**: all storage lines replay successfully, no schema errors
+3. **Concept structures complete**:
+   - Agent: each entry has hash / name / project / status
+   - Context: each line has type / ts / content (message type must have role)
+   - Queue: each line has role / ts
+4. **observe executable**: `observe()` returns snapshots of all concept structures without error
+5. **pre-parse preflight** (case-eval-system.md §checkhealth, static, not executed): all expressions (observe lines / store values) try_parse syntax-valid; variable references valid (`$tail` predefined, user variables stored before use); store types valid (expr/var/int/str); types storable (Output implements DirectToString); observe targets valid (observable modules)
 
-### 退出码
+### Exit codes
 
 ```
 0 = PASS（所有检查通过）
@@ -379,11 +379,11 @@ ambery-case export [--storage DIR] [--instances a,b] [--window 30m] \
               [--dedup] [--dry-run] [--case-id ID]   # 从实时 storage 导出 case（stdout）
 ```
 
-`serve` / `frontend` 共享 `core::host` 装配骨架（Config/Harness/LLM/Terminal Adapter → AppState → 完整 router）；端口默认 47600、`AMBERY_PORT` 覆盖（frontend 默认 bind 0 取空闲端口避让生产）。llm `active=debug` 时两者都必须显式给 `--brain-addr` 或 `--silent`（同 §LLM 模式 debug 决策源规则）。
+`serve` / `frontend` share the `core::host` assembly skeleton (Config/Harness/LLM/Terminal Adapter → AppState → full router); default port 47600, `AMBERY_PORT` overrides (frontend defaults to bind 0 to pick a free port and avoid production). With llm `active=debug`, both must be given either `--brain-addr` or `--silent` explicitly (same as the debug decision-source rule in §LLM modes).
 
-## 用例：debug_brain.py 当 LLM（debug 模式）
+## Use case: debug_brain.py as LLM (debug mode)
 
-debug_brain.py 是本地 OpenAI 兼容 HTTP 服务器（docs/debug-agent.md），当 LLM 用需先手动起它，再让 case-runner 以 debug 模式连：
+debug_brain.py is a local OpenAI-compatible HTTP server (docs/debug-agent.md); to use it as the LLM, start it manually first, then point the case-runner at it in debug mode:
 
 ```bash
 # 终端 1：起 brain（打印监听端口；--port 可选，默认 47777）
@@ -393,10 +393,10 @@ python scripts/debug_brain.py --port 47777
 ambery-case <case> --brain-addr http://127.0.0.1:47777
 ```
 
-- debug 模式必须显式给 `--brain-addr <url>` 或 `--silent`，缺省报错（本文 §LLM 模式）。
-- brain 内置最小阈值决策源：hook 内容 ≥ 80 字 → 回通知 tool；否则沉默。
+- debug mode must explicitly provide `--brain-addr <url>` or `--silent`, otherwise error (§LLM modes in this document).
+- brain has a built-in minimal-threshold decision source: hook content ≥ 80 chars → reply with the notify tool; otherwise silence.
 
-## 构建
+## Build
 
 ```bash
 # workspace 根（推荐）
@@ -409,4 +409,4 @@ cargo build
 cargo run -- cases/closed-stale-cache.case
 ```
 
-`ambery-core` 需 `case-runner` feature 编译：`cargo build --features case-runner`（`ambery-case` 已自动启用）。
+`ambery-core` must be compiled with the `case-runner` feature: `cargo build --features case-runner` (`ambery-case` already enables it automatically).

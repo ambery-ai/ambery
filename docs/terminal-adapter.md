@@ -1,12 +1,12 @@
-# Terminal Adapter 设计
+# Terminal Adapter Design
 
-终端访问抽象：向 Code CLI 实例提供「定位、读取、遗忘」能力的统一接口。多终端兼容 = 抽象接口 + 按终端分发实现。
+Terminal access abstraction: a unified interface that gives Code CLI instances the ability to "locate, read, forget". Multi-terminal compatibility = abstract interface + per-terminal dispatch implementations.
 
-> 概念定位见 `concepts.md` §14（Terminal Adapter）。本文件定接口能力、实现与 config 字段。
+> See `concepts.md` §14 (Terminal Adapter) for the concept positioning. This file defines the interface capabilities, implementations, and config fields.
 
-## 能力接口
+## Capability interface
 
-terminal-adapter 是**可实例化的一类东西**——落成 Rust trait，各终端一个实现：
+terminal-adapter is **an instantiable kind of thing** — realized as a Rust trait with one implementation per terminal:
 
 ```rust
 pub trait TerminalAdapter: Send + Sync {
@@ -19,30 +19,30 @@ pub trait TerminalAdapter: Send + Sync {
 }
 ```
 
-一个 adapter 实例对应一个终端类型（wt / zellij / …）。core 侧按 config 启用情况装配对应 adapter。
+An adapter instance corresponds to one terminal type (wt / zellij / …). The core side assembles the corresponding adapters according to config enablement.
 
-## 实现
+## Implementations
 
-| adapter | 形态 | 访问方式 | 平台 |
+| adapter | form | access | platform |
 |---|---|---|---|
-| **WtAdapter** | 独立 C# 进程 | stdio JSONL 调 C#；UIA（CASCADIA/TermControl）定位+读取 | Windows |
-| **ZellijAdapter** | 进程内（Rust 直调 CLI） | `zellij action` 命令（list-tabs / rename-tab / query-tab-names…） | 跨平台 |
-| **MapAdapter** | 进程内（core 内建） | 共享 map（case-runner 的 terminal/terminal_gone 剧情源） | 跨平台 |
-| **Composite** | 进程内（core 内建） | 多 adapter 分发：locate 首中记录路由、read 回到产出 adapter、forget 广播 | 跨平台 |
+| **WtAdapter** | standalone C# process | stdio JSONL calls into C#; UIA (CASCADIA/TermControl) locate + read | Windows |
+| **ZellijAdapter** | in-process (Rust calls CLI directly) | `zellij action` commands (list-tabs / rename-tab / query-tab-names…) | cross-platform |
+| **MapAdapter** | in-process (built into core) | shared map (the terminal/terminal_gone scenario source for case-runner) | cross-platform |
+| **Composite** | in-process (built into core) | multi-adapter dispatch: locate routes by first hit, read returns to the producing adapter, forget broadcasts | cross-platform |
 
-WtAdapter 保持独立进程形态——UIA 读取依赖 .NET 程序集，Rust 无法直接接 UIA TextPattern，故独立 exe。ZellijAdapter 调 CLI 即可，Rust 原生执行，无独立进程。
+WtAdapter keeps its standalone process form — UIA reading depends on .NET assemblies, and Rust cannot directly consume the UIA TextPattern, hence a separate exe. ZellijAdapter only needs to call the CLI, executes natively in Rust, and has no separate process.
 
 ### WtAdapter
 
-定位经 UIA 扫 CASCADIA 窗口、读取经 TermControl TextPattern，stdio JSONL 协议与生命周期见 `docs/sidecar.md`。它是 terminal-adapter 的一个实现。
+Locating scans CASCADIA windows via UIA, reading goes through the TermControl TextPattern; for the stdio JSONL protocol and lifecycle see `docs/sidecar.md`. It is one implementation of terminal-adapter.
 
 ### ZellijAdapter
 
-zellij 是跑在终端里的复用器（pane 层），需在底层终端之上叠加定位。实现经 `zellij action` CLI 适配（定位 marker、读 pane 内容）。
+zellij is a multiplexer running inside the terminal (pane layer) and needs positioning layered on top of the underlying terminal. The implementation adapts via the `zellij action` CLI (locate markers, read pane content).
 
-## Config 字段
+## Config fields
 
-每 adapter 一个布尔开关（纯开关起步，参数先用约定）：
+One boolean switch per adapter (pure switch to start; parameters use conventions for now):
 
 ```text
 terminal.adapter_wt: bool      // 启用 wt 适配器
@@ -50,5 +50,4 @@ terminal.adapter_zellij: bool  // 启用 zellij 适配器
 // 未列出的 adapter 默认 false；全 false = 无终端访问，Hook 驱动核心体验仍可用
 ```
 
-WtAdapter 路径沿用约定（env `AMBERY_SIDECAR` > 仓库约定路径）；ZellijAdapter 用默认会话。
-
+WtAdapter uses the conventional path (env `AMBERY_SIDECAR` > repo conventional path); ZellijAdapter uses the default session.

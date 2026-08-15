@@ -1,11 +1,11 @@
-# Filter 设计
+# Filter Design
 
-> 概念定义见 concepts.md §11。本文档定策略规则与结构理解数据类型。
-> **结构理解**：规则取自 3 个真实 Claude Code 终端的 UIA 样本（UIA 返回渲染后纯文本，无 ANSI 码）。
+> Concept definition: see concepts.md §11. This document fixes the policy rules and the structure-understanding data types.
+> **Structure understanding**: the rules are taken from 3 real Claude Code terminal UIA samples (UIA returns rendered plain text, no ANSI codes).
 
-## 结构理解数据类型
+## Structure Understanding Data Types
 
-filter 每次处理终端文本时**按字段填一份新数据**；filter 看不到/判不准的字段留 `None`（不硬填）。
+Each time filter processes terminal text it **fills a new data record field by field**; fields that filter cannot see or cannot judge confidently are left as `None` (never hard-filled).
 
 ```rust
 pub struct TerminalDigest {
@@ -33,20 +33,20 @@ pub enum ContentBlock {
 }
 ```
 
-注意：**diff 不单列块型**——它是 ToolCall 展开体的内容（Write/Edit 的展示形态），全量保留在 `body`。样本依据：win0 的 `594 +| ...` 行全部挂在 Write 工具下。
+Note: **diff is not a separate block type** — it is the content of the ToolCall expanded body (the display form of Write/Edit), kept in full in `body`. Sample basis: the `594 +| ...` lines in win0 all hang under the Write tool.
 
-## 处理管线（按序）
+## Processing Pipeline (In Order)
 
-1. **R0 trim_end**：去 UIA 网格右填充
-2. **折行合并**：物理行 → 逻辑行。终端宽度把长行硬折成多行，续行带对齐空格/diff 前缀列（win0 的 markdown 表折得七零八落）。切分规则：
-   - 新逻辑行：glyph 头（`❯ ● ⎿ ※ ✻`）、diff 行（`^\s*\d+\s*[+-]|`）、Write 展开的编号内容行（`^\s{4,}\d+ `）
-   - 其余非空行 = 续行候选：仅当上一物理行宽 ≥ 90% 网格宽才判硬折并拼接进当前逻辑行（硬折无空格）；短行保留为独立逻辑行（不盲拼）
-3. **去噪**（行级，规则见策略文件）
-4. **块切分 + 填 TerminalDigest**：glyph 头开新块，缩进续行归当前块
-5. **render**：digest → 归一文本——**全量保留，不做任何省略**（设计决定：限量问题不解决；折叠 = 对 LLM 省略内容，同样不做）。原文自带折叠标记（`… +N lines`）如实保留在 body
-6. **detect_change**：作用于 render 文本，行集 Jaccard（≥0.8 Minor / 否则 Substantive）。滚动误报接受（设计决定）
+1. **R0 trim_end**: remove the UIA grid right padding.
+2. **Wrapped-line joining**: physical line → logical line. Terminal width hard-wraps long lines into several physical lines; continuation lines carry alignment spaces / diff prefix columns (win0's markdown table is wrapped to pieces). Splitting rules:
+   - New logical line: glyph head (`❯ ● ⎿ ※ ✻`), diff lines (`^\s*\d+\s*[+-]|`), Write expanded numbered content lines (`^\s{4,}\d+ `)
+   - Other non-empty lines = continuation candidates: only when the previous physical line width ≥ 90% of the grid width is it judged a hard wrap and joined into the current logical line (hard wraps have no space); short lines stay independent logical lines (no blind joining).
+3. **Denoise** (line level; rules see the policy file).
+4. **Block splitting + fill TerminalDigest**: glyph head starts a new block, indented continuation lines belong to the current block.
+5. **render**: digest → normalized text — **keep everything, never omit** (design decision: the limited-quantity problem is not solved; folding = omitting content for the LLM, also not done). Source-native fold markers (`… +N lines`) are preserved as-is in body.
+6. **detect_change**: operates on the rendered text, line-set Jaccard (≥0.8 Minor / otherwise Substantive). Scroll false positives are accepted (design decision).
 
-## 策略文件（concepts §11 可替换策略）
+## Policy Files (concepts §11 Replaceable Policies)
 
 ```
 core/src/filter/
@@ -55,7 +55,7 @@ core/src/filter/
   opencode.rs # OpenCode 规则（glyph 表）
 ```
 
-trait：
+trait:
 
 ```rust
 pub trait Filter {
@@ -68,36 +68,36 @@ pub trait Filter {
 }
 ```
 
-Filter 唯一按实例的 hook `kind` 选择（docs/hook.md §Payload）；当前支持 `"claude"` / `"opencode"`；缺失或不受支持的 kind 在实例状态更新、读 Terminal Content、Filter 与 Queue 之前直接拒绝。
+Filter selects the per-instance hook `kind` (docs/hook.md §Payload); currently supported: `"claude"` / `"opencode"`; a missing or unsupported kind is rejected directly before the instance state update, Terminal Content read, Filter, and Queue.
 
-## claude.rs 噪音清单（来自真实样本）
+## claude.rs Noise List (From Real Samples)
 
-| 噪音 | 样例 | 为什么会变 |
+| Noise | Example | Why it changes |
 |---|---|---|
-| 行尾右填充 | UIA 按终端网格整行返回 | 宽度相关，无语义 |
-| spinner/耗时行 | `✻ Crunched for 22s`、`Thought for 7s, ran 1 shell command`、braille 字符行 | 每帧都变 |
-| **计划任务行** | `✻ Running scheduled task (Jul 26 8:30pm)` | 无 `for Xs` 后缀，与耗时行不同形 |
-| 底部分隔线 | `─────── npc-prof ──` | 宽度相关 |
-| 空 prompt | `❯`（无文字） | 恒在 |
-| 模型/费用行 | `deepseek-v4-pro  $12.34` | 费用累积会变 |
-| git 状态行 | `●● on  master`（整行 + 后缀变体） | 工作区变化 |
-| 权限提示行 | `⏵⏵ bypass permissions on (shift+tab to cycle)` | 模式切换 |
-| token 提示行 | `/clear to save 255.1k tokens` | token 数每轮变 |
+| Trailing right padding | UIA returns whole rows per the terminal grid | Width-related, no semantics |
+| spinner/duration lines | `✻ Crunched for 22s`, `Thought for 7s, ran 1 shell command`, braille-character lines | Changes every frame |
+| **Scheduled-task line** | `✻ Running scheduled task (Jul 26 8:30pm)` | Has no `for Xs` suffix; different shape from duration lines |
+| Bottom separator | `─────── npc-prof ──` | Width-related |
+| Empty prompt | `❯` (no text) | Always present |
+| Model/cost line | `deepseek-v4-pro  $12.34` | Cost accumulation changes |
+| git status line | `●● on  master` (whole line + suffix variants) | Workspace changes |
+| Permission hint line | `⏵⏵ bypass permissions on (shift+tab to cycle)` | Mode switching |
+| token hint line | `/clear to save 255.1k tokens` | Token count changes every round |
 
-**`※ recap:` 不是噪音**——是 Recap 块型（会话压缩摘要，有信息量）。
+**`※ recap:` is not noise** — it is the Recap block type (session compression summary, informative).
 
-## 应用点
+## Application Points
 
-三个内容入口统一为 `digest() → render()`：
+The three content entries are unified as `digest() → render()`:
 
-| 调用点 | 链路 |
+| Call site | Chain |
 |---|---|
-| Hook（session_start/stop） | 原文存档 terminal-content.jsonl → digest → render 存 Context + 注入 Queue |
-| Timer 扫描 | 原文存档 → digest → render → detect_change → Substantive 才注入 Queue |
-| `fetch_terminal` tool | 原文存档 → digest → render（全量）返回 LLM |
+| Hook (session_start/stop) | Raw archive terminal-content.jsonl → digest → render stored in Context + injected into Queue |
+| Timer scan | Raw archive → digest → render → detect_change → inject into Queue only if Substantive |
+| `fetch_terminal` tool | Raw archive → digest → render (full) returned to the LLM |
 
-digest 本体不落盘（可从原文重建，视图易失，docs/storage.md 哲学）；Context 存 render 文本，日志格式不变。
+The digest itself is not persisted (rebuildable from the raw text; the view is volatile, docs/storage.md philosophy); Context stores the rendered text, log format unchanged.
 
-## 测试夹具
+## Test Fixtures
 
-`core/tests/fixtures/`：`processing.txt` / `idle.txt` 为**合成**样本（按真实噪音模式构造，不含真实用户数据）——真实采集样本含工作内容，不入库。合成夹具覆盖：折行合并、recap 块、scheduled task、ToolCall 折叠渲染。
+`core/tests/fixtures/`: `processing.txt` / `idle.txt` are **synthetic** samples (constructed from real noise patterns, containing no real user data) — real collected samples contain work content and are not checked in. Synthetic fixtures cover: wrapped-line joining, recap block, scheduled task, ToolCall fold rendering.

@@ -1,10 +1,10 @@
-# Hook 契约（真实 Claude Code 接入）
+# Hook Contract (Real Claude Code Integration)
 
-> 概念定义见 concepts.md §9/§9b。本文档定真实 hook 契约：事件分层、marker 定位、启动扫描、安装。
-> mock 契约（docs/agent-loop.md §Mock Hook 契约）保留为 debug 手段。
-> **设计原则：不做技术限制，越开放越好**——能力给足（agent 可切桌面、三模式可配），默认值保守，选择权全在用户。
+> Concept definition: see concepts.md §9/§9b. This document fixes the real hook contract: event layering, marker positioning, startup scan, installation.
+> The mock contract (docs/agent-loop.md §Mock Hook Contract) is retained as a debug tool.
+> **Design principle: no technical restrictions, the more open the better** — full capabilities (the agent can switch desktops, the three modes are configurable), conservative defaults, and all choices are left to the user.
 
-## 链路形态
+## Chain Shape
 
 ```
 Claude Code 事件 → settings.json "command" hook → ambery-hook.ps1
@@ -13,37 +13,37 @@ AmberyBackend → register-on-first-sight → 按事件分层处理
 内容一律走读通道补（sidecar UIA），hook 只当触发信号（docs/sidecar.md）
 ```
 
-hook 脚本永远 fire-and-forget（async + 短 timeout + 失败静默）——backend 不在线绝不可卡用户的 CLI；丢失的 hook 靠 register-on-first-sight 自愈。
+The hook script is always fire-and-forget (async + short timeout + silent failure) — if the backend is offline it must never block the user's CLI; lost hooks self-heal via register-on-first-sight.
 
-## Payload（POST /hook）
+## Payload (POST /hook)
 
-| 字段 | 来源 | 说明 |
+| Field | Source | Description |
 |---|---|---|
 | `event` | hook_event_name | `session_start` / `user_prompt` / `stop` / `session_end` / `notification` |
-| `session_id` | payload | **实例身份 = hash**（同名不同命，docs/storage.md） |
+| `session_id` | payload | **Instance identity = hash** (same name, different lifecycle; docs/storage.md) |
 | `cwd` | payload | project = basename |
-| `kind` | 脚本捎带 | `"claude"`（filter per-instance 策略的输入，docs/filter.md） |
-| `prompt` | UserPromptSubmit | 用户输入全文 |
-| `message` | Notification | 通知文本 |
-| `last_assistant_message` | Stop | 可选参考（内容以读通道为准） |
+| `kind` | carried by the script | `"claude"` (input to the filter per-instance policy, docs/filter.md) |
+| `prompt` | UserPromptSubmit | Full text of user input |
+| `message` | Notification | Notification text |
+| `last_assistant_message` | Stop | Optional reference (content is governed by the read channel) |
 
-## 事件分层
+## Event Layering
 
-| 事件 | backend 行为 | 落点 | 状态迁移 |
+| Event | backend behavior | Landing point | State transition |
 |---|---|---|---|
-| `session_start` | 初见注册 + 定位探测（见下）；EventBuffer 记 `+ {name} 注册` | **EventBuffer**（最小文字） | → Idle |
-| `user_prompt` | prompt 观察注入（`[观察] 用户在 {name} 输入：…`） | **Queue**（触发，pet 可沉默） | → Processing |
-| `stop` | 双模式（`stop_hook_mode`，见下） | **Queue**（触发） | → Idle |
-| `session_end` | 清定位缓存；EventBuffer 记 `− {name} 关闭` | **EventBuffer**（最小文字） | → **Closed**（真信号） |
-| `notification` | message 注入 | **Queue**（触发） | — |
+| `session_start` | First-sight registration + positioning probe (see below); EventBuffer records `+ {name} registered` | **EventBuffer** (minimal text) | → Idle |
+| `user_prompt` | Prompt observation injection (`[observed] User input in {name}: …`) | **Queue** (trigger; pet may stay silent) | → Processing |
+| `stop` | Dual-mode (`stop_hook_mode`, see below) | **Queue** (trigger) | → Idle |
+| `session_end` | Clear positioning cache; EventBuffer records `− {name} closed` | **EventBuffer** (minimal text) | → **Closed** (true signal) |
+| `notification` | message injection | **Queue** (trigger) | — |
 
-**stop 三模式**（`stop_hook_mode`，本地可配、`no_llm_visible`、热更新——每次 stop 现读）：
+**stop three modes** (`stop_hook_mode`, locally configurable, `no_llm_visible`, hot-reloaded — read fresh on every stop):
 
-- `"queue_only"`（**默认 B**）：stop 只把 hint（payload 的 `last_assistant_message` 摘要）注入 Queue——宠物凭 hint 判「沉默/好奇」，好奇才 `fetch_terminal` 按需读（UIA 读只在需要时发生）
-- `"auto_read"`（A）：stop 到达即 UIA 抓屏 → filter → 归一结果更新内存变化检测基准，注入 Queue 的是评估提示（「完成，Context 已更新（N 字）」形态）——归一全文不进 Queue/Context（docs/storage.md §filtered_content）；宠物要全文经 `fetch_terminal` 按需读。`read_tab` 在目标 tab **已选中时不切换**（C# 侧 alreadySelected 短路，无 200ms 等待）；未选中才切换（**不切回**）。`read_active_tab` 是非侵入只读变体（不切换、不排队，调试/当前窗口快读用）；**tab 切换限流：全局 5 秒内最多一次**，窗口期内的切换读请求排队等窗口（UIA Mutex 下自然串行）。读往返整体走 `spawn_blocking`，不阻塞 tokio worker（docs/sidecar.md §阻塞边界）
-- `"message"`（C）：stop 把 `last_assistant_message` **全文**作为内容直接注入 Queue——agent 的汇报原文直达宠物（零 UIA，宠物读的是 agents 自己说的，不是屏幕）。形态：`[汇报] {name} 完成：{全文}`，全量不截断；为空时降级 hint 形态（「完成，无汇报内容」）
+- `"queue_only"` (**default B**): stop only injects the hint (a summary of the payload's `last_assistant_message`) into the Queue — the pet decides "silent/curious" from the hint; only when curious does it `fetch_terminal` and read on demand (UIA read happens only when needed).
+- `"auto_read"` (A): when stop arrives, UIA grabs the screen → filter → the normalized result updates the in-memory change-detection baseline; what is injected into the Queue is the evaluation prompt (of the form "finished; Context updated (N chars)") — the normalized full text does not enter Queue/Context (docs/storage.md §filtered_content); the pet reads the full text on demand via `fetch_terminal`. `read_tab` **does not switch when the target tab is already selected** (C# side alreadySelected short-circuit, no 200ms wait); it switches only when not selected (**does not switch back**). `read_active_tab` is the non-invasive read-only variant (no switch, no queueing; for debugging / current-window quick reads); **tab-switch throttling: at most once per global 5 seconds**, and switch-read requests inside the window wait for the window (naturally serialized under the UIA Mutex). The whole read round-trip goes through `spawn_blocking` and does not block tokio workers (docs/sidecar.md §blocking boundary).
+- `"message"` (C): stop injects the **full text** of `last_assistant_message` as content directly into the Queue — the agent's report goes straight to the pet (zero UIA; the pet reads what the agent itself said, not the screen). Form: `[report] {name} finished: {full text}`, full, not truncated; when empty it degrades to the hint form ("finished, no report content").
 
-**agent 的 VD 切换能力**（开放原则）：不是独立 tool，是 `fetch_terminal` 的**必填字段**——打断性决策不能成为被遗忘的默认，每次调用显式面对：
+**The agent's VD switching capability** (openness principle): not a separate tool, it is a **required field** of `fetch_terminal` — an interruptive decision must not become a forgotten default; every call faces it explicitly:
 
 ```
 fetch_terminal(instance, vd_switch: bool)   // 必填,忘传报错(失败信息即教学)
@@ -53,57 +53,57 @@ fetch_terminal(instance, vd_switch: bool)   // 必填,忘传报错(失败信息�
                    目标在当前 VD → 字段无效,正常读
 ```
 
-Timer/stop 的自动路径永远不切（后台无打断原则）。
+Timer/stop automatic paths never switch (no background interruption principle).
 
-**SessionStart 的 source 变体**：`startup` 正常注册；`resume` 同 session_id → 同 sid8 → 自然 upsert 复用（不出第二条）；`clear`/`compact` 不动身份，EventBuffer 记一笔。
+**SessionStart source variants**: `startup` normal registration; `resume` same session_id → same sid8 → natural upsert reuse (no second entry); `clear`/`compact` do not touch identity, EventBuffer records one line.
 
-**register-on-first-sight**：任何事件到达时未知 session_id 先落注册（first_seen = 后端初见时刻）再走事件语义——start 丢失（backend 当时不在线）只是「初见恰好是 stop」的普通情况，无特例代码。
+**register-on-first-sight**: when any event arrives with an unknown session_id, registration is written first (first_seen = the backend's first-sight moment) before the event semantics — a lost start (backend was offline at the time) is just the ordinary case of "first sight happens to be stop", with no special-case code.
 
-**Processing 由「用户派活」驱动**，不是「CLI 开着」驱动：SessionStart → Idle，UserPromptSubmit → Processing，Stop → Idle，SessionEnd → Closed。Timer 的 None 消亡推断降为无 hook 实例的兜底。
+**Processing is driven by "the user assigns work"**, not by "the CLI is open": SessionStart → Idle, UserPromptSubmit → Processing, Stop → Idle, SessionEnd → Closed. Timer's None-death inference is demoted to a fallback for instances without hooks.
 
-## marker 定位（Hook → Tab）
+## Marker Positioning (Hook → Tab)
 
-**不变量：marker 前缀不可变，描述部分可演进。** 两个 hook 的 sessionTitle 输出都遵守：
+**Invariant: the marker prefix is immutable; the descriptive part may evolve.** The sessionTitle output of both hooks follows:
 
 ```
 SessionStart:      "<project>·<sid8>"
 UserPromptSubmit:  "<project>·<sid8> | <prompt 前 N 字>"
 ```
 
-**UserPromptSubmit 必须重发（不是可选）**：claude 会按 prompt 内容自动命名会话（实测：tab 名会按 prompt 内容自动生成）——marker 不自发重申就会被自动命名冲掉。这也是 marker 的**自愈机制**：title 被覆盖后，用户下一个 prompt 即复活。
+**UserPromptSubmit must be re-sent (not optional)**: claude automatically names sessions by prompt content (verified: the tab name is auto-generated from the prompt content) — if the marker does not re-assert itself it will be overwritten by the auto name. This is also the marker's **self-healing mechanism**: after the title is overwritten, the user's next prompt revives it.
 
-claude 应用 sessionTitle 后 tab 名自带 project+sid8 → sidecar `find_tab`（Contains 匹配，✳ 前缀与 `| 描述` 后缀不影响命中）精确命中。session_title ↔ WT tab 名对应链成立（.last-title 缓存值与 UIA tab 名两对一致）；WT 窗口标题 = 活动 tab 标题。
+After claude applies sessionTitle, the tab name carries project+sid8, so sidecar `find_tab` (Contains match; the ✳ prefix and the `| description` suffix do not affect the hit) hits it exactly. The session_title ↔ WT tab name correspondence chain holds (the .last-title cached value and the UIA tab name match pairwise); the WT window title = the active tab title.
 
-**定位缓存**：注册表条目可带 `{hwnd, index}`——它是快照的普通字段（与 status 同待遇：append 即「更新」，投影得当前值，无原地修改）。惰性重试——session_start 时 tab 可能尚未改名（异步应用），之后每次读取（timer/stop/fetch）未命中就再按 marker 找，找到后快照自然带上；session_end 的 closed 快照置 null。
+**Positioning cache**: a registry entry may carry `{hwnd, index}` — it is an ordinary field of the snapshot (same treatment as status: append is the "update"; the projection yields the current value; no in-place mutation). Lazy retry — at session_start the tab may not have been renamed yet (async application); afterwards each read (timer/stop/fetch) that misses re-searches by marker, and the snapshot naturally picks it up after being found; the session_end closed snapshot sets it to null.
 
-## 启动扫描
+## Startup Scan
 
-backend 启动一次性：list_windows → list_tabs，按 **claude 检测规则**（实测 54/54 命中、0 误伤）：
+backend startup one-shot: list_windows → list_tabs, using the **claude detection rules** (verified 54/54 hits, 0 false positives):
 
-- tab 标题以 `✳` 开头（活动中的 claude 会话的活动 glyph），或标题 == `claude`（未命名会话）
-- 其中**带 marker 的**（`·<sid8>`）解出 project+sid8 直接注册；**无 marker 的以占位身份入册**（hash = `uia:<tab标题>`，kind=claude）——启动即见全景；后续真身份补登（register-on-first-sight）时按标题关联：占位条目标 closed，真身份条目接管（append 日志，无原地改）
-- **三方对账**（一行 EventBuffer 如实报告）：
-  - `N` = Windows 进程列表中的 claude.exe 数（含子进程，**启发式参考值**，非会话数）
-  - `M` = UIA 已定位的 claude tab 数
-  - `K` = **cloaked 窗口数**（EnumWindows + `DwmGetWindowAttribute(DWMWA_CLOAKED)`；K>0 说明有窗口对其他 VD 不可读 → 提示开启 WT「全桌面显示」，docs/sidecar.md §视野模型）
+- tab title starts with `✳` (the active glyph of an active claude session), or title == `claude` (unnamed session)
+- those **with a marker** (`·<sid8>`) decode project+sid8 and register directly; **those without a marker enter as placeholder identities** (hash = `uia:<tab title>`, kind=claude) — startup sees the whole landscape; when the real identity is later registered (register-on-first-sight), it is correlated by title: the placeholder entry is set closed and the real-identity entry takes over (append log, no in-place modification)
+- **three-way reconciliation** (one EventBuffer line reporting truthfully):
+  - `N` = number of claude.exe in the Windows process list (including child processes, **a heuristic reference value**, not the session count)
+  - `M` = number of claude tabs located by UIA
+  - `K` = **number of cloaked windows** (EnumWindows + `DwmGetWindowAttribute(DWMWA_CLOAKED)`; K>0 means some windows are unreadable from other VDs → prompt to enable WT "show on all desktops", docs/sidecar.md §visibility model)
 
-装 hook 前开的旧会话不猜身份，等它们下一个事件的 register-on-first-sight。信息形态与 session_start 一致（EventBuffer）。
+Old sessions opened before the hook was installed do not have their identity guessed; they wait for the register-on-first-sight of their next event. The information form is the same as session_start (EventBuffer).
 
-**timer 开关**：`timer.interval_ms ≤ 0 = 禁用`（docs/timer.md）。真实 hook 接入初期建议禁用——只留 hook 驱动，避免全量实例周期性扫描的 LLM 触发频率。
+**timer switch**: `timer.interval_ms ≤ 0 = disabled` (docs/timer.md). For the initial phase of real hook integration, disabling is recommended — keep only hook-driven operation to avoid the LLM trigger frequency of full-instance periodic scans.
 
-## sidecar 常驻（简化语义）
+## Sidecar Resident (Simplified Semantics)
 
-app 启动自动发现 exe 并启用（路径发现：`AMBERY_SIDECAR` env > 仓库约定位置 sidecar/bin/…/ambery-uia-sidecar.exe），进程惰性拉起（首次请求时 spawn）。**死了即弃，下次请求现拉起**（冷启实测 ~200ms）——无管道保活预检、无心跳，客户端实现 ~55 行。崩溃处理 = 每次请求最多两次尝试（拉一次、重试一次），仍失败返回 None（读通道降级回 Context）。
+The app auto-discovers the exe at startup and enables it (path discovery: `AMBERY_SIDECAR` env > the repo-conventional location sidecar/bin/…/ambery-uia-sidecar.exe); the process is lazily started (spawned on first request). **Dead is discarded; the next request starts it fresh** (cold start measured ~200ms) — no pipe keep-alive preflight, no heartbeat; the client implementation is ~55 lines. Crash handling = at most two attempts per request (start once, retry once); if it still fails, return None (the read channel degrades back to Context).
 
-## 安装 / 卸载（scripts/install-hooks.ps1）
+## Install / Uninstall (scripts/install-hooks.ps1)
 
-- **install**：hook 脚本复制到 `~/.claude/hooks/ambery-hook.ps1`；`~/.claude/settings.json` 追加 SessionStart / UserPromptSubmit / Stop / SessionEnd / Notification 五条 command 条目（**追加**，不动用户现有 hook）；改前备份 `settings.json.bak`
-- **uninstall**：按标记移除五条条目 + 删脚本，settings 其余部分原样
-- hook 脚本进仓库（`scripts/ambery-hook.ps1`，通用无隐私）；**真实样本/实测数据不进仓库**（隐私，实测归用户）
+- **install**: copy the hook script to `~/.claude/hooks/ambery-hook.ps1`; append five command entries — SessionStart / UserPromptSubmit / Stop / SessionEnd / Notification — to `~/.claude/settings.json` (**append**; existing user hooks untouched); back up `settings.json.bak` before changing.
+- **uninstall**: remove the five marked entries + delete the script; the rest of settings stays as-is.
+- the hook script lives in the repo (`scripts/ambery-hook.ps1`, generic, no privacy); **real samples / measured data do not enter the repo** (privacy; measured data belongs to the user).
 
-## 显式不做
+## Explicitly Out of Scope
 
-- PreToolUse / PostToolUse / PreCompact / SubagentStop：当前粒度不需要
-- Notification dedup：v1 全触发，AGENTS.md 教宠物沉默是常态；实测嫌吵再加时间窗（config 可配）
-- opencode hook：体系不同，延期（docs/filter.md 开放问题）
-- hook 自带内容（transcript 解析）不采用——读通道唯一（隐私面 + 双内容形态）
+- PreToolUse / PostToolUse / PreCompact / SubagentStop: not needed at the current granularity.
+- Notification dedup: v1 triggers all; AGENTS.md teaches the pet that silence is the norm; if real-world use finds it noisy, add a time window (config-configurable).
+- opencode hook: different system, deferred (docs/filter.md open question).
+- hook-supplied content (transcript parsing) not adopted — the read channel is the single source (privacy surface + dual content forms).

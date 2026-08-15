@@ -1,73 +1,73 @@
-# View 设计
+# View Design
 
-> 概念定义见 concepts.md §3。本文档定物理实现与交互细节，concepts 未规定的取舍在这里记录。
+> See concepts.md §3 for the concept definition. This document defines the physical implementation and interaction details; tradeoffs not specified in concepts are recorded here.
 
-## Config 字段
+## Config fields
 
-| 字段 | 生效 | agent 访问 | 行为 |
+| Field | Takes effect | Agent access | Behavior |
 |---|---|---|---|
-| `view_scale`（合法区间 [0.2, 4.0]） | 热 | 可见、可修改 | 立即重算 pet 尺寸、中心锚定与障碍区 |
-| `badge_style` | 热 | 可见、可修改 | 立即更新未读角标样式 |
-| `badge_side` | 热 | 可见、可修改 | 立即更新未读角标方位 |
+| `view_scale` (legal range [0.2, 4.0]) | hot | visible, modifiable | immediately recomputes pet size, center anchoring, and obstacle area |
+| `badge_style` | hot | visible, modifiable | immediately updates the unread badge style |
+| `badge_side` | hot | visible, modifiable | immediately updates the unread badge side |
 
-## 名称
+## Name
 
-pet 名称是正式 Config 中的稳定身份值（字段 `name`）。所有需要称呼 pet 的 UI 与后续 Harness 身份文案都读取当前名称；既有 Chat 历史和已经生成的 Card 不回写。
+The pet name is a stable identity value in formal Config (field `name`). All UI that needs to address pet and subsequent Harness identity copy read the current name; existing Chat history and already-generated Cards are not rewritten.
 
-- Config 首次初始化时写入正式默认名 **`Ambery`**（不按语言区分默认名，名称本身不参与翻译）。
-- 初始化完成后，名称与 UI / Harness 语言独立：后续切换任一语言绝不自动改名。
-- 名称不标记 `no_llm_visible`。本地用户与 LLM 都可经各自已有的 Config 入口显式读取、修改；LLM 修改仍受现有 query → update、校验、持久化与审计管道约束。校验：非空、≤ 64 字符。
-- 不提供“按当前 Harness 语言重置默认名称”操作；语言切换不是改名操作。
-- Harness 身份文案经 `{name}` 占位读取当前名称：`base_prompt` 内置默认与默认 AGENTS.md 的身份行携带 `{name}` 占位，拼装请求头时替换为当前 `name`（内置 base_prompt 原文在加载时升级为占位版本；用户改过的原样保留）。UI 侧 chat 标题与 placeholder 读取当前 `name`。
+- On first Config initialization the formal default name **`Ambery`** is written (the default name is not language-specific, and the name itself is not translated).
+- After initialization, the name is independent of UI / Harness language: switching any language later never auto-renames.
+- The name is not marked `no_llm_visible`. Both the local user and the LLM can explicitly read and modify it through their existing Config entries; LLM modification remains constrained by the existing query → update, validation, persistence, and audit pipeline. Validation: non-empty, ≤ 64 characters.
+- There is no "reset the default name according to the current Harness language" operation; language switching is not a rename operation.
+- Harness identity copy reads the current name via the `{name}` placeholder: the built-in default in `base_prompt` and the identity line of the default AGENTS.md carry the `{name}` placeholder, which is replaced with the current `name` when assembling the request header (the built-in base_prompt text is upgraded to the placeholder version at load time; user-modified text is kept as-is). On the UI side the chat title and placeholder read the current `name`.
 
-## 形态
+## Form
 
-- **Tauri 模式**：无边框、透明背景、always-on-top 的横向椭圆窗口，窗内仅颜文字，无其他 UI 元素。
-- **浏览器测试模式**：`position: fixed` 的 DOM 元素模拟同一窗口，行为与 Tauri 模式保持一致，供 Chrome DevTools 测试显示逻辑。
+- **Tauri mode**: borderless, transparent-background, always-on-top horizontal oval window; the window contains only the kaomoji and no other UI elements.
+- **Browser test mode**: a `position: fixed` DOM element simulates the same window and keeps behavior consistent with Tauri mode, for Chrome DevTools testing of display logic.
 
-两种模式共享同一套手势与事件，差异仅在拖拽/坐标的驱动层。
+The two modes share the same gesture and event set; the difference is only in the drag/coordinate driver layer.
 
-## 手势与 Chat 唤出
+## Gestures and Chat summoning
 
-pet **无吸附态**（边缘吸附是 OS 式原始贴靠，与本应用自有的窗口方位布局引擎冲突）：
+pet has **no snap state** (edge snapping is OS-style raw docking and conflicts with this app's own window-placement engine):
 
-- **右键** = 唤出/关闭 Chat（派发 `chat:toggle`；Chat Panel 见 docs/chat-panel.md）。pet 原地不动——不瞬移、漂浮动画不受影响。
-- **左键拖拽**恒可用（无锁定态）。
+- **Right-click** = summon/close Chat (dispatches `chat:toggle`; for the Chat Panel see docs/chat-panel.md). pet stays in place — no teleport, and the floating animation is unaffected.
+- **Left-click drag** is always available (no lock state).
 
-## 拖拽
+## Dragging
 
-- 浏览器模式：pointer events（pointerdown/move/up）更新 left/top。
-- Tauri 模式：调用窗口拖拽 API（`startDragging`）。
+- Browser mode: pointer events (pointerdown/move/up) update left/top.
+- Tauri mode: calls the window drag API (`startDragging`).
 
-## Component 锚点
+## Component anchoring
 
-Component 以 View 中心为锚点，向指定方位偏移弹出（方位由 pet 经 `call_component` 指定）。View 移动时，已弹出的 Component 以相对 pet 偏移跟随（docs/window-follow.md：engine 占区 + 布局记忆；`auto` 方位由 engine 按屏幕剩余空间现算）。方位几何细节见 docs/components.md。
+Components are anchored to the View center and pop up offset in the specified direction (the direction is specified by pet via `call_component`). When the View moves, already-popped Components follow at the relative pet offset (docs/window-follow.md: engine occupied area + layout memory; the `auto` direction is computed on the spot by the engine from the remaining screen space). For direction geometry details see docs/components.md.
 
-## Surface 入口（pet 手势）
+## Surface entry (pet gestures)
 
-| 手势 | 去向 |
+| Gesture | Destination |
 |---|---|
-| 左键拖拽 | 移动 pet（空间位置表达） |
-| 右键 | 唤出/关闭 Chat（`chat:toggle`） |
-| 中键 | 进入 Cards Shelf（`shelf:toggle`） |
+| Left-click drag | move pet (spatial position expression) |
+| Right-click | summon/close Chat (`chat:toggle`) |
+| Middle-click | enter Cards Shelf (`shelf:toggle`) |
 
-Cards Shelf 是 Card 集合的瞬时管理弹出层（`shelf` 静态窗口，无标题栏——上下文菜单式列表；**不属于 Surface**，见 §一致性剖析）：每张存活 Card 一行（类型图标 + 标题 + 显隐 / 删除两图标按钮），动作 = 显隐切换与 dismiss。显隐切换写 `_meta.user_closed`（`set_card_user_closed` IPC）并经 `shelf:visibility` 让 pet 开/藏对应 card 窗口；dismiss 走 closed_by_user 双行事件 + 删 `.card.json` + pet 销毁窗口。
+Cards Shelf is the transient management popover for the Card collection (`shelf` static window, no title bar — a context-menu-style list; **not a Surface**, see §consistency analysis): each living Card is one row (type icon + title + show/hide / dismiss icon buttons), actions = visibility toggle and dismiss. Visibility toggle writes `_meta.user_closed` (`set_card_user_closed` IPC) and lets pet open/hide the corresponding Card window via `shelf:visibility`; dismiss goes through the closed_by_user two-line event + deletes `.card.json` + pet destroys the window.
 
-Shelf 不当 Card 布局：不进 engine 占区、不跟随 pet、不可拖拽、无布局记忆。它是 pet 锚定的瞬时管理面板。
+Shelf does not participate in Card layout: it does not enter the engine occupied area, does not follow pet, is not draggable, and has no layout memory. It is a transient management panel anchored to pet.
 
-- **尺寸** = pet 当前物理尺寸 ×3（比例 3:1，打开时现算；钳制 180–480 × 120–240 防极端 scale 失真）
-- **位置** = 左下角落在 pet 中心、向右上延伸（遮挡 pet，屏边界钳制）
-- **开关**：中键 toggle——关着时弹出，开着时中键点 pet 或 shelf 任意位置都直接关闭
-- **关闭**：中键 / 失焦即关（600ms 武装延迟）/ pet 拖拽或托盘连坐关；无标题栏也没有 ×
-- Shelf 自身没有 userClosed 状态——瞬时语义下关闭不留任何可见性与布局痕迹
+- **Size** = pet's current physical size ×3 (3:1 ratio, computed on open; clamped to 180–480 × 120–240 to prevent distortion under extreme scale)
+- **Position** = the lower-left corner falls on pet's center and extends to the upper right (occludes pet, clamped by screen bounds)
+- **Toggle**: middle-click toggles — opens when closed; when open, middle-clicking pet or anywhere on the shelf closes it directly
+- **Close**: middle-click / close on blur (600ms arming delay) / pet drag or tray closes it as collateral; no title bar and no ×
+- Shelf itself has no userClosed state — under transient semantics, closing leaves no visibility or layout trace
 
-#### ⟡ 一致性剖析
+#### ⟡ Consistency analysis
 
-pet 是用户进入 Surface 世界的锚点，而非它自身的一员：左键拖拽表达空间位置，右键进入 Chat，中键进入 Cards Shelf。Chat 是对话内容的 Surface，Card 是持久工作产物的 Surface；两者共享显示、隐藏与恢复语义（engine 占区、持久空间布局与跟随）。Cards Shelf 与 Menu 都不是 Surface——它们是 pet / shell 锚定的瞬时弹出层（失焦即关、不进 engine 占区、无布局记忆与持久可见性）：Menu 是设置入口，Cards Shelf 是 Card 管理入口，其真相分别在 Config 与 `.card.json`，不在弹出层自身。
+pet is the anchor through which users enter the Surface world, not a member of it: left-click drag expresses spatial position, right-click enters Chat, middle-click enters Cards Shelf. Chat is the Surface for conversation content, Card is the Surface for persistent work artifacts; both share display, hide, and restore semantics (engine occupied area, persistent spatial layout, and following). Neither Cards Shelf nor Menu is a Surface — they are transient popovers anchored to pet / shell (close on blur, do not enter the engine occupied area, no layout memory or persistent visibility): Menu is the settings entry, Cards Shelf is the Card management entry, and their truths live in Config and `.card.json` respectively, not in the popover itself.
 
-## 事件
+## Events
 
-| 事件 | 载荷 | 说明 |
+| Event | Payload | Description |
 |---|---|---|
-| `chat:toggle` | `{}` | 右键唤出/关闭 Chat |
-| `view:moved` | `{ x, y }` | 拖拽结束后的中心坐标（供 Component 锚点计算） |
+| `chat:toggle` | `{}` | right-click summons/closes Chat |
+| `view:moved` | `{ x, y }` | center coordinates after dragging ends (used for Component anchor calculation) |

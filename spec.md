@@ -1,30 +1,30 @@
-# Spec v1 — 技术栈
+# Spec v1 — Tech stack
 
-> 阶段：spec1（技术选型已定，分工初定）。概念定义见 [concepts.md](concepts.md)，本文件只定技术分工，不重复概念。
+> Phase: spec1 (tech selection settled, division of work initially set). For concept definitions see [concepts.md](concepts.md); this file only sets the technical division of work and does not repeat concepts.
 
-## 技术选型
+## Technology choices
 
-| 层 | 技术 | 覆盖概念 | 职责 |
+| Layer | Technology | Concepts covered | Responsibility |
 |---|---|---|---|
-| UI | TypeScript（无框架，vanilla）+ Tauri 2 frontend | View、pet（表达）、Component、Chat Panel、Autonomy（表现） | 浮动椭圆窗口、颜文字渲染、卡片弹出与方位选择、聊天面板、右键吸附 |
-| 系统 | Rust（Tauri backend，单进程） | Ambery、Timer、Harness（Queue / Context / Event Buffer / Compression）、Filter、Tool Set 执行 | 实例生命周期、LLM 调用循环、消息顺序处理、HTTP 端口监听、调度 UIA sidecar |
-| UIA 读取 | C#（.NET，独立 sidecar 进程） | Terminal Window / Tab / Content、Status 判定 | 枚举窗口、切 Tab、读 TermControl 全文、状态机判定——直接复用 exp01 已验证代码 |
-| Hook | PowerShell 脚本 | Hook | Claude Code `"type": "command"` hook → 读 stdin JSON → POST 到 AmberyBackend 本地端口（与 ~/.claude/hooks/ 现有生态一致，零解释器依赖） |
-| 持久化 | JSONL 文件 + 单文件 Config | Storage、Config | append-only：`queue.jsonl` / `context.jsonl` / `work-agents.jsonl`；`AGENTS.md` pet 身份提示词；`config.json` 单独，启动加载 |
+| UI | TypeScript (no framework, vanilla) + Tauri 2 frontend | View, pet (expression), Component, Chat Panel, Autonomy (presentation) | Floating ellipse window, kaomoji rendering, Card popup and direction selection, Chat Panel, right-click snapping |
+| System | Rust (Tauri backend, single process) | Ambery, Timer, Harness (Queue / Context / Event Buffer / Compression), Filter, Tool Set execution | Instance lifecycle, LLM call loop, ordered message processing, HTTP port listening, scheduling the UIA sidecar |
+| UIA reading | C# (.NET, separate sidecar process) | Terminal Window / Tab / Content, Status determination | Enumerate windows, switch tabs, read TermControl full text, state-machine determination — directly reusing exp01 verified code |
+| hook | PowerShell script | hook | Claude Code `"type": "command"` hook → read stdin JSON → POST to AmberyBackend's local port (consistent with the existing ~/.claude/hooks/ ecosystem, zero interpreter dependency) |
+| Persistence | JSONL files + single-file Config | Storage, Config | append-only: `queue.jsonl` / `context.jsonl` / `work-agents.jsonl`; `AGENTS.md` pet identity prompt; `config.json` separate, loaded at startup |
 
-## 架构决定
+## Architecture decisions
 
-1. **单进程 + 单一协议**：Tauri 应用即 Ambery（内嵌 ambery-core 绑 127.0.0.1）。前端始终走 **HTTP + WebSocket loopback** 与 core 通信——浏览器调试模式连独立运行的 core debug binary，Tauri 模式连内嵌 server，前端代码不变。Tauri commands/events 不采用（理由见 docs/harness.md 末节）。
-2. **UIA 读取**：保留 C#（exp01 已验证，不重写）。编译为独立 console exe，作为 Tauri sidecar 随包分发；Rust 通过 stdio（JSON Lines 请求/响应）调用，如 `read_tab`、`list_windows`、`switch_tab`。**打包定案**：self-contained win-x64（非单文件），用户零 .NET runtime 依赖；发布命令 `dotnet publish -c Release`（RID/self-contained 已固化在 sidecar.csproj），Tauri `externalBin` 引用 publish 布局（docs/sidecar.md §打包）。
-3. **Hook 链路**：用 `"type": "command"` + **PowerShell 脚本**转发（与 ~/.claude/hooks/ 现有生态一致，零解释器依赖），不用 `"type": "http"`。AmberyBackend 内嵌 HTTP listener 收 POST。
-4. **LLM 调用**：Rust 侧，OpenAI 兼容 Chat Completions endpoint，base_url / key 从 Config 读。
-5. **Storage**：一律 append-only JSONL，重启 replay 恢复 Queue / Context / 实例清单。后续有查询需求再换 SQLite。
-6. **Config**：单文件 JSON，运行时加载；`edit_config` tool 写回。Config 与 Storage 分离（concepts §12/§13）：`%USERPROFILE%\.config\ambery\config.json` + 同根 `storage/`，路径由 core/paths.rs 解析（`AMBERY_CONFIG_DIR` / `AMBERY_STORAGE_DIR` 可覆盖）。
+1. **Single process + single protocol**: the Tauri app is Ambery (embedded ambery-core bound to 127.0.0.1). The frontend always communicates with core via **HTTP + WebSocket loopback** — browser debug mode connects to a standalone core debug binary, Tauri mode connects to the embedded server, and the frontend code is unchanged. Tauri commands/events are not used (reason in the final section of docs/harness.md).
+2. **UIA reading**: keep C# (exp01 verified, no rewrite). Compiled as a standalone console exe and distributed as a Tauri sidecar with the package; Rust calls it via stdio (JSON Lines request/response), such as `read_tab`, `list_windows`, `switch_tab`. **Packaging decision**: self-contained win-x64 (not single-file), zero .NET runtime dependency for users; publish command `dotnet publish -c Release` (RID/self-contained already fixed in sidecar.csproj), Tauri `externalBin` references the publish layout (docs/sidecar.md §Packaging).
+3. **hook path**: use `"type": "command"` + **PowerShell script** forwarding (consistent with the existing ~/.claude/hooks/ ecosystem, zero interpreter dependency), not `"type": "http"`. AmberyBackend's embedded HTTP listener receives the POST.
+4. **LLM calls**: Rust side, OpenAI-compatible Chat Completions endpoint; base_url / key read from Config.
+5. **Storage**: always append-only JSONL; restart replays to restore Queue / Context / instance list. Switch to SQLite later when query needs arise.
+6. **Config**: single-file JSON, loaded at runtime; the `edit_config` tool writes it back. Config and Storage are separated (concepts §12/§13): `%USERPROFILE%\.config\ambery\config.json` + sibling `storage/`, paths resolved by core/paths.rs (`AMBERY_CONFIG_DIR` / `AMBERY_STORAGE_DIR` can override).
 
-## 已定约束
+## Fixed constraints
 
-- HTTP listener 仅绑定 127.0.0.1
-- UIA sidecar 通信协议：stdio JSON Lines（docs/sidecar.md）
-- 无 Python 解释器依赖（用 PowerShell）
-- 前端框架：vanilla TS（显示逻辑简单，不引框架；浏览器模式可直接跑 vite dev 用 Chrome DevTools 测试）
-- **hook payload 契约（docs/hook.md）**：command 脚本转发、session_id 身份、marker 定位
+- HTTP listener binds only to 127.0.0.1
+- UIA sidecar communication protocol: stdio JSON Lines (docs/sidecar.md)
+- No Python interpreter dependency (use PowerShell)
+- Frontend framework: vanilla TS (display logic is simple, no framework; browser mode can run vite dev directly and test with Chrome DevTools)
+- **hook payload contract (docs/hook.md)**: command script forwarding, session_id identity, marker location

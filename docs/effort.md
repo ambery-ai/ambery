@@ -1,56 +1,56 @@
-# Effort 设计
+# Effort Design
 
-> 跨模型 thinking / reasoning 预算的行业调研见 `reports/llm-reasoning-effort-cross-model.md`。
+> For the cross-model thinking / reasoning budget industry survey, see `reports/llm-reasoning-effort-cross-model.md`.
 
-## 定义
+## Definition
 
-effort 是**单次 LLM 调用的思考预算**，独立于 temperature（随机性）与工具调用预算（执行上限）。它决定这次调用花多少推理深度。
+effort is the **thinking budget for a single LLM call**, independent of temperature (randomness) and the tool-call budget (execution cap). It decides how much reasoning depth this call spends.
 
-领域层只有统一语义档位，各 provider 适配层负责翻译成自己的 wire 参数：
+The domain layer has only unified semantic levels; each provider adapter translates them into its own wire parameters:
 
 ```text
 effort: low | medium | high | None
                           └─ None = 不设置，用该 provider 端点默认
 ```
 
-| 端点 | wire 参数 | low | medium | high |
+| Endpoint | wire parameter | low | medium | high |
 |---|---|---|---|---|
 | OpenAI | `reasoning_effort` | `"low"` | `"medium"` | `"high"` |
 | Anthropic 4.6+ | `output_config:{effort}` | `"low"` | `"medium"` | `"high"` |
 | Anthropic 4.5- | `thinking:{type:"enabled", budget_tokens:N}` | ≈20%×max_tokens | ≈50% | ≈80% |
-| DeepSeek v4 | `thinking:{reasoning_effort}` | `"low"` | `"high"`（无 medium） | `"max"` |
+| DeepSeek v4 | `thinking:{reasoning_effort}` | `"low"` | `"high"` (no medium) | `"max"` |
 | Gemini 3.x | `generation_config.thinking_level` | `"low"` | `"medium"` | `"high"` |
-| 不支持的端点 | — | 忽略，不发送 | 忽略 | 忽略 |
+| Unsupported endpoints | — | Ignore, do not send | Ignore | Ignore |
 
-**不支持时行为**：就近归并 + 告警，不报错（Vercel / OpenRouter / LiteLLM 一致）。绝不能把不认识的参数塞进 body——某些端点会 400。
+**Behavior when unsupported**: coalesce to the nearest level + warn, do not error (consistent across Vercel / OpenRouter / LiteLLM). Never stuff an unrecognized parameter into the body — some endpoints will return 400.
 
-## 档位来源：Queue 消息来源（不是 provider）
+## Level Source: Queue Message Source (Not the Provider)
 
-effort 由**触发这次 LLM 调用的 Queue 消息来源**决定。provider 只翻译、不决定档位。来源字段是 Queue 输入的一等公民，完整集合见 `docs/concrete-insight.md §Queue 中的 System 消息来源`。
+effort is decided by **the Queue message source that triggered this LLM call**. The provider only translates; it does not decide the level. The source field is a first-class citizen of Queue input; for the complete set, see `docs/concrete-insight.md §Queue 中的 System 消息来源`.
 
-### 当前映射（配置可覆盖，默认 medium）
+### Current Mapping (Config Can Override, Default medium)
 
-配置预置三个直接值；未显式列出的来源一律使用默认 `medium`：
+The config presets three direct values; any source not explicitly listed always uses the default `medium`:
 
-| 来源 | effort | Queue 优先级 | 理由 |
+| Source | effort | Queue priority | Rationale |
 |---|---|---|---|
-| `user_chat` | `low` | **高**（插队到最前） | 用户此刻盯着 pet 等回复 |
-| `hook_stop_content`（stop auto_read 模式，带过滤后全量内容） | `high` | 默认（FIFO） | 有实质内容需要仔细读、判断 |
-| 其他来源（`hook_stop_hint` / `hook_stop_report` / `hook_user_prompt` / `hook_notification` / `timer_scan` / `cron_tick` / `mock_hook`） | `medium`（默认） | 默认（FIFO） | 默认档位，不特殊对待 |
+| `user_chat` | `low` | **High** (jumps to the front) | The user is watching pet and waiting for a reply |
+| `hook_stop_content` (stop auto_read mode, with filtered full content) | `high` | Default (FIFO) | There is substantive content that needs careful reading and judgment |
+| Other sources (`hook_stop_hint` / `hook_stop_report` / `hook_user_prompt` / `hook_notification` / `timer_scan` / `cron_tick` / `mock_hook`) | `medium` (default) | Default (FIFO) | Default level, no special treatment |
 
-"快"由**优先级**保证（user_chat 插队最前），"认真"由 **effort** 保证（hook_stop_content 用 high）。两个旋钮各管各的：user_chat 即便插队，也不因插队调低或调高 effort。
+"Fast" is guaranteed by **priority** (user_chat jumps to the front of the queue), and "careful" is guaranteed by **effort** (hook_stop_content uses high). Each knob governs its own thing: even if user_chat jumps the queue, its effort is neither lowered nor raised because of the jump.
 
-### 实现落点
+### Implementation Point
 
-`QueueInput` 的来源字段与双队列放行机制见 `docs/harness.md §Queue 规则`。effort 侧只需在 `run_trigger` 的 LLM 调用点按来源解析档位：`user_chat` → low、`hook_stop_content` → high、其余 → medium。工具循环内后续调用沿用本次触发的来源与 effort。
+For the `QueueInput` source field and the dual-queue release mechanism, see `docs/harness.md §Queue 规则`. On the effort side, at the LLM call site in `run_trigger` resolve the level by source: `user_chat` → low, `hook_stop_content` → high, others → medium. Subsequent calls within the tool loop reuse the source and effort of this trigger.
 
-## 匹配关键词
+## Matching Keywords
 
-自动规则：用户 chat 消息命中配置的关键词时，把这次 `user_chat` 的 effort 临时改写。示例语义：
+Automatic rule: when a user chat message hits a configured keyword, the effort of this `user_chat` is temporarily rewritten. Example semantics:
 
 ```text
 "仔细想想" → effort 升到 high
 "快点"     → effort 保持/降为 low
 ```
 
-它是"输入 → 决定 effort"映射的一部分，与三分类默认属同一机制；关键词表走 Config 可配置，不硬编码。
+It is part of the "input → decide effort" mapping, the same mechanism as the three-category default; the keyword table goes through Config and is configurable, not hard-coded.
