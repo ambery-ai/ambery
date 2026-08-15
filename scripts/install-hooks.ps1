@@ -1,4 +1,4 @@
-﻿# install-hooks.ps1：把 ambery-hook 挂进 ~/.claude/settings.json。
+# install-hooks.ps1：把 ambery-hook 挂进 ~/.claude/settings.json。
 #   powershell -File scripts/install-hooks.ps1            # 安装（幂等，改前备份）
 #   powershell -File scripts/install-hooks.ps1 -Uninstall # 卸载（只移除我们的条目）
 param([switch]$Uninstall)
@@ -10,6 +10,17 @@ $scriptSrc = Join-Path $PSScriptRoot "ambery-hook.ps1"
 $scriptDst = Join-Path $hooksDir "ambery-hook.ps1"
 $marker = "ambery-hook.ps1"
 $events = @("SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Notification")
+
+# 容错：settings.json 缺失不再是致命错误——
+# 卸载语义 = 没有可卸载的东西；安装语义 = 从空对象起步（等价 Claude Code 无 hook 配置）
+if (-not (Test-Path $settingsPath)) {
+    if ($Uninstall) {
+        Write-Host "uninstalled: settings.json 不存在（无可卸载条目）"
+        exit 0
+    }
+    New-Item -ItemType Directory -Path (Split-Path $settingsPath -Parent) -Force | Out-Null
+    "{}" | Out-File $settingsPath -Encoding UTF8
+}
 
 $settings = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if (-not $settings.hooks) { $settings | Add-Member -NotePropertyName hooks -NotePropertyValue ([pscustomobject]@{}) }
