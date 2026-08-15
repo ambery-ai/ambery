@@ -40,7 +40,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "ambery"
-version = "0.1.0"
+version = "0.1.0-alpha0"
 dependencies = [
  "ambery-core",
  "axum",
@@ -54,7 +54,7 @@ dependencies = [
 
 [[package]]
 name = "ambery-core"
-version = "0.1.0"
+version = "0.1.0-alpha0"
 dependencies = [
  "axum",
  "clap",
