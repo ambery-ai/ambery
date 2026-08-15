@@ -62,6 +62,20 @@ impl AppState {
         }));
     }
     pub fn ambery(&self) -> &Mutex<AmberyBackend<LlmBackend>> { &self.ambery }
+    /// 未决通知数（server 层计数：render 递增、post_user 清零、dismiss 递减）
+    pub async fn pending_notifications(&self) -> usize {
+        *self.pending_notifications.lock().await
+    }
+    /// 显式覆盖未决通知数（server 事件处理与测试用）
+    pub async fn set_pending_notifications(&self, value: usize) {
+        *self.pending_notifications.lock().await = value;
+    }
+    /// Tauri get_state 与 HTTP /state 共用的顶层状态投影
+    pub async fn state_json(&self) -> Value {
+        let ov = self.ambery.lock().await;
+        let pending = self.pending_notifications().await;
+        json!({ "instances": ov.harness.agents.iter().map(|a| json!({"id":a.hash,"name":a.name,"status":a.status})).collect::<Vec<_>>(), "pendingNotifications": pending })
+    }
     /// 外部自动载入的最近错误（反射 Config UI 显示用）
     pub async fn config_error(&self) -> Option<String> { self.config_error.lock().await.clone() }
 }
@@ -86,9 +100,7 @@ fn config_json(cfg: &Config) -> Value {
 }
 
 async fn state_json_value(s: &AppState) -> Value {
-    let ov = s.ambery.lock().await;
-    let pending = *s.pending_notifications.lock().await;
-    json!({ "instances": ov.harness.agents.iter().map(|a| json!({"id":a.hash,"name":a.name,"status":a.status})).collect::<Vec<_>>(), "pendingNotifications": pending })
+    s.state_json().await
 }
 
 /// 完整 router（debug 模式：浏览器前端需要 HTTP+WS）
@@ -179,6 +191,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[tokio::test]
+    async fn state_json_reads_real_pending_notifications() {
+        let dir = std::env::temp_dir().join(format!("ambery-test-server-pending-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let harness = crate::Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let ov = AmberyBackend::new(harness, crate::Config::default(), LlmBackend::Debug(DebugAgent::silent()));
+        let state = Arc::new(AppState::new(ov));
+        state.set_pending_notifications(3).await;
+        let value = state.state_json().await;
+        assert_eq!(value["pendingNotifications"], json!(3));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// release（默认 feature）不含 debug 注入面：/debug/effect 必须 404。
     /// 该路由只在 case-runner feature 下存在（headless 前端 case 的确定性驱动面）。
     #[cfg(not(feature = "case-runner"))]
@@ -242,7 +267,7 @@ async fn get_context(State(s): State<Arc<AppState>>) -> impl IntoResponse {
 struct UserBody { text: String }
 
 async fn post_user(State(s): State<Arc<AppState>>, Json(body): Json<UserBody>) -> impl IntoResponse {
-    *s.pending_notifications.lock().await = 0;
+    s.set_pending_notifications(0).await;
     {
         let mut ov = s.ambery.lock().await;
         if let Err(err) = ov.enqueue(Role::User, body.text, crate::queue::QueueSource::UserChat, now_ms()) {
@@ -295,7 +320,10 @@ async fn post_event(State(s): State<Arc<AppState>>, Json(body): Json<EventBody>)
         "interaction",
         json!({ "desc": desc.as_str(), "card_id": body.card_id.as_deref() }),
     );
-    if body.action == "dismiss" { *s.pending_notifications.lock().await = s.pending_notifications.lock().await.saturating_sub(1); }
+    if body.action == "dismiss" {
+        let current = s.pending_notifications().await;
+        s.set_pending_notifications(current.saturating_sub(1)).await;
+    }
     // 用户 × 关卡：dismiss（删 .card.json、出注册表、忘记布局）+ closed_by_user 双行事件
     if body.action == "dismiss" {
         if let Some(cid) = body.card_id.as_deref() {
@@ -591,7 +619,7 @@ pub fn spawn_queue_consumer(s: Arc<AppState>) {
                     drop(ov);
                     break;
                 };
-                let pending = *s.pending_notifications.lock().await;
+                let pending = s.pending_notifications().await;
                 let effects = match ov.release_one(input, pending).await {
                     Ok(e) => e,
                     Err(err) => {
@@ -601,7 +629,10 @@ pub fn spawn_queue_consumer(s: Arc<AppState>) {
                 };
                 drop(ov);
                 for e in &effects {
-                    if matches!(e, Effect::RenderComponent(_)) { *s.pending_notifications.lock().await += 1; }
+                    if matches!(e, Effect::RenderComponent(_)) {
+                        let current = s.pending_notifications().await;
+                        s.set_pending_notifications(current + 1).await;
+                    }
                     s.broadcast_effect_json(effect_json(e)).await;
                 }
                 s.broadcast_effect_json(json!({ "kind": "context_changed" })).await;

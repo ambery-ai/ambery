@@ -56,11 +56,7 @@ fn wait_state(ts: &TauriState) -> Result<Arc<AppState>, String> {
 #[tauri::command]
 async fn get_state(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
     let s = wait_state(&state)?;
-    let ov = s.ambery().lock().await;
-    Ok(json!({
-        "instances": ov.harness.agents.iter().map(|a| json!({"id":a.hash,"name":a.name,"status":a.status})).collect::<Vec<_>>(),
-        "pendingNotifications": 0
-    }))
+    Ok(s.state_json().await)
 }
 
 #[tauri::command]
@@ -817,12 +813,14 @@ mod ipc_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    #[test]
-    fn invoke_reaches_handler_and_extracts_state() {
+    #[tokio::test]
+    async fn invoke_reaches_handler_and_extracts_state() {
         let app = mock_app_with_commands();
         // 注入 AppState（模拟 run_core 完成，wait_state 立即返回）
+        let state = build_harness_state("extract");
+        state.set_pending_notifications(7).await;
         let mgr = app.state::<SharedTauriState>();
-        *mgr.0.lock().unwrap() = Some(build_harness_state("extract"));
+        *mgr.0.lock().unwrap() = Some(state);
         let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
             .build()
             .unwrap();
@@ -830,9 +828,12 @@ mod ipc_tests {
         // 新 command：get_config（含 eprintln 探针，test 输出可见 [tauri-cmd]）
         let resp = tauri::test::get_ipc_response(&window, ipc("get_config"));
         assert!(resp.is_ok(), "get_config invoke 失败: {resp:?}");
-        // 新 command：get_state
-        let resp = tauri::test::get_ipc_response(&window, ipc("get_state"));
-        assert!(resp.is_ok(), "get_state invoke 失败: {resp:?}");
+        // 新 command：get_state——必须回读真实计数，不再硬编码 0
+        let body = tauri::test::get_ipc_response(&window, ipc("get_state"))
+            .unwrap()
+            .deserialize::<Value>()
+            .unwrap();
+        assert_eq!(body["pendingNotifications"], json!(7), "get_state 应回读真实计数: {body}");
         // 设置面板链路：get_config_schema + set_config（apply_config_by_path 全管道）
         let resp = tauri::test::get_ipc_response(&window, ipc("get_config_schema"));
         assert!(resp.is_ok(), "get_config_schema invoke 失败: {resp:?}");
