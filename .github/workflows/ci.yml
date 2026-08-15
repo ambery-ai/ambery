@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # Rust：workspace 双 feature 矩阵——默认（release 形态，无 debug 注入）
+      # + case-runner（ambery-case 依赖的观测/回放面）。
+      - name: Rust tests (default features)
+        run: cargo test --workspace
+      - name: Rust tests (case-runner feature)
+        run: cargo test -p ambery-core --features case-runner
+
+      # 前端：依赖可复现安装 + 类型 + 设计 token 守卫。
+      - name: Install app dependencies
+        working-directory: app
+        run: npm ci
+      - name: TypeScript check
+        working-directory: app
+        run: npx tsc --noEmit
+      - name: Design token guard
+        working-directory: app
+        run: node scripts/lint-tokens.mjs
+
+      # 前端 headless case：ambery-case 内嵌 core 并拉起 vitest；
+      # 全链路 mock/keyless，跨平台（mac/ubuntu 同路径）。
+      - name: Frontend vitest via case runner
+        run: cargo run -p ambery-case -- frontend --silent
+
+  shell-check:
+    name: Tauri shell check (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      # tauri-build 需要 frontendDist 存在；macOSPrivateApi 已启用，
+      # 本 job 锁住「Tauri 壳在 mac 上可编译」这一 K-4 验收。
+      - name: Build frontend
+        working-directory: app
+        run: npm ci && npm run build
+      - name: Check Tauri shell
+        working-directory: app/src-tauri
+        run: cargo check
