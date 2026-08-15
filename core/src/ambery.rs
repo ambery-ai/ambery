@@ -1,4 +1,4 @@
-//! AmberyBackend（concepts §1）：触发循环 + tool 执行 + hook 处理（docs/agent-loop.md）。
+//! AmberyBackend：触发循环 + tool 执行 + hook 处理。
 
 use crate::content::RecordSource;
 use crate::filter::{Change, Filter};
@@ -13,7 +13,7 @@ use crate::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 
-/// 副作用：经 WS 广播给前端（docs/agent-loop.md §协议）
+/// 副作用：经 WS 广播给前端
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     RenderComponent(Value),
@@ -23,12 +23,12 @@ pub enum Effect {
         face: Option<String>,
         motion: Option<String>,
         ttl_ms: Option<u64>,
-        /// 一次播放收束（docs/autonomy.md）：前端按 MotionDef.durationMs 取 TTL；与 ttl_ms 互斥
+        /// 一次播放收束：前端按 MotionDef.durationMs 取 TTL；与 ttl_ms 互斥
         once: bool,
     },
     /// llm_changed=true 时 server 广播前重建 LlmBackend
     ConfigChanged { llm_changed: bool },
-    /// 流式增量（docs/streaming.md）：LLM 回复片段——纯显示优化，不经 Queue/Context。
+    /// 流式增量：LLM 回复片段——纯显示优化，不经 Queue/Context。
     /// 不走 effects Vec（实时性），经 effect_sink 旁路直推。
     AssistantDelta {
         content: Option<String>,
@@ -39,7 +39,7 @@ pub enum Effect {
 }
 
 impl Effect {
-    /// 动作流记录的 kind/payload（docs/storage.md §effect.jsonl）：
+    /// 动作流记录的 kind/payload：
     /// **穷尽 match**——新增变体此处编译错（编译期强制进动作流）。
     /// 记录字段 snake_case（storage 约定），与 WS 下发的 camelCase 形态无关。
     pub fn effect_kind_payload(&self) -> (&'static str, Value) {
@@ -77,38 +77,38 @@ pub struct AmberyBackend<L: Llm> {
     pub harness: Harness,
     pub config: Config,
     llm: L,
-    /// Filter 按实例 kind 的缓存（docs/filter.md：Filter 唯一按实例 hook kind 选择——
+    /// Filter 按实例 kind 的缓存（：Filter 唯一按实例 hook kind 选择——
     /// 无全局策略、无默认回退；缺失或不受支持的 kind 在处理前直接拒绝）
     filter_cache: std::collections::HashMap<String, Arc<dyn Filter + Send + Sync>>,
-    /// Timer（concepts §1a）：每实例兜底扫描调度
+    /// Timer：每实例兜底扫描调度
     pub timers: TimerWheel,
-    /// Terminal Adapter（concepts §14，docs/terminal-adapter.md）：定位/读取/遗忘
+    /// Terminal Adapter：定位/读取/遗忘
     /// 统一接口；None = 无终端访问（Hook 驱动核心体验仍可用）
     pub terminal: Option<Arc<dyn crate::terminal::TerminalAdapter>>,
-    /// Platform Primitives（concepts §15，docs/platform-primitives.md）：虚拟桌面切换
+    /// Platform Primitives：虚拟桌面切换
     /// 等 OS 层能力；None = 无（fetch_terminal 的 vd_switch=true 路径报切换失败）
     pub primitives: Option<Arc<dyn crate::terminal::PlatformPrimitives>>,
     /// sidecar 在读通道链中时，Timer 读到 None 才判定 tab 消亡（closed）；
     /// 纯 MockTerminals 下 None 只是「未注入」，不能当消亡证据（设计决定）
     pub sidecar_enabled: bool,
-    /// 流式 delta 旁路（docs/streaming.md）：run_trigger 每收到 delta 即发——
+    /// 流式 delta 旁路：run_trigger 每收到 delta 即发——
     /// 显示优化事件（AssistantDelta/AssistantDone）不进 effects Vec，由 server 层接广播
     pub effect_sink: Option<Arc<dyn Fn(&Effect) + Send + Sync>>,
-    /// 冷字段启动快照（docs/config.md §待重启状态）：待重启 = 保存值与启动快照不同，
+    /// 冷字段启动快照：待重启 = 保存值与启动快照不同，
     /// 两者重新相同即清除。快照在 backend 启动时取（TimerWheel 等运行行为按启动值构建）
     pub config_cold_snapshot: Vec<(&'static str, Value)>,
-    /// edit_config query 快照（docs/config.md §query 快照有效性）：只有携带更新目标
+    /// edit_config query 快照：只有携带更新目标
     /// 完整当前值的 query（叶子直查 / 容器 view=object）才留快照；快照关联自己的
     /// tool result message ID（tool_call_id）与 response 序号
     query_snapshots: Vec<QuerySnapshot>,
     /// LLM response 序号（tool 循环每轮 +1）：update 要求快照来自更早的 response
     response_seq: u64,
-    /// 工具调用预算（docs/agent-loop.md §工具调用预算；冷字段，启动时读取——
+    /// 工具调用预算（；冷字段，启动时读取——
     /// 运行中改 config 不影响本进程行为，经待重启状态如实上报）
     tool_budget_response: usize,
     tool_budget_turn: usize,
     /// 变化检测 prev（每实例上次归一全文）：**内存态，重启丢**（filtered_content 不持久化
-    /// 定案，docs/storage.md §filtered_content 退役）——scan/hook/fetch 读后更新
+    /// 定案）——scan/hook/fetch 读后更新
     filtered_prev: std::collections::HashMap<String, String>,
 }
 
@@ -197,7 +197,7 @@ impl<L: Llm> AmberyBackend<L> {
             tool_budget_turn,
             filtered_prev: std::collections::HashMap::new(),
         };
-        // 启动调度（concepts §1a 兜底覆盖）：TimerWheel 不 replay，
+        // 启动调度（ 兜底覆盖）：TimerWheel 不 replay，
         // 对投影中全部存活实例批量 reset——无 hook 实例（僵尸）也进兜底扫描集，
         // 否则它们永不入调度、永不判 closed（#10 reopen：调度盲区）
         let now = crate::server::now_ms();
@@ -214,7 +214,7 @@ impl<L: Llm> AmberyBackend<L> {
         backend
     }
 
-    /// 统一配置修改管道（docs/config.md「修改入口」）：CLI/面板/LLM tool 共用。
+    /// 统一配置修改管道（「修改入口」）：CLI/面板/LLM tool 共用。
     /// set_by_path 写入 → serde 反序列化验证 → 动态 enum 校验 → 热应用 → persist。
     /// restart_required = 运行时 diff 如实上报（不假装生效，行为即真相）。
     pub fn apply_config_by_path(
@@ -223,9 +223,9 @@ impl<L: Llm> AmberyBackend<L> {
         value: Value,
     ) -> Result<ConfigOutcome, String> {
         if self.config.read_only {
-            return Err("只读降级模式：config 写被禁止（docs/config.md）".into());
+            return Err("只读降级模式：config 写被禁止".into());
         }
-        // null 语义（docs/config.md §update 与 null）：null 只允许写到叶子
+        // null 语义：null 只允许写到叶子
         // （null = 缺失 → 回自身 default）；object/map/动态 entry 拒绝 null 更新
         if value.is_null() {
             let is_leaf = crate::config::meta::node_meta(path)
@@ -240,11 +240,11 @@ impl<L: Llm> AmberyBackend<L> {
         }
         let mut v = serde_json::to_value(&self.config).map_err(|e| e.to_string())?;
         crate::config::reflect::set_by_path(&mut v, path, value.clone())?;
-        // null 归一（docs/config.md：工具写入与保存遵守同一归一化）——null 叶子移除后
+        // null 归一（：工具写入与保存遵守同一归一化）——null 叶子移除后
         // 由 serde default 回填（= 回自身 default）
         crate::config::migrate::normalize_nulls(&mut v);
         let new: Config = serde_json::from_value(v).map_err(|e| format!("验证失败: {e}"))?;
-        // 统一 validation（docs/config.md：目标子树→祖先；任一失败原子拒绝整次更新）
+        // 统一 validation（：目标子树→祖先；任一失败原子拒绝整次更新）
         let new_v = serde_json::to_value(&new).map_err(|e| e.to_string())?;
         let verrs = crate::config::meta::validate_for_update(&new_v, path);
         if !verrs.is_empty() {
@@ -266,11 +266,11 @@ impl<L: Llm> AmberyBackend<L> {
             }
         }
         // 先落盘后换内存（顺序不分叉）：persist 失败时内存/快照/滤镜全部不动，
-        // 调用方看到的 Err 与真实状态一致（docs/config.md：原子拒绝）
+        // 调用方看到的 Err 与真实状态一致（：原子拒绝）
         new.save(self.harness.config_dir())
             .map_err(|e| format!("persist 失败: {e}"))?;
         let old = std::mem::replace(&mut self.config, new);
-        // 一次成功写入使相交路径的 query 快照失效（docs/config.md §快照有效性；
+        // 一次成功写入使相交路径的 query 快照失效（；
         // 统一管道单点——LLM/CLI/面板/外部载入全部经此，无关路径不受影响）
         self.query_snapshots.retain(|r| !paths_intersect(&r.path, path));
         // 其余字段每轮现读/经 effective_* 出口现取，天然热（Filter 按实例 kind 现选现缓存）
@@ -282,7 +282,7 @@ impl<L: Llm> AmberyBackend<L> {
         })
     }
 
-    /// 待重启状态（docs/config.md §待重启状态）：冷字段保存值与启动快照不同；
+    /// 待重启状态：冷字段保存值与启动快照不同；
     /// 两者重新相同即清除。如实上报，不假装生效（行为即真相）
     pub fn restart_required(&self) -> Vec<String> {
         let cur = serde_json::to_value(&self.config).unwrap_or(Value::Null);
@@ -293,11 +293,11 @@ impl<L: Llm> AmberyBackend<L> {
             .collect()
     }
 
-    // ── edit_config 三 action（docs/config.md §edit_config：单工具、显式动作、渐进披露）──
+    // ── edit_config 三 action（：单工具、显式动作、渐进披露）──
 
-    /// 响应体积护栏（docs/config.md §响应体积护栏）：聚合结果 UTF-8 JSON ≤ 1 KiB；
+    /// 响应体积护栏：聚合结果 UTF-8 JSON ≤ 1 KiB；
     /// 不截断、不自动缩小，错误说明实际大小、上限与收窄方向。single_leaf 例外直返。
-    /// hint 传 i18n 表 key（docs/i18n.md：错误反馈按 Harness 语言现查）
+    /// hint 传 i18n 表 key（：错误反馈按 Harness 语言现查）
     fn guard_1k(&self, out: Value, single_leaf: bool, hint_key: &str) -> Value {
         if single_leaf {
             return out;
@@ -343,7 +343,7 @@ impl<L: Llm> AmberyBackend<L> {
             .iter()
             .filter(|n| re.is_match(&n.path) || n.desc.as_deref().is_some_and(|d| re.is_match(d)))
             .collect();
-        // 按完整 path 字典序稳定排列（docs/config.md §grep）
+        // 按完整 path 字典序稳定排列
         hits.sort_by(|a, b| a.path.cmp(&b.path));
         let matches: Vec<Value> = hits
             .iter()
@@ -402,7 +402,7 @@ impl<L: Llm> AmberyBackend<L> {
                 );
             }
         };
-        // 待重启 msg（docs/config.md §热/冷语义：query 到待重启变更的具体值时如实说明）
+        // 待重启 msg（：query 到待重启变更的具体值时如实说明）
         let pending_msg = |p: &str| {
             if self.restart_required().iter().any(|r| paths_intersect(r, p)) {
                 Some(crate::i18n::tr(lang, "msg.saved-restart"))
@@ -505,7 +505,7 @@ impl<L: Llm> AmberyBackend<L> {
             return (json!({ "ok": false, "error": crate::i18n::tr(lang, "err.update-value") }), vec![]);
         };
         // path 存在性：静态注册节点，或可见 map 的已有 entry（新建 entry = 不存在 →
-        // 走完整 map update 协议，docs/config.md：不提供 add/delete action）
+        // 走完整 map update 协议：不提供 add/delete action）
         let exists = crate::config::meta::node_meta(path).is_some()
             || crate::config::reflect::config_nodes_llm(&self.config)
                 .iter()
@@ -516,7 +516,7 @@ impl<L: Llm> AmberyBackend<L> {
                 vec![],
             );
         }
-        // 快照有效性（docs/config.md §query 快照有效性）：存在 r 满足
+        // 快照有效性：存在 r 满足
         // r.path = P ∧ r.toolResultMessageId ∈ C ∧ r 来自更早 response ∧ 其后无相交成功写入
         let ctx = self.harness.context.messages();
         let valid = self.query_snapshots.iter().any(|r| {
@@ -534,7 +534,7 @@ impl<L: Llm> AmberyBackend<L> {
         }
         match self.apply_config_by_path(path, value) {
             Ok(outcome) => {
-                // 动作流记录（docs/effect-reporting.md §kind）：LLM edit_config 路径 =
+                // 动作流记录：LLM edit_config 路径 =
                 // config_changed/backend；前端 set_config 路径在端点记 config_update/frontend
                 let llm_changed = outcome.llm_changed;
                 let _ = self.harness.log_effect(
@@ -562,7 +562,7 @@ impl<L: Llm> AmberyBackend<L> {
         self.llm = llm;
     }
 
-    /// 外部自动载入的应用（docs/config.md §外部文件自动载入）：与一次全文 update
+    /// 外部自动载入的应用：与一次全文 update
     /// 相同的热应用——替换 live Config（read_only 运行时降级标记保留，不被文件覆盖）、
     /// filter 按策略重建；冷字段 pending 由 restart_required() 按启动快照发散判定；
     /// 与实际变更路径相交的 agent 已读快照标记 dirty。
@@ -580,11 +580,11 @@ impl<L: Llm> AmberyBackend<L> {
         self.config.llm != old_llm
     }
 
-    /// 现拼 system prompt 请求头（concepts §12：Config 引用的各概念数据运行时拼装）
+    /// 现拼 system prompt 请求头（：Config 引用的各概念数据运行时拼装）
     /// = base_prompt（Config）+ AGENTS.md（Storage，热生效）+ kaomoji 表。
-    /// 内容稳定、天然 cache 友好，不落 Queue（docs/storage.md）。
+    /// 内容稳定、天然 cache 友好，不落 Queue。
     fn assemble_system_prompt(&self) -> String {
-        // {name} 占位替换为当前 pet 名称（docs/view.md §名称：Harness 身份文案读取当前名称）
+        // {name} 占位替换为当前 pet 名称（：Harness 身份文案读取当前名称）
         let mut s = self
             .config
             .base_prompt
@@ -600,7 +600,7 @@ impl<L: Llm> AmberyBackend<L> {
         s.push_str("\n\n");
         s.push_str(crate::i18n::tr(crate::i18n::Lang::of(&self.config.harness_language), "prompt.kaomoji-header"));
         s.push('\n');
-        // 请求头只带系统池（concepts §10b：用户表情池按需经 edit_config 查询，不自动注入）
+        // 请求头只带系统池（：用户表情池按需经 edit_config 查询，不自动注入）
         let mut keys: Vec<_> = self.config.kaomoji.system.keys().collect();
         keys.sort();
         for k in keys {
@@ -611,7 +611,7 @@ impl<L: Llm> AmberyBackend<L> {
     }
 
     /// AGENTS.md 每轮现读（热生效：改完下一个触发就用）；读不到回退内置默认
-    /// （fallback 按当前 Harness 语言，docs/i18n.md）；{name} 占位替换为当前 pet 名称
+    /// （fallback 按当前 Harness 语言）；{name} 占位替换为当前 pet 名称
     fn read_agents_md(&self) -> String {
         std::fs::read_to_string(self.harness.config_dir().join(AGENTS_MD_FILE))
             .unwrap_or_else(|_| default_agents_md(crate::i18n::Lang::of(&self.config.harness_language)))
@@ -627,7 +627,7 @@ impl<L: Llm> AmberyBackend<L> {
             .count()
     }
 
-    /// 经 Terminal Adapter 读实例终端（docs/terminal-adapter.md）：
+    /// 经 Terminal Adapter 读实例终端：
     /// locate → read 配对（同 adapter 内完成）；无 adapter / 定不到 / 读不到 = None
     /// （pub：server timer 任务与 case-runner timer_scan step 共用此入口）
     pub fn read_terminal(&self, inst: &str) -> Option<String> {
@@ -636,7 +636,7 @@ impl<L: Llm> AmberyBackend<L> {
         t.read(&tab)
     }
 
-    /// 状态 key 推导（concepts §4：key 切换由后端根据 Hook/Timer 驱动）：
+    /// 状态 key 推导（：key 切换由后端根据 Hook/Timer 驱动）：
     /// notify（有未决通知）> processing（任一实例在跑）> idle。
     /// 返回 `[face: key, motion: key]`——写默认推导 key；覆盖状态 LLM 从自己的
     /// tool_calls 历史已知（设计决定）。
@@ -661,9 +661,9 @@ impl<L: Llm> AmberyBackend<L> {
         format!("[face: {key}, motion: {motion}]")
     }
 
-    /// 入队一条输入（concepts §10c：hook 内容 = system，user 消息 = user）。
+    /// 入队一条输入（：hook 内容 = system，user 消息 = user）。
     /// 生产者只入队不触发——放行由 drain_queue / server 消费者任务驱动。
-    /// source = 输入来源（docs/harness.md §Queue 规则 2；effort 档位与双队列的一等公民）
+    /// source = 输入来源（；effort 档位与双队列的一等公民）
     pub fn enqueue(
         &mut self,
         role: Role,
@@ -671,7 +671,7 @@ impl<L: Llm> AmberyBackend<L> {
         source: crate::queue::QueueSource,
         ts: i64,
     ) -> std::io::Result<()> {
-        // 动作流记录（docs/effect-reporting.md §kind）：user 消息入队 = user_message/frontend
+        // 动作流记录：user 消息入队 = user_message/frontend
         // （单点覆盖 post_user / append_user / case user step；hook 的 system 输入不进）
         if role == Role::User {
             let _ = self.harness.log_effect(
@@ -685,7 +685,7 @@ impl<L: Llm> AmberyBackend<L> {
             .enqueue_input(crate::queue::QueueInput { role, content, source, ts })
     }
 
-    /// 前端非 readonly 调用上报单点（docs/effect-reporting.md §通道）：
+    /// 前端非 readonly 调用上报单点：
     /// record_effect command 与 POST /effect 共用——写 effect.jsonl（origin=frontend）。
     /// fire-and-forget：记录失败不影响调用方。
     pub fn record_frontend_effect(&self, kind: &str, payload: Value) {
@@ -697,8 +697,8 @@ impl<L: Llm> AmberyBackend<L> {
         );
     }
 
-    /// 放行一条输入：Context 写输入 → run_trigger（一轮完整处理，concepts §10c）
-    /// Event Buffer 附带（concepts §10e）：放行时 merge 清空——system 输入与之合并为
+    /// 放行一条输入：Context 写输入 → run_trigger（一轮完整处理）
+    /// Event Buffer 附带：放行时 merge 清空——system 输入与之合并为
     /// 一条消息；user 输入则 buffer 以独立 system 消息先行附带（与 user role 严格分离）。
     pub async fn release_one(
         &mut self,
@@ -737,7 +737,7 @@ impl<L: Llm> AmberyBackend<L> {
         Ok(effects)
     }
 
-    /// Compression 检查+执行（concepts §10d / #16 真值触发）：轮次开头与 tool 循环内
+    /// Compression 检查+执行（ / #16 真值触发）：轮次开头与 tool 循环内
     /// 共用（harness.md §触发模型）。判定式 = 最近 usage 真值 + 其后新增消息 est 增量 vs
     /// window − reserve；无真值 → 全量 est；无窗口事实 → 不压缩。
     /// turn_start = 当前 turn 输入消息下标——压缩不切断在飞 turn（min_tail_start 收口）。
@@ -790,7 +790,7 @@ impl<L: Llm> AmberyBackend<L> {
         Ok(())
     }
 
-    /// effort 档位解析（docs/effort.md §档位来源 + §匹配关键词）：user_chat→low、
+    /// effort 档位解析：user_chat→low、
     /// hook_stop_content→high、其余→medium（Config effort.* 可覆盖）；user_chat 消息
     /// 命中关键词则本次临时改写（多命中取最长关键词，确定性）
     fn resolve_effort(&self, source: crate::queue::QueueSource) -> Option<crate::llm::Effort> {
@@ -825,37 +825,37 @@ impl<L: Llm> AmberyBackend<L> {
         }
     }
 
-    /// 一轮触发（docs/agent-loop.md §一轮触发）
+    /// 一轮触发
     /// 调用前输入已写 Context、Event Buffer 已在放行点附带（release_one）。
     /// pending_notifications：未决通知数（server 层计数传入，推导 notify key 用）
-    /// source：放行输入的来源（docs/harness.md §Queue 规则 2；effort 档位解析输入，
-    /// docs/effort.md——工具循环内后续调用沿用）
+    /// source：放行输入的来源（；effort 档位解析输入，
+    /// ——工具循环内后续调用沿用）
     pub async fn run_trigger(
         &mut self,
         ts: i64,
         source: crate::queue::QueueSource,
         pending_notifications: usize,
     ) -> std::io::Result<Vec<Effect>> {
-        // effort 档位（docs/effort.md §档位来源）：本次触发解析一次，工具循环内沿用
+        // effort 档位：本次触发解析一次，工具循环内沿用
         let effort = self.resolve_effort(source);
-        // 1. 现拼 system prompt 请求头（不落 Context）；变化才写 head 快照（docs/storage.md）
+        // 1. 现拼 system prompt 请求头（不落 Context）；变化才写 head 快照
         let head = self.assemble_system_prompt();
         if self.harness.last_head.as_deref() != Some(head.as_str()) {
             self.harness.log_head(head.clone(), ts)?;
         }
-        // 2. Autonomy 状态：每轮一条写 context.jsonl，最新一条挂请求末端（concepts §4）
+        // 2. Autonomy 状态：每轮一条写 context.jsonl，最新一条挂请求末端
         let autonomy = self.state_key(pending_notifications);
         self.harness.log_autonomy(autonomy.clone(), ts)?;
-        // 3. Compression（auto-compact，concepts §10d / #16 真值触发）：轮次开头检查
+        // 3. Compression（auto-compact / #16 真值触发）：轮次开头检查
         //    （tool 循环内 tool result 追加后再查，harness.md §触发模型）
         let turn_start = self.harness.context.messages().len().saturating_sub(1);
         self.maybe_compress(turn_start, ts).await?;
         // 4. tool 循环（请求 = 请求头 + Context 全部消息 + Autonomy 末端）
-        //    流式：complete_streaming 边收边经 effect_sink 发 AssistantDelta（docs/streaming.md）
-        //    预算（docs/agent-loop.md §工具调用预算）：call 按声明顺序串行执行；
+        //    流式：complete_streaming 边收边经 effect_sink 发 AssistantDelta
+        //    预算：call 按声明顺序串行执行；
         //    已提出 calls（含未执行者）都计入 turn 预算；超出任一预算的 call 不执行，
         //    但仍写入对应的失败 tool result
-        // 工具说明按 Harness 语言现查表（docs/i18n.md：切换从下一次 LLM 交互起生效）
+        // 工具说明按 Harness 语言现查表（：切换从下一次 LLM 交互起生效）
         let lang = crate::i18n::Lang::of(&self.config.harness_language);
         let tools = tool_set(lang);
         let mut effects = vec![];
@@ -873,7 +873,7 @@ impl<L: Llm> AmberyBackend<L> {
                     content: d.content.clone(),
                     reasoning_content: d.reasoning_content.clone(),
                 };
-                // 动作流记录（delta 全量记录，docs/storage.md §effect.jsonl）
+                // 动作流记录（delta 全量记录）
                 let (kind, payload) = e.effect_kind_payload();
                 let _ = harness.log_effect(
                     crate::EffectOrigin::Backend,
@@ -895,7 +895,7 @@ impl<L: Llm> AmberyBackend<L> {
                 self.harness.log_usage(u, ts)?;
             }
             if out.tool_calls.is_empty() {
-                // 沉默语义：空 content 不追加（docs/agent-loop.md）
+                // 沉默语义：空 content 不追加
                 if let Some(content) = out.content.filter(|c| !c.is_empty()) {
                     let mut msg = ContextMessage::new(Role::Assistant, content, ts);
                     // thinking 全保真留痕（记录≠回放：build_body 仅 tool_calls
@@ -906,7 +906,7 @@ impl<L: Llm> AmberyBackend<L> {
                 break;
             }
             let mut assistant_msg = ContextMessage::assistant_tool_calls(out.tool_calls.clone(), ts);
-            // thinking 模型：存思维链，回放时必须带回（docs/agent-loop.md）
+            // thinking 模型：存思维链，回放时必须带回
             assistant_msg.reasoning_content = out.reasoning_content.clone();
             self.harness.append_context(assistant_msg)?;
             let mut executed_in_response = 0usize;
@@ -938,7 +938,7 @@ impl<L: Llm> AmberyBackend<L> {
                 self.maybe_compress(turn_start, ts).await?;
             }
             if turn_proposed >= self.tool_budget_turn {
-                // 预算耗尽收尾（docs/agent-loop.md）：以空 tools 正常请求一次最终文字
+                // 预算耗尽收尾：以空 tools 正常请求一次最终文字
                 // 回复（不能再发起 tool call）；不追加特殊 system 记录，不开启新 turn
                 self.response_seq += 1;
                 let mut request = Vec::with_capacity(self.harness.context.messages().len() + 2);
@@ -952,7 +952,7 @@ impl<L: Llm> AmberyBackend<L> {
                         content: d.content.clone(),
                         reasoning_content: d.reasoning_content.clone(),
                     };
-                    // 预算收尾的 delta 同样入流（docs/storage.md §effect.jsonl：流式与
+                    // 预算收尾的 delta 同样入流（：流式与
                     // 非流式收尾同记；与主路径同一记录点形态）
                     let (kind, payload) = e.effect_kind_payload();
                     let _ = harness.log_effect(
@@ -981,8 +981,8 @@ impl<L: Llm> AmberyBackend<L> {
                 break;
             }
         }
-        // 一轮完毕：loading 收尾（docs/streaming.md，完整回复已写 Context）
-        // 动作流记录（done 也入流，docs/storage.md §effect.jsonl）
+        // 一轮完毕：loading 收尾（，完整回复已写 Context）
+        // 动作流记录（done 也入流）
         let _ = self.harness.log_effect(
             crate::EffectOrigin::Backend,
             "assistant_done",
@@ -995,7 +995,7 @@ impl<L: Llm> AmberyBackend<L> {
         Ok(effects)
     }
 
-    /// 启动扫描（docs/hook.md §启动扫描）：全 VD 枚举 → claude 检测 →
+    /// 启动扫描：全 VD 枚举 → claude 检测 →
     /// marker 解注册 / 无 marker 占位入册（uia:<标题>）→ N/M/K 三方对账进 EventBuffer。
     /// call = sidecar 请求转发（参数化便于测试注入）
     pub async fn startup_sweep(
@@ -1127,7 +1127,7 @@ impl<L: Llm> AmberyBackend<L> {
         })
     }
 
-    /// 真实 hook（docs/hook.md）：session_id 身份 + register-on-first-sight + 事件分层。
+    /// 真实 hook：session_id 身份 + register-on-first-sight + 事件分层。
     /// mock hook（handle_hook）保留为 debug 手段，两条路径并存。
     #[allow(clippy::too_many_arguments)]
     pub async fn handle_real_hook(
@@ -1147,7 +1147,7 @@ impl<L: Llm> AmberyBackend<L> {
             .unwrap_or("unknown");
         let hash = crate::sid8(session_id);
         let name = crate::instance_name(project, &hash);
-        // 事件文字按 Harness 语言现写（docs/i18n.md：事件发生时刻的语言生效，此后成历史不改写）
+        // 事件文字按 Harness 语言现写（：事件发生时刻的语言生效，此后成历史不改写）
         let lang = crate::i18n::Lang::of(&self.config.harness_language);
         // register-on-first-sight：未知 session_id 先落注册（first_seen = 后端初见时刻），
         // 已有条目沿用 first_seen / tab / kind（快照字段不被事件覆盖）
@@ -1157,13 +1157,13 @@ impl<L: Llm> AmberyBackend<L> {
         let kind = kind
             .map(String::from)
             .or_else(|| prev.and_then(|a| a.kind.clone()));
-        // Filter 按实例 kind（docs/filter.md）：缺失或不受支持的 kind 在实例状态更新、
+        // Filter 按实例 kind：缺失或不受支持的 kind 在实例状态更新、
         // 读、Filter 与 Queue 之前直接拒绝（事件整体不处理）
         if !Self::kind_supported(kind.as_deref()) {
             eprintln!("[hook] {name} kind 缺失或不受支持（{kind:?}），事件拒绝处理");
             return Ok(());
         }
-        // Hook 到达 → Timer 重排（docs/timer.md）
+        // Hook 到达 → Timer 重排
         self.timers.reset(&name, ts);
         let mut upsert = |status: AgentStatus, tab: Option<crate::TabRef>| {
             self.harness.upsert_agent(AgentEntry {
@@ -1180,7 +1180,7 @@ impl<L: Llm> AmberyBackend<L> {
         match event {
             // 静默簿记（EventBuffer，pet 不醒）；post-count 标注（#16：LLM 免对账）
             "session_start" => {
-                // 定位探测（docs/hook.md §事件分层）：无 tab 快照时按 marker 现找并回写
+                // 定位探测：无 tab 快照时按 marker 现找并回写
                 let located = tab.or_else(|| self.terminal.as_ref().and_then(|t| t.locate(&name)));
                 upsert(AgentStatus::Idle, located)?;
                 let alive = self.alive_count().to_string();
@@ -1189,7 +1189,7 @@ impl<L: Llm> AmberyBackend<L> {
                     .push(crate::i18n::trf(lang, "hook.register", &[("name", name.clone()), ("alive", alive)]));
             }
             "session_end" => {
-                // closed 快照 tab=null（docs/storage.md）+ 清定位缓存（docs/hook.md §事件分层）
+                // closed 快照 tab=null+ 清定位缓存
                 upsert(AgentStatus::Closed, None)?;
                 if let Some(t) = self.terminal.as_ref() {
                     t.forget(&name);
@@ -1212,8 +1212,8 @@ impl<L: Llm> AmberyBackend<L> {
             "stop" => {
                 upsert(AgentStatus::Idle, tab)?;
                 let hint = last_assistant_message.unwrap_or("").trim();
-                // stop_hook_mode 三模式（docs/hook.md，Config 热生效）；
-                // source 按模式与产物语义分标（docs/concrete-insight.md §Queue 中的 System 消息来源）
+                // stop_hook_mode 三模式（，Config 热生效）；
+                // source 按模式与产物语义分标
                 let (text, source) = match self.config.stop_hook_mode.as_str() {
                     // A：stop 到达即读通道全量（tab 切换限流见 timer，此处只读）
                     "auto_read" => {
@@ -1275,7 +1275,7 @@ impl<L: Llm> AmberyBackend<L> {
         Ok(())
     }
 
-    /// mock hook（docs/agent-loop.md §Mock Hook 契约）
+    /// mock hook
     pub async fn handle_hook(
         &mut self,
         event: &str,
@@ -1284,24 +1284,24 @@ impl<L: Llm> AmberyBackend<L> {
         content: &str,
         ts: i64,
     ) -> std::io::Result<()> {
-        // 读取链（docs/storage.md）：原文先存 terminal-content.jsonl，再 Filter 存 context.jsonl
+        // 读取链：原文先存 terminal-content.jsonl，再 Filter 存 context.jsonl
         self.harness.append_terminal_content(TerminalContentRecord {
             instance: instance.into(),
             raw: content.to_string(),
             source: RecordSource::Hook,
             ts,
         })?;
-        // Filter：Content → Context 链路（concepts §11），存归一后文本，字数按归一后计。
-        // mock hook 语义 = 模拟 claude CLI 实例（docs/agent-loop.md §Mock Hook 契约），
-        // 故 kind 恒为 claude（docs/filter.md：Filter 按实例 kind 选择）
+        // Filter：Content → Context 链路，存归一后文本，字数按归一后计。
+        // mock hook 语义 = 模拟 claude CLI 实例，
+        // 故 kind 恒为 claude（：Filter 按实例 kind 选择）
         let filtered = crate::filter::by_name("claude")
             .expect("claude filter 必须存在")
             .digest(content)
             .render();
-        // Hook 到达 → Timer 重排（近期有 Hook 的实例不该被补扫，docs/timer.md）
+        // Hook 到达 → Timer 重排（近期有 Hook 的实例不该被补扫）
         self.timers.reset(instance, ts);
         match event {
-            // 静默簿记（EventBuffer，pet 不醒；docs/agent-loop.md mock 契约对齐真实分层）
+            // 静默簿记（EventBuffer，pet 不醒 mock 契约对齐真实分层）
             "session_start" => {
                 self.harness.upsert_agent(AgentEntry {
                     hash: crate::agent_hash(instance, project, ts),
@@ -1361,8 +1361,8 @@ impl<L: Llm> AmberyBackend<L> {
         Ok(())
     }
 
-    /// 提取到期的兜底扫描实例（docs/timer.md）
-    /// 提取到期的兜底扫描实例（docs/timer.md）；
+    /// 提取到期的兜底扫描实例
+    /// 提取到期的兜底扫描实例；
     /// timer.interval_ms ≤ 0 = 禁用（真实 hook 接入初期只留 hook 驱动，设计决定）
     pub fn due_timer_scans(&mut self, now: i64, batch: usize) -> Vec<String> {
         if self.config.timer.interval_ms <= 0 {
@@ -1371,7 +1371,7 @@ impl<L: Llm> AmberyBackend<L> {
         self.timers.due(now, batch)
     }
 
-    /// 实例 kind 解析（docs/filter.md：Filter 按实例 kind 选择）
+    /// 实例 kind 解析（：Filter 按实例 kind 选择）
     fn resolve_kind(&self, instance: &str) -> Option<String> {
         self.harness
             .agents
@@ -1381,9 +1381,9 @@ impl<L: Llm> AmberyBackend<L> {
             .and_then(|a| a.kind.clone())
     }
 
-    /// filtered_content 现算（不持久化，docs/storage.md §filtered_content 退役）：
+    /// filtered_content 现算（不持久化）：
     /// terminal-content.jsonl 原文逐条 digest 出归一全文（agent 实际读到的终端内容）；
-    /// 逐条按实例 kind 选择 Filter（docs/filter.md），kind 缺失/不受支持的记录不入归一视图
+    /// 逐条按实例 kind 选择 Filter，kind 缺失/不受支持的记录不入归一视图
     pub fn filtered_content(&self) -> Vec<crate::FilteredContent> {
         self.harness
             .terminal_content_records()
@@ -1420,7 +1420,7 @@ impl<L: Llm> AmberyBackend<L> {
             })
     }
 
-    /// Filter 按实例 kind 现选现缓存（docs/filter.md：唯一按实例 hook kind 选择；
+    /// Filter 按实例 kind 现选现缓存（：唯一按实例 hook kind 选择；
     /// 无全局策略、无默认回退）。kind 缺失或不受支持 → None（调用方直接拒绝）
     fn filter_for(&mut self, instance: &str) -> Option<Arc<dyn Filter + Send + Sync>> {
         let kind = self
@@ -1438,13 +1438,13 @@ impl<L: Llm> AmberyBackend<L> {
         Some(f)
     }
 
-    /// kind 合法性（注册/事件前置判据，docs/filter.md）：kind 存在且受支持
+    /// kind 合法性（注册/事件前置判据）：kind 存在且受支持
     fn kind_supported(kind: Option<&str>) -> bool {
         kind.map_or(false, |k| crate::filter::by_name(k).is_some())
     }
 
     /// 变化检测 prev 登记（每实例最新已知归一全文；内存态，重启丢）；
-    /// 读路径顺带定位回写（docs/hook.md §定位缓存：未命中再按 marker 找，找到回写注册表快照）
+    /// 读路径顺带定位回写（：未命中再按 marker 找，找到回写注册表快照）
     fn note_filtered(&mut self, instance: &str, filtered: String) {
         self.filtered_prev.insert(instance.to_string(), filtered);
         let needs_locate = self
@@ -1477,7 +1477,7 @@ impl<L: Llm> AmberyBackend<L> {
         }
     }
 
-    /// Timer 兜底扫描处理（docs/timer.md §扫描处理流程）：
+    /// Timer 兜底扫描处理：
     /// Filter → 变化检测 → Substantive 才注入 Queue 评估；Minor/Unchanged 只存档不打扰
     pub async fn handle_timer_scan(
         &mut self,
@@ -1485,21 +1485,21 @@ impl<L: Llm> AmberyBackend<L> {
         content: &str,
         ts: i64,
     ) -> std::io::Result<()> {
-        // 原文先存档（docs/storage.md），再 Filter + 变化检测
+        // 原文先存档，再 Filter + 变化检测
         self.harness.append_terminal_content(TerminalContentRecord {
             instance: instance.into(),
             raw: content.to_string(),
             source: RecordSource::Timer,
             ts,
         })?;
-        // Filter 按实例 kind（docs/filter.md）：缺失/不受支持在 Filter 与 Queue 之前拒绝
+        // Filter 按实例 kind：缺失/不受支持在 Filter 与 Queue 之前拒绝
         // （原文存档不受影响；判死读通道在调用方，不经此函数）
         let Some(filter) = self.filter_for(instance) else {
             eprintln!("[timer-scan] {instance} kind 缺失或不受支持，内容处理拒绝");
             return Ok(());
         };
         let filtered = filter.digest(content).render();
-        // 变化检测 prev 存内存（重启丢，docs/storage.md §filtered_content 退役）
+        // 变化检测 prev 存内存（重启丢）
         let prev = self.filtered_prev.get(instance).cloned().unwrap_or_default();
         let change = filter.detect_change(&prev, &filtered);
         let len = filtered.chars().count();
@@ -1519,7 +1519,7 @@ impl<L: Llm> AmberyBackend<L> {
         Ok(())
     }
 
-    /// Timer 兜底扫描发现 tab 不复存在 → closed 终态（docs/storage.md：永久日志的消亡语义）
+    /// Timer 兜底扫描发现 tab 不复存在 → closed 终态（：永久日志的消亡语义）
     /// Timer 判死（读通道返回 None）：该名字全部未 closed 生命周期各 append 一条
     /// closed 快照——读通道按 name 读，同名实例在读取侧不可区分，判死须同判
     ///（同名不同命：每 hash 独立快照，append-only 语义不变）。
@@ -1544,7 +1544,7 @@ impl<L: Llm> AmberyBackend<L> {
                 last_seen: ts,
                 ..a
             })?;
-            // Timer 判死同样清定位缓存（docs/hook.md §事件分层）
+            // Timer 判死同样清定位缓存
             if let Some(t) = self.terminal.as_ref() {
                 t.forget(&name);
             }
@@ -1565,7 +1565,7 @@ impl<L: Llm> AmberyBackend<L> {
     /// 执行 tool call（run_trigger tool 循环与 case-runner tool_call step 共用）
     pub async fn execute_tool(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
         let out = self.execute_tool_inner(call).await;
-        // 动作流记录（docs/storage.md §effect.jsonl 记录点）：tool 副作用在此单点记录；
+        // 动作流记录：tool 副作用在此单点记录；
         // ConfigChanged 已在 edit_config_update 内记录（LLM 路径=config_changed/backend），跳过防双写
         for e in &out.1 {
             if !matches!(e, Effect::ConfigChanged { .. }) {
@@ -1583,7 +1583,7 @@ impl<L: Llm> AmberyBackend<L> {
 
     async fn execute_tool_inner(&mut self, call: &ToolCall) -> (Value, Vec<Effect>) {
         let args: Value = serde_json::from_str(&call.arguments).unwrap_or(Value::Null);
-        // 错误反馈按 Harness 语言现查（docs/i18n.md §Harness 内部语言）
+        // 错误反馈按 Harness 语言现查
         let lang = crate::i18n::Lang::of(&self.config.harness_language);
         match call.name.as_str() {
             "call_component" => {
@@ -1604,7 +1604,7 @@ impl<L: Llm> AmberyBackend<L> {
                         vec![],
                     );
                 }
-                // 显式关闭（持续管理协议，docs/components.md）：action="close" 只需合法 id，
+                // 显式关闭（持续管理协议）：action="close" 只需合法 id，
                 // 不要求 type 必填字段（关闭卡片不需要内容）
                 // #23 两级兼容：LLM 有时把 action 放在 args 顶层（与 spec 并列），
                 // spec 内查不到时回退 args 顶层，否则 close 会被当成空 update 渲染空卡
@@ -1614,7 +1614,7 @@ impl<L: Llm> AmberyBackend<L> {
                     .and_then(Value::as_str);
                 if action == Some("close") {
                     let ts = crate::server::now_ms();
-                    // dismiss：删 .card.json 文件、出注册表、忘记布局（docs/components.md §Card 文件）
+                    // dismiss：删 .card.json 文件、出注册表、忘记布局
                     if let Some(entry) = self.harness.cards_remove(&id) {
                         // closed_by_agent 生命周期事件（一行，进 EventBuffer 静默簿记）
                         let alive = self.harness.cards.len();
@@ -1730,14 +1730,14 @@ impl<L: Llm> AmberyBackend<L> {
                 if inst.is_empty() {
                     return (json!({ "ok": false, "error": crate::i18n::tr(lang, "err.instance-required") }), vec![]);
                 }
-                // vd_switch 必填（docs/hook.md §VD 切换能力）：打断性决策每次显式面对
+                // vd_switch 必填：打断性决策每次显式面对
                 let Some(vd_switch) = args.get("vd_switch").and_then(Value::as_bool) else {
                     return (
                         json!({ "ok": false, "error": crate::i18n::tr(lang, "err.vd-switch-required") }),
                         vec![],
                     );
                 };
-                // 读通道优先（Terminal Adapter）：读到原文先存档再过滤（docs/storage.md 读取链）
+                // 读通道优先（Terminal Adapter）：读到原文先存档再过滤（ 读取链）
                 let read_fresh = |ov: &mut Self| {
                     ov.read_terminal(inst)
                         .and_then(|raw| {
@@ -1758,7 +1758,7 @@ impl<L: Llm> AmberyBackend<L> {
                     // toolset.md §fetch_terminal：成功返回携带 ok:true（成败形态自洽）
                     return (json!({ "ok": true, "instance": inst, "content": content }), vec![]);
                 }
-                // 新鲜读失败 → 最新归一全文回退（有历史给历史；从原文现算，docs/storage.md）
+                // 新鲜读失败 → 最新归一全文回退（有历史给历史；从原文现算）
                 if let Some(rec) = self.filtered_content_latest(inst) {
                     return (json!({ "ok": true, "instance": inst, "content": rec.filtered_content }), vec![]);
                 }
@@ -1769,7 +1769,7 @@ impl<L: Llm> AmberyBackend<L> {
                         vec![],
                     );
                 }
-                // 切桌面（concepts §15 Example F）：adapter 定位拿 hwnd → primitives 切换
+                // 切桌面（ Example F）：adapter 定位拿 hwnd → primitives 切换
                 let switched = self
                     .terminal
                     .as_ref()
@@ -1791,7 +1791,7 @@ impl<L: Llm> AmberyBackend<L> {
                 let mut face = args.get("key").and_then(Value::as_str).map(String::from);
                 let motion = args.get("motion").and_then(Value::as_str).map(String::from);
                 // key 传状态 key 名：解析为映射表本体；motion 不连带——
-                // 「仅传参的字段被覆盖」，缺省即不碰（docs/autonomy.md）
+                // 「仅传参的字段被覆盖」，缺省即不碰
                 if let Some(f) = &face {
                     if let Some(entry) = self.config.kaomoji_resolve(f.as_str()) {
                         face = Some(entry.face.clone());
@@ -1811,7 +1811,7 @@ impl<L: Llm> AmberyBackend<L> {
                         );
                     }
                 }
-                // once 契约（docs/autonomy.md）：两套持续时间语义互斥，同传直接拒绝
+                // once 契约：两套持续时间语义互斥，同传直接拒绝
                 let once = args.get("once").and_then(Value::as_bool).unwrap_or(false);
                 let ttl_ms = args.get("ttlMs").and_then(Value::as_u64);
                 if once && ttl_ms.is_some() {
@@ -1831,7 +1831,7 @@ impl<L: Llm> AmberyBackend<L> {
                 )
             }
             "edit_config" => {
-                // 单一 Config 工具，显式 action（docs/config.md §edit_config：
+                // 单一 Config 工具，显式 action（：
                 // 不以缺参、空值或失败写入切换模式；渐进披露，按需查）
                 let action = args.get("action").and_then(Value::as_str).unwrap_or("");
                 match action {
@@ -1848,7 +1848,7 @@ impl<L: Llm> AmberyBackend<L> {
                 }
             }
             "read_memory" => {
-                // docs/memory.md：name 省略 = 读 index.md 导航首页
+                // ：name 省略 = 读 index.md 导航首页
                 let name = args.get("name").and_then(Value::as_str);
                 match self.harness.memory.read(lang, name) {
                     Ok((name, content)) => (json!({ "ok": true, "name": name, "content": content }), vec![]),
@@ -1856,7 +1856,7 @@ impl<L: Llm> AmberyBackend<L> {
                 }
             }
             "write_memory" => {
-                // docs/memory.md：新建或完整替换；必须附 description；index.md 自动重生成
+                // ：新建或完整替换；必须附 description；index.md 自动重生成
                 let name = args.get("name").and_then(Value::as_str).unwrap_or("");
                 let Some(content) = args.get("content").and_then(Value::as_str) else {
                     return (json!({ "ok": false, "error": crate::i18n::tr(lang, "mem.content-required") }), vec![]);
@@ -1870,7 +1870,7 @@ impl<L: Llm> AmberyBackend<L> {
                 }
             }
             "cron_create" => {
-                // docs/cron.md §cron_create：schedule 二选一 + message
+                // ：schedule 二选一 + message
                 let schedule = args.get("schedule").cloned().unwrap_or(Value::Null);
                 let message = args.get("message").and_then(Value::as_str).unwrap_or("");
                 let at = schedule.get("at").and_then(Value::as_i64);
@@ -1907,7 +1907,7 @@ impl<L: Llm> AmberyBackend<L> {
                 }
             }
             "sleep" => {
-                // docs/cron.md §sleep：tool result 延迟返回，等待后继续既定工具序列；
+                // ：tool result 延迟返回，等待后继续既定工具序列；
                 // waiters 经共享句柄注册（调度任务在锁外到点唤醒，无死锁）
                 let Some(ms) = args.get("ms").and_then(Value::as_u64) else {
                     return (json!({ "ok": false, "error": crate::i18n::tr(lang, "sleep.ms-required") }), vec![]);
@@ -1920,7 +1920,7 @@ impl<L: Llm> AmberyBackend<L> {
                 }
                 let fire_ts = crate::server::now_ms() + ms as i64;
                 let rx = self.harness.cron.waiter_handle().register(fire_ts);
-                let _ = rx.await; // 占用 Queue 串行点等待（既定成本，docs/cron.md）
+                let _ = rx.await; // 占用 Queue 串行点等待（既定成本）
                 (json!({ "ok": true, "slept_ms": ms }), vec![])
             }
             other => (
@@ -1962,7 +1962,7 @@ mod tests {
 
     #[tokio::test]
     async fn effort_resolved_from_source_with_config_override() {
-        // docs/effort.md §档位来源：user_chat→low、hook_stop_content→high、其余→medium
+        // ：user_chat→low、hook_stop_content→high、其余→medium
         let mut ov = make_ambery("eff1");
         use crate::llm::Effort;
         use crate::queue::QueueSource as S;
@@ -1982,7 +1982,7 @@ mod tests {
 
     #[tokio::test]
     async fn effort_keyword_rewrite_only_for_user_chat() {
-        // docs/effort.md §匹配关键词：user_chat 命中关键词 → 本次临时改写；多命中取最长
+        // ：user_chat 命中关键词 → 本次临时改写；多命中取最长
         let mut ov = make_ambery("eff2");
         use crate::llm::Effort;
         use crate::queue::QueueSource as S;
@@ -2011,7 +2011,7 @@ mod tests {
 
     #[tokio::test]
     async fn queue_source_annotated_per_entry_point() {
-        // docs/concrete-insight.md §Queue 中的 System 消息来源：入队点逐一标注
+        // ：入队点逐一标注
         let mut ov = make_ambery("qsrc");
         // user_prompt hook → HookUserPrompt
         ov.handle_real_hook("user_prompt", "sess-1111-2222", "/tmp/p", Some("claude"), Some("干这个"), None, None, 1)
@@ -2030,7 +2030,7 @@ mod tests {
             ],
             "{sources:?}"
         );
-        // queue.jsonl 落盘携带 source（docs/storage.md）；直接拼路径——tmp_dir() 会清空目录
+        // queue.jsonl 落盘携带 source；直接拼路径——tmp_dir() 会清空目录
         let dir = std::env::temp_dir().join(format!("ambery-test-qsrc-{}", std::process::id()));
         let raw = std::fs::read_to_string(dir.join(crate::QUEUE_FILE)).unwrap();
         assert!(raw.contains("\"source\":\"hook_user_prompt\""), "{raw}");
@@ -2040,7 +2040,7 @@ mod tests {
 
     #[tokio::test]
     async fn queue_source_stop_three_modes() {
-        // stop 三模式来源分标（docs/harness.md §Queue 规则 2）
+        // stop 三模式来源分标
         // queue_only（默认）→ hint；message → report；auto_read 读成功 → content
         let mut ov = make_ambery("qsrc-hint");
         ov.handle_real_hook("session_start", "s0a00000-1", "/tmp/p", Some("claude"), None, None, None, 1).await.unwrap();
@@ -2113,7 +2113,7 @@ mod tests {
 
     #[tokio::test]
     async fn tab_lifecycle_locate_writeback_and_forget() {
-        // docs/hook.md §定位缓存 + §事件分层：session_start 定位探测回写、
+        // ：session_start 定位探测回写、
         // session_end closed 快照 tab=null + 清定位缓存
         let mut ov = make_ambery("tab-lifecycle");
         let adapter = stub_adapter(Some(crate::TabRef { hwnd: 100, index: 2 }), None);
@@ -2137,7 +2137,7 @@ mod tests {
             .unwrap();
         let last = ov.harness.agents.last().unwrap();
         assert_eq!(last.status, crate::AgentStatus::Closed);
-        assert_eq!(last.tab, None, "closed 快照 tab 为 null（docs/storage.md）");
+        assert_eq!(last.tab, None, "closed 快照 tab 为 null");
         assert!(adapter.forgotten.lock().unwrap().contains(&a.name), "清定位缓存");
     }
 
@@ -2164,7 +2164,7 @@ mod tests {
     async fn fetch_terminal_ok_flag_consistent() {
         // toolset.md §fetch_terminal：成功与失败形态自洽（ok 字段恒在）
         let mut ov = make_ambery("fetch-ok");
-        // Filter 按实例 kind（docs/filter.md）：未注册实例 kind 缺失，读取被拒绝
+        // Filter 按实例 kind：未注册实例 kind 缺失，读取被拒绝
         let call = ToolCall { id: "f".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost","vd_switch":false}).to_string() };
         let (r, _) = ov.execute_tool(&call).await;
         assert_eq!(r["ok"], json!(false), "{r}");
@@ -2179,12 +2179,12 @@ mod tests {
 
     #[test]
     fn pet_name_flows_into_system_prompt_and_validates() {
-        // 默认名（用户定案不改）：pet
+        // 默认名：Ambery
         let ov = make_ambery("petname");
         assert_eq!(ov.config.name, "Ambery");
         // 拼装请求头读取当前名称（{name} 占位替换）
         let head = ov.assemble_system_prompt();
-        assert!(head.contains("你是 pet"), "{head}");
+        assert!(head.contains("你是 Ambery"), "{head}");
         assert!(!head.contains("{name}"), "{head}");
         // 改名 → 下一次拼装即当前名称（身份文案热读取）；空名/超长名原子拒绝
         let mut ov = ov;
@@ -2198,7 +2198,7 @@ mod tests {
 
     #[tokio::test]
     async fn harness_language_switches_tool_and_event_texts() {
-        // harness_language=en：工具说明英文（机器契约不译）+ hook 事件文字英文（docs/i18n.md）
+        // harness_language=en：工具说明英文（机器契约不译）+ hook 事件文字英文
         let dir = tmp_dir("i18n-en");
         let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
         let mut config = Config::default();
@@ -2322,7 +2322,7 @@ mod tests {
 
     #[tokio::test]
     async fn session_start_silent_bookkeeping() {
-        // 定案（concepts §9b / docs/agent-loop.md mock 契约）：session_start = 静默簿记，
+        // 定案（ /  mock 契约）：session_start = 静默簿记，
         // pet 不醒——注册 Idle + EventBuffer，不进 Context 不触发 LLM
         let mut ov = make_ambery("register");
         ov.handle_hook("session_start", "new-feature", "proj", "启动画面", 1)
@@ -2368,7 +2368,7 @@ mod tests {
 
     #[tokio::test]
     async fn event_buffer_attached_on_release() {
-        // 定案（concepts §10e）：放行 system 输入时 Event Buffer 附带合并为一条消息
+        // 定案：放行 system 输入时 Event Buffer 附带合并为一条消息
         let mut ov = make_ambery("merge");
         ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
         ov.harness.event_buffer.push("用户勾选了 todobox 条目「跑测试」");
@@ -2394,7 +2394,7 @@ mod tests {
 
     #[tokio::test]
     async fn event_buffer_keeps_user_role_clean() {
-        // 定案（concepts §10e 末句）：与 user role 严格分离——user 输入放行时
+        // 定案（ 末句）：与 user role 严格分离——user 输入放行时
         // buffer 以独立 system 消息先行附带，不污染 user 消息
         let mut ov = make_ambery("merge-user");
         ov.harness.event_buffer.push("用户关闭了 text_card「摘要」");
@@ -2500,7 +2500,7 @@ mod tests {
         let ov = make_ambery("head-md");
         let head = ov.assemble_system_prompt();
         // bootstrap 写入的默认身份提示词拼进了请求头（§12：Config 引用数据运行时拼装）
-        assert!(head.contains("# AGENTS.md — pet"));
+        assert!(head.contains("# AGENTS.md — Ambery"));
         assert!(head.contains("## 颜文字映射"));
         // 请求头只装稳定提示词：实例状态走 diff 事件，不进请求头
         assert!(!head.contains("## 当前实例状态"));
@@ -2509,7 +2509,7 @@ mod tests {
 
     #[tokio::test]
     async fn restart_loses_prev_first_scan_reports_change() {
-        // filtered_content 不持久化定案（docs/storage.md）：变化检测 prev 存内存，
+        // filtered_content 不持久化定案：变化检测 prev 存内存，
         // 重启丢——同目录重开后首轮 scan 对相同内容也报 Substantive（接受的代价）
         let dir = tmp_dir("prev-loss");
         {
@@ -2546,7 +2546,7 @@ mod tests {
         .unwrap();
         assert!(archive.contains("✻ Crunched for 12s")); // 原文噪音还在
         assert!(archive.contains("\"source\":\"hook\""));
-        // 归一全文不持久化：从原文 digest 现算（docs/storage.md §filtered_content 退役）
+        // 归一全文不持久化：从原文 digest 现算
         assert_eq!(ov.filtered_content_latest("ft").unwrap().filtered_content, "● 完成");
         let _ = std::fs::remove_dir_all(tmp_dir("raw-archive"));
     }
@@ -2570,7 +2570,7 @@ mod tests {
         let frames = std::sync::Arc::new(std::sync::Mutex::new(vec![]));
         let mut ov = make_ambery_with("autonomy", capturing(frames.clone()));
         ov.run_trigger(1, crate::queue::QueueSource::MockHook, 0).await.unwrap();
-        // 请求帧：首条 = 现拼请求头，末条 = Autonomy 状态（concepts §4）
+        // 请求帧：首条 = 现拼请求头，末条 = Autonomy 状态
         let f = &frames.lock().unwrap()[0];
         assert!(f[0].contains("## 颜文字映射"));
         assert_eq!(f.last().unwrap(), "[face: idle, motion: still]");
@@ -2721,7 +2721,7 @@ mod tests {
                 ..
             } if f == "✧*｡٩(ˊᗜˋ*)و✧*｡"
         )));
-        // 非 key 的 face 拒绝（docs/toolset.md：必须用 key 名）
+        // 非 key 的 face 拒绝（：必须用 key 名）
         let call2 = ToolCall {
             id: "c2".into(),
             name: "set_autonomy".into(),
@@ -2735,7 +2735,7 @@ mod tests {
 
     #[tokio::test]
     async fn set_autonomy_once_contract() {
-        // once 契约（docs/autonomy.md）：once 与 ttlMs 同传直接拒绝；单传 once 透传 effect
+        // once 契约：once 与 ttlMs 同传直接拒绝；单传 once 透传 effect
         let mut ov = make_ambery("once");
         let conflict = ToolCall {
             id: "c1".into(),
@@ -2762,7 +2762,7 @@ mod tests {
 
     #[tokio::test]
     async fn streaming_delta_flows_to_sink() {
-        // 默认回落路径（docs/streaming.md）：complete 一次性 → 全文单 delta → AssistantDone
+        // 默认回落路径：complete 一次性 → 全文单 delta → AssistantDone
         let agent = scripted(vec![say("流式回复全文")]);
         let mut ov = make_ambery_with("stream", agent);
         let got = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Effect>::new()));
@@ -2786,7 +2786,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(tmp_dir("stream"));
     }
 
-    // ── 动作流记录（docs/storage.md §effect.jsonl 记录点）──
+    // ── 动作流记录──
 
     #[test]
     fn effect_kind_payload_exhaustive() {
@@ -2933,7 +2933,7 @@ mod tests {
 
     #[tokio::test]
     async fn call_component_continuous_management() {
-        // 持续管理协议（docs/components.md）：同 id = 原地更新，close action 显式关闭
+        // 持续管理协议：同 id = 原地更新，close action 显式关闭
         let mut ov = make_ambery("cmp-mgmt");
         let mk = |text: &str| crate::context::ToolCall {
             id: "c1".into(),
@@ -2968,7 +2968,7 @@ mod tests {
         assert!(matches!(e3[0], Effect::CloseComponent(_)));
         assert!(!ov.harness.cards.contains_key("todo-1"));
         assert!(!card_file.exists(), "dismiss 删 .card.json");
-        // 生命周期事件（docs/components.md）：created 一行 + closed 一行，均进 EventBuffer 静默簿记
+        // 生命周期事件：created 一行 + closed 一行，均进 EventBuffer 静默簿记
         let owned = ov.harness.event_buffer.events();
         let events: Vec<&str> = owned.iter().map(|s| s.as_str()).collect();
         assert!(events.iter().any(|l| l.starts_with("card created: todobox「t」(todo-1) @ ") && l.ends_with(", → 存活 1")), "created 事件: {events:?}");
@@ -3002,7 +3002,7 @@ mod tests {
 
     #[tokio::test]
     async fn call_component_registry_restored_from_card_files() {
-        // Card 跨重启（docs/components.md §Card 文件）：文件即真相——新 Harness 从
+        // Card 跨重启：文件即真相——新 Harness 从
         // memory/cards/*.card.json 恢复注册表，不经 effect.jsonl replay
         let tag = "cmp-reload";
         let dir = tmp_dir(tag);
@@ -3290,7 +3290,7 @@ mod tests {
             .iter()
             .find(|a| a.hash == "3f8a2c1e")
             .expect("已注册");
-        assert_eq!(a.name, "npc-prof·3f8a2c1e");
+        assert_eq!(a.name, "p·3f8a2c1e");
         assert_eq!(a.kind.as_deref(), Some("claude"));
         assert_eq!(a.status, AgentStatus::Idle);
         assert_eq!(a.first_seen, 1000);
@@ -3390,7 +3390,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_config_updates_and_persists() {
-        // 完整协议：query(view=object) 读整池 → 下一 response update 完整 map（docs/config.md）
+        // 完整协议：query(view=object) 读整池 → 下一 response update 完整 map
         let mut ov = make_ambery("cfg");
         let query = ToolCall {
             id: "q1".into(),
@@ -3513,7 +3513,7 @@ mod tests {
 
     #[tokio::test]
     async fn tool_call_budgets_enforced_with_final_wrap_up() {
-        // 工具调用预算（docs/agent-loop.md §工具调用预算）
+        // 工具调用预算
         let mk_agent = |scripts: Vec<LlmOutput>, counter: std::sync::Arc<std::sync::atomic::AtomicUsize>| {
             let rest = std::sync::Mutex::new(std::collections::VecDeque::from(scripts));
             DebugAgent::new(move |_| {
@@ -3570,7 +3570,7 @@ mod tests {
 
     #[tokio::test]
     async fn cron_tools_and_sleep_via_execute_tool() {
-        // cron_create/cron_delete/sleep（docs/cron.md）
+        // cron_create/cron_delete/sleep
         let mut ov = make_ambery("crontool");
         let c = ToolCall {
             id: "c1".into(),
@@ -3608,7 +3608,7 @@ mod tests {
 
     #[tokio::test]
     async fn memory_tools_round_trip_via_execute_tool() {
-        // read_memory/write_memory（docs/memory.md）：write 必附 description；
+        // read_memory/write_memory：write 必附 description；
         // 省略 name 读 index.md 导航；Memory 根在 storage 下持久化
         let mut ov = make_ambery("memtool");
         let w = ToolCall {
@@ -3640,7 +3640,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_config_full_protocol_via_run_trigger() {
-        // 完整 agent 工具策略（docs/case-runner.md：先读后写必须走 run_trigger 完整链路——
+        // 完整 agent 工具策略（：先读后写必须走 run_trigger 完整链路——
         // query result 写 Context tool result → 下一 response update 凭快照放行）
         let agent = scripted(vec![
             calls(vec![("edit_config", json!({ "action": "query", "path": "view_scale" }))]),
@@ -3675,7 +3675,7 @@ mod tests {
         let paths: Vec<&str> = g["matches"].as_array().unwrap().iter()
             .map(|m| m["path"].as_str().unwrap()).collect();
         assert!(paths.contains(&"badge_style") && paths.contains(&"badge_side") && paths.contains(&"view_scale"), "{paths:?}");
-        // 按完整 path 字典序稳定排列（docs/config.md §grep）
+        // 按完整 path 字典序稳定排列
         let mut sorted = paths.clone();
         sorted.sort_unstable();
         assert_eq!(paths, sorted, "grep 结果须按 path 字典序: {paths:?}");
@@ -3708,7 +3708,7 @@ mod tests {
 
     #[tokio::test]
     async fn kaomoji_pools_invariants_enforced_on_update() {
-        // 两池校验（docs/config.md §表情池）：写入管道原子拒绝违反不变量的 candidate
+        // 两池校验：写入管道原子拒绝违反不变量的 candidate
         let mut ov = make_ambery("pools");
         // ① 交集为空：user 池新增与 system 重复的 key → 拒绝
         assert!(ov
@@ -3727,7 +3727,7 @@ mod tests {
         ov.apply_config_by_path("kaomoji", pools).unwrap();
         assert!(ov.config.kaomoji.user.contains_key("idle"));
         assert!(!ov.config.kaomoji.system.contains_key("idle"));
-        // 并集解析不受池归属影响（docs/config.md：移动后仍参与默认状态与按 key 解析）
+        // 并集解析不受池归属影响（：移动后仍参与默认状态与按 key 解析）
         assert_eq!(ov.config.kaomoji_resolve("idle").unwrap().face, "(´ω`)");
         let _ = std::fs::remove_dir_all(tmp_dir("pools"));
     }
@@ -3772,7 +3772,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_config_null_write_semantics() {
-        // null 语义（docs/config.md §update 与 null）：叶子写 null = 回自身 default；
+        // null 语义：叶子写 null = 回自身 default；
         // object/map/动态 entry 拒绝 null 更新
         let mut ov = make_ambery("null-write");
         ov.apply_config_by_path("view_scale", json!(0.7)).unwrap();
@@ -3786,7 +3786,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_config_rejects_no_llm_visible_subtree() {
-        // LLM 受限投影（docs/config.md）：llm 整棵子树对 edit_config 统一拒绝；
+        // LLM 受限投影：llm 整棵子树对 edit_config 统一拒绝；
         // 本地管道（apply_config_by_path = CLI/面板入口）不受投影限制
         let mut ov = make_ambery("proj");
         for path in ["llm.active", "llm.providers.deepseek.model", "llm"] {
