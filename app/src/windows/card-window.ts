@@ -35,7 +35,7 @@ export async function main() {
   // #8 拖拽：card header mousedown → 开始移动窗口
   document.addEventListener("mousedown", (e) => {
     if ((e.target as HTMLElement).closest(".cmp-header") && !(e.target as HTMLElement).closest(".cmp-close")) {
-      void actions.startDragging(win);
+      void actions.startDragging(actions.tauriWindowLike(win));
     }
   });
 

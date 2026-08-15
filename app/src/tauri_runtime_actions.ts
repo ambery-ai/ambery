@@ -5,17 +5,28 @@
 // 只读调用（getByLabel / outerPosition / currentMonitor / listen）不属于本层，
 // 调用处直接使用；浏览器模拟（DOM）不进本层、不埋点。
 
-import { PhysicalPosition, PhysicalSize } from "@tauri-apps/api/window";
+import { PhysicalPosition, PhysicalSize, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { emit, emitTo } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { reportEffect } from "./effects";
 
-/** 动作目标：`@tauri-apps/api/window` 的 Window 与 webviewWindow 的 WebviewWindow
- *  共有的写方法结构子集——动作层不关心调用处拿到的是哪一种 */
+export interface SizeLike {
+  width: number;
+  height: number;
+}
+
+export interface PositionLike {
+  x: number;
+  y: number;
+}
+
+/** 动作目标：Tauri 真实窗口的适配包装，或 headless 的 MockWindow/DOM 窗口。
+ *  统一用普通结构参数——Tauri 物理类型在调用方适配层构造，
+ *  这样 mock 窗口层与真实窗口走同一条动作层。 */
 export interface WindowLike {
   readonly label: string;
-  setSize(size: PhysicalSize): Promise<void>;
-  setPosition(position: PhysicalPosition): Promise<void>;
+  setSize(size: SizeLike): Promise<void>;
+  setPosition(position: PositionLike): Promise<void>;
   show(): Promise<void>;
   setFocus(): Promise<void>;
   hide(): Promise<void>;
@@ -23,9 +34,23 @@ export interface WindowLike {
   startDragging(): Promise<void>;
 }
 
+/** Tauri Window → 普通结构 WindowLike（动作层与 headless mock 窗口共用同一接口） */
+export function tauriWindowLike(raw: TauriWindow): WindowLike {
+  return {
+    label: raw.label,
+    setSize: (s) => raw.setSize(new PhysicalSize(s.width, s.height)),
+    setPosition: (p) => raw.setPosition(new PhysicalPosition(p.x, p.y)),
+    show: () => raw.show(),
+    setFocus: () => raw.setFocus(),
+    hide: () => raw.hide(),
+    close: () => raw.close(),
+    startDragging: () => raw.startDragging(),
+  };
+}
+
 /** resize_window：setSize → window_resized {window, w, h} */
 export async function resizeWindow(win: WindowLike, w: number, h: number): Promise<void> {
-  await win.setSize(new PhysicalSize(w, h));
+  await win.setSize({ width: w, height: h });
   reportEffect("window_resized", { window: win.label, w, h });
 }
 
@@ -38,7 +63,7 @@ export function offsetWindow(win: WindowLike, el: HTMLElement, top: number, left
 
 /** move_window：setPosition → window_moved {window, x, y} */
 export async function moveWindow(win: WindowLike, x: number, y: number): Promise<void> {
-  await win.setPosition(new PhysicalPosition(x, y));
+  await win.setPosition({ x, y });
   reportEffect("window_moved", { window: win.label, x, y });
 }
 

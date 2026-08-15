@@ -1,6 +1,8 @@
 // WindowAdapter（feat）：统一窗口尺寸 API，Tauri 模式调 OS 窗口，浏览器模式用红绿框模拟。
 // 使 pet.ts 可以在两种环境下一致调试。
 
+import type { WindowLike } from "./tauri_runtime_actions";
+
 export interface WindowAdapter {
   setSize(w: number, h: number): Promise<void>;
   setPosition(x: number, y: number): Promise<void>;
@@ -21,13 +23,14 @@ export async function createTauriAdapter(
 ): Promise<WindowAdapter> {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const actions = await import("./tauri_runtime_actions");
-  const win = getCurrentWindow();
+  const raw = getCurrentWindow();
+  const win: WindowLike = actions.tauriWindowLike(raw);
 
   return {
     setSize: (w, h) => actions.resizeWindow(win, w, h),
     setPosition: (x, y) => actions.moveWindow(win, x, y),
     async getPosition() {
-      const p = await win.outerPosition();
+      const p = await raw.outerPosition();
       return { x: p.x, y: p.y };
     },
     setOffset: (top, left) => actions.offsetWindow(win, viewEl, top, left),
@@ -36,7 +39,7 @@ export async function createTauriAdapter(
     async getScreenHeight() {
       // 读缓存 monitor 表（其 Tauri 实现内部读本表；
       // 窗口实际所在屏 = 当前位置命中项，多屏正确）
-      const p = await win.outerPosition();
+      const p = await raw.outerPosition();
       const { monitorOf } = await import("./positioning/monitors");
       const m = monitorOf({ x: p.x, y: p.y });
       return m.height / m.scaleFactor;
@@ -44,12 +47,15 @@ export async function createTauriAdapter(
   };
 }
 
-/** 浏览器调试模式：wrapper 容器定位，内放 View + overlay 红绿框 */
-export function createBrowserAdapter(
+/** 浏览器调试/headless 模式：wrapper 容器定位，内放 View + overlay 红绿框。
+ *  写操作同样走动作层（WindowLike 包装 DOM）——window_* effect 在非 Tauri
+ *  环境经 RemoteBridge POST /effect 入动作流，与 Tauri 模式同一观测面。 */
+export async function createBrowserAdapter(
   mount: HTMLElement,
   viewEl: HTMLElement,
   viewInstance?: { dragTarget: HTMLElement },
-): WindowAdapter {
+): Promise<WindowAdapter> {
+  const actions = await import("./tauri_runtime_actions");
   const wrapper = document.createElement("div");
   wrapper.id = "debug-wrapper";
   wrapper.style.cssText = "position:fixed;";
@@ -80,25 +86,45 @@ export function createBrowserAdapter(
   };
   requestAnimationFrame(syncOverlay);
 
+  // headless/browser 窗口层：DOM 行为 + 动作层 effect 上报
+  const win: WindowLike = {
+    label: "pet",
+    async setSize(s) {
+      wrapper.style.width = `${s.width}px`;
+      wrapper.style.height = `${s.height}px`;
+    },
+    async setPosition(p) {
+      wrapper.style.left = `${p.x}px`;
+      wrapper.style.top = `${p.y}px`;
+    },
+    async show() {
+      wrapper.style.display = "";
+      overlay.style.display = "";
+      overlay.style.borderColor = "red";
+    },
+    async setFocus() {},
+    async hide() {
+      wrapper.style.display = "none";
+      overlay.style.display = "none";
+      overlay.style.borderColor = "lime";
+    },
+    async close() {
+      wrapper.remove();
+      overlay.remove();
+    },
+    async startDragging() {},
+  };
+
   return {
-    async setSize(w: number, h: number) {
-      wrapper.style.width = `${w}px`;
-      wrapper.style.height = `${h}px`;
-    },
-    setOffset(top: number, left: number) {
-      viewEl.style.top = `${top}px`;
-      viewEl.style.left = `${left}px`;
-    },
-    async setPosition(x: number, y: number) {
-      wrapper.style.left = `${x}px`;
-      wrapper.style.top = `${y}px`;
-    },
+    setSize: (w, h) => actions.resizeWindow(win, w, h),
+    setPosition: (x, y) => actions.moveWindow(win, x, y),
+    setOffset: (top, left) => actions.offsetWindow(win, viewEl, top, left),
     async getPosition() {
       const r = wrapper.getBoundingClientRect();
       return { x: r.left, y: r.top };
     },
-    async show() { wrapper.style.display = ""; overlay.style.display = ""; overlay.style.borderColor = "red"; },
-    async hide() { wrapper.style.display = "none"; overlay.style.display = "none"; overlay.style.borderColor = "lime"; },
+    show: () => actions.showWindow(win),
+    hide: () => actions.hideWindow(win),
     async getScreenHeight() {
       return window.screen.availHeight;
     },

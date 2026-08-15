@@ -55,7 +55,7 @@ export async function main() {
     onCardsChanged: (cb) => store.onCards(cb),
   });
 
-  const close = () => void actions.hideWindow(win);
+  const close = () => void actions.hideWindow(actions.tauriWindowLike(win));
 
   // 中键 toggle（pet 或 shelf 任意位置中键都直接关闭）：pet 发来中心与物理宽高——
   // 尺寸 = pet ×3（钳制），左下角落在 pet 中心、向右上延伸（屏边界钳制）
@@ -66,14 +66,14 @@ export async function main() {
     }
     const w = clamp(Math.round(ev.payload.w * 3), MIN_W, MAX_W);
     const h = clamp(Math.round(ev.payload.h * 3), MIN_H, MAX_H);
-    await actions.resizeWindow(win, w, h);
+    await actions.resizeWindow(actions.tauriWindowLike(win), w, h);
     const mon = await currentMonitor();
     const sx = mon ? mon.position.x + mon.size.width : Infinity;
     const x = Math.min(Math.round(ev.payload.x), sx - w - 8);
     const y = Math.max(8, Math.round(ev.payload.y) - h);
-    await actions.moveWindow(win, x, y);
+    await actions.moveWindow(actions.tauriWindowLike(win), x, y);
     shownAt = Date.now();
-    await actions.showWindow(win);
+    await actions.showWindow(actions.tauriWindowLike(win));
     await panel.refresh();
   });
   // 系统藏（pet 拖拽/托盘连坐）：瞬时面板直接关

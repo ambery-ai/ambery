@@ -16,9 +16,10 @@ interface PackedEntry {
 }
 const packed = new Map<string, PackedEntry>();
 
-/** 上报一条前端动作（effect.jsonl origin=frontend）。仅 Tauri 模式生效；browser 调试模式无操作。 */
+/** 上报一条前端动作（effect.jsonl origin=frontend）。
+ *  Tauri 模式走 record_effect command；headless/browser 调试走 RemoteBridge 的 POST /effect。
+ *  两端点都是 core 的 record_frontend_effect 单点。 */
 export function reportEffect(kind: string, payload: Payload = {}): void {
-  if (!("__TAURI_INTERNALS__" in window)) return;
   if (PACKED_KINDS.has(kind)) {
     const key = `${kind}:${String(payload.window ?? payload.event ?? "")}`;
     const existing = packed.get(key);
@@ -47,10 +48,23 @@ function flush(key: string): void {
   void send(entry.kind, { ...entry.payload, count: entry.count });
 }
 
+function remoteBase(): string {
+  const port = (globalThis as Record<string, unknown>).__AMBERY_PORT__ ?? "47600";
+  return `http://127.0.0.1:${port}`;
+}
+
 async function send(kind: string, payload: Payload): Promise<void> {
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("record_effect", { kind, payload });
+    if ("__TAURI_INTERNALS__" in window) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("record_effect", { kind, payload });
+    } else {
+      await fetch(`${remoteBase()}/effect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, payload }),
+      });
+    }
   } catch {
     // fire-and-forget：忽略上报失败
   }

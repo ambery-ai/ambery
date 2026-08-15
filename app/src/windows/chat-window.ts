@@ -47,7 +47,9 @@ export async function main() {
     document.addEventListener("mousedown", (e) => {
       const t = e.target as HTMLElement;
       if (t.closest(".chat-header") && !t.closest(".chat-close")) {
-        void import("../tauri_runtime_actions").then((m) => m.startDragging(win));
+        void import("../tauri_runtime_actions").then((m) =>
+          m.startDragging(m.tauriWindowLike(win)),
+        );
       }
     });
     // #12/#8①②：拖拽结束（onMoved 防抖）→ 回写真实位置为跟随基准

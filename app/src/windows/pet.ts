@@ -46,7 +46,7 @@ export async function main() {
   const isTauri = "__TAURI_INTERNALS__" in window;
   const adapter: WindowAdapter = isTauri
     ? await createTauriAdapter(view.el, window.devicePixelRatio || 1)
-    : createBrowserAdapter(mount, view.el, view);
+    : await createBrowserAdapter(mount, view.el, view);
 
   // ── 尺寸控制器（纯函数，不读当前 OS 窗口大小） ──
   // dpr 现读（多屏不同 DPI：拖到别的显示器后换算不失真，#19 坐标契约）
@@ -232,7 +232,7 @@ export async function main() {
     const emitToR = (target: string, event: string, payload?: unknown) => { void actions.emitEvent(event, payload, target); };
     const win = getCurrentWindow();
     setupServer(bridge);
-    view.tauriStartDrag = () => { void actions.startDragging(win); };
+    view.tauriStartDrag = () => { void actions.startDragging(actions.tauriWindowLike(win)); };
 
     const { dragDebounce } = await import("../utils/debounce");
 
