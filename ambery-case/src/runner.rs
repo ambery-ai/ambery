@@ -86,7 +86,7 @@ pub async fn exec_timer_scan<L: Llm>(ov: &mut AmberyBackend<L>, _ts: i64) -> (us
     let total = due.len();
     let mut closed = 0;
     for inst in due {
-        let content = ov.read_terminal(&inst);
+        let content = ov.read_terminal(&inst).await;
         let ts = ambery_core::server::now_ms();
         match content {
             Some(c) => ov

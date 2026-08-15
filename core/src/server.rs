@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::llm::LlmBackend;
 use crate::lifecycle::Lifecycle;
-use crate::ambery::{Effect, AmberyBackend};
+use crate::ambery::{read_terminal_via, Effect, AmberyBackend};
 use crate::context::Role;
 use crate::Config;
 
@@ -553,7 +553,8 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
             interval.tick().await;
             let due = { s.ambery.lock().await.due_timer_scans(now_ms(), batch) };
             for inst in due {
-                let content = { let ov = s.ambery.lock().await; ov.read_terminal(&inst) };
+                let terminal = { s.ambery.lock().await.terminal.clone() };
+                let content = read_terminal_via(terminal, &inst).await;
                 if let Some(content) = content {
                     let result = { s.ambery.lock().await.handle_timer_scan(&inst, &content, now_ms()).await };
                     match result {

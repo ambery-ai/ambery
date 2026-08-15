@@ -40,7 +40,7 @@ hook 脚本永远 fire-and-forget（async + 短 timeout + 失败静默）——b
 **stop 三模式**（`stop_hook_mode`，本地可配、`no_llm_visible`、热更新——每次 stop 现读）：
 
 - `"queue_only"`（**默认 B**）：stop 只把 hint（payload 的 `last_assistant_message` 摘要）注入 Queue——宠物凭 hint 判「沉默/好奇」，好奇才 `fetch_terminal` 按需读（UIA 读只在需要时发生）
-- `"auto_read"`（A）：stop 到达即 UIA 抓屏 → filter → 归一结果更新内存变化检测基准，注入 Queue 的是评估提示（「完成，Context 已更新（N 字）」形态）——归一全文不进 Queue/Context（docs/storage.md §filtered_content）；宠物要全文经 `fetch_terminal` 按需读。`read_tab` 会真实切换用户的活动 tab（**不切回**）；**tab 切换限流：全局 5 秒内最多一次**，窗口期内的读请求排队等窗口（UIA Mutex 下自然串行）
+- `"auto_read"`（A）：stop 到达即 UIA 抓屏 → filter → 归一结果更新内存变化检测基准，注入 Queue 的是评估提示（「完成，Context 已更新（N 字）」形态）——归一全文不进 Queue/Context（docs/storage.md §filtered_content）；宠物要全文经 `fetch_terminal` 按需读。`read_tab` 在目标 tab **已选中时不切换**（C# 侧 alreadySelected 短路，无 200ms 等待）；未选中才切换（**不切回**）。`read_active_tab` 是非侵入只读变体（不切换、不排队，调试/当前窗口快读用）；**tab 切换限流：全局 5 秒内最多一次**，窗口期内的切换读请求排队等窗口（UIA Mutex 下自然串行）。读往返整体走 `spawn_blocking`，不阻塞 tokio worker（docs/sidecar.md §阻塞边界）
 - `"message"`（C）：stop 把 `last_assistant_message` **全文**作为内容直接注入 Queue——agent 的汇报原文直达宠物（零 UIA，宠物读的是 agents 自己说的，不是屏幕）。形态：`[汇报] {name} 完成：{全文}`，全量不截断；为空时降级 hint 形态（「完成，无汇报内容」）
 
 **agent 的 VD 切换能力**（开放原则）：不是独立 tool，是 `fetch_terminal` 的**必填字段**——打断性决策不能成为被遗忘的默认，每次调用显式面对：

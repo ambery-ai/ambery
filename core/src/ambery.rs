@@ -164,6 +164,23 @@ fn node_type_name(ty: &crate::config::reflect::NodeType) -> &'static str {
     }
 }
 
+/// Terminal Adapter 的阻塞 locate/read 往返移到 blocking 线程池。
+/// 独立于 AmberyBackend 泛型参数，server timer 可在不长期持锁的情况下调用。
+pub async fn read_terminal_via(
+    terminal: Option<std::sync::Arc<dyn crate::terminal::TerminalAdapter>>,
+    inst: &str,
+) -> Option<String> {
+    let terminal = terminal?;
+    let inst = inst.to_string();
+    tokio::task::spawn_blocking(move || {
+        let tab = terminal.locate(&inst)?;
+        terminal.read(&tab)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 impl<L: Llm> AmberyBackend<L> {
     pub fn new(harness: Harness, config: Config, llm: L) -> Self {
         let timers = TimerWheel::new(config.timer.interval_ms, config.timer.stagger_ms);
@@ -627,12 +644,32 @@ impl<L: Llm> AmberyBackend<L> {
     }
 
     /// 经 Terminal Adapter 读实例终端：
-    /// locate → read 配对（同 adapter 内完成）；无 adapter / 定不到 / 读不到 = None
+    /// locate → read 配对（同 adapter 内完成）；无 adapter / 定不到 / 读不到 = None。
+    /// 同步 UIA 往返放 spawn_blocking——sidecar 的线程 sleep/进程 IO 不阻塞 tokio worker。
     /// （pub：server timer 任务与 case-runner timer_scan step 共用此入口）
-    pub fn read_terminal(&self, inst: &str) -> Option<String> {
-        let t = self.terminal.as_ref()?;
-        let tab = t.locate(inst)?;
-        t.read(&tab)
+    pub async fn read_terminal(&self, inst: &str) -> Option<String> {
+        read_terminal_via(self.terminal.clone(), inst).await
+    }
+
+    /// 读原文 → 存档 → Filter → note（读通道一条龙；fetch_terminal 与 stop auto_read 共用）
+    async fn read_terminal_filtered(
+        &mut self,
+        inst: &str,
+        source: RecordSource,
+        ts: i64,
+    ) -> Option<String> {
+        let raw = self.read_terminal(inst).await?;
+        let _ = self.harness.append_terminal_content(TerminalContentRecord {
+            instance: inst.into(),
+            raw: raw.clone(),
+            source,
+            ts,
+        });
+        let filtered = self.filter_for(inst).map(|f| f.digest(&raw).render());
+        if let Some(f2) = &filtered {
+            self.note_filtered(inst, f2.clone());
+        }
+        filtered
     }
 
     /// 状态 key 推导（key 切换由后端根据 Hook/Timer 驱动）：
@@ -1217,24 +1254,8 @@ impl<L: Llm> AmberyBackend<L> {
                     // A：stop 到达即读通道全量（tab 切换限流见 timer，此处只读）
                     "auto_read" => {
                         let content = self
-                            .read_terminal(&name)
-                            .and_then(|raw| {
-                                let _ = self.harness.append_terminal_content(
-                                    TerminalContentRecord {
-                                        instance: name.clone(),
-                                        raw: raw.clone(),
-                                        source: RecordSource::Hook,
-                                        ts,
-                                    },
-                                );
-                                let filtered = self
-                                    .filter_for(&name)
-                                    .map(|f| f.digest(&raw).render());
-                                if let Some(f2) = &filtered {
-                                    self.note_filtered(&name, f2.clone());
-                                }
-                                filtered
-                            });
+                            .read_terminal_filtered(&name, RecordSource::Hook, ts)
+                            .await;
                         match content {
                             Some(filtered) => {
                                 let len = filtered.chars().count().to_string();
@@ -1737,23 +1758,10 @@ impl<L: Llm> AmberyBackend<L> {
                     );
                 };
                 // 读通道优先（Terminal Adapter）：读到原文先存档再过滤（读取链）
-                let read_fresh = |ov: &mut Self| {
-                    ov.read_terminal(inst)
-                        .and_then(|raw| {
-                            let _ = ov.harness.append_terminal_content(TerminalContentRecord {
-                                instance: inst.into(),
-                                raw: raw.clone(),
-                                source: RecordSource::FetchTerminal,
-                                ts: crate::server::now_ms(),
-                            });
-                            let filtered = ov.filter_for(inst).map(|f| f.digest(&raw).render());
-                            if let Some(f2) = &filtered {
-                                ov.note_filtered(inst, f2.clone());
-                            }
-                            filtered
-                        })
-                };
-                if let Some(content) = read_fresh(self) {
+                if let Some(content) = self
+                    .read_terminal_filtered(inst, RecordSource::FetchTerminal, crate::server::now_ms())
+                    .await
+                {
                     // 成功返回携带 ok:true（成败形态自洽）
                     return (json!({ "ok": true, "instance": inst, "content": content }), vec![]);
                 }
@@ -1782,7 +1790,9 @@ impl<L: Llm> AmberyBackend<L> {
                         vec![],
                     );
                 }
-                let content = read_fresh(self)
+                let content = self
+                    .read_terminal_filtered(inst, RecordSource::FetchTerminal, crate::server::now_ms())
+                    .await
                     .unwrap_or_else(|| crate::i18n::tr(lang, "fetch.switched-empty").to_string());
                 (json!({ "ok": true, "instance": inst, "content": content }), vec![])
             }

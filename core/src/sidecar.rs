@@ -67,6 +67,12 @@ impl SidecarClient {
         Some(resp["text"].as_str()?.to_string())
     }
 
+    /// read_active_tab：不切换、非侵入只读当前活动 tab（调试 / stop 自动读的非打断路径）
+    pub fn read_active_tab(&self, hwnd: i64) -> Option<String> {
+        let resp = self.request(&json!({ "cmd": "read_active_tab", "hwnd": hwnd }))?;
+        Some(resp["text"].as_str()?.to_string())
+    }
+
 }
 
 fn roundtrip(p: &mut Proc, req: &Value) -> Option<Value> {
@@ -114,5 +120,35 @@ mod tests {
             .locate("PowerShell")
             .and_then(|tab| adapter.read(&tab));
         println!("read(PowerShell) → {:?}", text.map(|t| t.len()));
+    }
+
+    /// 假 sidecar 进程验证 read_active_tab 协议：非侵入只读命令，不携带 index。
+    #[cfg(unix)]
+    #[test]
+    fn read_active_tab_uses_non_switching_protocol() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("ambery-sidecar-active-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("requests.log");
+        let script = dir.join("fake-sidecar.sh");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nwhile IFS= read -r line; do echo \"$line\" >> '{}'; echo '{{\"ok\":true,\"text\":\"ACTIVE\"}}'; done\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let client = SidecarClient::new(&script);
+        let text = client.read_active_tab(42).unwrap();
+        assert_eq!(text, "ACTIVE");
+        let requests = std::fs::read_to_string(&log).unwrap();
+        assert!(requests.contains("\"cmd\":\"read_active_tab\""), "{requests}");
+        assert!(requests.contains("\"hwnd\":42"), "{requests}");
+        assert!(!requests.contains("\"index\""), "read_active_tab 不得带 index: {requests}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

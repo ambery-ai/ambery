@@ -62,6 +62,6 @@ VD 切换不作为后台路径，但作为 **agent 显式能力开放**（开放
 
 app 启动自动发现 exe 并启用（`AMBERY_SIDECAR` env > 仓库约定位置），进程惰性拉起（首次请求 spawn）。**死了即弃，下次请求现拉起**（冷启实测 ~200ms）——无保活预检、无心跳；每次请求最多两次尝试，仍失败返回 None（读通道降级回 Context，AmberyBackend 语义不变）。
 
-## 同步阻塞的取舍
+## 阻塞边界的已落方案
 
-`TerminalAdapter` 的 locate/read 是同步 trait 调用，SidecarClient 内部 std::process + Mutex 阻塞读写（一次读 ≈ 200-500ms），会短暂阻塞 tokio worker 线程。debug 可接受；优化方向（`spawn_blocking` 或专用线程）。
+`TerminalAdapter` 的 locate/read 是同步 trait 调用；AmberyBackend 的读入口（`read_terminal`）把它们整体放 `tokio::task::spawn_blocking`——sidecar 的进程 IO / Mutex 等待 / 5s 切换限流 sleep 都在 blocking 线程池内，不占用 tokio worker。SidecarClient 自身保持同步协议客户端，不引入嵌套 runtime。
