@@ -448,9 +448,12 @@ impl Trajectory {
         folded_sessions: &HashSet<usize>,
         folded_turns: &HashSet<usize>,
     ) -> Vec<RenderedLine> {
-        // 折叠计数：每 session 跨度行数（turn+event）、每 turn 的 event 数
+        // 折叠计数：每 session 跨度行数（turn+event）、每 turn 的 event 数、
+        // pre-turn（伪 session 0）的事件数与来源文件
         let mut session_hidden: HashMap<usize, usize> = HashMap::new();
         let mut turn_hidden: HashMap<usize, usize> = HashMap::new();
+        let mut pre_turn_count = 0usize;
+        let mut pre_turn_files: Vec<&'static str> = Vec::new();
         {
             let mut sord = 0usize;
             let mut span = 0usize;
@@ -466,10 +469,16 @@ impl Trajectory {
                         span = 0;
                     }
                     TrajectoryRow::Turn { .. } => span += 1,
-                    TrajectoryRow::Event { turn, .. } => {
+                    TrajectoryRow::Event { file, turn, .. } => {
                         span += 1;
-                        if let Some(t) = turn {
-                            *turn_hidden.entry(*t).or_insert(0) += 1;
+                        match turn {
+                            Some(t) => *turn_hidden.entry(*t).or_insert(0) += 1,
+                            None => {
+                                pre_turn_count += 1;
+                                if !pre_turn_files.contains(file) {
+                                    pre_turn_files.push(*file);
+                                }
+                            }
                         }
                     }
                 }
@@ -477,6 +486,7 @@ impl Trajectory {
             if let Some(s) = cur {
                 session_hidden.insert(s, span);
             }
+            session_hidden.insert(0, pre_turn_count);
         }
 
         let mut out: Vec<RenderedLine> = Vec::new();
@@ -546,31 +556,56 @@ impl Trajectory {
                     if session_folded {
                         continue;
                     }
-                    if let Some(t) = turn {
-                        if folded_turns.contains(t) {
+                    // pre-turn 事件（伪 session 0）：可折叠区域
+                    if turn.is_none() {
+                        let pre_turn_folded = folded_sessions.contains(&0);
+                        let label_visible =
+                            file == "all" || pre_turn_files.contains(f);
+                        if !pre_turn_labeled && label_visible {
+                            let mut label = "[pre turn]".to_string();
+                            if pre_turn_folded {
+                                if let Some(n) = session_hidden.get(&0) {
+                                    label.push_str(&format!("  [+{n}]"));
+                                }
+                            }
+                            out.push(RenderedLine {
+                                text: label,
+                                target: FoldTarget::Session(0),
+                                detail: String::new(),
+                                kind: RowKind::Label,
+                            });
+                            pre_turn_labeled = true;
+                        }
+                        if pre_turn_folded {
                             continue;
                         }
+                        if (file == "all" || *f == file)
+                            && (filter.is_empty()
+                                || kind.contains(filter)
+                                || summary.contains(filter))
+                        {
+                            out.push(RenderedLine {
+                                text: format!("   · {ts} [{f}] {kind} {summary}"),
+                                target: FoldTarget::None,
+                                detail: detail.clone(),
+                                kind: RowKind::Event,
+                            });
+                        }
+                        continue;
+                    }
+                    // 归属 turn 的事件
+                    let t = turn.unwrap();
+                    if folded_turns.contains(&t) {
+                        continue;
                     }
                     if (file == "all" || *f == file)
                         && (filter.is_empty()
                             || kind.contains(filter)
                             || summary.contains(filter))
                     {
-                        // 事件行折叠目标 = 所属 turn（孤儿事件无可折叠祖先 → None）
-                        let target = turn.map(FoldTarget::Turn).unwrap_or(FoldTarget::None);
-                        // pre-turn 区域标签：首个可见的前置事件前标 [pre turn]
-                        if turn.is_none() && !pre_turn_labeled {
-                            out.push(RenderedLine {
-                                text: "[pre turn]".to_string(),
-                                target: FoldTarget::None,
-                                detail: String::new(),
-                                kind: RowKind::Label,
-                            });
-                            pre_turn_labeled = true;
-                        }
                         out.push(RenderedLine {
                             text: format!("   · {ts} [{f}] {kind} {summary}"),
-                            target,
+                            target: FoldTarget::Turn(t),
                             detail: detail.clone(),
                             kind: RowKind::Event,
                         });
@@ -1739,6 +1774,53 @@ mod tests {
         assert_eq!(lines[0].kind, RowKind::Label);
         assert_eq!(lines[1].kind, RowKind::Event);
         assert_eq!(lines[2].kind, RowKind::Turn);
+    }
+
+    #[test]
+    fn pre_turn_region_can_fold() {
+        // pre-turn 区域 = 伪 session 0：h 折全部事件、l 展开，标签带 [+n]
+        let a = Activity {
+            rows: vec![
+                ActivityRow {
+                    file: EFFECT_FILE,
+                    kind: "k".into(),
+                    ts: 0,
+                    summary: "pre1".into(),
+                    detail: "pre1".into(),
+                },
+                ActivityRow {
+                    file: EFFECT_FILE,
+                    kind: "k".into(),
+                    ts: 0,
+                    summary: "pre2".into(),
+                    detail: "pre2".into(),
+                },
+                ActivityRow {
+                    file: QUEUE_FILE,
+                    kind: "user_chat".into(),
+                    ts: 1,
+                    summary: "q".into(),
+                    detail: "q".into(),
+                },
+            ],
+        };
+        let traj = Trajectory::from_activity(&a);
+        let empty = HashSet::new();
+        // 折叠（伪 session 0）：事件隐藏、标签带 [+2]
+        let folded = traj.lines("all", "", &HashSet::from([0]), &empty);
+        assert_eq!(folded.len(), 2, "{folded:?}");
+        assert_eq!(folded[0].text, "[pre turn]  [+2]");
+        assert_eq!(folded[0].target, FoldTarget::Session(0));
+        assert!(!folded.iter().any(|l| l.kind == RowKind::Event));
+        // 展开恢复
+        let unfolded = traj.lines("all", "", &empty, &empty);
+        assert!(unfolded.iter().any(|l| l.kind == RowKind::Event));
+        // TUI 级：h 折 / l 展开
+        let mut t = TrajectoryTui::new(traj, false);
+        t.fold_at(FoldTarget::Session(0));
+        assert!(t.folded_sessions.contains(&0));
+        t.unfold_at(FoldTarget::Session(0));
+        assert!(!t.folded_sessions.contains(&0));
     }
 
     #[test]

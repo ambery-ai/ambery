@@ -58,7 +58,7 @@ TUI 交互界面（`ratatui`）。核心交互：
 
 - `context.jsonl` 的 `session` 行 = 会话边界（较重规则）；`queue.jsonl` 每行 = 一个 turn 边界（Queue 放行一轮 = 一次触发）；其余行按 ts 归属到最近 turn，缩进为事件行。
 - 无 queue 数据时（case 快照常见），`context.jsonl` 的 user message 退化为 turn 边界。
-- 首个 turn 之前的事件（无可归属的 queue 记录）渲染在 `[pre turn]` 标签之下。
+- 首个 turn 之前的事件（无可归属的 queue 记录）渲染在 `[pre turn]` 标签之下，标签可像 session 一样折叠（`←` / `h` 折全部事件，`→` / `l` 展开）。
 - **单条目折叠**：折叠按 session / turn 独立，不是全局。按 `←` / `h` 折叠光标所在可折叠对象之下的行——Session 行折其 turn 与事件，Turn 行折其事件，事件行折其所属 turn；按 `→` / `l` 展开——Session 行整体展开整棵子树（含其下所有已折叠的 turn），叶子行改为打开详情栏。折叠状态按稳定行身份（session 序数 / turn 索引）键控，各行独立折叠展开；被折叠的行显示 `[+n]` 标记（含隐藏数量）。`/` 筛选、Tab 切文件、`f` 跟随与普通形态一致。
 
 ### 实现
