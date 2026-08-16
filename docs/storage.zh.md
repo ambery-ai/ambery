@@ -1,5 +1,7 @@
 # Storage 设计
 
+[English](storage.md) | 中文
+
 > 概念定义见 concepts.md §12/§13。本文档定目录布局、各文件语义、记录格式与生命周期。
 
 ## 布局：两个域

@@ -1,5 +1,7 @@
 # Docs Spec (docs directory constraints)
 
+English | [中文](docs-spec.zh.md)
+
 > This document constrains the responsibility boundaries and content admission of `docs/*.md` and `concepts.md`. It governs only these two; `spec.md` (tech stack) and `reports/` (research) each have their own governance and are outside this document's scope. Before touching any `docs/*.md` or `concepts.md` change, you must read this file first.
 
 ## Responsibility map

@@ -1,5 +1,7 @@
 # Autonomy Design
 
+English | [中文](autonomy.zh.md)
+
 > Concept definition: see concepts.md §4. This document fixes the expression model, the default mapping table, and override semantics.
 
 ## Scope

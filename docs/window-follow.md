@@ -1,5 +1,7 @@
 # Window Follow
 
+English | [中文](window-follow.zh.md)
+
 > For the layout algorithm (optimal direction), see docs/window-positioning.md. This document defines **coordinate system selection,
 > responsibility layering, and follow/restore state semantics** — how the windows should move when pet moves, is dragged, or is hidden.
 

@@ -1,5 +1,7 @@
 # Effort 设计
 
+[English](effort.md) | 中文
+
 > 跨模型 thinking / reasoning 预算的行业调研见 `reports/llm-reasoning-effort-cross-model.md`。
 
 ## 定义

@@ -1,5 +1,7 @@
 # Contributing to Ambery
 
+English | [中文](CONTRIBUTING.zh.md)
+
 Ambery is an Agent desktop pet: hook-driven reading of Claude Code sessions; pet observes, reports, and manages card components.
 This file gives the contribution entry points; for design and concept terminology see `concepts.md`, for architecture decisions see `spec.md`, and for documentation standards see `docs-spec.md`.
 

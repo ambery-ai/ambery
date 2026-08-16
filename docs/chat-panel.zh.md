@@ -1,5 +1,7 @@
 # Chat Panel 设计
 
+[English](chat-panel.md) | 中文
+
 > 概念定义见 concepts.md §3a。本文档定唤出/关闭、布局与消息渲染规则。
 
 ## 产品原则

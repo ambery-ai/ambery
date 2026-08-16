@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="app/src-tauri/icons/icon.png" width="96" height="96" alt="ambery icon">
-</p>
+# <img src="app/src-tauri/icons/icon.png" width="52" height="52" alt="ambery icon"> Ambery
 
-# Ambery
+[English](README.md) | 中文
 
 Ambery 是一个桌面 Agent Harness：监督你的 Claude Code 会话，把它们变成安静、可扫读的陪伴——悬浮宠物、聊天面板和持久卡片。它通过 Claude Code hooks 观察会话生命周期，通过 Windows UIA sidecar 读取终端状态，并让 agent 通过一个小而显式的工具集行动。
 

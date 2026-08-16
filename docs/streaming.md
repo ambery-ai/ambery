@@ -1,5 +1,7 @@
 # Streaming Delta
 
+English | [中文](streaming.zh.md)
+
 Streaming transport of LLM replies — assistant output is pushed to the frontend incrementally, fragment by fragment, rather than delivered all at once.
 
 ## Concepts

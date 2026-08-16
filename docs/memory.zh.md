@@ -1,5 +1,7 @@
 # Memory Workspace 设计
 
+[English](memory.md) | 中文
+
 > 概念定义见 concepts.md §10f。本文档定 Memory Workspace 的目录模型、notes 的 read_memory / write_memory 调用契约，以及 index/AGENTS.md 的生成契约。Card 是同一工作空间中的持久工作产物，但不属于普通 Memory note，也不经这两个 tool 管理；其文件契约见 docs/components.md §Card 文件。
 
 ## 原则

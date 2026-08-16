@@ -1,5 +1,7 @@
 # Core Server
 
+English | [中文](core-server.zh.md)
+
 A thin in-process HTTP server inside the Tauri process, bound by default to `127.0.0.1:47600`, carrying only the external hook intake.
 
 ## Port Semantics

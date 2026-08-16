@@ -1,5 +1,7 @@
 # Contributing to Ambery
 
+[English](CONTRIBUTING.md) | 中文
+
 Ambery 是 Agent 桌宠：Hook 驱动读取 Claude Code 会话，pet 观察、报告并管理卡片组件。
 本文件给出贡献入口；设计与概念术语见 `concepts.md`，架构决定见 `spec.md`，文档规范见 `docs-spec.md`。
 

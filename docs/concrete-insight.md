@@ -1,5 +1,7 @@
 # Concrete Insight
 
+English | [中文](concrete-insight.zh.md)
+
 Real data + diagrams demonstrating the concept chain. No abstract descriptions.
 
 ## System Message Sources in the Queue

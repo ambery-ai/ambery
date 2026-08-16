@@ -1,5 +1,7 @@
 # Window Follow（窗口跟随语义）
 
+[English](window-follow.md) | 中文
+
 > 布局算法（方位最优解）见 docs/window-positioning.md。本文档定**坐标系选型、
 > 职责分层与跟随/恢复的状态语义**——pet 移动、拖拽、隐藏时，窗口们该怎么动。
 

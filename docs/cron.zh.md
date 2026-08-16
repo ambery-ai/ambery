@@ -1,5 +1,7 @@
 # Cron 设计
 
+[English](cron.md) | 中文
+
 > 概念定义见 concepts.md §10g。本文档定任务表示、持久化格式、到点行为与
 > cron_create / cron_delete / sleep 三个 tool 的调用契约。
 

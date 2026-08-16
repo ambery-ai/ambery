@@ -1,5 +1,7 @@
 # Component 设计
 
+[English](components.md) | 中文
+
 > 概念定义见 concepts.md §5。本文档定调用协议、生命周期事件、方位几何、渲染与交互事件格式。
 
 ## 调用协议（call_component）

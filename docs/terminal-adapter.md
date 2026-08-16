@@ -1,5 +1,7 @@
 # Terminal Adapter Design
 
+English | [中文](terminal-adapter.zh.md)
+
 Terminal access abstraction: a unified interface that gives Code CLI instances the ability to "locate, read, forget". Multi-terminal compatibility = abstract interface + per-terminal dispatch implementations.
 
 > See `concepts.md` §14 (Terminal Adapter) for the concept positioning. This file defines the interface capabilities, implementations, and config fields.

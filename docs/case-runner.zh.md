@@ -1,5 +1,7 @@
 # Case Runner
 
+[English](case-runner.md) | 中文
+
 Storage 快照驱动的回归测试与概念观测工具；兼承接 CLI 决策源（docs/debug-agent.md）与完整 router（docs/core-server.md）。
 
 ## 原则

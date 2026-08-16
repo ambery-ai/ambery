@@ -1,5 +1,7 @@
 # Module Storage Flow
 
+English | [中文](module-storage-flow.zh.md)
+
 Code module layering + processing flow (storage files appear only on arrows) + presentation layer / effect. Two versions of the same view: ASCII and Mermaid.
 
 ## ASCII

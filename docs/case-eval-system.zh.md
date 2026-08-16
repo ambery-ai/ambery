@@ -1,5 +1,7 @@
 # Case Eval System
 
+[English](case-eval-system.md) | 中文
+
 > 概念：case runner 的表达式求值系统（docs/case-runner.md §可观测体系的读取 / store 配套）。
 
 ## 原则

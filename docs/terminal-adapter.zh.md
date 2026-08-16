@@ -1,5 +1,7 @@
 # Terminal Adapter 设计
 
+[English](terminal-adapter.md) | 中文
+
 终端访问抽象：向 Code CLI 实例提供「定位、读取、遗忘」能力的统一接口。多终端兼容 = 抽象接口 + 按终端分发实现。
 
 > 概念定位见 `concepts.md` §14（Terminal Adapter）。本文件定接口能力、实现与 config 字段。

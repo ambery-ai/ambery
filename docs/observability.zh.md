@@ -1,5 +1,7 @@
 # Observability（可观测性基座）
 
+[English](observability.md) | 中文
+
 > 概念：所有概念模块可观测，且由**编译期强制**保证覆盖（docs/case-runner.md §可观测体系）。
 > 本文定义机制：trait / derive / 覆盖断言 / skip 声明；observe 输出形态与求值系统见
 > `docs/case-runner.md` / `docs/case-eval-system.md`。

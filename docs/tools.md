@@ -1,5 +1,7 @@
 # Tools Design
 
+English | [中文](tools.zh.md)
+
 Unified definition of development tools: script tools under the `tools/` directory + core's standalone bin tools.
 
 ## Tool list

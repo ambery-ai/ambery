@@ -1,5 +1,7 @@
 # Timer 设计
 
+[English](timer.md) | 中文
+
 > 概念定义见 concepts.md §1a。本文档定调度机制、错峰算法与扫描动作的应用点。
 
 ## 定位

@@ -1,5 +1,7 @@
 # Effect Reporting（Tauri 运行时动作上报）
 
+[English](effect-reporting.md) | 中文
+
 > 概念：所有**非只读 Tauri 运行时动作**统一进 effect 流（docs/case-runner.md
 > §Tauri 运行时动作可观测：`(Tauri runtime actions − readonly) ⊆ effects`）。Tauri 运行时动作同时覆盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API；动作流格式与记录点见 `docs/storage.md` §effect.jsonl。本文定义运行时动作层、通道、kind/payload、打包规则与埋点清单。
 

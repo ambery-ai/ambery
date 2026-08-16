@@ -1,5 +1,7 @@
 # Filter Design
 
+English | [中文](filter.zh.md)
+
 > Concept definition: see concepts.md §11. This document fixes the policy rules and the structure-understanding data types.
 > **Structure understanding**: the rules are taken from 3 real Claude Code terminal UIA samples (UIA returns rendered plain text, no ANSI codes).
 

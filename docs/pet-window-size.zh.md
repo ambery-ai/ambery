@@ -1,5 +1,7 @@
 # Pet Window Size 设计
 
+[English](pet-window-size.md) | 中文
+
 > 本文档定 pet 窗口的尺寸公式与原则。
 
 ## 本文档范围

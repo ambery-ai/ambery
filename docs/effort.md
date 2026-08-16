@@ -1,5 +1,7 @@
 # Effort Design
 
+English | [中文](effort.zh.md)
+
 > For the cross-model thinking / reasoning budget industry survey, see `reports/llm-reasoning-effort-cross-model.md`.
 
 ## Definition

@@ -1,5 +1,7 @@
 # DebugAgent — 纯 Mock 与 HTTP brain
 
+[English](debug-agent.md) | 中文
+
 > 本文档定义 debug 规则。
 
 ## 定位（设计决定）

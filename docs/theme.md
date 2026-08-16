@@ -1,5 +1,7 @@
 # Theme Design
 
+English | [中文](theme.zh.md)
+
 ## Definition
 
 A theme is a complete visual scheme: a color table as its main body, plus common style modifications that change together with the visual. A theme is not a single color switch, not scattered CSS overrides, and not a partial skin of some Component.

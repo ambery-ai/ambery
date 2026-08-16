@@ -1,5 +1,7 @@
 # View Design
 
+English | [中文](view.zh.md)
+
 > See concepts.md §3 for the concept definition. This document defines the physical implementation and interaction details; tradeoffs not specified in concepts are recorded here.
 
 ## Config fields

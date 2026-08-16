@@ -1,5 +1,7 @@
 # Streaming Delta
 
+[English](streaming.md) | 中文
+
 LLM 回复的流式传输——assistant 输出以增量片段逐条推送到前端，而非完整一次性交付。
 
 ## 概念

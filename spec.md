@@ -1,5 +1,7 @@
 # Spec v1 — Tech stack
 
+English | [中文](spec.zh.md)
+
 > Phase: spec1 (tech selection settled, division of work initially set). For concept definitions see [concepts.md](concepts.md); this file only sets the technical division of work and does not repeat concepts.
 
 ## Technology choices

@@ -1,5 +1,7 @@
 # 多窗口方案设计
 
+[English](multi-window.md) | 中文
+
 > 窗口方案为多窗口（docs/tauri-shell.md §形态）：pet / chat / menu / shelf 静态小窗口 + 每卡一个动态 `card-<id>` 窗，均为独立 OS 窗口。
 
 ## 窗口划分

@@ -1,5 +1,7 @@
 # Docs Spec（docs 目录约束）
 
+[English](docs-spec.md) | 中文
+
 > 本文档约束 `docs/*.md` 与 `concepts.md` 的职责边界与内容准入。它只管这两处；`spec.md`（技术栈）、`reports/`（调研）各归各管，不在本文档范围。所有 `docs/*.md` 与 `concepts.md` 改动动手前必须先通读本文件。
 
 ## 职责地图

@@ -1,5 +1,7 @@
 # Tool Set
 
+English | [中文](toolset.zh.md)
+
 Nine function definitions callable by pet (call_component / fetch_terminal / set_autonomy / edit_config / read_memory / write_memory / cron_create / cron_delete / sleep). The validation rules define legality and error returns at backend execution time.
 
 ## Scope of this document

@@ -1,5 +1,7 @@
 # Harness Design
 
+English | [中文](harness.zh.md)
+
 > Concept definition: see concepts.md §10 and its sub-concepts. This document fixes the data model, injection rules, trigger model, and JSONL storage format.
 
 ## Data Model

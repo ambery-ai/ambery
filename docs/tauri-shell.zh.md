@@ -1,5 +1,7 @@
 # Tauri Shell 设计
 
+[English](tauri-shell.md) | 中文
+
 > 概念定义见 concepts.md §3（View 物理容器）。本文档定壳形态。
 >
 > 窗口方案为多窗口（`docs/multi-window.md`）；全屏 `maximized: true` 方案因 WebView2 点击穿透（`WS_EX_TRANSPARENT`）不稳定不采用。

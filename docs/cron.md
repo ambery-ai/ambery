@@ -1,5 +1,7 @@
 # Cron Design
 
+English | [中文](cron.zh.md)
+
 > Concept definitions are in concepts.md §10g. This document specifies task representation, persistence format, due behavior, and
 > the call contracts for the three tools cron_create / cron_delete / sleep.
 
