@@ -74,7 +74,7 @@ it("切换 ui_language 即重渲染：card chrome 跟随", async () => {
 });
 
 it("插值工作", async () => {
-  expect(t("chat.queued", { n: 3 })).toContain("3");
+  expect(t("chat.queued", { n: "3" })).toContain("3");
 });
 
 it("pet 名称：Config name 流入 chat 标题，改名即重贴（名称）", async () => {
