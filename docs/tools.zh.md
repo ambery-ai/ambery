@@ -46,7 +46,7 @@ TUI 交互界面（`ratatui`）。核心交互：
 | `f` | 切换跟随（tail 新写入记录） |
 | `q` / `Esc` | 退出 |
 
-trajectory 形态下 `h` / `l` 额外折叠 / 展开光标所在的 session 或 turn（见下）；平铺形态的行无层级，`h` / `l` 无作用。
+trajectory 形态下 `h` / `l` 额外折叠 / 展开光标所在的可折叠对象——session、turn，或事件行所属的 turn（见下）；平铺形态的行无层级，`h` / `l` 无作用。
 
 ### Trajectory 形态（`--trajectory`）
 
@@ -54,7 +54,7 @@ trajectory 形态下 `h` / `l` 额外折叠 / 展开光标所在的 session 或 
 
 - `context.jsonl` 的 `session` 行 = 会话边界（较重规则）；`queue.jsonl` 每行 = 一个 turn 边界（Queue 放行一轮 = 一次触发）；其余行按 ts 归属到最近 turn，缩进为事件行。
 - 无 queue 数据时（case 快照常见），`context.jsonl` 的 user message 退化为 turn 边界。
-- **单条目折叠**：折叠按 session / turn 独立，不是全局。光标移到 Session 或 Turn 行按 `h` 折叠其下的行（turn 的事件；session 的 turn 与事件），按 `l` 展开。折叠状态按稳定行身份（session 序数 / turn 索引）键控，各行独立折叠展开；被折叠的行显示 `[+n]` 标记（含隐藏数量）。`/` 筛选、Tab 切文件、`f` 跟随与普通形态一致。
+- **单条目折叠**：折叠按 session / turn 独立，不是全局。按 `h` 折叠光标所在可折叠对象之下的行——Session 行折其 turn 与事件，Turn 行折其事件，事件行折其所属 turn；按 `l` 展开。折叠状态按稳定行身份（session 序数 / turn 索引）键控，各行独立折叠展开；被折叠的行显示 `[+n]` 标记（含隐藏数量）。`/` 筛选、Tab 切文件、`f` 跟随与普通形态一致。
 
 ### 实现
 
