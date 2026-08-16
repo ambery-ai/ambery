@@ -10,6 +10,7 @@ use ambery_core::{
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use unicode_width::UnicodeWidthChar;
 
 /// 统一行模型：一个 JSONL 文件的一行记录折叠为一条可展示的 ActivityRow
 #[derive(Debug, Clone, PartialEq)]
@@ -69,9 +70,44 @@ fn truncate(s: &str, n: usize) -> String {
 }
 
 /// 详情内容总行数（头部行 + 全文行）；超出 pane 高度时可滚动
-fn detail_content_height(line: &Option<RenderedLine>) -> usize {
-    let Some(l) = line else { return 0 };
-    l.text.lines().count().max(1) + l.detail.lines().count()
+fn detail_content_height(line: &Option<RenderedLine>, width: usize) -> usize {
+    match line {
+        Some(l) => detail_pane_lines(l, width).len(),
+        None => 0,
+    }
+}
+
+/// 按 pane 宽度把文本预折成视觉行（CJK 双宽感知）
+fn wrap_to_width(s: &str, width: usize) -> Vec<String> {
+    let w = width.max(1);
+    let mut out = Vec::new();
+    for line in s.lines() {
+        if line.is_empty() {
+            out.push(String::new());
+            continue;
+        }
+        let mut buf = String::new();
+        let mut cells = 0usize;
+        for ch in line.chars() {
+            let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if cells + cw > w {
+                out.push(std::mem::take(&mut buf));
+                cells = 0;
+            }
+            buf.push(ch);
+            cells += cw;
+        }
+        out.push(buf);
+    }
+    out
+}
+
+/// 详情栏内容（头部行 + 空行 + 全文，全部预折为视觉行）
+fn detail_pane_lines(line: &RenderedLine, width: usize) -> Vec<String> {
+    let mut out = wrap_to_width(&line.text, width);
+    out.push(String::new());
+    out.extend(wrap_to_width(&line.detail, width));
+    out
 }
 
 fn read_context(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
@@ -701,9 +737,17 @@ impl Tui {
         self.detail_scroll = 0;
     }
 
-    fn scroll_detail(&mut self, delta: isize, height: usize) {
+    fn scroll_detail(&mut self, delta: isize, height: usize, width: usize) {
         let content = match &self.focused_row() {
-            Some(r) => r.summary.lines().count().max(1) + r.detail.lines().count(),
+            Some(r) => {
+                let mut v = wrap_to_width(
+                    &format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary),
+                    width,
+                );
+                v.push(String::new());
+                v.extend(wrap_to_width(&r.detail, width));
+                v.len()
+            }
             None => 0,
         };
         let max = content.saturating_sub(height);
@@ -809,25 +853,24 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                 let detail_block = Block::default()
                     .borders(Borders::LEFT)
                     .title("detail [focused]");
+                let pane_width = panes[1].width as usize;
                 let pane_height = panes[1].height as usize;
                 match &focused {
                     Some(row) => {
-                        let mut body: Vec<String> = vec![
-                            format!("{} [{}] {} {}", row.ts, row.file, row.kind, row.summary),
-                            String::new(),
-                        ];
-                        let skipped: Vec<String> = row
-                            .detail
-                            .lines()
-                            .skip(detail_scroll)
-                            .take(pane_height.saturating_sub(2).max(1))
-                            .map(|s| s.to_string())
-                            .collect();
-                        body.extend(skipped);
-                        f.render_widget(
-                            Paragraph::new(body.join("\n")).block(detail_block),
-                            panes[1],
+                        let mut pane_lines = wrap_to_width(
+                            &format!("{} [{}] {} {}", row.ts, row.file, row.kind, row.summary),
+                            pane_width,
                         );
+                        pane_lines.push(String::new());
+                        pane_lines.extend(wrap_to_width(&row.detail, pane_width));
+                        let body = pane_lines
+                            .iter()
+                            .skip(detail_scroll)
+                            .take(pane_height)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        f.render_widget(Paragraph::new(body).block(detail_block), panes[1]);
                     }
                     None => {
                         f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
@@ -883,11 +926,13 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                         _ => {}
                     }
                 } else if tui.in_detail {
-                    let pane_h = terminal.get_frame().area().height.saturating_sub(4) as usize;
+                    let area = terminal.get_frame().area();
+                    let pane_h = area.height.saturating_sub(4) as usize;
+                    let pane_w = (area.width as usize * 40) / 100;
                     match k.code {
                         KeyCode::Char('q') => tui.quit = true,
-                        KeyCode::Up | KeyCode::Char('k') => tui.scroll_detail(-1, pane_h),
-                        KeyCode::Down | KeyCode::Char('j') => tui.scroll_detail(1, pane_h),
+                        KeyCode::Up | KeyCode::Char('k') => tui.scroll_detail(-1, pane_h, pane_w),
+                        KeyCode::Down | KeyCode::Char('j') => tui.scroll_detail(1, pane_h, pane_w),
                         KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => tui.leave_detail(),
                         _ => {}
                     }
@@ -994,8 +1039,8 @@ impl TrajectoryTui {
         self.detail_scroll = 0;
     }
 
-    fn scroll_detail(&mut self, delta: isize, height: usize) {
-        let content = detail_content_height(&self.focused_line());
+    fn scroll_detail(&mut self, delta: isize, height: usize, width: usize) {
+        let content = detail_content_height(&self.focused_line(), width);
         let max = content.saturating_sub(height);
         self.detail_scroll =
             (self.detail_scroll as isize + delta).clamp(0, max as isize) as usize;
@@ -1174,22 +1219,19 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                 let detail_block = Block::default()
                     .borders(Borders::LEFT)
                     .title("detail [focused]");
+                let pane_width = panes[1].width as usize;
                 let pane_height = panes[1].height as usize;
                 match &focused {
                     Some(line) => {
-                        let mut body: Vec<String> = vec![line.text.clone(), String::new()];
-                        let skipped: Vec<String> = line
-                            .detail
-                            .lines()
+                        let pane_lines = detail_pane_lines(line, pane_width);
+                        let body = pane_lines
+                            .iter()
                             .skip(detail_scroll)
-                            .take(pane_height.saturating_sub(2).max(1))
-                            .map(|s| s.to_string())
-                            .collect();
-                        body.extend(skipped);
-                        f.render_widget(
-                            Paragraph::new(body.join("\n")).block(detail_block),
-                            panes[1],
-                        );
+                            .take(pane_height)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        f.render_widget(Paragraph::new(body).block(detail_block), panes[1]);
                     }
                     None => {
                         f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
@@ -1243,11 +1285,13 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                         _ => {}
                     }
                 } else if tui.in_detail {
-                    let pane_h = terminal.get_frame().area().height.saturating_sub(4) as usize;
+                    let area = terminal.get_frame().area();
+                    let pane_h = area.height.saturating_sub(4) as usize;
+                    let pane_w = (area.width as usize * 40) / 100;
                     match k.code {
                         KeyCode::Char('q') => tui.quit = true,
-                        KeyCode::Up | KeyCode::Char('k') => tui.scroll_detail(-1, pane_h),
-                        KeyCode::Down | KeyCode::Char('j') => tui.scroll_detail(1, pane_h),
+                        KeyCode::Up | KeyCode::Char('k') => tui.scroll_detail(-1, pane_h, pane_w),
+                        KeyCode::Down | KeyCode::Char('j') => tui.scroll_detail(1, pane_h, pane_w),
                         KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => tui.leave_detail(),
                         _ => {}
                     }
@@ -1572,8 +1616,8 @@ mod tests {
         assert!(t.in_detail);
         let focused = t.focused_row().unwrap();
         assert!(focused.detail.contains("完整"));
-        // 详情栏滚动
-        t.scroll_detail(1, 5);
+        // 详情栏滚动（宽度感知：长行折行后占多视觉行）
+        t.scroll_detail(1, 5, 40);
         assert_eq!(t.detail_scroll, 0, "内容短于 pane 高度时不滚动");
         t.leave_detail();
         assert!(!t.in_detail);
@@ -1596,6 +1640,20 @@ mod tests {
         assert!(t.in_detail);
         let focused = t.focused_line().unwrap();
         assert!(focused.detail.contains("完整"));
+    }
+
+    #[test]
+    fn wrap_to_width_respects_cjk_double_width() {
+        // 20 个中文字 = 40 格，宽 20 格 → 2 视觉行
+        let cjk = "你是Ambery的看板宠物你是Ambery的看板宠物";
+        let lines = wrap_to_width(cjk, 20);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        // 纯 ASCII：宽 10 → 每行 10 字符
+        let ascii = wrap_to_width("abcdefghijklmnopqrstuvwxyz", 10);
+        assert_eq!(ascii.len(), 3, "{ascii:?}");
+        assert_eq!(ascii[0].len(), 10);
+        // 空行保留
+        assert_eq!(wrap_to_width("a\n\nb", 10), vec!["a".to_string(), String::new(), "b".to_string()]);
     }
 
     #[test]
