@@ -41,6 +41,30 @@
 - `card-<id>` 生命周期：创建/复用由 Rust `ensure_card_window` 权威注册表决策（card 窗不订阅全局 render 流、只收 `card:spec` 定向事件）；close action、用户 × 与 shelf dismiss 统一收口 `close_card_window`（destroy + 删 `.card.json`）；启动时 pet 经 `list_cards` 拉取存活卡片重建可见窗口（docs/components.md §Card 文件）
 - pet 的 CloseRequested → hide 到托盘；pet 显隐由设置面板按钮（`toggle_pet`）控制，连带 chat/cards 系统隐藏
 
+## 窗口 Z-Order
+
+TOPMOST 层内的固定相对顺序；对外部窗口的 z-order 零操作。
+
+| 深度 | 窗口 |
+|---|---|
+| 最底 | `pet` |
+| ↑ | `shelf` |
+| ↑ | `chat` |
+| ↑ | `menu` |
+| 最顶 | `card-<id>` |
+
+契约：
+- 内部窗口不互抢层顶：内部顺序是唯一不变量。
+- 外部 z-order 不动：协调器只重申本应用自己的窗口，保留 fight-back 初衷（对抗外部抢置顶），不改任何外部窗口。
+
+Windows 实现（`window.rs`，`cfg(windows)` 门控）：
+- 单一协调线程替代每窗口独立 fight-back：持有全部内部窗口的有序 HWND 表，每 500ms 从底到顶依次 `SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE)` 重申。
+- TOPMOST 层内顺序 = 最后重申者赢，故每轮重排后层内顺序恒等于表序。
+- `card-<id>` 于 `ensure_card_window` 入表、`close_card_window` 出表（`Mutex<Vec<HWND>>`；注册表模式与 `CardWindowRegistry` 同构）。
+- `SWP_NOACTIVATE` 不破坏焦点语义（menu 失焦隐藏保持不变）。
+
+非 Windows：`alwaysOnTop` 由 tauri.conf.json 声明（Tauri 跨平台处理）；无协调线程。
+
 ## 窗口形态
 
 - 窗口数：4 静态（pet/chat/menu/shelf）+ N 动态 card 窗
