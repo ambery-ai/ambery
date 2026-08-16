@@ -30,6 +30,7 @@ function walk(dir, out = []) {
 const rootFiles = [
   "README.md", "README.zh.md",
   "CONTRIBUTING.md", "CONTRIBUTING.zh.md",
+  "DEVELOPING.md", "DEVELOPING.zh.md",
   "concepts.md", "concepts.zh.md",
   "spec.md", "spec.zh.md",
   "docs-spec.md", "docs-spec.zh.md",
