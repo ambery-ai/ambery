@@ -41,6 +41,30 @@ Positioning semantics follow docs/window-follow.md: pet owns the positioning eng
 - `card-<id>` lifecycle: creation/reuse is decided by the authoritative Rust `ensure_card_window` registry (Card windows do not subscribe to the global render stream; they receive only the targeted `card:spec` event); close action, user ×, and shelf dismiss are all funneled into `close_card_window` (destroy + delete `.card.json`); at startup, pet pulls live Cards via `list_cards` and rebuilds visible windows (docs/components.md §Card File).
 - pet's CloseRequested → hide to tray; pet visibility is controlled by the settings-panel button (`toggle_pet`), and chat/cards are hidden together with it.
 
+## Window Z-Order
+
+Fixed relative order within the TOPMOST layer; zero interaction with external windows' z-order.
+
+| Depth | Window |
+|---|---|
+| bottom | `pet` |
+| ↑ | `shelf` |
+| ↑ | `chat` |
+| ↑ | `menu` |
+| top | `card-<id>` |
+
+Contract:
+- Internal windows never fight each other for the layer top: the internal order is the only invariant.
+- External z-order is untouched: the coordinator only re-raises this app's own windows, preserving the original fight-back intent (defending against external apps stealing topmost) without changing any external window.
+
+Windows implementation (`window.rs`, `cfg(windows)` gated):
+- One coordinator thread replaces the per-window fight-back threads: it holds the ordered HWND table of all internal windows and every 500ms re-raises them bottom-to-top with `SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE)`.
+- TOPMOST-layer order is "last raiser wins", so after each pass the layer order equals the table order exactly.
+- `card-<id>` joins the table at `ensure_card_window` and leaves at `close_card_window` (`Mutex<Vec<HWND>>`; the registry pattern mirrors `CardWindowRegistry`).
+- `SWP_NOACTIVATE` preserves focus semantics (menu's hide-on-focus-loss stays intact).
+
+Non-Windows: `alwaysOnTop` is declared in tauri.conf.json (Tauri cross-platform handling); no coordinator thread.
+
 ## Window Form
 
 - Window count: 4 static (pet/chat/menu/shelf) + N dynamic Card windows.

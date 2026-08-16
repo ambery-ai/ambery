@@ -8,7 +8,7 @@
 
 pet / chat / menu / shelf 四个静态窗口 + 每卡一个动态 `card-<id>` 窗，均为 `transparent: true` + `decorations: false` 的独立 OS 窗口（tauri.conf.json）：
 - `transparent: true` + `decorations: false` + `shadow: false`
-- `alwaysOnTop: true` + 500ms `SetWindowPos(HWND_TOPMOST)` fight-back 线程（Windows；`cfg(windows)` 门控）
+- `alwaysOnTop: true` + 单一 500ms 自底向上 TOPMOST 重申协调器（Windows；`cfg(windows)` 门控；顺序契约见 docs/multi-window.md §窗口 Z-Order）
 - `focus: false`：启动不抢焦点（shelf 例外：focus true，失焦即关语义）
 - `skipTaskbar: true`；静态窗口 `visible: false`（pet setup 后即 show；chat/menu/shelf 事件驱动显隐）
 - `winvd::pin_window`：跨虚拟桌面 pin（Windows）
@@ -62,7 +62,7 @@ macOS / Linux
 | 文件 | 职责 |
 |---|---|
 | `main.rs` | 薄组装层：三窗口创建 + pin、托盘、core 启动、IPC 命令（含 `ensure_card_window` / `close_card_window` 窗口决策，docs/case-runner.md §窗口决策上提） |
-| `window.rs` | 窗口 pin（winvd）+ fight-back 线程（SetWindowPos）——`cfg(windows)` 门控 |
+| `window.rs` | 窗口 pin（winvd）+ z-order 协调器（自底向上 TOPMOST 重申，docs/multi-window.md §窗口 Z-Order）——`cfg(windows)` 门控 |
 | `tray.rs` | 系统托盘（显示/隐藏/退出）+ CloseRequested 隐藏到托盘 |
 | `menu_window.rs` | 设置面板弹出/失焦隐藏；前台聚焦 Windows 走 Win32（`cfg(windows)` 门控） |
 | `tauri_runtime_actions.rs` | Rust 壳侧运行时动作层（toggle_pet 等的逐动作 effect 记录，docs/effect-reporting.md） |

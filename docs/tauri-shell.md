@@ -8,7 +8,7 @@
 
 Four static windows — pet / chat / menu / shelf — plus one dynamic `card-<id>` window per Card, all independent OS windows with `transparent: true` + `decorations: false` (tauri.conf.json):
 - `transparent: true` + `decorations: false` + `shadow: false`
-- `alwaysOnTop: true` + 500ms `SetWindowPos(HWND_TOPMOST)` fight-back thread (Windows; gated by `cfg(windows)`)
+- `alwaysOnTop: true` + single 500ms bottom-to-top TOPMOST re-raise coordinator (Windows; gated by `cfg(windows)`; order contract in docs/multi-window.md §Window Z-Order)
 - `focus: false`: does not steal focus at startup (shelf is the exception: focus true, close-on-blur semantics)
 - `skipTaskbar: true`; static windows `visible: false` (pet shows right after setup; chat/menu/shelf visibility is event-driven)
 - `winvd::pin_window`: pin across virtual desktops (Windows)
@@ -62,7 +62,7 @@ Current isolation status:
 | File | Responsibility |
 |---|---|
 | `main.rs` | thin assembly layer: three-window creation + pin, tray, core startup, IPC commands (including `ensure_card_window` / `close_card_window` window decisions, docs/case-runner.md §window decision hoisting) |
-| `window.rs` | window pin (winvd) + fight-back thread (SetWindowPos) — `cfg(windows)` gated |
+| `window.rs` | window pin (winvd) + z-order coordinator (bottom-to-top TOPMOST re-raise, docs/multi-window.md §Window Z-Order) — `cfg(windows)` gated |
 | `tray.rs` | system tray (show/hide/exit) + CloseRequested hide-to-tray |
 | `menu_window.rs` | settings panel popup / hide-on-blur; foreground focus on Windows via Win32 (`cfg(windows)` gated) |
 | `tauri_runtime_actions.rs` | Rust shell-side runtime action layer (per-action effect recording for toggle_pet etc., docs/effect-reporting.md) |
