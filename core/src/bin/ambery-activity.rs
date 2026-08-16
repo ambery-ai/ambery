@@ -1151,6 +1151,10 @@ impl TrajectoryTui {
 
     fn fold_at(&mut self, target: FoldKey) {
         self.fold_state.fold(target);
+        // 折叠后光标跳到该容器的边界行（被折行消失后停在折叠点）
+        if let Some(idx) = self.lines().iter().position(|l| l.target == target) {
+            self.cursor = idx;
+        }
         self.clamp_cursor();
     }
 
@@ -1809,6 +1813,28 @@ mod tests {
         t.unfold_at(FoldKey::Turn(1));
         assert!(!t.fold_state.is_collapsed(FoldKey::Turn(1)));
         assert_eq!(t.lines().len(), 4);
+    }
+
+    #[test]
+    fn fold_moves_cursor_to_container_boundary() {
+        let traj = Trajectory::from_activity(&trajectory_sample());
+        let mut t = TrajectoryTui::new(traj, false);
+        // 光标在 turn 0 的归属事件行（index 3）
+        t.move_cursor(3);
+        assert_eq!(t.cursor, 3);
+        t.fold_at(FoldKey::Turn(0));
+        // 折叠后光标跳到 turn 边界行（index 2）
+        assert_eq!(t.cursor, 2, "折叠后光标应停在容器边界行");
+        assert_eq!(t.cursor_kind(), Some(RowKind::Turn));
+        // pre-turn 同理：事件行折叠 → 光标到 [pre turn] 标签
+        let mut t2 = TrajectoryTui::new(
+            Trajectory::from_activity(&trajectory_sample()),
+            false,
+        );
+        t2.move_cursor(1); // pre-turn session 行
+        t2.fold_at(FoldKey::PreTurn);
+        assert_eq!(t2.cursor, 0, "pre-turn 折叠后光标应停在标签行");
+        assert_eq!(t2.cursor_kind(), Some(RowKind::Label));
     }
 
     #[test]
