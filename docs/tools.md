@@ -40,8 +40,7 @@ Both forms share the same key set; horizontal movement mirrors vertical:
 |---|---|
 | `↑` / `k`, `↓` / `j` | move cursor up / down (scroll the detail pane when focused) |
 | `←` / `h` | collapse the focused foldable (trajectory form); return to the list from the detail pane |
-| `→` / `l` | expand the focused foldable (trajectory form); open the detail pane on a leaf (trajectory event) or any flat row |
-| `gg` | jump to the top |
+| `→` / `l` | expand the focused foldable (trajectory form); open the detail pane on a leaf (trajectory event) or any flat row || `gg` | jump to the top |
 | `G` | jump to the bottom |
 | `Tab` | switch file source |
 | `/` | start filtering (kind / summary substring) |
@@ -50,7 +49,7 @@ Both forms share the same key set; horizontal movement mirrors vertical:
 
 ### Detail pane
 
-A right-hand pane (40 % width) shows the untruncated content of the focused row: its list line as a header, then the full text. `→` / `l` on a leaf row (an event in the trajectory form; any row in the flat form) focuses the pane, where `↑` / `k` and `↓` / `j` scroll the content; `←` / `h` (or `Esc`) returns to the list. The row model keeps the full untruncated content (`detail`), while the list always renders the truncated summary.
+A leaf row has two states — opened and closed. `→` / `l` on a leaf row (an event in the trajectory form; any row in the flat form) opens a right-hand pane (40 % width) with that row's untruncated content: its list line as a header, then the full text. While open, `↑` / `k` and `↓` / `j` scroll the content; `←` / `h` (or `Esc`) closes the pane and the list returns to full width. The row model keeps the full untruncated content (`detail`), while the list always renders the truncated summary.
 
 ### Trajectory form (`--trajectory`)
 
