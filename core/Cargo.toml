@@ -17,6 +17,7 @@ futures-util = "0.3"
 sys-locale = "0.3.2"
 ratatui = "0.30"
 crossterm = "0.29"
+unicode-width = "0.2"
 
 [lib]
 path = "src/lib.rs"
