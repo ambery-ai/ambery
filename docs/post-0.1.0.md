@@ -59,3 +59,7 @@ A formal design must independently determine: the measured surface (core library
 ## ambery-activity TUI Merge Refactor
 
 ambery-activity currently has two parallel TUI implementations (the flat activity view and the trajectory ledger view) whose shared scaffolding is duplicated — state fields, cursor paging, filtering, follow incremental re-read, raw mode / alternate screen setup, and the key loop — while only the row projection and rendering differ. A later merge converges them into a shared TUI skeleton plus a pluggable view source: the flat view is the no-projection mode, and the trajectory view is the session/turn/event three-level projection. A formal design must independently determine: the skeleton's abstraction boundary, the key protocol shared by both views, the fold state's data structure (keyed by stable row identity rather than view index), and where follow incremental re-read belongs in the shared skeleton.
+
+## More Mainstream Terminal Support (ghostty First)
+
+Terminal Content reading currently covers Windows Terminal (UIA sidecar) and zellij (in-process CLI calls). Supporting more mainstream terminals one by one is a later direction, starting with ghostty (mainstream on macOS/Linux). A formal design must independently determine: ghostty's read channel (buffer export / OSC semantics / IPC), its integration point with the existing `TerminalAdapter` trait and the `adapter_wt` / `adapter_zellij` config family, permission and fallback paths on platforms without UIA, and the selection priority when multiple terminals coexist.
