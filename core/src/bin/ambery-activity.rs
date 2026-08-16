@@ -1165,6 +1165,21 @@ impl TrajectoryTui {
         self.clamp_cursor();
     }
 
+    /// l 于容器行：折叠态展开；已展开则下移到第一个归属行（进入子树）
+    fn expand_or_descend(&mut self, target: FoldKey) {
+        if self.fold_state.is_collapsed(target) {
+            self.unfold_at(target);
+            return;
+        }
+        if let Some(idx) = self
+            .lines()
+            .iter()
+            .position(|l| l.target == target && l.kind == RowKind::Event)
+        {
+            self.cursor = idx;
+        }
+    }
+
     fn clamp_cursor(&mut self) {
         let len = self.lines().len();
         if len == 0 {
@@ -1403,7 +1418,7 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                             Some(RowKind::Event) => tui.enter_detail(),
                             Some(_) => {
                                 if let Some(target) = tui.cursor_target() {
-                                    tui.unfold_at(target);
+                                    tui.expand_or_descend(target);
                                 }
                             }
                             None => {}
@@ -1814,6 +1829,28 @@ mod tests {
         t.unfold_at(FoldKey::Turn(1));
         assert!(!t.fold_state.is_collapsed(FoldKey::Turn(1)));
         assert_eq!(t.lines().len(), 4);
+    }
+
+    #[test]
+    fn l_on_expanded_container_descends_to_first_child() {
+        let traj = Trajectory::from_activity(&trajectory_sample());
+        let mut t = TrajectoryTui::new(traj, false);
+        // 光标在 turn 行（已展开）→ l 下移到第一个归属行
+        t.move_cursor(2);
+        assert_eq!(t.cursor_kind(), Some(RowKind::Turn));
+        t.expand_or_descend(FoldKey::Turn(0));
+        assert_eq!(t.cursor, 3, "已展开容器 l → 第一个归属行");
+        assert_eq!(t.cursor_kind(), Some(RowKind::Event));
+        // 折叠后 l → 只展开，光标停在容器行
+        t.fold_at(FoldKey::Turn(0));
+        assert_eq!(t.cursor, 2);
+        t.expand_or_descend(FoldKey::Turn(0));
+        assert!(!t.fold_state.is_collapsed(FoldKey::Turn(0)));
+        assert_eq!(t.cursor, 2, "折叠态 l 只展开不下降");
+        // pre-turn 标签同理
+        let mut t2 = TrajectoryTui::new(Trajectory::from_activity(&trajectory_sample()), false);
+        t2.expand_or_descend(FoldKey::PreTurn);
+        assert_eq!(t2.cursor, 1, "pre-turn 标签 l → 第一个归属行");
     }
 
     #[test]
