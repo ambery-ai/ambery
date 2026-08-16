@@ -287,19 +287,14 @@ fn line_brief(line: &str) -> String {
     truncate(line, 60)
 }
 
-// ── Trajectory 模式：turn-aware 紧凑事件账本 ──
-// 参考 dsh 的 trajectory 概念：把平铺 JSONL 投影成
-// session 边界 + turn（Queue 放行一轮） + 归属事件三层结构。
-// 因果结构不靠行内文字推断，而靠 storage 里已有的一等事实：session 分界与 Queue 排队记录。
+// ── Trajectory 模式：turn-centric 轨迹账本 ──
+// 顶层单位 = 本系统 LLM 的一次完整处理回合（turn = Queue 放行一轮，concepts §10c）。
+// 其余全部行（context/effect/terminal/agents/cron）按 ts 归属到最近的 turn。
+// Code CLI 是被监管的外部 agent，不构成层级；context 的 session 行只是普通行。
 
-/// 轨迹账本行：边界行与普通事件行同池，渲染时用缩进区分层级
+/// 轨迹账本行：turn 边界行 + 普通行（按 ts 归属到最近 turn）
 #[derive(Debug, Clone, PartialEq)]
 pub enum TrajectoryRow {
-    Session {
-        id: String,
-        ts: i64,
-        detail: String,
-    },
     Turn {
         index: usize,
         source: String,
@@ -313,7 +308,7 @@ pub enum TrajectoryRow {
         kind: String,
         ts: i64,
         summary: String,
-        /// 归属 turn（None = 首个 turn 之前的孤儿事件）
+        /// 归属 turn（None = 首个 turn 之前 → [pre turn] 区域）
         turn: Option<usize>,
         detail: String,
     },
@@ -323,16 +318,13 @@ pub enum TrajectoryRow {
 pub struct Trajectory {
     pub rows: Vec<TrajectoryRow>,
     pub turns: usize,
-    pub sessions: usize,
 }
 
-/// 折叠键：树上每个可折叠节点的稳定标识（h 折叠 / l 展开）
+/// 折叠键：两层容器（turn / [pre turn]）的稳定标识（h 折叠 / l 展开）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FoldKey {
-    /// 首个 turn 之前的区域（[pre turn]）
+    /// 首个 turn 之前的区域（[pre turn]，与 turn 同构）
     PreTurn,
-    /// session 序数（第 n 个 session，1 起）
-    Session(usize),
     /// turn 索引（from_activity 的全局轮次序号，0 起）
     Turn(usize),
 }
@@ -353,17 +345,9 @@ impl FoldState {
         self.collapsed.insert(key);
     }
 
-    /// 展开节点（仅自身；后代由 unfold_subtree 连带清除）
+    /// 展开节点（两层树：容器无嵌套后代，展开自身即可）
     pub fn unfold(&mut self, key: FoldKey) {
         self.collapsed.remove(&key);
-    }
-
-    /// 展开节点并连带清除其子树内所有折叠（l 于父节点 = 整棵展开）
-    pub fn unfold_subtree(&mut self, key: FoldKey, descendants: &[FoldKey]) {
-        self.collapsed.remove(&key);
-        for d in descendants {
-            self.collapsed.remove(d);
-        }
     }
 
     pub fn is_collapsed(&self, key: FoldKey) -> bool {
@@ -372,27 +356,16 @@ impl FoldState {
 }
 
 impl Trajectory {
-    /// 从 Activity 统一行集投影轨迹：
-    /// context `session` 行 = 会话边界；queue 行 = turn 边界；
-    /// 其余行按 ts 归属到最近一个已出现的 turn。无 queue 数据时，
-    /// context 的 user message 退化为 turn 边界（case 快照常见形态）。
+    /// 从 Activity 统一行集投影轨迹：queue 行 = turn 边界；
+    /// 其余行（含 context 的 session 行）按 ts 归属到最近一个已出现的 turn。
+    /// 无 queue 数据时，context 的 user message 退化为 turn 边界（case 快照常见形态）。
     pub fn from_activity(activity: &Activity) -> Self {
         let has_queue = activity.rows.iter().any(|r| r.file == QUEUE_FILE);
         let mut rows = Vec::new();
         let mut turns = 0usize;
-        let mut sessions = 0usize;
         let mut current_turn: Option<usize> = None;
 
         for r in &activity.rows {
-            if r.file == CONTEXT_FILE && r.kind == "session" {
-                sessions += 1;
-                rows.push(TrajectoryRow::Session {
-                    id: r.summary.clone(),
-                    ts: r.ts,
-                    detail: r.detail.clone(),
-                });
-                continue;
-            }
             let is_turn = r.file == QUEUE_FILE
                 || (!has_queue && r.file == CONTEXT_FILE && r.kind == "message/user");
             if is_turn {
@@ -413,6 +386,8 @@ impl Trajectory {
                 });
                 continue;
             }
+            // 普通行：context（message/autonomy/head/usage/session/compact_boundary）、
+            // effect、terminal、work-agents、cron 全部同池，按 ts 归属到最近 turn
             rows.push(TrajectoryRow::Event {
                 file: r.file,
                 kind: r.kind.clone(),
@@ -422,59 +397,30 @@ impl Trajectory {
                 detail: r.detail.clone(),
             });
         }
-        Self {
-            rows,
-            turns,
-            sessions,
-        }
-    }
-
-    /// 子树派生：某节点的后代折叠键（l 于父节点展开时连带清除）
-    pub fn subtree(&self, key: FoldKey) -> Vec<FoldKey> {
-        match key {
-            FoldKey::PreTurn => self
-                .rows
-                .iter()
-                .take_while(|r| !matches!(r, TrajectoryRow::Session { .. }))
-                .filter_map(|r| match r {
-                    TrajectoryRow::Turn { index, .. } => Some(FoldKey::Turn(*index)),
-                    _ => None,
-                })
-                .collect(),
-            FoldKey::Session(ord) => {
-                let mut out = Vec::new();
-                let mut sord = 0usize;
-                for row in &self.rows {
-                    match row {
-                        TrajectoryRow::Session { .. } => {
-                            sord += 1;
-                            if sord > ord {
-                                break;
-                            }
-                        }
-                        TrajectoryRow::Turn { index, .. } => {
-                            if sord == ord {
-                                out.push(FoldKey::Turn(*index));
-                            }
-                        }
-                        TrajectoryRow::Event { .. } => {}
-                    }
-                }
-                out
-            }
-            FoldKey::Turn(_) => vec![],
-        }
+        Self { rows, turns }
     }
 }
 
 /// 行类型：详情栏入口判定（Event / 平铺行 = 叶子，→/l 进详情栏）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
-    Session,
     Turn,
     Event,
     /// 区域标签行（如 [pre turn]），不可进详情
     Label,
+}
+
+/// 来源文件 → 符号前缀（docs/tools.md §符号前缀）
+fn symbol_for(file: &str) -> &'static str {
+    match file {
+        QUEUE_FILE => "▸",
+        CONTEXT_FILE => "•",
+        EFFECT_FILE => "▪",
+        TERMINAL_CONTENT_FILE => "–",
+        WORK_AGENTS_FILE => "◇",
+        ambery_core::cron::CRON_FILE => "◷",
+        _ => "·",
+    }
 }
 
 /// 渲染行：显示文案 + 折叠键 + 未截断详情 + 行类型
@@ -487,75 +433,32 @@ pub struct RenderedLine {
 }
 
 impl Trajectory {
-    /// 渲染为 TUI 行：树形结构边界保留，任意节点可独立折叠（同构语义）；
-    /// 每行携带折叠键（h/l 按光标定位）与未截断详情（详情栏显示）。
+    /// 渲染为 TUI 行：turn-centric 两层树（turn / [pre turn] > 归属行）。
+    /// 每行带符号前缀标识来源（docs/tools.md §符号前缀）；携带折叠键与未截断详情。
     pub fn render(&self, file: &str, filter: &str, fold: &FoldState) -> Vec<RenderedLine> {
-        // span 表：每个折叠键的后代行数（[+n] 计数）
-        let mut session_hidden: HashMap<usize, usize> = HashMap::new();
+        // span 表：每 turn 的归属行数、pre-turn 行数（[+n] 计数）
         let mut turn_hidden: HashMap<usize, usize> = HashMap::new();
         let mut pre_turn_count = 0usize;
         let mut pre_turn_files: Vec<&'static str> = Vec::new();
-        {
-            let mut sord = 0usize;
-            let mut span = 0usize;
-            let mut cur: Option<usize> = None;
-            for row in &self.rows {
-                match row {
-                    TrajectoryRow::Session { .. } => {
-                        if let Some(s) = cur {
-                            session_hidden.insert(s, span);
-                        }
-                        sord += 1;
-                        cur = Some(sord);
-                        span = 0;
-                    }
-                    TrajectoryRow::Turn { .. } => span += 1,
-                    TrajectoryRow::Event { file, turn, .. } => {
-                        span += 1;
-                        match turn {
-                            Some(t) => *turn_hidden.entry(*t).or_insert(0) += 1,
-                            None => {
-                                pre_turn_count += 1;
-                                if !pre_turn_files.contains(file) {
-                                    pre_turn_files.push(*file);
-                                }
-                            }
+        for row in &self.rows {
+            if let TrajectoryRow::Event { file, turn, .. } = row {
+                match turn {
+                    Some(t) => *turn_hidden.entry(*t).or_insert(0) += 1,
+                    None => {
+                        pre_turn_count += 1;
+                        if !pre_turn_files.contains(file) {
+                            pre_turn_files.push(*file);
                         }
                     }
                 }
-            }
-            if let Some(s) = cur {
-                session_hidden.insert(s, span);
             }
         }
 
         let mut out: Vec<RenderedLine> = Vec::new();
-        let mut sord = 0usize;
-        // 当前线性跨度被折叠（上一 session 折叠 → 其跨度内行全隐藏）
-        let mut span_hidden = false;
         let mut pre_turn_labeled = false;
         for row in &self.rows {
             match row {
-                TrajectoryRow::Session { id, ts, detail } => {
-                    sord += 1;
-                    span_hidden = fold.is_collapsed(FoldKey::Session(sord));
-                    let mut line = format!("── session {id} @{ts}");
-                    if span_hidden {
-                        if let Some(n) = session_hidden.get(&sord) {
-                            line.push_str(&format!("  [+{n}]"));
-                        }
-                    }
-                    if (file == "all" || file == CONTEXT_FILE)
-                        && (filter.is_empty() || id.contains(filter))
-                    {
-                        out.push(RenderedLine {
-                            text: line,
-                            target: FoldKey::Session(sord),
-                            detail: detail.clone(),
-                            kind: RowKind::Session,
-                        });
-                    }
-                }
+                // turn 容器行（0 级，▸）
                 TrajectoryRow::Turn {
                     index,
                     source,
@@ -564,9 +467,6 @@ impl Trajectory {
                     detail,
                     ..
                 } => {
-                    if span_hidden {
-                        continue;
-                    }
                     let mut line = format!("▸ turn {} [{}] {} @{ts}", index + 1, source, content);
                     if fold.is_collapsed(FoldKey::Turn(*index)) {
                         if let Some(n) = turn_hidden.get(index) {
@@ -586,6 +486,7 @@ impl Trajectory {
                         });
                     }
                 }
+                // 普通行（1 级缩进 + 符号前缀；按归属分 pre-turn / turn 下）
                 TrajectoryRow::Event {
                     file: f,
                     kind,
@@ -594,15 +495,13 @@ impl Trajectory {
                     turn,
                     detail,
                 } => {
-                    if span_hidden {
-                        continue;
-                    }
+                    let symbol = symbol_for(f);
                     match turn {
-                        // pre-turn 事件：折叠键 = PreTurn（h 于 [pre turn] 之下任意行向上折叠）
+                        // pre-turn 区域（[pre turn] 容器，与 turn 同构）
                         None => {
                             let label_visible = file == "all" || pre_turn_files.contains(f);
                             if !pre_turn_labeled && label_visible {
-                                let mut label = "[pre turn]".to_string();
+                                let mut label = "▸ [pre turn]".to_string();
                                 if fold.is_collapsed(FoldKey::PreTurn) {
                                     label.push_str(&format!("  [+{pre_turn_count}]"));
                                 }
@@ -623,7 +522,7 @@ impl Trajectory {
                                     || summary.contains(filter))
                             {
                                 out.push(RenderedLine {
-                                    text: format!("   · {ts} [{f}] {kind} {summary}"),
+                                    text: format!("   {symbol} {ts} {kind} {summary}"),
                                     target: FoldKey::PreTurn,
                                     detail: detail.clone(),
                                     kind: RowKind::Event,
@@ -640,7 +539,7 @@ impl Trajectory {
                                     || summary.contains(filter))
                             {
                                 out.push(RenderedLine {
-                                    text: format!("   · {ts} [{f}] {kind} {summary}"),
+                                    text: format!("   {symbol} {ts} {kind} {summary}"),
                                     target: FoldKey::Turn(*t),
                                     detail: detail.clone(),
                                     kind: RowKind::Event,
@@ -661,7 +560,7 @@ struct Options {
     follow: bool,
     /// --dump：非交互，纯文本打印全部行（脚本/管道用；默认是 TUI）
     dump: bool,
-    /// --trajectory：turn-aware 紧凑轨迹账本（session/turn/event 三层）
+    /// --trajectory：turn-centric 轨迹账本（turn 容器 + 归属行两层）
     trajectory: bool,
 }
 
@@ -820,6 +719,12 @@ impl Tui {
         self.offset = 0;
     }
 
+    fn prev_file(&mut self) {
+        self.file_idx = (self.file_idx + FILES.len() - 1) % FILES.len();
+        self.cursor = 0;
+        self.offset = 0;
+    }
+
     fn jump_top(&mut self) {
         self.cursor = 0;
         self.offset = 0;
@@ -859,7 +764,7 @@ impl Tui {
         let content = match &self.focused_row() {
             Some(r) => {
                 let mut v = wrap_to_width(
-                    &format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary),
+                    &format!("{} {} {} {}", symbol_for(r.file), r.ts, r.kind, r.summary),
                     width,
                 );
                 v.push(String::new());
@@ -963,7 +868,7 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                         .skip(offset)
                         .take(height)
                         .map(|r| {
-                            ListItem::new(format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary))
+                            ListItem::new(format!("{} {} {} {}", symbol_for(r.file), r.ts, r.kind, r.summary))
                         })
                         .collect();
                     let mut state = ListState::default();
@@ -972,7 +877,7 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                     }
                     let list = List::new(items)
                         .block(Block::default().borders(Borders::NONE))
-                        .highlight_symbol("▶ ");
+                        .highlight_symbol("❯ ");
                     f.render_stateful_widget(list, la, &mut state);
                 }
 
@@ -1025,7 +930,7 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                 }
                 let list = List::new(items)
                     .block(Block::default().borders(Borders::NONE))
-                    .highlight_symbol("▶ ");
+                    .highlight_symbol("❯ ");
                 f.render_stateful_widget(list, chunks[1], &mut state);
             }
 
@@ -1038,7 +943,7 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                     "detail: ↑/↓/j/k 滚动 i 全屏 ←/h/Esc 关闭 q 退出".to_string()
                 }
             } else {
-                "↑/↓/j/k 移动 →/l 详情 ←/h 返回 gg/G 跳首尾 Tab 切源 / 筛选 f 跟随 q 退出".to_string()
+                "↑/↓/j/k 移动 →/l 详情 ←/h 返回 gg/G 跳首尾 Tab/⇧Tab 切源 / 筛选 f 跟随 q 退出".to_string()
             };
             f.render_widget(
                 Paragraph::new(help).block(Block::default().borders(Borders::TOP)),
@@ -1093,6 +998,7 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                         KeyCode::Up | KeyCode::Char('k') => tui.move_cursor(-1),
                         KeyCode::Down | KeyCode::Char('j') => tui.move_cursor(1),
                         KeyCode::Tab => tui.next_file(),
+                        KeyCode::BackTab => tui.prev_file(),
                         KeyCode::Char('/') => tui.filtering = true,
                         KeyCode::Char('G') => tui.jump_bottom(),
                         KeyCode::Char('g') => {
@@ -1213,6 +1119,12 @@ impl TrajectoryTui {
         self.offset = 0;
     }
 
+    fn prev_file(&mut self) {
+        self.file_idx = (self.file_idx + FILES.len() - 1) % FILES.len();
+        self.cursor = 0;
+        self.offset = 0;
+    }
+
     fn jump_top(&mut self) {
         self.cursor = 0;
         self.offset = 0;
@@ -1243,9 +1155,8 @@ impl TrajectoryTui {
     }
 
     fn unfold_at(&mut self, target: FoldKey) {
-        // 展开节点并连带清除子树内所有折叠（l 于父节点 = 整棵展开）
-        let descendants = self.trajectory.subtree(target);
-        self.fold_state.unfold_subtree(target, &descendants);
+        // 两层树：容器无嵌套后代，展开自身即可
+        self.fold_state.unfold(target);
         self.clamp_cursor();
     }
 
@@ -1317,8 +1228,7 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                 .split(f.area());
 
             let title = format!(
-                "ambery-activity trajectory  sessions={} turns={} rows={} file={} filter={}{}",
-                tui.trajectory.sessions,
+                "ambery-activity trajectory  turns={} rows={} file={} filter={}{}",
                 tui.trajectory.turns,
                 lines.len(),
                 file_label,
@@ -1355,7 +1265,7 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                     }
                     let list = List::new(items)
                         .block(Block::default().borders(Borders::NONE))
-                        .highlight_symbol("▶ ");
+                        .highlight_symbol("❯ ");
                     f.render_stateful_widget(list, la, &mut state);
                 }
 
@@ -1401,7 +1311,7 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                 }
                 let list = List::new(items)
                     .block(Block::default().borders(Borders::NONE))
-                    .highlight_symbol("▶ ");
+                    .highlight_symbol("❯ ");
                 f.render_stateful_widget(list, chunks[1], &mut state);
             }
 
@@ -1414,7 +1324,7 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                     "detail: ↑/↓/j/k 滚动 i 全屏 ←/h/Esc 关闭 q 退出".to_string()
                 }
             } else {
-                "↑/↓/j/k 移动 ←/h 折叠 →/l 展开/详情 gg/G 跳首尾 Tab 切源 / 筛选 f 跟随 q 退出".to_string()
+                "↑/↓/j/k 移动 ←/h 折叠 →/l 展开/详情 gg/G 跳首尾 Tab/⇧Tab 切源 / 筛选 f 跟随 q 退出".to_string()
             };
             f.render_widget(
                 Paragraph::new(help).block(Block::default().borders(Borders::TOP)),
@@ -1469,6 +1379,7 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                         KeyCode::Up | KeyCode::Char('k') => tui.move_cursor(-1),
                         KeyCode::Down | KeyCode::Char('j') => tui.move_cursor(1),
                         KeyCode::Tab => tui.next_file(),
+                        KeyCode::BackTab => tui.prev_file(),
                         KeyCode::Char('/') => tui.filtering = true,
                         KeyCode::Char('G') => tui.jump_bottom(),
                         KeyCode::Char('g') => {
@@ -1705,50 +1616,52 @@ mod tests {
     }
 
     #[test]
-    fn trajectory_groups_sessions_turns_and_events() {
+    fn trajectory_projects_turns_and_attributed_rows() {
         let traj = Trajectory::from_activity(&trajectory_sample());
-        assert_eq!(traj.sessions, 1);
         assert_eq!(traj.turns, 1);
         assert_eq!(traj.rows.len(), 4);
-        assert!(matches!(&traj.rows[0], TrajectoryRow::Session { id, .. } if id == "s1"));
+        // context session 行 = 普通行（首个 turn 之前 → turn None）
+        assert!(matches!(&traj.rows[0], TrajectoryRow::Event { kind, turn: None, .. } if kind == "session"));
         assert!(matches!(&traj.rows[1], TrajectoryRow::Turn { index: 0, source, .. } if source == "user_chat"));
-        // ts=3 的事件挂在 turn 0 名下
+        // ts=3/4 的行挂在 turn 0 名下
         assert!(matches!(&traj.rows[2], TrajectoryRow::Event { turn: Some(0), .. }));
         assert!(matches!(&traj.rows[3], TrajectoryRow::Event { turn: Some(0), .. }));
     }
 
     #[test]
-    fn trajectory_fold_is_per_item() {
+    fn trajectory_fold_is_per_container() {
         let traj = Trajectory::from_activity(&trajectory_sample());
 
         let flat = traj.render("all", "", &FoldState::new());
-        assert_eq!(flat.len(), 4);
-        assert!(flat[0].text.contains("session s1"));
-        assert!(flat[1].text.contains("turn 1"));
-        assert_eq!(flat[1].target, FoldKey::Turn(0));
-        // 事件行折叠键 = 所属 turn（子对象可向上折叠）；行类型 = 叶子
+        assert_eq!(flat.len(), 5, "{flat:?}");
+        // 结构：▸ [pre turn] → pre-turn session 行 → ▸ turn 1 → 2 归属行
+        assert_eq!(flat[0].text, "▸ [pre turn]");
+        assert_eq!(flat[0].kind, RowKind::Label);
+        assert_eq!(flat[0].target, FoldKey::PreTurn);
+        assert_eq!(flat[1].target, FoldKey::PreTurn);
+        assert!(flat[2].text.contains("turn 1"));
         assert_eq!(flat[2].target, FoldKey::Turn(0));
-        assert_eq!(flat[2].kind, RowKind::Event);
         assert_eq!(flat[3].target, FoldKey::Turn(0));
+        assert_eq!(flat[4].target, FoldKey::Turn(0));
+        // 行文本：符号前缀标识来源，无冗余 [file] 标签
+        assert!(flat[3].text.starts_with("   ▪ "));
+        assert!(!flat[3].text.contains("[effect.jsonl]"));
+        assert!(flat[1].text.starts_with("   • "));
 
-        // 折叠 turn 0：事件隐藏，session/turn 边界保留，turn 行带 [+2] 标记
+        // 折叠 turn 0：其归属行隐藏，pre-turn 行与 turn 边界保留，turn 行带 [+2]
         let folded_t = traj.render("all", "", &fold_state(&[FoldKey::Turn(0)]));
-        assert_eq!(folded_t.len(), 2, "{folded_t:?}");
+        assert_eq!(folded_t.len(), 3, "{folded_t:?}");
         assert!(!folded_t.iter().any(|l| l.text.contains("render_component")));
-        assert!(folded_t[1].text.contains("[+2]"));
+        assert!(folded_t[2].text.contains("[+2]"));
 
-        // 折叠 session 1：turn+事件全隐藏，仅 session 行，带 [+3]
-        let folded_s = traj.render("all", "", &fold_state(&[FoldKey::Session(1)]));
-        assert_eq!(folded_s.len(), 1, "{folded_s:?}");
-        assert!(folded_s[0].text.contains("[+3]"));
+        // 折叠 PreTurn：pre-turn 行隐藏，标签带 [+1]
+        let folded_p = traj.render("all", "", &fold_state(&[FoldKey::PreTurn]));
+        assert_eq!(folded_p.len(), 4, "{folded_p:?}");
+        assert!(folded_p[0].text.contains("[+1]"));
 
-        // 单条目独立：turn 折叠不影响 session 折叠的计数与展示
-        let both = traj.render(
-            "all",
-            "",
-            &fold_state(&[FoldKey::Session(1), FoldKey::Turn(0)]),
-        );
-        assert_eq!(both.len(), 1, "session 折叠优先于 turn 折叠");
+        // 两层独立：同时折叠互不影响计数
+        let both = traj.render("all", "", &fold_state(&[FoldKey::PreTurn, FoldKey::Turn(0)]));
+        assert_eq!(both.len(), 2, "{both:?}");
 
         // pre-turn 事件（首个 turn 之前）→ 折叠键 = PreTurn，可向上折叠
         let orphan = Trajectory {
@@ -1761,16 +1674,13 @@ mod tests {
                 detail: "o".into(),
             }],
             turns: 0,
-            sessions: 0,
         };
         let ol = orphan.render("all", "", &FoldState::new());
-        assert_eq!(ol[0].text, "[pre turn]", "孤儿事件前有 [pre turn] 标签");
+        assert_eq!(ol[0].text, "▸ [pre turn]", "孤儿事件前有 [pre turn] 标签");
         assert_eq!(ol[0].kind, RowKind::Label);
-        assert_eq!(ol[0].target, FoldKey::PreTurn);
         assert_eq!(ol[1].target, FoldKey::PreTurn, "pre-turn 事件向上折叠到 PreTurn");
-        // 折叠后事件隐藏
         let ol_folded = orphan.render("all", "", &fold_state(&[FoldKey::PreTurn]));
-        assert!(!ol_folded.iter().any(|l| l.kind == RowKind::Event));
+        assert_eq!(ol_folded.len(), 1, "{ol_folded:?}");
     }
 
     #[test]
@@ -1797,7 +1707,7 @@ mod tests {
         let traj = Trajectory::from_activity(&a);
         let lines = traj.render("all", "", &FoldState::new());
         assert_eq!(lines.len(), 3);
-        assert_eq!(lines[0].text, "[pre turn]");
+        assert_eq!(lines[0].text, "▸ [pre turn]");
         assert_eq!(lines[0].kind, RowKind::Label);
         assert_eq!(lines[1].kind, RowKind::Event);
         assert_eq!(lines[2].kind, RowKind::Turn);
@@ -1835,7 +1745,7 @@ mod tests {
         // 折叠 PreTurn：事件隐藏、标签带 [+2]
         let folded = traj.render("all", "", &fold_state(&[FoldKey::PreTurn]));
         assert_eq!(folded.len(), 2, "{folded:?}");
-        assert_eq!(folded[0].text, "[pre turn]  [+2]");
+        assert_eq!(folded[0].text, "▸ [pre turn]  [+2]");
         assert_eq!(folded[0].target, FoldKey::PreTurn);
         assert!(!folded.iter().any(|l| l.kind == RowKind::Event));
         // 展开恢复
@@ -1850,17 +1760,10 @@ mod tests {
     }
 
     #[test]
-    fn unfold_session_expands_descendant_turns() {
-        // 两个 session 各带 turn；折 s2 的 turn 后，l 于 s2 整体展开
+    fn fold_unfold_two_level_roundtrip() {
+        // 两个 turn 各带归属行；折 turn 1 只隐藏其行，展开恢复
         let a = Activity {
             rows: vec![
-                ActivityRow {
-                    file: CONTEXT_FILE,
-                    kind: "session".into(),
-                    ts: 0,
-                    summary: "s1".into(),
-                    detail: "s1".into(),
-                },
                 ActivityRow {
                     file: QUEUE_FILE,
                     kind: "user_chat".into(),
@@ -1869,11 +1772,11 @@ mod tests {
                     detail: "a".into(),
                 },
                 ActivityRow {
-                    file: CONTEXT_FILE,
-                    kind: "session".into(),
+                    file: EFFECT_FILE,
+                    kind: "k".into(),
                     ts: 2,
-                    summary: "s2".into(),
-                    detail: "s2".into(),
+                    summary: "e1".into(),
+                    detail: "e1".into(),
                 },
                 ActivityRow {
                     file: QUEUE_FILE,
@@ -1882,30 +1785,40 @@ mod tests {
                     summary: "b".into(),
                     detail: "b".into(),
                 },
+                ActivityRow {
+                    file: EFFECT_FILE,
+                    kind: "k".into(),
+                    ts: 4,
+                    summary: "e2".into(),
+                    detail: "e2".into(),
+                },
             ],
         };
         let traj = Trajectory::from_activity(&a);
-        assert_eq!(traj.subtree(FoldKey::Session(1)), vec![FoldKey::Turn(0)]);
-        assert_eq!(traj.subtree(FoldKey::Session(2)), vec![FoldKey::Turn(1)]);
+        assert_eq!(traj.turns, 2);
         let mut t = TrajectoryTui::new(traj, false);
-        // 折 s2 下的 turn 1
         t.fold_at(FoldKey::Turn(1));
         assert!(t.fold_state.is_collapsed(FoldKey::Turn(1)));
-        // l 于 session 2 → 连带展开 turn 1（子树整体展开）
-        t.unfold_at(FoldKey::Session(2));
+        let lines = t.lines();
+        // turn 2 边界保留 [+1]，其归属行（e2）隐藏；turn 1 及其行不受影响
+        assert_eq!(lines.len(), 3, "{lines:?}");
+        assert!(lines[2].text.contains("turn 2"));
+        assert!(lines[2].text.contains("[+1]"));
+        assert!(!lines.iter().any(|l| l.text.contains("e2")));
+        assert!(lines.iter().any(|l| l.text.contains("e1")));
+        t.unfold_at(FoldKey::Turn(1));
         assert!(!t.fold_state.is_collapsed(FoldKey::Turn(1)));
+        assert_eq!(t.lines().len(), 4);
     }
 
     #[test]
     fn trajectory_lines_carry_full_detail() {
         let traj = Trajectory::from_activity(&trajectory_sample());
         let lines = traj.render("all", "", &FoldState::new());
-        // 事件行详情 = 未截断全文（列表 summary 是截断的，detail 是完整的）
-        assert!(lines[2].detail.contains("完整卡片内容"));
-        // turn 行详情 = queue 原文
-        assert!(lines[1].detail.contains("用户问的完整内容全文"));
-        // session 行详情 = id
-        assert!(lines[0].detail.contains("s1"));
+        // [0] [pre turn] 标签 / [1] pre-turn session 行 / [2] turn / [3] effect / [4] assistant
+        assert!(lines[3].detail.contains("完整卡片内容"));
+        assert!(lines[2].detail.contains("用户问的完整内容全文"));
+        assert!(lines[1].detail.contains("s1"));
     }
 
     #[test]
@@ -1939,13 +1852,16 @@ mod tests {
     fn trajectory_detail_entry_only_on_leaves() {
         let traj = Trajectory::from_activity(&trajectory_sample());
         let mut t = TrajectoryTui::new(traj, false);
-        // 光标在 turn（父节点）→ →/l 不进详情栏
-        assert_eq!(t.cursor_kind(), Some(RowKind::Session));
-        t.move_cursor(1);
+        // 光标 0 = [pre turn] 标签 → 不进详情栏
+        assert_eq!(t.cursor_kind(), Some(RowKind::Label));
+        t.enter_detail();
+        assert!(!t.in_detail, "标签行不进详情栏");
+        // 光标 2 = turn 容器 → 不进
+        t.move_cursor(2);
         assert_eq!(t.cursor_kind(), Some(RowKind::Turn));
         t.enter_detail();
-        assert!(!t.in_detail, "父节点不进详情栏");
-        // 光标移到事件（叶子）→ 进详情栏
+        assert!(!t.in_detail, "容器行不进详情栏");
+        // 光标 3 = 事件（叶子）→ 进详情栏
         t.move_cursor(1);
         assert_eq!(t.cursor_kind(), Some(RowKind::Event));
         t.enter_detail();
@@ -1995,7 +1911,7 @@ mod tests {
         let traj = Trajectory::from_activity(&trajectory_sample());
         let mut t = TrajectoryTui::new(traj, false);
         t.jump_bottom();
-        assert_eq!(t.cursor, 3);
+        assert_eq!(t.cursor, 4);
         t.jump_top();
         assert_eq!(t.cursor, 0);
     }
