@@ -93,7 +93,10 @@ async fn main() {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(47600);
-        ambery_core::host::serve_host(parts, port).await;
+        if let Err(e) = ambery_core::host::serve_host(parts, port).await {
+            eprintln!("[ambery-core] {e}");
+            std::process::exit(1);
+        }
         return;
     }
     let case_path = &args[1];
@@ -294,7 +297,12 @@ async fn run_frontend(brain: Option<String>, silent: bool) {
     let port = std::net::TcpListener::bind("127.0.0.1:0")
         .and_then(|l| l.local_addr().map(|a| a.port()))
         .expect("probe free port");
-    tokio::spawn(ambery_core::host::serve_host(parts, port));
+    tokio::spawn(async move {
+        if let Err(e) = ambery_core::host::serve_host(parts, port).await {
+            eprintln!("[ambery-core] {e}");
+            std::process::exit(1);
+        }
+    });
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app");
     let mut cmd = tokio::process::Command::new(if cfg!(windows) { "cmd" } else { "npx" });
     if cfg!(windows) {
