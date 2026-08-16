@@ -5,13 +5,13 @@
 
 import { ANIM_BOTTOM, ANIM_LEFT, ANIM_RIGHT, ANIM_TOP, type MotionOverflow } from "./motions";
 
-/** CSS `#view height` 基底：face 高度 + 安全边距（25px face 垂直居中，上下各 ~7.5px）。
+/** CSS `#view height` 基底：face 高度 + 安全边距（11.25px face 垂直居中，上下各 ~4.4px——尺寸减半 + 字体多减 10%）。
  *  动画溢出在窗口层（MotionDef overflow），容器无需为动画预留空间，故可保持紧凑 */
-export const BASELINE_H = 40;
+export const BASELINE_H = 20;
 /** CSS `#view min-width` 基底：无 kaomoji 时的最小宽度 */
-export const MIN_FACE_W = 72;
-/** CSS `#view padding` 左右合计基底（22px × 2） */
-export const PAD_LR = 44;
+export const MIN_FACE_W = 36;
+/** CSS `#view padding` 左右合计基底（11px × 2） */
+export const PAD_LR = 22;
 /** maxFaceWidth 余量（设计常量）：系统池扫描取 max 后加的防 clip 边距 */
 export const MAX_FACE_MARGIN = 4;
 /** #view 描边总宽（CSS border 1px × 2 边，不随 scale）：窗口公式补偿，防边缘 border 被窗口裁（#17 增补） */
