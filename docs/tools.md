@@ -57,7 +57,7 @@ References the trajectory concept from dsh: projects the flat JSONL into a **tur
 
 - A `context.jsonl` `session` line = session boundary (heavier rule); each `queue.jsonl` line = one turn boundary (one Queue release round = one trigger); remaining lines are attributed to the nearest turn by ts and indented as event lines.
 - When there is no queue data (common in case snapshots), a user message in `context.jsonl` degrades into a turn boundary.
-- Events before the first turn (no queue record to attribute to) render under a `[pre turn]` label.
+- Events before the first turn (no queue record to attribute to) render under a `[pre turn]` label, which folds like a session (`←` / `h` collapses all its events, `→` / `l` expands).
 - **Per-item folding**: folding is per session / per turn, not global. Press `←` / `h` to collapse the rows under the focused foldable — on a Session row its turns and events, on a Turn row its events, on an event row its containing turn; `→` / `l` expands it back — on a Session row it expands the whole subtree including any folded turns beneath it; on a leaf it opens the detail pane instead. Fold state is keyed by stable row identity (session ordinal / turn index), so rows fold and unfold independently; a folded row shows a `[+n]` marker with the hidden count. `/` filters, Tab switches files, `f` follows, same as the normal form.
 
 ### Implementation
