@@ -111,6 +111,7 @@ html.browser body {
   white-space: nowrap;
   flex-shrink: 0; /* 必须：禁止被容器压缩，确保测量为自然宽度 */
   pointer-events: none;
+  user-select: none; /* 颜文字不可被双击选中 */
 }
 
 /* #5 pet 未读角标：样式/方位由 Config 驱动（pet.ts 切 class），默认纯数字容器内右 */
