@@ -49,3 +49,9 @@ Window layout, off-screen behavior, and center anchoring in multi-monitor scenar
 ## Default Value Calibration
 
 Defaults such as Compression thresholds and Timer intervals are to be calibrated against real usage data.
+
+## Test Coverage Measurement
+
+Introducing systematic test coverage measurement is a post-0.1.0 engineering capability: Rust workspace coverage (llvm-cov / tarpaulin) and frontend coverage (vitest coverage) expose which logic paths the current test net misses. Coverage here is an observability signal for the Harness's own development, not a standalone release gate — the project's acceptance discipline is concept-structure assertions (ambery-case) plus targeted unit tests; coverage should reveal gaps in that net rather than chase percentages.
+
+A formal design must independently determine: the measured surface (core library vs ambery-case vs Tauri shell vs frontend), the reporting form (per-module thresholds vs gap lists), CI wiring (which jobs run coverage and how artifacts/badges are published), and the line-vs-branch metric policy.

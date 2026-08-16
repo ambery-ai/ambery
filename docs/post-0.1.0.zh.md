@@ -49,3 +49,9 @@ OpenCode 过滤器的噪声清单、块切分与折行合并参数待真实样�
 ## 默认值校准
 
 Compression 阈值、Timer 间隔等默认值按真实使用数据校准。
+
+## 测试覆盖检测
+
+系统化引入测试覆盖检测是 0.1.0 之后的工程能力：Rust workspace 覆盖（llvm-cov / tarpaulin）与前端覆盖（vitest coverage）用于暴露当前测试网的盲区。这里的覆盖是 Harness 自身开发的观测信号，不是独立的发布门槛——本项目的验收纪律是概念结构断言（ambery-case）加定向单测；覆盖应揭示这张网的缺口，而非追逐百分比。
+
+正式设计时需要独立确定：测量面（core 库 vs ambery-case vs Tauri 壳 vs 前端）、报告形态（分模块阈值 vs 缺口清单）、CI 接线（哪些 job 跑覆盖、产物/徽章如何发布），以及按行 vs 按分支的指标策略。
