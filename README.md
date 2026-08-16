@@ -1,4 +1,4 @@
-# Ambery
+# <img src="app/src-tauri/icons/icon.png" width="52" height="52" alt="ambery icon"> Ambery
 
 Ambery is a desktop agent harness that supervises your Claude Code sessions and turns them into a calm, glanceable companion: a floating pet, chat panel, and persistent cards. It watches session lifecycle through Claude Code hooks, reads terminal state through a Windows UIA sidecar, and lets the agent act through a small, explicit tool set.
 

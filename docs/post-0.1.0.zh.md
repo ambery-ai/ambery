@@ -63,3 +63,7 @@ ambery-activity 当前存在两套并行的 TUI 实现（平铺活动视图与 t
 ## 更多主流终端支持（先 ghostty）
 
 Terminal Content 读取目前覆盖 Windows Terminal（UIA sidecar）与 zellij（进程内 CLI 直调）。逐个支持更多主流终端是后续方向，预计先支持 ghostty（macOS/Linux 主流终端）。正式设计时需要独立确定：ghostty 的读取通道（缓冲区导出 / OSC 语义 / IPC）、与现有 `TerminalAdapter` trait 及 `adapter_wt` / `adapter_zellij` 配置族的接入点、无 UIA 平台的权限与降级路径，以及多终端并存时的选择优先级。
+
+## 图标全面重设计
+
+0.1.0 图标为最小占位版：透明琥珀 16 齿环（对应 16 方向定位环），无内层元素。全面重设计——象征、配色、内层图形、分尺寸变体——延后到 0.2.0。正式设计时需要独立确定：核心象征及其与 pet 角色的关系、配色（当前琥珀族 vs 更宽的品牌色板）、内层图形（重复元素形成内外对照）、托盘小尺寸简化（16px 可辨性），以及格式管线（SVG 源 → PNG 矩阵 → icns/ico）的可复现性。
