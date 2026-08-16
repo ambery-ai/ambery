@@ -653,6 +653,8 @@ struct Tui {
     /// 详情栏聚焦（j/k 滚动全文，←/h 返回列表）
     in_detail: bool,
     detail_scroll: usize,
+    /// 详情栏全屏（i 切换：隐藏列表，全文占满）
+    detail_fullscreen: bool,
     quit: bool,
 }
 
@@ -669,6 +671,7 @@ impl Tui {
             seen: 0,
             pending_g: false,
             in_detail: false,
+            detail_fullscreen: false,
             detail_scroll: 0,
             quit: false,
         };
@@ -734,6 +737,12 @@ impl Tui {
 
     fn leave_detail(&mut self) {
         self.in_detail = false;
+        self.detail_scroll = 0;
+        self.detail_fullscreen = false;
+    }
+
+    fn toggle_fullscreen(&mut self) {
+        self.detail_fullscreen = !self.detail_fullscreen;
         self.detail_scroll = 0;
     }
 
@@ -803,6 +812,7 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
         let focused = tui.focused_row();
         let detail_scroll = tui.detail_scroll;
         let in_detail = tui.in_detail;
+        let detail_fullscreen = tui.detail_fullscreen;
 
         terminal.draw(|f| {
             let chunks = Layout::default()
@@ -826,35 +836,46 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                 chunks[0],
             );
 
-            // 详情栏非驻留：仅在 →/l 打开（in_detail）时渲染，否则列表全宽
+            // 详情栏非驻留：仅在 →/l 打开（in_detail）时渲染；i 全屏时占满中间区
             if in_detail {
-                let panes = Layout::default()
-                    .direction(ratatui::layout::Direction::Horizontal)
-                    .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-                    .split(chunks[1]);
+                let (list_area, detail_area) = if detail_fullscreen {
+                    (None, chunks[1])
+                } else {
+                    let panes = Layout::default()
+                        .direction(ratatui::layout::Direction::Horizontal)
+                        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                        .split(chunks[1]);
+                    (Some(panes[0]), panes[1])
+                };
 
-                let items: Vec<ListItem> = view
-                    .iter()
-                    .skip(offset)
-                    .take(height)
-                    .map(|r| {
-                        ListItem::new(format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary))
-                    })
-                    .collect();
-                let mut state = ListState::default();
-                if !view.is_empty() {
-                    state.select(Some(cursor.saturating_sub(offset)));
+                if let Some(la) = list_area {
+                    let items: Vec<ListItem> = view
+                        .iter()
+                        .skip(offset)
+                        .take(height)
+                        .map(|r| {
+                            ListItem::new(format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary))
+                        })
+                        .collect();
+                    let mut state = ListState::default();
+                    if !view.is_empty() {
+                        state.select(Some(cursor.saturating_sub(offset)));
+                    }
+                    let list = List::new(items)
+                        .block(Block::default().borders(Borders::NONE))
+                        .highlight_symbol("▶ ");
+                    f.render_stateful_widget(list, la, &mut state);
                 }
-                let list = List::new(items)
-                    .block(Block::default().borders(Borders::NONE))
-                    .highlight_symbol("▶ ");
-                f.render_stateful_widget(list, panes[0], &mut state);
 
                 let detail_block = Block::default()
                     .borders(Borders::LEFT)
-                    .title("detail [focused]");
-                let pane_width = panes[1].width as usize;
-                let pane_height = panes[1].height as usize;
+                    .title(if detail_fullscreen {
+                        "detail [fullscreen]"
+                    } else {
+                        "detail [focused]"
+                    });
+                let pane_width = detail_area.width as usize;
+                let pane_height = detail_area.height as usize;
                 match &focused {
                     Some(row) => {
                         let mut pane_lines = wrap_to_width(
@@ -870,10 +891,10 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                             .cloned()
                             .collect::<Vec<_>>()
                             .join("\n");
-                        f.render_widget(Paragraph::new(body).block(detail_block), panes[1]);
+                        f.render_widget(Paragraph::new(body).block(detail_block), detail_area);
                     }
                     None => {
-                        f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
+                        f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), detail_area);
                     }
                 }
             } else {
@@ -898,7 +919,11 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
             let help = if filtering {
                 format!("/{}", filter)
             } else if in_detail {
-                "detail: ↑/↓/j/k 滚动 ←/h 返回  q 退出".to_string()
+                if detail_fullscreen {
+                    "detail 全屏: ↑/↓/j/k 滚动 i/Esc 退出全屏 q 退出".to_string()
+                } else {
+                    "detail: ↑/↓/j/k 滚动 i 全屏 ←/h/Esc 关闭 q 退出".to_string()
+                }
             } else {
                 "↑/↓/j/k 移动 →/l 详情 ←/h 返回 gg/G 跳首尾 Tab 切源 / 筛选 f 跟随 q 退出".to_string()
             };
@@ -928,12 +953,23 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                 } else if tui.in_detail {
                     let area = terminal.get_frame().area();
                     let pane_h = area.height.saturating_sub(4) as usize;
-                    let pane_w = (area.width as usize * 40) / 100;
+                    let pane_w = if tui.detail_fullscreen {
+                        area.width as usize
+                    } else {
+                        (area.width as usize * 40) / 100
+                    };
                     match k.code {
                         KeyCode::Char('q') => tui.quit = true,
+                        KeyCode::Char('i') => tui.toggle_fullscreen(),
                         KeyCode::Up | KeyCode::Char('k') => tui.scroll_detail(-1, pane_h, pane_w),
                         KeyCode::Down | KeyCode::Char('j') => tui.scroll_detail(1, pane_h, pane_w),
-                        KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => tui.leave_detail(),
+                        KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => {
+                            if tui.detail_fullscreen {
+                                tui.toggle_fullscreen();
+                            } else {
+                                tui.leave_detail();
+                            }
+                        }
                         _ => {}
                     }
                 } else {
@@ -988,6 +1024,8 @@ struct TrajectoryTui {
     /// 详情栏聚焦（j/k 滚动全文，←/h 返回列表）
     in_detail: bool,
     detail_scroll: usize,
+    /// 详情栏全屏（i 切换：隐藏列表，全文占满）
+    detail_fullscreen: bool,
     quit: bool,
 }
 
@@ -1007,6 +1045,7 @@ impl TrajectoryTui {
             folded_turns: HashSet::new(),
             pending_g: false,
             in_detail: false,
+            detail_fullscreen: false,
             detail_scroll: 0,
             quit: false,
         }
@@ -1036,6 +1075,12 @@ impl TrajectoryTui {
 
     fn leave_detail(&mut self) {
         self.in_detail = false;
+        self.detail_scroll = 0;
+        self.detail_fullscreen = false;
+    }
+
+    fn toggle_fullscreen(&mut self) {
+        self.detail_fullscreen = !self.detail_fullscreen;
         self.detail_scroll = 0;
     }
 
@@ -1169,6 +1214,7 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
         let focused = tui.focused_line();
         let detail_scroll = tui.detail_scroll;
         let in_detail = tui.in_detail;
+        let detail_fullscreen = tui.detail_fullscreen;
 
         terminal.draw(|f| {
             let chunks = Layout::default()
@@ -1194,33 +1240,44 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                 chunks[0],
             );
 
-            // 详情栏非驻留：仅在 →/l 打开（in_detail）时渲染，否则列表全宽
+            // 详情栏非驻留：仅在 →/l 打开（in_detail）时渲染；i 全屏时占满中间区
             if in_detail {
-                let panes = Layout::default()
-                    .direction(ratatui::layout::Direction::Horizontal)
-                    .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-                    .split(chunks[1]);
+                let (list_area, detail_area) = if detail_fullscreen {
+                    (None, chunks[1])
+                } else {
+                    let panes = Layout::default()
+                        .direction(ratatui::layout::Direction::Horizontal)
+                        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                        .split(chunks[1]);
+                    (Some(panes[0]), panes[1])
+                };
 
-                let items: Vec<ListItem> = lines
-                    .iter()
-                    .skip(offset)
-                    .take(height)
-                    .map(|l| ListItem::new(l.text.clone()))
-                    .collect();
-                let mut state = ListState::default();
-                if !lines.is_empty() {
-                    state.select(Some(cursor.saturating_sub(offset)));
+                if let Some(la) = list_area {
+                    let items: Vec<ListItem> = lines
+                        .iter()
+                        .skip(offset)
+                        .take(height)
+                        .map(|l| ListItem::new(l.text.clone()))
+                        .collect();
+                    let mut state = ListState::default();
+                    if !lines.is_empty() {
+                        state.select(Some(cursor.saturating_sub(offset)));
+                    }
+                    let list = List::new(items)
+                        .block(Block::default().borders(Borders::NONE))
+                        .highlight_symbol("▶ ");
+                    f.render_stateful_widget(list, la, &mut state);
                 }
-                let list = List::new(items)
-                    .block(Block::default().borders(Borders::NONE))
-                    .highlight_symbol("▶ ");
-                f.render_stateful_widget(list, panes[0], &mut state);
 
                 let detail_block = Block::default()
                     .borders(Borders::LEFT)
-                    .title("detail [focused]");
-                let pane_width = panes[1].width as usize;
-                let pane_height = panes[1].height as usize;
+                    .title(if detail_fullscreen {
+                        "detail [fullscreen]"
+                    } else {
+                        "detail [focused]"
+                    });
+                let pane_width = detail_area.width as usize;
+                let pane_height = detail_area.height as usize;
                 match &focused {
                     Some(line) => {
                         let pane_lines = detail_pane_lines(line, pane_width);
@@ -1231,10 +1288,10 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                             .cloned()
                             .collect::<Vec<_>>()
                             .join("\n");
-                        f.render_widget(Paragraph::new(body).block(detail_block), panes[1]);
+                        f.render_widget(Paragraph::new(body).block(detail_block), detail_area);
                     }
                     None => {
-                        f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
+                        f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), detail_area);
                     }
                 }
             } else {
@@ -1257,7 +1314,11 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
             let help = if filtering {
                 format!("/{}", filter)
             } else if in_detail {
-                "detail: ↑/↓/j/k 滚动 ←/h 返回  q 退出".to_string()
+                if detail_fullscreen {
+                    "detail 全屏: ↑/↓/j/k 滚动 i/Esc 退出全屏 q 退出".to_string()
+                } else {
+                    "detail: ↑/↓/j/k 滚动 i 全屏 ←/h/Esc 关闭 q 退出".to_string()
+                }
             } else {
                 "↑/↓/j/k 移动 ←/h 折叠 →/l 展开/详情 gg/G 跳首尾 Tab 切源 / 筛选 f 跟随 q 退出".to_string()
             };
@@ -1287,12 +1348,23 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                 } else if tui.in_detail {
                     let area = terminal.get_frame().area();
                     let pane_h = area.height.saturating_sub(4) as usize;
-                    let pane_w = (area.width as usize * 40) / 100;
+                    let pane_w = if tui.detail_fullscreen {
+                        area.width as usize
+                    } else {
+                        (area.width as usize * 40) / 100
+                    };
                     match k.code {
                         KeyCode::Char('q') => tui.quit = true,
+                        KeyCode::Char('i') => tui.toggle_fullscreen(),
                         KeyCode::Up | KeyCode::Char('k') => tui.scroll_detail(-1, pane_h, pane_w),
                         KeyCode::Down | KeyCode::Char('j') => tui.scroll_detail(1, pane_h, pane_w),
-                        KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => tui.leave_detail(),
+                        KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => {
+                            if tui.detail_fullscreen {
+                                tui.toggle_fullscreen();
+                            } else {
+                                tui.leave_detail();
+                            }
+                        }
                         _ => {}
                     }
                 } else {
@@ -1619,7 +1691,14 @@ mod tests {
         // 详情栏滚动（宽度感知：长行折行后占多视觉行）
         t.scroll_detail(1, 5, 40);
         assert_eq!(t.detail_scroll, 0, "内容短于 pane 高度时不滚动");
+        // 全屏切换（i）：toggle，离开详情栏重置
+        t.toggle_fullscreen();
+        assert!(t.detail_fullscreen);
+        t.toggle_fullscreen();
+        assert!(!t.detail_fullscreen);
+        t.toggle_fullscreen();
         t.leave_detail();
+        assert!(!t.detail_fullscreen, "离开详情栏重置全屏");
         assert!(!t.in_detail);
     }
 
@@ -1640,6 +1719,14 @@ mod tests {
         assert!(t.in_detail);
         let focused = t.focused_line().unwrap();
         assert!(focused.detail.contains("完整"));
+        // 全屏切换（i）：toggle，离开详情栏重置
+        t.toggle_fullscreen();
+        assert!(t.detail_fullscreen);
+        t.toggle_fullscreen();
+        assert!(!t.detail_fullscreen);
+        t.toggle_fullscreen();
+        t.leave_detail();
+        assert!(!t.detail_fullscreen, "离开详情栏重置全屏");
     }
 
     #[test]
