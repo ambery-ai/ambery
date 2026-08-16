@@ -77,18 +77,18 @@ it("插值工作", async () => {
   expect(t("chat.queued", { n: "3" })).toContain("3");
 });
 
-it("pet 名称：Config name 流入 chat 标题，改名即重贴（名称）", async () => {
+it("chat 标题 = i18n 文案（不显示 pet 名称），改名不重贴标题", async () => {
   const bridge = await createBridge();
   const store = await Store.create(bridge);
   const mount = document.createElement("div");
   document.body.appendChild(mount);
   new ChatPanel(mount, bridge, store);
   const title = mount.querySelector(".chat-header span")!;
-  // 默认名（改名轮定案）：Ambery
-  expect(title.textContent).toBe("Ambery");
-  // 改名 → 标题即当前名称
+  // 标题 = chat.title（i18n），不是 pet 名称
+  expect(title.textContent).toBe(t("chat.title"));
+  // 改名 → 标题不变
   expect((await postConfig("name", "監督ちゃん")).ok).toBe(true);
-  await vi.waitFor(() => expect(title.textContent).toBe("監督ちゃん"));
+  await vi.waitFor(() => expect(title.textContent).toBe(t("chat.title")));
   // 校验：空名原子拒绝
   expect((await postConfig("name", " ")).ok).toBe(false);
 });
