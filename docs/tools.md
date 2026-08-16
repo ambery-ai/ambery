@@ -34,11 +34,13 @@ TUI interactive interface (`ratatui`). Core interactions:
 
 ### Keybindings
 
-Both forms share the same key set:
+Both forms share the same key set; horizontal movement mirrors vertical:
 
 | Key | Action |
 |---|---|
-| `↑` / `k`, `↓` / `j` | move cursor up / down |
+| `↑` / `k`, `↓` / `j` | move cursor up / down (scroll the detail pane when focused) |
+| `←` / `h` | collapse the focused foldable (trajectory form); return to the list from the detail pane |
+| `→` / `l` | expand the focused foldable (trajectory form); open the detail pane on a leaf (trajectory event) or any flat row |
 | `gg` | jump to the top |
 | `G` | jump to the bottom |
 | `Tab` | switch file source |
@@ -46,7 +48,9 @@ Both forms share the same key set:
 | `f` | toggle follow (tail newly written records) |
 | `q` / `Esc` | quit |
 
-In the trajectory form, `h` / `l` additionally fold / unfold the focused foldable — a session, a turn, or an event's containing turn (see below); in the flat form the rows have no hierarchy, so `h` / `l` are inert.
+### Detail pane
+
+A right-hand pane (40 % width) shows the untruncated content of the focused row: its list line as a header, then the full text. `→` / `l` on a leaf row (an event in the trajectory form; any row in the flat form) focuses the pane, where `↑` / `k` and `↓` / `j` scroll the content; `←` / `h` (or `Esc`) returns to the list. The row model keeps the full untruncated content (`detail`), while the list always renders the truncated summary.
 
 ### Trajectory form (`--trajectory`)
 
@@ -54,7 +58,7 @@ References the trajectory concept from dsh: projects the flat JSONL into a **tur
 
 - A `context.jsonl` `session` line = session boundary (heavier rule); each `queue.jsonl` line = one turn boundary (one Queue release round = one trigger); remaining lines are attributed to the nearest turn by ts and indented as event lines.
 - When there is no queue data (common in case snapshots), a user message in `context.jsonl` degrades into a turn boundary.
-- **Per-item folding**: folding is per session / per turn, not global. Press `h` to collapse the rows under the focused foldable — on a Session row its turns and events, on a Turn row its events, on an event row its containing turn; `l` expands it back. Fold state is keyed by stable row identity (session ordinal / turn index), so rows fold and unfold independently; a folded row shows a `[+n]` marker with the hidden count. `/` filters, Tab switches files, `f` follows, same as the normal form.
+- **Per-item folding**: folding is per session / per turn, not global. Press `←` / `h` to collapse the rows under the focused foldable — on a Session row its turns and events, on a Turn row its events, on an event row its containing turn; `→` / `l` expands it back (on a leaf it opens the detail pane instead). Fold state is keyed by stable row identity (session ordinal / turn index), so rows fold and unfold independently; a folded row shows a `[+n]` marker with the hidden count. `/` filters, Tab switches files, `f` follows, same as the normal form.
 
 ### Implementation
 
