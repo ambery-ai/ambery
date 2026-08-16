@@ -104,7 +104,8 @@ pub fn assemble_host(
 
 /// 完整 router 服役：
 /// 广播/effect sink/后台任务（timer/queue/config watcher/cron）+ axum serve。
-pub async fn serve_host(parts: HostParts, port: u16) {
+/// 返回 Err 时由调用方决定退出方式（库不直接 exit）。
+pub async fn serve_host(parts: HostParts, port: u16) -> Result<(), String> {
     let (tx, _) = broadcast::channel(64);
     let state = parts.state;
     let tx_for_ws = tx.clone();
@@ -123,9 +124,13 @@ pub async fn serve_host(parts: HostParts, port: u16) {
     let app = router(state, tx_for_ws);
 
     let addr = format!("127.0.0.1:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .unwrap_or_else(|e| panic!("bind {addr}: {e}"));
+    let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AddrInUse {
+            format!("端口 {port} 已被占用（{e}）。serve 依赖固定端口，不能静默换端口；请关闭占用进程，或设置 AMBERY_PORT 换端口并同步更新 hook 脚本配置。")
+        } else {
+            format!("bind {addr}: {e}")
+        }
+    })?;
     println!("ambery-core debug listening on http://{addr}");
-    axum::serve(listener, app).await.expect("serve");
+    axum::serve(listener, app).await.map_err(|e| format!("serve 失败：{e}"))
 }
