@@ -67,7 +67,7 @@ The selected row is marked with `❯` (not `▶`, which would collide with the `
 
 ### Detail pane
 
-A leaf row has two states — opened and closed. `→` / `l` on a leaf row (an event in the trajectory form; any row in the flat form) opens a right-hand pane (40 % width) with that row's untruncated content: its list line as a header, then the full text. While open, `↑` / `k` and `↓` / `j` scroll the content; `i` toggles fullscreen (the pane fills the whole area, `i` or `Esc` exits back to the split view); `←` / `h` (or `Esc`) closes the pane and the list returns to full width. The row model keeps the full untruncated content (`detail`), while the list always renders the truncated summary.
+A row opens and closes the detail pane. `→` / `l` on any row (except the `[pre turn]` label, which has no content; a folded container expands first) opens a right-hand pane (40 % width) with that row's untruncated content: its list line as a header, then the full text. While open, `↑` / `k` and `↓` / `j` scroll the content; `i` toggles fullscreen (the pane fills the whole area, `i` or `Esc` exits back to the split view); `←` / `h` (or `Esc`) closes the pane and the list returns to full width. The row model keeps the full untruncated content (`detail`), while the list always renders the truncated summary.
 
 ### Trajectory form (`--trajectory`)
 
