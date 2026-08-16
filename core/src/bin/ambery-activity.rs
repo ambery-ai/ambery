@@ -782,53 +782,74 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                 chunks[0],
             );
 
-            let panes = Layout::default()
-                .direction(ratatui::layout::Direction::Horizontal)
-                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-                .split(chunks[1]);
+            // 详情栏非驻留：仅在 →/l 打开（in_detail）时渲染，否则列表全宽
+            if in_detail {
+                let panes = Layout::default()
+                    .direction(ratatui::layout::Direction::Horizontal)
+                    .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                    .split(chunks[1]);
 
-            let items: Vec<ListItem> = view
-                .iter()
-                .skip(offset)
-                .take(height)
-                .map(|r| ListItem::new(format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary)))
-                .collect();
-            let mut state = ListState::default();
-            if !view.is_empty() {
-                state.select(Some(cursor.saturating_sub(offset)));
-            }
-            let list = List::new(items)
-                .block(Block::default().borders(Borders::NONE))
-                .highlight_symbol("▶ ");
-            f.render_stateful_widget(list, panes[0], &mut state);
+                let items: Vec<ListItem> = view
+                    .iter()
+                    .skip(offset)
+                    .take(height)
+                    .map(|r| {
+                        ListItem::new(format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary))
+                    })
+                    .collect();
+                let mut state = ListState::default();
+                if !view.is_empty() {
+                    state.select(Some(cursor.saturating_sub(offset)));
+                }
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::NONE))
+                    .highlight_symbol("▶ ");
+                f.render_stateful_widget(list, panes[0], &mut state);
 
-            // 右侧详情栏：焦点行头部 + 未截断全文（可滚动）
-            let detail_block = Block::default()
-                .borders(Borders::LEFT)
-                .title(if in_detail { "detail [focused]" } else { "detail" });
-            let pane_height = panes[1].height as usize;
-            match &focused {
-                Some(row) => {
-                    let mut body: Vec<String> = vec![
-                        format!("{} [{}] {} {}", row.ts, row.file, row.kind, row.summary),
-                        String::new(),
-                    ];
-                    let skipped: Vec<String> = row
-                        .detail
-                        .lines()
-                        .skip(detail_scroll)
-                        .take(pane_height.saturating_sub(2).max(1))
-                        .map(|s| s.to_string())
-                        .collect();
-                    body.extend(skipped);
-                    f.render_widget(
-                        Paragraph::new(body.join("\n")).block(detail_block),
-                        panes[1],
-                    );
+                let detail_block = Block::default()
+                    .borders(Borders::LEFT)
+                    .title("detail [focused]");
+                let pane_height = panes[1].height as usize;
+                match &focused {
+                    Some(row) => {
+                        let mut body: Vec<String> = vec![
+                            format!("{} [{}] {} {}", row.ts, row.file, row.kind, row.summary),
+                            String::new(),
+                        ];
+                        let skipped: Vec<String> = row
+                            .detail
+                            .lines()
+                            .skip(detail_scroll)
+                            .take(pane_height.saturating_sub(2).max(1))
+                            .map(|s| s.to_string())
+                            .collect();
+                        body.extend(skipped);
+                        f.render_widget(
+                            Paragraph::new(body.join("\n")).block(detail_block),
+                            panes[1],
+                        );
+                    }
+                    None => {
+                        f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
+                    }
                 }
-                None => {
-                    f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
+            } else {
+                let items: Vec<ListItem> = view
+                    .iter()
+                    .skip(offset)
+                    .take(height)
+                    .map(|r| {
+                        ListItem::new(format!("{} [{}] {} {}", r.ts, r.file, r.kind, r.summary))
+                    })
+                    .collect();
+                let mut state = ListState::default();
+                if !view.is_empty() {
+                    state.select(Some(cursor.saturating_sub(offset)));
                 }
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::NONE))
+                    .highlight_symbol("▶ ");
+                f.render_stateful_widget(list, chunks[1], &mut state);
             }
 
             let help = if filtering {
@@ -1128,50 +1149,67 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                 chunks[0],
             );
 
-            let panes = Layout::default()
-                .direction(ratatui::layout::Direction::Horizontal)
-                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-                .split(chunks[1]);
+            // 详情栏非驻留：仅在 →/l 打开（in_detail）时渲染，否则列表全宽
+            if in_detail {
+                let panes = Layout::default()
+                    .direction(ratatui::layout::Direction::Horizontal)
+                    .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                    .split(chunks[1]);
 
-            let items: Vec<ListItem> = lines
-                .iter()
-                .skip(offset)
-                .take(height)
-                .map(|l| ListItem::new(l.text.clone()))
-                .collect();
-            let mut state = ListState::default();
-            if !lines.is_empty() {
-                state.select(Some(cursor.saturating_sub(offset)));
-            }
-            let list = List::new(items)
-                .block(Block::default().borders(Borders::NONE))
-                .highlight_symbol("▶ ");
-            f.render_stateful_widget(list, panes[0], &mut state);
+                let items: Vec<ListItem> = lines
+                    .iter()
+                    .skip(offset)
+                    .take(height)
+                    .map(|l| ListItem::new(l.text.clone()))
+                    .collect();
+                let mut state = ListState::default();
+                if !lines.is_empty() {
+                    state.select(Some(cursor.saturating_sub(offset)));
+                }
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::NONE))
+                    .highlight_symbol("▶ ");
+                f.render_stateful_widget(list, panes[0], &mut state);
 
-            // 右侧详情栏：焦点行头部 + 未截断全文（可滚动）
-            let detail_block = Block::default()
-                .borders(Borders::LEFT)
-                .title(if in_detail { "detail [focused]" } else { "detail" });
-            let pane_height = panes[1].height as usize;
-            match &focused {
-                Some(line) => {
-                    let mut body: Vec<String> = vec![line.text.clone(), String::new()];
-                    let skipped: Vec<String> = line
-                        .detail
-                        .lines()
-                        .skip(detail_scroll)
-                        .take(pane_height.saturating_sub(2).max(1))
-                        .map(|s| s.to_string())
-                        .collect();
-                    body.extend(skipped);
-                    f.render_widget(
-                        Paragraph::new(body.join("\n")).block(detail_block),
-                        panes[1],
-                    );
+                let detail_block = Block::default()
+                    .borders(Borders::LEFT)
+                    .title("detail [focused]");
+                let pane_height = panes[1].height as usize;
+                match &focused {
+                    Some(line) => {
+                        let mut body: Vec<String> = vec![line.text.clone(), String::new()];
+                        let skipped: Vec<String> = line
+                            .detail
+                            .lines()
+                            .skip(detail_scroll)
+                            .take(pane_height.saturating_sub(2).max(1))
+                            .map(|s| s.to_string())
+                            .collect();
+                        body.extend(skipped);
+                        f.render_widget(
+                            Paragraph::new(body.join("\n")).block(detail_block),
+                            panes[1],
+                        );
+                    }
+                    None => {
+                        f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
+                    }
                 }
-                None => {
-                    f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
+            } else {
+                let items: Vec<ListItem> = lines
+                    .iter()
+                    .skip(offset)
+                    .take(height)
+                    .map(|l| ListItem::new(l.text.clone()))
+                    .collect();
+                let mut state = ListState::default();
+                if !lines.is_empty() {
+                    state.select(Some(cursor.saturating_sub(offset)));
                 }
+                let list = List::new(items)
+                    .block(Block::default().borders(Borders::NONE))
+                    .highlight_symbol("▶ ");
+                f.render_stateful_widget(list, chunks[1], &mut state);
             }
 
             let help = if filtering {
