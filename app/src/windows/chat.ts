@@ -432,11 +432,10 @@ export class ChatPanel {
   }
 
   /** UI 文案（i18n）：标题 = pet 名称（Config 稳定身份值）；
-   *  placeholder/按钮跟随 UI 语言。切换语言只重贴文案，不动历史 */
+   *  按钮文案跟随 UI 语言。切换语言只重贴文案，不动历史 */
   private relabel() {
     const name = this.store.config?.name ?? t("pet.default-name");
     this.titleEl.textContent = name;
-    this.inputEl.placeholder = t("chat.placeholder", { name });
     this.sendEl.textContent = t("chat.send");
     this.updateQueueStatus();
     this.updatePill();
