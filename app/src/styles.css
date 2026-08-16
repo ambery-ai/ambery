@@ -89,10 +89,10 @@ html.browser body {
 #view {
   --view-scale: 1;
   position: fixed;
-  min-width: calc(72px * var(--view-scale)); /* ← JS: minFaceW 基底 */
-  height: calc(40px * var(--view-scale)); /* ← JS: baselineH 基底 */
-  padding: 0 calc(22px * var(--view-scale)); /* ← JS: padLR 基底（22×2） */
-  border-radius: calc(20px * var(--view-scale)); /* 球场圆形（pill）= height/2 */
+  min-width: calc(36px * var(--view-scale)); /* ← JS: minFaceW 基底 */
+  height: calc(20px * var(--view-scale)); /* ← JS: baselineH 基底 */
+  padding: 0 calc(11px * var(--view-scale)); /* ← JS: padLR 基底（11×2） */
+  border-radius: calc(10px * var(--view-scale)); /* 球场圆形（pill）= height/2 */
   background: var(--ov-view-bg);
   /* 描边（#17 增补）：白胶囊与背景区分；1px 不随 scale。窗口公式 +BORDER_PX 补偿（pet-size.ts） */
   border: 1px solid var(--ov-view-border);
@@ -106,7 +106,7 @@ html.browser body {
 }
 
 #face {
-  font-size: calc(25px * var(--view-scale));
+  font-size: calc(11.25px * var(--view-scale));
   line-height: 1; /* ← JS: height 由 line-height=1 保证 */
   white-space: nowrap;
   flex-shrink: 0; /* 必须：禁止被容器压缩，确保测量为自然宽度 */
