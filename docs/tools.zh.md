@@ -57,7 +57,7 @@ TUI 交互界面（`ratatui`）。核心交互：
 | 符号 | 来源 |
 |---|---|
 | `▸` | turn 边界 / `[pre turn]` 区域（可折叠容器） |
-| `•` | `context.jsonl`（message / autonomy / head / usage / session / compact_boundary） |
+| `·` | `context.jsonl`（message / autonomy / head / usage / session / compact_boundary） |
 | `▪` | `effect.jsonl` |
 | `–` | `terminal-content.jsonl` |
 | `◇` | `work-agents.jsonl`（Code CLI 实例——被监管的外部 agent，不是本系统 LLM） |
@@ -75,7 +75,7 @@ TUI 交互界面（`ratatui`）。核心交互：
 
 - `queue.jsonl` 每行 = 一个 turn 边界。无 queue 数据时（case 快照常见），`context.jsonl` 的 user message 退化为 turn 边界。
 - **Code CLI 不是本系统 LLM**：被监管的外部实例（concepts §9）只以普通 `◇` 行出现，从不构成层级。
-- `context.jsonl` 的 `session` 行是普通 `•` 行（context 存储的启动分界，每次后端启动一条）——归属到所在 turn，不是容器。
+- `context.jsonl` 的 `session` 行是普通 `·` 行（context 存储的启动分界，每次后端启动一条）——归属到所在 turn，不是容器。
 - 首个 turn 之前的行渲染在 `[pre turn]` 区域下——与 turn 同 glyph、同折叠语义。
 - **折叠**按容器，仅两层（turn / `[pre turn]` > 其行）：`←` / `h` 折叠光标所在容器——容器行本身，或其下任意行（向上折叠到所属容器）；`→` / `l` 展开。折叠的容器保留边界行并带 `[+n]` 标记（隐藏数量）。`/` 筛选、Tab / Shift+Tab 切文件、`f` 跟随与普通形态一致。
 
