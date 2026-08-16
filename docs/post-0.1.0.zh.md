@@ -55,3 +55,7 @@ Compression 阈值、Timer 间隔等默认值按真实使用数据校准。
 系统化引入测试覆盖检测是 0.1.0 之后的工程能力：Rust workspace 覆盖（llvm-cov / tarpaulin）与前端覆盖（vitest coverage）用于暴露当前测试网的盲区。这里的覆盖是 Harness 自身开发的观测信号，不是独立的发布门槛——本项目的验收纪律是概念结构断言（ambery-case）加定向单测；覆盖应揭示这张网的缺口，而非追逐百分比。
 
 正式设计时需要独立确定：测量面（core 库 vs ambery-case vs Tauri 壳 vs 前端）、报告形态（分模块阈值 vs 缺口清单）、CI 接线（哪些 job 跑覆盖、产物/徽章如何发布），以及按行 vs 按分支的指标策略。
+
+## ambery-activity TUI 合并重构
+
+ambery-activity 当前存在两套并行的 TUI 实现（平铺活动视图与 trajectory 轨迹视图），共享脚手架重复（状态字段、光标分页、筛选、follow 增量重读、raw mode/alternate screen、按键循环），仅行投影与渲染不同。后续合并为共享 TUI 骨架加可插拔视图源：平铺 = 无投影模式，trajectory = session/turn/event 三层投影。正式设计时需要独立确定：骨架的抽象边界、两种视图共用的按键协议、折叠状态的数据结构（按稳定行 id 而非视图索引），以及 follow 增量重读在共享骨架中的归属。
