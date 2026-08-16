@@ -868,7 +868,11 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                 }
 
                 let detail_block = Block::default()
-                    .borders(Borders::LEFT)
+                    .borders(if detail_fullscreen {
+                        Borders::TOP
+                    } else {
+                        Borders::LEFT
+                    })
                     .title(if detail_fullscreen {
                         "detail [fullscreen]"
                     } else {
@@ -1270,7 +1274,11 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                 }
 
                 let detail_block = Block::default()
-                    .borders(Borders::LEFT)
+                    .borders(if detail_fullscreen {
+                        Borders::TOP
+                    } else {
+                        Borders::LEFT
+                    })
                     .title(if detail_fullscreen {
                         "detail [fullscreen]"
                     } else {
