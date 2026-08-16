@@ -52,11 +52,15 @@ curl -X POST http://127.0.0.1:47600/hook -H 'Content-Type: application/json' \
 ## Tauri 壳
 
 ```bash
-cd app/src-tauri && cargo build --release   # 产出 target/release/ambery
-AMBERY_PORT=47601 ./target/release/ambery   # 非默认端口运行
+cd app && npx tauri build               # 唯一正确的构建入口（见下）
+cd app/src-tauri && AMBERY_PORT=47601 ./target/release/ambery   # 非默认端口运行
 ```
 
 壳内嵌已构建的前端与 core。打包（`.app` bundle）在发布轮前不启用（docs/sidecar.md）。
+
+**壳构建必须走 `npx tauri build`，绝不要裸 `cargo build`。** 前端 `dist/` 由 build script 嵌入 `tauri-codegen-assets/`，而 build script 不监听 `dist/`；tauri CLI 通过注入 `TAURI_CONFIG`（`cargo:rerun-if-env-changed=TAURI_CONFIG`）强制 build script 重跑。裸 `cargo build --release` 可能复用过期的 build script 输出，嵌入旧版或空前端——壳呈现为空白 pet/UI。`npx tauri build` 先跑 `npm run build`（tsc + vite），因此总是嵌入当前前端。
+
+开发期热更新迭代：把 vite dev server 固定到 `tauri.conf.json` 的 `devUrl` 端口（127.0.0.1:5174）——`cd app && npm run dev -- --port 5174 --strictPort`——再在 `app/` 下跑 `AMBERY_PORT=47602 npx tauri dev`（壳内嵌自己的 core server，`AMBERY_PORT` 必须避开独立后端）。
 
 ## 调试 LLM 失败
 
