@@ -414,12 +414,13 @@ pub enum RowKind {
 fn symbol_for(file: &str) -> &'static str {
     match file {
         QUEUE_FILE => "▸",
-        CONTEXT_FILE => "•",
+        CONTEXT_FILE => "·",
         EFFECT_FILE => "▪",
         TERMINAL_CONTENT_FILE => "–",
         WORK_AGENTS_FILE => "◇",
         ambery_core::cron::CRON_FILE => "◷",
-        _ => "·",
+        // 未知来源用 ?（避免与 · 混淆成 context）
+        _ => "?",
     }
 }
 
@@ -1650,7 +1651,7 @@ mod tests {
         // 行文本：符号前缀标识来源，无冗余 [file] 标签
         assert!(flat[3].text.starts_with("   ▪ "));
         assert!(!flat[3].text.contains("[effect.jsonl]"));
-        assert!(flat[1].text.starts_with("   • "));
+        assert!(flat[1].text.starts_with("   · "));
 
         // 折叠 turn 0：其归属行隐藏，pre-turn 行与 turn 边界保留，turn 行带 [+2]
         let folded_t = traj.render("all", "", &fold_state(&[FoldKey::Turn(0)]));

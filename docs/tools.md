@@ -57,7 +57,7 @@ Every row carries a one-symbol prefix (single glyph + one space) identifying its
 | Symbol | Source |
 |---|---|
 | `▸` | turn boundary / `[pre turn]` region (foldable container) |
-| `•` | `context.jsonl` (message / autonomy / head / usage / session / compact_boundary) |
+| `·` | `context.jsonl` (message / autonomy / head / usage / session / compact_boundary) |
 | `▪` | `effect.jsonl` |
 | `–` | `terminal-content.jsonl` |
 | `◇` | `work-agents.jsonl` (Code CLI instances — supervised external agents, not this system's LLM) |
@@ -75,7 +75,7 @@ Projects the flat JSONL into a **turn-centric trajectory ledger**: the top-level
 
 - Each `queue.jsonl` line = one turn boundary. When there is no queue data (common in case snapshots), a `context.jsonl` user message degrades into a turn boundary.
 - **Code CLI is not this system's LLM**: supervised external instances (concepts §9) appear only as ordinary `◇` rows, never as hierarchy levels.
-- A `context.jsonl` `session` line is an ordinary `•` row (a context-store startup boundary, one per backend startup) — attributed to its turn, not a container.
+- A `context.jsonl` `session` line is an ordinary `·` row (a context-store startup boundary, one per backend startup) — attributed to its turn, not a container.
 - Rows before the first turn render under a `[pre turn]` region — the same glyph and folding semantics as a turn.
 - **Folding** is per container, two levels only (turn / `[pre turn]` > its rows): `←` / `h` collapses the focused container — on a container row itself, or on any of its rows (folding up to the containing container); `→` / `l` expands it. A folded container keeps its boundary row with a `[+n]` marker (hidden count). `/` filters, Tab / Shift+Tab switch files, `f` follows, same as the normal form.
 
