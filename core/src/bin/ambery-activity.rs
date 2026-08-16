@@ -20,8 +20,10 @@ pub struct ActivityRow {
     pub kind: String,
     /// 记录时刻（epoch ms；缺失时 0）
     pub ts: i64,
-    /// 单行摘要
+    /// 单行摘要（列表渲染，截断）
     pub summary: String,
+    /// 未截断全文（详情栏显示）
+    pub detail: String,
 }
 
 /// 活动视图：6 个 JSONL 数据源读入后的统一行集
@@ -66,18 +68,24 @@ fn truncate(s: &str, n: usize) -> String {
     out.replace('\n', " ")
 }
 
+/// 详情内容总行数（头部行 + 全文行）；超出 pane 高度时可滚动
+fn detail_content_height(line: &Option<RenderedLine>) -> usize {
+    let Some(l) = line else { return 0 };
+    l.text.lines().count().max(1) + l.detail.lines().count()
+}
+
 fn read_context(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
     let mut rows = Vec::new();
     for line in read_lines(dir, CONTEXT_FILE)? {
         let Ok(l) = serde_json::from_str::<ContextLine>(&line) else {
             continue;
         };
-        let (kind, ts, summary) = match l {
+        let (kind, ts, summary, detail) = match l {
             ContextLine::Message { msg } => context_message_row(&msg),
             ContextLine::Autonomy { content, ts } => {
-                ("autonomy".into(), ts, truncate(&content, 60))
+                ("autonomy".into(), ts, truncate(&content, 60), content)
             }
-            ContextLine::Head { content, ts } => ("head".into(), ts, truncate(&content, 60)),
+            ContextLine::Head { content, ts } => ("head".into(), ts, truncate(&content, 60), content),
             ContextLine::Usage {
                 prompt_tokens,
                 completion_tokens,
@@ -85,6 +93,7 @@ fn read_context(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
             } => (
                 "usage".into(),
                 ts,
+                format!("prompt={prompt_tokens} completion={completion_tokens}"),
                 format!("prompt={prompt_tokens} completion={completion_tokens}"),
             ),
             ContextLine::CompactBoundary {
@@ -97,31 +106,39 @@ fn read_context(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
                 "compact_boundary".into(),
                 ts,
                 format!("{}→{}: {}", pre_tokens, post_tokens, truncate(&summary, 40)),
+                format!("{}→{}: {}", pre_tokens, post_tokens, summary),
             ),
             ContextLine::Content { instance, ts, .. } => {
-                ("content".into(), ts, format!("[legacy] {instance}"))
+                ("content".into(), ts, format!("[legacy] {instance}"), instance)
             }
-            ContextLine::Session { session_id, ts } => ("session".into(), ts, session_id),
+            ContextLine::Session { session_id, ts } => {
+                ("session".into(), ts, session_id.clone(), session_id)
+            }
         };
         rows.push(ActivityRow {
             file: CONTEXT_FILE,
             kind,
             ts,
             summary,
+            detail,
         });
     }
     Ok(rows)
 }
 
-fn context_message_row(msg: &ContextMessage) -> (String, i64, String) {
+fn context_message_row(msg: &ContextMessage) -> (String, i64, String, String) {
     let role = format!("{:?}", msg.role).to_lowercase();
-    let body = if let Some(calls) = &msg.tool_calls {
+    let content = msg.content.as_deref().unwrap_or("");
+    let (body, detail) = if let Some(calls) = &msg.tool_calls {
         let names: Vec<&str> = calls.iter().map(|c| c.name.as_str()).collect();
-        format!("tool_calls: {}", names.join(", "))
+        (
+            format!("tool_calls: {}", names.join(", ")),
+            format!("tool_calls: {}\n\n{}", names.join(", "), content),
+        )
     } else {
-        truncate(msg.content.as_deref().unwrap_or(""), 60)
+        (truncate(content, 60), content.to_string())
     };
-    (format!("message/{role}"), msg.ts, body)
+    (format!("message/{role}"), msg.ts, body, detail)
 }
 
 fn read_queue(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
@@ -136,6 +153,7 @@ fn read_queue(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
             kind: serde_name(&q.source),
             ts: q.ts,
             summary: truncate(&q.content, 60),
+            detail: q.content,
         });
     }
     Ok(rows)
@@ -159,6 +177,7 @@ fn read_effect(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
             kind: format!("{}/{}", e.origin.as_str(), e.kind),
             ts: e.ts,
             summary: truncate(&e.payload.to_string(), 60),
+            detail: e.payload.to_string(),
         });
     }
     Ok(rows)
@@ -176,6 +195,7 @@ fn read_terminal_content(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
             kind: serde_name(&t.source),
             ts: t.ts,
             summary: format!("{}: {}", t.instance, truncate(&t.raw, 40)),
+            detail: format!("{}: {}", t.instance, t.raw),
         });
     }
     Ok(rows)
@@ -192,6 +212,7 @@ fn read_work_agents(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
             kind: format!("{:?}", a.status).to_lowercase(),
             ts: a.last_seen,
             summary: format!("{} ({})", a.name, a.project),
+            detail: format!("{} ({})", a.name, a.project),
         });
     }
     Ok(rows)
@@ -220,6 +241,7 @@ fn read_cron(dir: &Path) -> std::io::Result<Vec<ActivityRow>> {
             kind: op,
             ts,
             summary,
+            detail: line.clone(),
         });
     }
     Ok(rows)
@@ -237,13 +259,18 @@ fn line_brief(line: &str) -> String {
 /// 轨迹账本行：边界行与普通事件行同池，渲染时用缩进区分层级
 #[derive(Debug, Clone, PartialEq)]
 pub enum TrajectoryRow {
-    Session { id: String, ts: i64 },
+    Session {
+        id: String,
+        ts: i64,
+        detail: String,
+    },
     Turn {
         index: usize,
         source: String,
         role: String,
         content: String,
         ts: i64,
+        detail: String,
     },
     Event {
         file: &'static str,
@@ -252,6 +279,7 @@ pub enum TrajectoryRow {
         summary: String,
         /// 归属 turn（None = 首个 turn 之前的孤儿事件）
         turn: Option<usize>,
+        detail: String,
     },
 }
 
@@ -291,6 +319,7 @@ impl Trajectory {
                 rows.push(TrajectoryRow::Session {
                     id: r.summary.clone(),
                     ts: r.ts,
+                    detail: r.detail.clone(),
                 });
                 continue;
             }
@@ -310,6 +339,7 @@ impl Trajectory {
                         .unwrap_or_else(|| "user".into()),
                     content: r.summary.clone(),
                     ts: r.ts,
+                    detail: r.detail.clone(),
                 });
                 continue;
             }
@@ -319,6 +349,7 @@ impl Trajectory {
                 ts: r.ts,
                 summary: r.summary.clone(),
                 turn: current_turn,
+                detail: r.detail.clone(),
             });
         }
         Self {
@@ -327,16 +358,35 @@ impl Trajectory {
             sessions,
         }
     }
+}
 
+/// 行类型：详情栏入口判定（Event / 平铺行 = 叶子，→/l 进详情栏）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowKind {
+    Session,
+    Turn,
+    Event,
+}
+
+/// 渲染行：显示文案 + 折叠目标 + 未截断详情 + 行类型
+#[derive(Debug, Clone)]
+pub struct RenderedLine {
+    pub text: String,
+    pub target: FoldTarget,
+    pub detail: String,
+    pub kind: RowKind,
+}
+
+impl Trajectory {
     /// 渲染为 TUI 行：结构边界保留，事件行可按 session / turn 独立折叠。
-    /// 返回 (显示行, 折叠目标)；折叠目标供 h/l 键按光标定位折叠对象。
+    /// 每行携带折叠目标（h/l 按光标定位）与未截断详情（详情栏显示）。
     pub fn lines(
         &self,
         file: &str,
         filter: &str,
         folded_sessions: &HashSet<usize>,
         folded_turns: &HashSet<usize>,
-    ) -> Vec<(String, FoldTarget)> {
+    ) -> Vec<RenderedLine> {
         // 折叠计数：每 session 跨度行数（turn+event）、每 turn 的 event 数
         let mut session_hidden: HashMap<usize, usize> = HashMap::new();
         let mut turn_hidden: HashMap<usize, usize> = HashMap::new();
@@ -368,12 +418,12 @@ impl Trajectory {
             }
         }
 
-        let mut out: Vec<(String, FoldTarget)> = Vec::new();
+        let mut out: Vec<RenderedLine> = Vec::new();
         let mut sord = 0usize;
         let mut session_folded = false;
         for row in &self.rows {
             match row {
-                TrajectoryRow::Session { id, ts } => {
+                TrajectoryRow::Session { id, ts, detail } => {
                     sord += 1;
                     session_folded = folded_sessions.contains(&sord);
                     let mut line = format!("── session {id} @{ts}");
@@ -385,7 +435,12 @@ impl Trajectory {
                     if (file == "all" || file == CONTEXT_FILE)
                         && (filter.is_empty() || id.contains(filter))
                     {
-                        out.push((line, FoldTarget::Session(sord)));
+                        out.push(RenderedLine {
+                            text: line,
+                            target: FoldTarget::Session(sord),
+                            detail: detail.clone(),
+                            kind: RowKind::Session,
+                        });
                     }
                 }
                 TrajectoryRow::Turn {
@@ -393,6 +448,7 @@ impl Trajectory {
                     source,
                     content,
                     ts,
+                    detail,
                     ..
                 } => {
                     if session_folded {
@@ -409,7 +465,12 @@ impl Trajectory {
                             || source.contains(filter)
                             || content.contains(filter))
                     {
-                        out.push((line, FoldTarget::Turn(*index)));
+                        out.push(RenderedLine {
+                            text: line,
+                            target: FoldTarget::Turn(*index),
+                            detail: detail.clone(),
+                            kind: RowKind::Turn,
+                        });
                     }
                 }
                 TrajectoryRow::Event {
@@ -418,6 +479,7 @@ impl Trajectory {
                     ts,
                     summary,
                     turn,
+                    detail,
                 } => {
                     if session_folded {
                         continue;
@@ -434,7 +496,12 @@ impl Trajectory {
                     {
                         // 事件行折叠目标 = 所属 turn（孤儿事件无可折叠祖先 → None）
                         let target = turn.map(FoldTarget::Turn).unwrap_or(FoldTarget::None);
-                        out.push((format!("   · {ts} [{f}] {kind} {summary}"), target));
+                        out.push(RenderedLine {
+                            text: format!("   · {ts} [{f}] {kind} {summary}"),
+                            target,
+                            detail: detail.clone(),
+                            kind: RowKind::Event,
+                        });
                     }
                 }
             }
@@ -547,6 +614,9 @@ struct Tui {
     seen: usize,
     /// gg 双击检测（第一个 g 置位，第二个 g 跳顶）
     pending_g: bool,
+    /// 详情栏聚焦（j/k 滚动全文，←/h 返回列表）
+    in_detail: bool,
+    detail_scroll: usize,
     quit: bool,
 }
 
@@ -562,6 +632,8 @@ impl Tui {
             follow,
             seen: 0,
             pending_g: false,
+            in_detail: false,
+            detail_scroll: 0,
             quit: false,
         };
         t.seen = t.activity.rows.len();
@@ -612,6 +684,33 @@ impl Tui {
         }
     }
 
+    /// 光标行（详情栏内容源）
+    fn focused_row(&self) -> Option<ActivityRow> {
+        self.view().get(self.cursor).map(|r| (*r).clone())
+    }
+
+    fn enter_detail(&mut self) {
+        if self.focused_row().is_some() {
+            self.in_detail = true;
+            self.detail_scroll = 0;
+        }
+    }
+
+    fn leave_detail(&mut self) {
+        self.in_detail = false;
+        self.detail_scroll = 0;
+    }
+
+    fn scroll_detail(&mut self, delta: isize, height: usize) {
+        let content = match &self.focused_row() {
+            Some(r) => r.summary.lines().count().max(1) + r.detail.lines().count(),
+            None => 0,
+        };
+        let max = content.saturating_sub(height);
+        self.detail_scroll =
+            (self.detail_scroll as isize + delta).clamp(0, max as isize) as usize;
+    }
+
     /// follow：增量重读新写入的行
     fn reload(&mut self, dir: &Path) {
         if let Ok(a) = Activity::load(dir) {
@@ -657,6 +756,9 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
         let filter = tui.filter.clone();
         let filtering = tui.filtering;
         let follow = tui.follow;
+        let focused = tui.focused_row();
+        let detail_scroll = tui.detail_scroll;
+        let in_detail = tui.in_detail;
 
         terminal.draw(|f| {
             let chunks = Layout::default()
@@ -680,6 +782,11 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                 chunks[0],
             );
 
+            let panes = Layout::default()
+                .direction(ratatui::layout::Direction::Horizontal)
+                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                .split(chunks[1]);
+
             let items: Vec<ListItem> = view
                 .iter()
                 .skip(offset)
@@ -693,12 +800,43 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
             let list = List::new(items)
                 .block(Block::default().borders(Borders::NONE))
                 .highlight_symbol("▶ ");
-            f.render_stateful_widget(list, chunks[1], &mut state);
+            f.render_stateful_widget(list, panes[0], &mut state);
+
+            // 右侧详情栏：焦点行头部 + 未截断全文（可滚动）
+            let detail_block = Block::default()
+                .borders(Borders::LEFT)
+                .title(if in_detail { "detail [focused]" } else { "detail" });
+            let pane_height = panes[1].height as usize;
+            match &focused {
+                Some(row) => {
+                    let mut body: Vec<String> = vec![
+                        format!("{} [{}] {} {}", row.ts, row.file, row.kind, row.summary),
+                        String::new(),
+                    ];
+                    let skipped: Vec<String> = row
+                        .detail
+                        .lines()
+                        .skip(detail_scroll)
+                        .take(pane_height.saturating_sub(2).max(1))
+                        .map(|s| s.to_string())
+                        .collect();
+                    body.extend(skipped);
+                    f.render_widget(
+                        Paragraph::new(body.join("\n")).block(detail_block),
+                        panes[1],
+                    );
+                }
+                None => {
+                    f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
+                }
+            }
 
             let help = if filtering {
                 format!("/{}", filter)
+            } else if in_detail {
+                "detail: ↑/↓/j/k 滚动 ←/h 返回  q 退出".to_string()
             } else {
-                "↑/↓/j/k 滚动 gg/G 跳首尾 Tab 切文件 / 筛选 f 跟随 q 退出".to_string()
+                "↑/↓/j/k 移动 →/l 详情 ←/h 返回 gg/G 跳首尾 Tab 切源 / 筛选 f 跟随 q 退出".to_string()
             };
             f.render_widget(
                 Paragraph::new(help).block(Block::default().borders(Borders::TOP)),
@@ -723,6 +861,15 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                         }
                         _ => {}
                     }
+                } else if tui.in_detail {
+                    let pane_h = terminal.get_frame().area().height.saturating_sub(4) as usize;
+                    match k.code {
+                        KeyCode::Char('q') => tui.quit = true,
+                        KeyCode::Up | KeyCode::Char('k') => tui.scroll_detail(-1, pane_h),
+                        KeyCode::Down | KeyCode::Char('j') => tui.scroll_detail(1, pane_h),
+                        KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => tui.leave_detail(),
+                        _ => {}
+                    }
                 } else {
                     let prev_g = tui.pending_g;
                     tui.pending_g = false;
@@ -740,6 +887,8 @@ fn run_tui(dir: PathBuf, activity: Activity, follow: bool) -> std::io::Result<()
                                 tui.pending_g = true;
                             }
                         }
+                        KeyCode::Right | KeyCode::Char('l') => tui.enter_detail(),
+                        KeyCode::Left | KeyCode::Char('h') => {}
                         KeyCode::Char('f') => tui.follow = !tui.follow,
                         _ => {}
                     }
@@ -770,6 +919,9 @@ struct TrajectoryTui {
     folded_sessions: HashSet<usize>,
     folded_turns: HashSet<usize>,
     pending_g: bool,
+    /// 详情栏聚焦（j/k 滚动全文，←/h 返回列表）
+    in_detail: bool,
+    detail_scroll: usize,
     quit: bool,
 }
 
@@ -788,17 +940,44 @@ impl TrajectoryTui {
             folded_sessions: HashSet::new(),
             folded_turns: HashSet::new(),
             pending_g: false,
+            in_detail: false,
+            detail_scroll: 0,
             quit: false,
         }
     }
 
-    fn lines(&self) -> Vec<(String, FoldTarget)> {
+    fn lines(&self) -> Vec<RenderedLine> {
         self.trajectory.lines(
             FILES[self.file_idx],
             &self.filter,
             &self.folded_sessions,
             &self.folded_turns,
         )
+    }
+
+    /// 光标行（详情栏内容源）
+    fn focused_line(&self) -> Option<RenderedLine> {
+        self.lines().get(self.cursor).cloned()
+    }
+
+    fn enter_detail(&mut self) {
+        // 只有叶子（trajectory 事件行）进详情栏；父节点（session/turn）由 →/l 展开
+        if self.cursor_kind() == Some(RowKind::Event) {
+            self.in_detail = true;
+            self.detail_scroll = 0;
+        }
+    }
+
+    fn leave_detail(&mut self) {
+        self.in_detail = false;
+        self.detail_scroll = 0;
+    }
+
+    fn scroll_detail(&mut self, delta: isize, height: usize) {
+        let content = detail_content_height(&self.focused_line());
+        let max = content.saturating_sub(height);
+        self.detail_scroll =
+            (self.detail_scroll as isize + delta).clamp(0, max as isize) as usize;
     }
 
     fn move_cursor(&mut self, delta: isize) {
@@ -819,6 +998,7 @@ impl TrajectoryTui {
     fn jump_top(&mut self) {
         self.cursor = 0;
         self.offset = 0;
+        self.detail_scroll = 0;
     }
 
     fn jump_bottom(&mut self) {
@@ -826,14 +1006,20 @@ impl TrajectoryTui {
         if len > 0 {
             self.cursor = len - 1;
         }
+        self.detail_scroll = 0;
     }
 
     /// 光标行的折叠目标（h/l 作用对象）
     fn cursor_target(&self) -> FoldTarget {
         self.lines()
             .get(self.cursor)
-            .map(|l| l.1)
+            .map(|l| l.target)
             .unwrap_or(FoldTarget::None)
+    }
+
+    /// 光标行的类型（叶子 = Event → →/l 进详情栏）
+    fn cursor_kind(&self) -> Option<RowKind> {
+        self.lines().get(self.cursor).map(|l| l.kind)
     }
 
     fn fold_at(&mut self, target: FoldTarget) {
@@ -914,6 +1100,9 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
         let filter = tui.filter.clone();
         let filtering = tui.filtering;
         let follow = tui.follow;
+        let focused = tui.focused_line();
+        let detail_scroll = tui.detail_scroll;
+        let in_detail = tui.in_detail;
 
         terminal.draw(|f| {
             let chunks = Layout::default()
@@ -939,11 +1128,16 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                 chunks[0],
             );
 
+            let panes = Layout::default()
+                .direction(ratatui::layout::Direction::Horizontal)
+                .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                .split(chunks[1]);
+
             let items: Vec<ListItem> = lines
                 .iter()
                 .skip(offset)
                 .take(height)
-                .map(|l| ListItem::new(l.0.clone()))
+                .map(|l| ListItem::new(l.text.clone()))
                 .collect();
             let mut state = ListState::default();
             if !lines.is_empty() {
@@ -952,12 +1146,40 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
             let list = List::new(items)
                 .block(Block::default().borders(Borders::NONE))
                 .highlight_symbol("▶ ");
-            f.render_stateful_widget(list, chunks[1], &mut state);
+            f.render_stateful_widget(list, panes[0], &mut state);
+
+            // 右侧详情栏：焦点行头部 + 未截断全文（可滚动）
+            let detail_block = Block::default()
+                .borders(Borders::LEFT)
+                .title(if in_detail { "detail [focused]" } else { "detail" });
+            let pane_height = panes[1].height as usize;
+            match &focused {
+                Some(line) => {
+                    let mut body: Vec<String> = vec![line.text.clone(), String::new()];
+                    let skipped: Vec<String> = line
+                        .detail
+                        .lines()
+                        .skip(detail_scroll)
+                        .take(pane_height.saturating_sub(2).max(1))
+                        .map(|s| s.to_string())
+                        .collect();
+                    body.extend(skipped);
+                    f.render_widget(
+                        Paragraph::new(body.join("\n")).block(detail_block),
+                        panes[1],
+                    );
+                }
+                None => {
+                    f.render_widget(Paragraph::new("(无焦点行)").block(detail_block), panes[1]);
+                }
+            }
 
             let help = if filtering {
                 format!("/{}", filter)
+            } else if in_detail {
+                "detail: ↑/↓/j/k 滚动 ←/h 返回  q 退出".to_string()
             } else {
-                "↑/↓/j/k 滚动 gg/G 跳首尾 Tab 切文件 / 筛选 h/l 折叠 f 跟随 q 退出".to_string()
+                "↑/↓/j/k 移动 ←/h 折叠 →/l 展开/详情 gg/G 跳首尾 Tab 切源 / 筛选 f 跟随 q 退出".to_string()
             };
             f.render_widget(
                 Paragraph::new(help).block(Block::default().borders(Borders::TOP)),
@@ -982,6 +1204,15 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                         }
                         _ => {}
                     }
+                } else if tui.in_detail {
+                    let pane_h = terminal.get_frame().area().height.saturating_sub(4) as usize;
+                    match k.code {
+                        KeyCode::Char('q') => tui.quit = true,
+                        KeyCode::Up | KeyCode::Char('k') => tui.scroll_detail(-1, pane_h),
+                        KeyCode::Down | KeyCode::Char('j') => tui.scroll_detail(1, pane_h),
+                        KeyCode::Left | KeyCode::Char('h') | KeyCode::Esc => tui.leave_detail(),
+                        _ => {}
+                    }
                 } else {
                     let prev_g = tui.pending_g;
                     tui.pending_g = false;
@@ -999,14 +1230,18 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                                 tui.pending_g = true;
                             }
                         }
-                        KeyCode::Char('h') => {
+                        KeyCode::Left | KeyCode::Char('h') => {
                             let target = tui.cursor_target();
                             tui.fold_at(target);
                         }
-                        KeyCode::Char('l') => {
-                            let target = tui.cursor_target();
-                            tui.unfold_at(target);
-                        }
+                        KeyCode::Right | KeyCode::Char('l') => match tui.cursor_kind() {
+                            Some(RowKind::Event) => tui.enter_detail(),
+                            Some(_) => {
+                                let target = tui.cursor_target();
+                                tui.unfold_at(target);
+                            }
+                            None => {}
+                        },
                         KeyCode::Char('f') => tui.follow = !tui.follow,
                         _ => {}
                     }
@@ -1115,18 +1350,21 @@ mod tests {
                 kind: "message/user".into(),
                 ts: 1,
                 summary: "你好".into(),
+                detail: "你好，这是完整的用户消息全文。".into(),
             },
             ActivityRow {
                 file: QUEUE_FILE,
                 kind: "user_chat".into(),
                 ts: 2,
                 summary: "hi".into(),
+                detail: "hi".into(),
             },
             ActivityRow {
                 file: EFFECT_FILE,
                 kind: "backend/render_component".into(),
                 ts: 3,
                 summary: "{}".into(),
+                detail: r#"{"kind":"render_component","payload":{"id":"c1"}}"#.into(),
             },
         ]
     }
@@ -1200,10 +1438,10 @@ mod tests {
     fn trajectory_sample() -> Activity {
         Activity {
             rows: vec![
-                ActivityRow { file: CONTEXT_FILE, kind: "session".into(), ts: 1, summary: "s1".into() },
-                ActivityRow { file: QUEUE_FILE, kind: "user_chat".into(), ts: 2, summary: "用户问".into() },
-                ActivityRow { file: EFFECT_FILE, kind: "backend/render_component".into(), ts: 3, summary: r#"{"id":"c1"}"#.into() },
-                ActivityRow { file: CONTEXT_FILE, kind: "message/assistant".into(), ts: 4, summary: "回复".into() },
+                ActivityRow { file: CONTEXT_FILE, kind: "session".into(), ts: 1, summary: "s1".into(), detail: "s1".into() },
+                ActivityRow { file: QUEUE_FILE, kind: "user_chat".into(), ts: 2, summary: "用户问".into(), detail: "用户问的完整内容全文".into() },
+                ActivityRow { file: EFFECT_FILE, kind: "backend/render_component".into(), ts: 3, summary: r#"{"id":"c1"}"#.into(), detail: r#"{"kind":"render_component","payload":{"id":"c1","text":"完整卡片内容"}}"#.into() },
+                ActivityRow { file: CONTEXT_FILE, kind: "message/assistant".into(), ts: 4, summary: "回复".into(), detail: "助手的完整回复全文，超过列表截断长度以便验证详情栏展示".into() },
             ],
         }
     }
@@ -1229,23 +1467,24 @@ mod tests {
 
         let flat = traj.lines("all", "", &empty_s, &empty_t);
         assert_eq!(flat.len(), 4);
-        assert!(flat[0].0.contains("session s1"));
-        assert!(flat[1].0.contains("turn 1"));
-        assert_eq!(flat[1].1, FoldTarget::Turn(0));
-        // 事件行折叠目标 = 所属 turn（子对象可向上折叠）
-        assert_eq!(flat[2].1, FoldTarget::Turn(0));
-        assert_eq!(flat[3].1, FoldTarget::Turn(0));
+        assert!(flat[0].text.contains("session s1"));
+        assert!(flat[1].text.contains("turn 1"));
+        assert_eq!(flat[1].target, FoldTarget::Turn(0));
+        // 事件行折叠目标 = 所属 turn（子对象可向上折叠）；行类型 = 叶子
+        assert_eq!(flat[2].target, FoldTarget::Turn(0));
+        assert_eq!(flat[2].kind, RowKind::Event);
+        assert_eq!(flat[3].target, FoldTarget::Turn(0));
 
         // 折叠 turn 0：事件隐藏，session/turn 边界保留，turn 行带 [+2] 标记
         let folded_t = traj.lines("all", "", &empty_s, &HashSet::from([0]));
         assert_eq!(folded_t.len(), 2, "{folded_t:?}");
-        assert!(!folded_t.iter().any(|l| l.0.contains("render_component")));
-        assert!(folded_t[1].0.contains("[+2]"));
+        assert!(!folded_t.iter().any(|l| l.text.contains("render_component")));
+        assert!(folded_t[1].text.contains("[+2]"));
 
         // 折叠 session 1：turn+事件全隐藏，仅 session 行，带 [+3]
         let folded_s = traj.lines("all", "", &HashSet::from([1]), &empty_t);
         assert_eq!(folded_s.len(), 1, "{folded_s:?}");
-        assert!(folded_s[0].0.contains("[+3]"));
+        assert!(folded_s[0].text.contains("[+3]"));
 
         // 单条目独立：turn 折叠不影响 session 折叠的计数与展示
         let both = traj.lines("all", "", &HashSet::from([1]), &HashSet::from([0]));
@@ -1259,12 +1498,66 @@ mod tests {
                 ts: 0,
                 summary: "o".into(),
                 turn: None,
+                detail: "o".into(),
             }],
             turns: 0,
             sessions: 0,
         };
         let ol = orphan.lines("all", "", &empty_s, &empty_t);
-        assert_eq!(ol[0].1, FoldTarget::None);
+        assert_eq!(ol[0].target, FoldTarget::None);
+    }
+
+    #[test]
+    fn trajectory_lines_carry_full_detail() {
+        let traj = Trajectory::from_activity(&trajectory_sample());
+        let empty_s = HashSet::new();
+        let empty_t = HashSet::new();
+        let lines = traj.lines("all", "", &empty_s, &empty_t);
+        // 事件行详情 = 未截断全文（列表 summary 是截断的，detail 是完整的）
+        assert!(lines[2].detail.contains("完整卡片内容"));
+        // turn 行详情 = queue 原文
+        assert!(lines[1].detail.contains("用户问的完整内容全文"));
+        // session 行详情 = id
+        assert!(lines[0].detail.contains("s1"));
+    }
+
+    #[test]
+    fn tui_detail_pane_navigation() {
+        let mut t = Tui::new(
+            Activity {
+                rows: sample_rows(),
+            },
+            false,
+        );
+        // 列表态 → →/l 进详情栏（平铺任意行 = 叶子）
+        t.enter_detail();
+        assert!(t.in_detail);
+        let focused = t.focused_row().unwrap();
+        assert!(focused.detail.contains("完整"));
+        // 详情栏滚动
+        t.scroll_detail(1, 5);
+        assert_eq!(t.detail_scroll, 0, "内容短于 pane 高度时不滚动");
+        t.leave_detail();
+        assert!(!t.in_detail);
+    }
+
+    #[test]
+    fn trajectory_detail_entry_only_on_leaves() {
+        let traj = Trajectory::from_activity(&trajectory_sample());
+        let mut t = TrajectoryTui::new(traj, false);
+        // 光标在 turn（父节点）→ →/l 不进详情栏
+        assert_eq!(t.cursor_kind(), Some(RowKind::Session));
+        t.move_cursor(1);
+        assert_eq!(t.cursor_kind(), Some(RowKind::Turn));
+        t.enter_detail();
+        assert!(!t.in_detail, "父节点不进详情栏");
+        // 光标移到事件（叶子）→ 进详情栏
+        t.move_cursor(1);
+        assert_eq!(t.cursor_kind(), Some(RowKind::Event));
+        t.enter_detail();
+        assert!(t.in_detail);
+        let focused = t.focused_line().unwrap();
+        assert!(focused.detail.contains("完整"));
     }
 
     #[test]
