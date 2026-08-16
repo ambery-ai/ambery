@@ -286,6 +286,7 @@ html.browser body {
   border-radius: var(--ov-panel-radius);
   color: var(--ov-text);
   font-size: 13px;
+  user-select: none; /* 聊天内容不可选中（输入框不受影响） */
 }
 
 #chat-panel[hidden] { display: none; }
