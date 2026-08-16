@@ -63,3 +63,7 @@ ambery-activity currently has two parallel TUI implementations (the flat activit
 ## More Mainstream Terminal Support (ghostty First)
 
 Terminal Content reading currently covers Windows Terminal (UIA sidecar) and zellij (in-process CLI calls). Supporting more mainstream terminals one by one is a later direction, starting with ghostty (mainstream on macOS/Linux). A formal design must independently determine: ghostty's read channel (buffer export / OSC semantics / IPC), its integration point with the existing `TerminalAdapter` trait and the `adapter_wt` / `adapter_zellij` config family, permission and fallback paths on platforms without UIA, and the selection priority when multiple terminals coexist.
+
+## Full Icon Redesign
+
+The 0.1.0 icon is a minimal placeholder: a transparent amber 16-tooth ring (mapping to the 16-direction positioning ring), no inner element. A full redesign — symbol, palette, inner motif, and per-size variants — is deferred to 0.2.0. A formal design must independently determine: the core symbol and its relationship to the pet character, the palette (current amber family vs a wider brand palette), the inner motif (repeated elements forming an inside/outside contrast), tray-size simplification (16px legibility), and the format pipeline (SVG source → PNG matrix → icns/ico) reproducibility.

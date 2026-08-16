@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- ambery 图标（0.1.0 简化版）：仅外圈 16 齿环（16 方向环），透明背景。
+       完整设计（内层重复元素/对照）0.2.0 重做，见 docs/post-0.1.0.md。 -->
+  <!-- 外齿环：琥珀 #E8A33D，16 齿，rotate 半齿使齿心落在 22.5°k（左右对称） -->
+  <circle cx="256" cy="256" r="232" fill="none" stroke="#E8A33D" stroke-width="30" stroke-dasharray="20 71.1" transform="rotate(-2.470 256 256)"/>
+</svg>
