@@ -394,6 +394,29 @@ impl Trajectory {
             sessions,
         }
     }
+
+    /// 某 session 序数下的 turn 索引（l 于 session 展开时连带展开其后代）
+    pub fn turns_of_session(&self, session_ord: usize) -> Vec<usize> {
+        let mut out = Vec::new();
+        let mut sord = 0usize;
+        for row in &self.rows {
+            match row {
+                TrajectoryRow::Session { .. } => {
+                    sord += 1;
+                    if sord > session_ord {
+                        break;
+                    }
+                }
+                TrajectoryRow::Turn { index, .. } => {
+                    if sord == session_ord {
+                        out.push(*index);
+                    }
+                }
+                TrajectoryRow::Event { .. } => {}
+            }
+        }
+        out
+    }
 }
 
 /// 行类型：详情栏入口判定（Event / 平铺行 = 叶子，→/l 进详情栏）
@@ -402,6 +425,8 @@ pub enum RowKind {
     Session,
     Turn,
     Event,
+    /// 区域标签行（如 [pre turn]），无折叠目标、不可进详情
+    Label,
 }
 
 /// 渲染行：显示文案 + 折叠目标 + 未截断详情 + 行类型
@@ -457,6 +482,7 @@ impl Trajectory {
         let mut out: Vec<RenderedLine> = Vec::new();
         let mut sord = 0usize;
         let mut session_folded = false;
+        let mut pre_turn_labeled = false;
         for row in &self.rows {
             match row {
                 TrajectoryRow::Session { id, ts, detail } => {
@@ -532,6 +558,16 @@ impl Trajectory {
                     {
                         // 事件行折叠目标 = 所属 turn（孤儿事件无可折叠祖先 → None）
                         let target = turn.map(FoldTarget::Turn).unwrap_or(FoldTarget::None);
+                        // pre-turn 区域标签：首个可见的前置事件前标 [pre turn]
+                        if turn.is_none() && !pre_turn_labeled {
+                            out.push(RenderedLine {
+                                text: "[pre turn]".to_string(),
+                                target: FoldTarget::None,
+                                detail: String::new(),
+                                kind: RowKind::Label,
+                            });
+                            pre_turn_labeled = true;
+                        }
                         out.push(RenderedLine {
                             text: format!("   · {ts} [{f}] {kind} {summary}"),
                             target,
@@ -1154,6 +1190,10 @@ impl TrajectoryTui {
         match target {
             FoldTarget::Session(s) => {
                 self.folded_sessions.remove(&s);
+                // 展开 session 连带展开其下所有已折叠的 turn（子树整体展开）
+                for t in self.trajectory.turns_of_session(s) {
+                    self.folded_turns.remove(&t);
+                }
             }
             FoldTarget::Turn(t) => {
                 self.folded_turns.remove(&t);
@@ -1666,7 +1706,86 @@ mod tests {
             sessions: 0,
         };
         let ol = orphan.lines("all", "", &empty_s, &empty_t);
-        assert_eq!(ol[0].target, FoldTarget::None);
+        assert_eq!(ol[0].text, "[pre turn]", "孤儿事件前有 [pre turn] 标签");
+        assert_eq!(ol[0].kind, RowKind::Label);
+        assert_eq!(ol[1].target, FoldTarget::None);
+    }
+
+    #[test]
+    fn pre_turn_region_is_labeled() {
+        // 首个 turn 之前的孤儿事件 → [pre turn] 标签 + 事件行
+        let a = Activity {
+            rows: vec![
+                ActivityRow {
+                    file: EFFECT_FILE,
+                    kind: "k".into(),
+                    ts: 0,
+                    summary: "pre".into(),
+                    detail: "pre".into(),
+                },
+                ActivityRow {
+                    file: QUEUE_FILE,
+                    kind: "user_chat".into(),
+                    ts: 1,
+                    summary: "q".into(),
+                    detail: "q".into(),
+                },
+            ],
+        };
+        let traj = Trajectory::from_activity(&a);
+        let lines = traj.lines("all", "", &HashSet::new(), &HashSet::new());
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0].text, "[pre turn]");
+        assert_eq!(lines[0].kind, RowKind::Label);
+        assert_eq!(lines[1].kind, RowKind::Event);
+        assert_eq!(lines[2].kind, RowKind::Turn);
+    }
+
+    #[test]
+    fn unfold_session_expands_descendant_turns() {
+        // 两个 session 各带 turn；折 s2 的 turn 后，l 于 s2 整体展开
+        let a = Activity {
+            rows: vec![
+                ActivityRow {
+                    file: CONTEXT_FILE,
+                    kind: "session".into(),
+                    ts: 0,
+                    summary: "s1".into(),
+                    detail: "s1".into(),
+                },
+                ActivityRow {
+                    file: QUEUE_FILE,
+                    kind: "user_chat".into(),
+                    ts: 1,
+                    summary: "a".into(),
+                    detail: "a".into(),
+                },
+                ActivityRow {
+                    file: CONTEXT_FILE,
+                    kind: "session".into(),
+                    ts: 2,
+                    summary: "s2".into(),
+                    detail: "s2".into(),
+                },
+                ActivityRow {
+                    file: QUEUE_FILE,
+                    kind: "user_chat".into(),
+                    ts: 3,
+                    summary: "b".into(),
+                    detail: "b".into(),
+                },
+            ],
+        };
+        let traj = Trajectory::from_activity(&a);
+        assert_eq!(traj.turns_of_session(1), vec![0]);
+        assert_eq!(traj.turns_of_session(2), vec![1]);
+        let mut t = TrajectoryTui::new(traj, false);
+        // 折 s2 下的 turn 1
+        t.fold_at(FoldTarget::Turn(1));
+        assert!(t.folded_turns.contains(&1));
+        // l 于 session 2 → 连带展开 turn 1
+        t.unfold_at(FoldTarget::Session(2));
+        assert!(!t.folded_turns.contains(&1));
     }
 
     #[test]
