@@ -1,5 +1,7 @@
 # WtAdapter Process Protocol
 
+English | [中文](sidecar.zh.md)
+
 > One implementation of terminal-adapter (docs/terminal-adapter.md §Implementation). This document defines the stdio JSONL protocol, command set, and lifecycle of the standalone WtAdapter process. See spec.md for the technology choice (UIA remains C#, called from Rust).
 
 ## Process Model

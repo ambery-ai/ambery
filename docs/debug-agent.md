@@ -1,5 +1,7 @@
 # DebugAgent — Pure Mock and HTTP Brain
 
+English | [中文](debug-agent.zh.md)
+
 > This document defines the debug rules.
 
 ## Positioning (Design Decision)

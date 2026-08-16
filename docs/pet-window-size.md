@@ -1,5 +1,7 @@
 # Pet Window Size Design
 
+English | [中文](pet-window-size.zh.md)
+
 > This document defines the size formula and principles of the pet window.
 
 ## Scope of This Document

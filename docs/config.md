@@ -1,5 +1,7 @@
 # Config
 
+English | [中文](config.zh.md)
+
 The Config domain (concepts §12, alongside the Storage domain) consists of `config.json` and `AGENTS.md`; the on-disk directory is determined by `config_root()` in `core/src/paths.rs`.
 
 ## Core Model

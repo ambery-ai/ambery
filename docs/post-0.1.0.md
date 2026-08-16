@@ -1,5 +1,7 @@
 # `0.1.0` Follow-up Capabilities
 
+English | [中文](post-0.1.0.zh.md)
+
 > This document only records directions after `0.1.0`; it does not define the current implementation, protocol, permission flow, asset format, rendering interface, or configuration structure.
 
 ## Global Wake-up Hotkey (Explicitly Cut)

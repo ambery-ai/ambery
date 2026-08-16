@@ -1,5 +1,7 @@
 # Case Eval System
 
+English | [中文](case-eval-system.zh.md)
+
 > Concept: the case runner's expression evaluation system (docs/case-runner.md §reading of the observability system / store companion).
 
 ## Principles

@@ -1,5 +1,7 @@
 # Concrete Insight
 
+[English](concrete-insight.md) | 中文
+
 真实数据 + 图演示概念链路。不写抽象描述。
 
 ## Queue 中的 System 消息来源

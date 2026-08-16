@@ -1,5 +1,7 @@
 # Observability (Observability Foundation)
 
+English | [中文](observability.zh.md)
+
 > Concept: every concept module is observable, and coverage is guaranteed by **compile-time enforcement** (docs/case-runner.md §Observability System).
 > This document defines the mechanism: trait / derive / coverage assertions / skip declarations; for the observe output shape and the evaluation system, see
 > `docs/case-runner.md` / `docs/case-eval-system.md`.

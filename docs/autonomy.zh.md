@@ -1,5 +1,7 @@
 # Autonomy 设计
 
+[English](autonomy.md) | 中文
+
 > 概念定义见 concepts.md §4。本文档定表达式模型、默认映射表与覆盖语义。
 
 ## 本文档范围

@@ -1,5 +1,7 @@
 # Memory Workspace Design
 
+English | [中文](memory.zh.md)
+
 > See concepts.md §10f for the concept definition. This document defines the directory model of the Memory Workspace, the read_memory / write_memory call contract for notes, and the generation contract for index/AGENTS.md. Card is a persistent work artifact in the same workspace, but it is not an ordinary Memory note and is not managed through these two tools; for its file contract, see docs/components.md §Card File.
 
 ## Principles

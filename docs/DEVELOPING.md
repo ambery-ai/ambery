@@ -1,5 +1,7 @@
 # Development
 
+English | [中文](DEVELOPING.zh.md)
+
 How to build, run, observe, and debug ambery while developing. All commands run from the repository root unless noted.
 
 ## Build and test

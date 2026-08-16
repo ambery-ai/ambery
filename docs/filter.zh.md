@@ -1,5 +1,7 @@
 # Filter 设计
 
+[English](filter.md) | 中文
+
 > 概念定义见 concepts.md §11。本文档定策略规则与结构理解数据类型。
 > **结构理解**：规则取自 3 个真实 Claude Code 终端的 UIA 样本（UIA 返回渲染后纯文本，无 ANSI 码）。
 

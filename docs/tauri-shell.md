@@ -1,5 +1,7 @@
 # Tauri Shell Design
 
+English | [中文](tauri-shell.zh.md)
+
 > See concepts.md §3 (View physical container) for the concept definition. This document defines the shell form.
 >
 > The window approach is multi-window (`docs/multi-window.md`); the fullscreen `maximized: true` approach is not adopted because WebView2 click-through (`WS_EX_TRANSPARENT`) is unstable.

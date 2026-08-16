@@ -1,5 +1,7 @@
 # Chat Panel Design
 
+English | [中文](chat-panel.zh.md)
+
 > Concept definitions are in concepts.md §3a. This document specifies invocation/dismissal, layout, and message rendering rules.
 
 ## Product Principles

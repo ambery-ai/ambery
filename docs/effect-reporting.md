@@ -1,5 +1,7 @@
 # Effect Reporting (Tauri Runtime Action Reporting)
 
+English | [中文](effect-reporting.zh.md)
+
 > Concept: all **non-readonly Tauri runtime actions** uniformly enter the effect stream (docs/case-runner.md
 > §Tauri runtime actions observable: `(Tauri runtime actions − readonly) ⊆ effects`). Tauri runtime actions cover both the WebView `@tauri-apps/api` and the Rust shell `tauri` API; for the action-stream format and record points see `docs/storage.md` §effect.jsonl. This document defines the runtime action layer, channels, kind/payload, packing rules, and the instrumentation checklist.
 

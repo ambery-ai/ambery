@@ -1,5 +1,7 @@
 # Config
 
+[English](config.md) | 中文
+
 Config 域（concepts §12，与 Storage 域并列）由 `config.json` 与 `AGENTS.md` 组成，落盘目录由 `core/src/paths.rs` 的 `config_root()` 决定。
 
 ## 核心模型

@@ -1,5 +1,7 @@
 # Tools 设计
 
+[English](tools.md) | 中文
+
 开发工具统一定义：`tools/` 目录下的脚本工具 + core 的独立 bin 工具。
 
 ## 工具清单

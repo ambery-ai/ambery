@@ -1,5 +1,7 @@
 # Processing Flow
 
+[English](processing-flow.md) | 中文
+
 主处理流程（storage 布局 + 每步写什么日志）。同一视图的 ASCII 与 Mermaid 两版。
 
 ## ASCII

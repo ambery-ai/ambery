@@ -1,5 +1,7 @@
 # View 设计
 
+[English](view.md) | 中文
+
 > 概念定义见 concepts.md §3。本文档定物理实现与交互细节，concepts 未规定的取舍在这里记录。
 
 ## Config 字段

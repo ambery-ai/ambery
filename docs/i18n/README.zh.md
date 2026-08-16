@@ -1,5 +1,7 @@
 # Ambery 文档 i18n
 
+[English](README.md) | 中文
+
 `docs/`、`concepts.md`、`spec.md`、`docs-spec.md`、`CONTRIBUTING.md` 与 `README` 的双语配对规则。
 
 - `foo.md` 是英文文档；`foo.zh.md` 是中文文档。两侧同权。

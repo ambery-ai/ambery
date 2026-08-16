@@ -1,5 +1,7 @@
 # Module Storage Flow
 
+[English](module-storage-flow.md) | 中文
+
 代码模块分层 + 处理流（storage 文件只在箭头上）+ 表现层/effect。同一视图的 ASCII 与 Mermaid 两版。
 
 ## ASCII

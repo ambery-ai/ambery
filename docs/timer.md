@@ -1,5 +1,7 @@
 # Timer Design
 
+English | [中文](timer.zh.md)
+
 > See concepts.md §1a for the concept definition. This document defines the scheduling mechanism, the stagger algorithm, and where the scan action applies.
 
 ## Positioning

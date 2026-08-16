@@ -1,5 +1,7 @@
 # Ambery Documentation i18n
 
+English | [中文](README.zh.md)
+
 Bilingual pairing rules for `docs/`, `concepts.md`, `spec.md`, `docs-spec.md`, `CONTRIBUTING.md`, and `README`.
 
 - `foo.md` is the English document; `foo.zh.md` is the Chinese document. Both sides carry equal authority.

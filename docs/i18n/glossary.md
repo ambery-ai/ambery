@@ -1,5 +1,7 @@
 # Ambery i18n Glossary
 
+English | [中文](glossary.zh.md)
+
 Fixed translations for the bilingual document pairs. When translating between Chinese and English, keep these terms stable; do not invent new translations per document.
 
 | Chinese | English | Notes |

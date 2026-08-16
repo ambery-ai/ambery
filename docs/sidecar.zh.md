@@ -1,5 +1,7 @@
 # WtAdapter 进程协议
 
+[English](sidecar.md) | 中文
+
 > terminal-adapter 的一个实现（docs/terminal-adapter.md §实现）。本文档定 WtAdapter 独立进程的 stdio JSONL 协议、命令集与生命周期。技术选型见 spec.md（UIA 保留 C#，Rust 调用）。
 
 ## 进程模型

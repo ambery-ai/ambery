@@ -1,5 +1,7 @@
 # Harness 设计
 
+[English](harness.md) | 中文
+
 > 概念定义见 concepts.md §10 及子概念。本文档定数据模型、注入规则、触发模型与 JSONL 存储格式。
 
 ## 数据模型

@@ -1,5 +1,7 @@
 # Storage Design
 
+English | [中文](storage.zh.md)
+
 > See concepts.md §12/§13 for the conceptual definitions. This document defines the directory layout, per-file semantics, record formats, and lifecycle.
 
 ## Layout: Two Domains

@@ -1,5 +1,7 @@
 # Hook 契约（真实 Claude Code 接入）
 
+[English](hook.md) | 中文
+
 > 概念定义见 concepts.md §9/§9b。本文档定真实 hook 契约：事件分层、marker 定位、启动扫描、安装。
 > mock 契约（docs/agent-loop.md §Mock Hook 契约）保留为 debug 手段。
 > **设计原则：不做技术限制，越开放越好**——能力给足（agent 可切桌面、三模式可配），默认值保守，选择权全在用户。

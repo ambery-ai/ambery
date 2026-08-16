@@ -1,5 +1,7 @@
 # Agent Assistance
 
+[English](agent-assistance.md) | 中文
+
 ## 原则
 
 > **本文档范围**——本文定义 Agent Assistance 的最终工作协作能力目标；不定义能力计划、泛化任务、评估项目、覆盖或演进，见 `docs/capability-evaluation-project.md`；也不定义 Case Runner 基础设施，见 `docs/case-runner.md`。

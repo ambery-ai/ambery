@@ -1,5 +1,7 @@
 # Case Runner
 
+English | [中文](case-runner.zh.md)
+
 Storage snapshot-driven regression testing and concept observation tool; also hosts the CLI decision source (docs/debug-agent.md) and the full router (docs/core-server.md).
 
 ## Principles

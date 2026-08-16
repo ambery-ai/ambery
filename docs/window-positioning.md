@@ -1,5 +1,7 @@
 # Window Positioning
 
+English | [中文](window-positioning.zh.md)
+
 ## Overview
 
 The engine computes the unique optimal direction relative to pet for all non-pet windows (ChatPanel, Component Cards). Core principles:

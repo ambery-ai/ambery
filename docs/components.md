@@ -1,5 +1,7 @@
 # Component Design
 
+English | [中文](components.zh.md)
+
 > Concept definitions are in concepts.md §5. This document specifies the call protocol, lifecycle events, direction geometry, rendering, and interaction event format.
 
 ## Call Protocol (call_component)

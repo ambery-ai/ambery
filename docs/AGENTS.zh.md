@@ -1,5 +1,7 @@
 # AGENTS.md — 文档标准
 
+[English](AGENTS.md) | 中文
+
 > 职责边界（哪份文档写什么）归 `docs-spec.md`；本文档只管"怎么写"。改动任何文档前，先通读本文件与 `docs-spec.md`。
 
 ## 文档结构

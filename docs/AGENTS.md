@@ -1,5 +1,7 @@
 # AGENTS.md — Documentation standards
 
+English | [中文](AGENTS.zh.md)
+
 > Responsibility boundaries (which document says what) belong to `docs-spec.md`; this file only governs "how to write". Before changing any document, read this file and `docs-spec.md` first.
 
 ## Document structure

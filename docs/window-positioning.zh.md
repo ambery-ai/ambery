@@ -1,5 +1,7 @@
 # Window Positioning（窗口方位布局引擎）
 
+[English](window-positioning.md) | 中文
+
 ## 概述
 
 引擎为所有非 pet 窗口（ChatPanel、Component 卡片）计算相对于 pet 的唯一最优方位。核心原则：

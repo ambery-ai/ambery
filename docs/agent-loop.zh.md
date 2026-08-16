@@ -1,5 +1,7 @@
 # Agent Loop 设计
 
+[English](agent-loop.md) | 中文
+
 > 概念定义见 concepts.md §2/§9b/§10a。本文档定 LLM 抽象、Tool Set 协议与 mock hook 契约。
 
 

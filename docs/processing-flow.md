@@ -1,5 +1,7 @@
 # Processing Flow
 
+English | [中文](processing-flow.zh.md)
+
 Main processing flow (Storage layout + what log is written at each step). The same view in two versions, ASCII and Mermaid.
 
 ## ASCII

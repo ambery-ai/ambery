@@ -1,5 +1,7 @@
 # Tool Set
 
+[English](toolset.md) | 中文
+
 pet 可调用的九个 function definitions（call_component / fetch_terminal / set_autonomy / edit_config / read_memory / write_memory / cron_create / cron_delete / sleep）。校验规则定义后端执行时的合法性与错误返回。
 
 ## 本文档范围

@@ -1,5 +1,7 @@
 # Multi-Window Design
 
+English | [中文](multi-window.zh.md)
+
 > The window scheme is multi-window (docs/tauri-shell.md §Window Form): pet / chat / menu / shelf static small windows + one dynamic `card-<id>` window per Card, all as independent OS windows.
 
 ## Window Breakdown

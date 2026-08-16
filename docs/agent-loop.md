@@ -1,5 +1,7 @@
 # Agent Loop Design
 
+English | [中文](agent-loop.zh.md)
+
 > Concept definitions: see concepts.md §2/§9b/§10a. This document fixes the LLM abstraction, the Tool Set protocol, and the mock hook contract.
 
 

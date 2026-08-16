@@ -1,5 +1,7 @@
 # Core Server
 
+[English](core-server.md) | 中文
+
 Tauri 进程内薄 HTTP server，默认绑 `127.0.0.1:47600`，只承载外部 hook 收口。
 
 ## 端口语义
