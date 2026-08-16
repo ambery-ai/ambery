@@ -1080,8 +1080,8 @@ impl TrajectoryTui {
     }
 
     fn enter_detail(&mut self) {
-        // 只有叶子（trajectory 事件行）进详情栏；父节点（session/turn）由 →/l 展开
-        if self.cursor_kind() == Some(RowKind::Event) {
+        // 任意行可进详情栏（标签行无内容除外）
+        if self.cursor_kind() != Some(RowKind::Label) && self.focused_line().is_some() {
             self.in_detail = true;
             self.detail_scroll = 0;
         }
@@ -1165,19 +1165,13 @@ impl TrajectoryTui {
         self.clamp_cursor();
     }
 
-    /// l 于容器行：折叠态展开；已展开则下移到第一个归属行（进入子树）
-    fn expand_or_descend(&mut self, target: FoldKey) {
+    /// l 于容器行：折叠态展开；已展开则打开详情栏（与叶子同构）
+    fn expand_or_open_detail(&mut self, target: FoldKey) {
         if self.fold_state.is_collapsed(target) {
             self.unfold_at(target);
             return;
         }
-        if let Some(idx) = self
-            .lines()
-            .iter()
-            .position(|l| l.target == target && l.kind == RowKind::Event)
-        {
-            self.cursor = idx;
-        }
+        self.enter_detail();
     }
 
     fn clamp_cursor(&mut self) {
@@ -1414,15 +1408,11 @@ fn run_trajectory_tui(dir: PathBuf, trajectory: Trajectory, follow: bool) -> std
                                 tui.fold_at(target);
                             }
                         }
-                        KeyCode::Right | KeyCode::Char('l') => match tui.cursor_kind() {
-                            Some(RowKind::Event) => tui.enter_detail(),
-                            Some(_) => {
-                                if let Some(target) = tui.cursor_target() {
-                                    tui.expand_or_descend(target);
-                                }
+                        KeyCode::Right | KeyCode::Char('l') => {
+                            if let Some(target) = tui.cursor_target() {
+                                tui.expand_or_open_detail(target);
                             }
-                            None => {}
-                        },
+                        }
                         KeyCode::Char('f') => tui.follow = !tui.follow,
                         _ => {}
                     }
@@ -1832,25 +1822,23 @@ mod tests {
     }
 
     #[test]
-    fn l_on_expanded_container_descends_to_first_child() {
+    fn l_expands_folded_or_opens_detail_when_expanded() {
         let traj = Trajectory::from_activity(&trajectory_sample());
         let mut t = TrajectoryTui::new(traj, false);
-        // 光标在 turn 行（已展开）→ l 下移到第一个归属行
+        // 已展开容器 → l 打开详情栏（内容 = 该行全文）
         t.move_cursor(2);
         assert_eq!(t.cursor_kind(), Some(RowKind::Turn));
-        t.expand_or_descend(FoldKey::Turn(0));
-        assert_eq!(t.cursor, 3, "已展开容器 l → 第一个归属行");
-        assert_eq!(t.cursor_kind(), Some(RowKind::Event));
-        // 折叠后 l → 只展开，光标停在容器行
+        t.expand_or_open_detail(FoldKey::Turn(0));
+        assert!(t.in_detail, "已展开容器 l → 打开详情栏");
+        let focused = t.focused_line().unwrap();
+        assert!(focused.detail.contains("用户问的完整内容全文"));
+        t.leave_detail();
+        // 折叠后 → l 只展开，不打开详情
         t.fold_at(FoldKey::Turn(0));
         assert_eq!(t.cursor, 2);
-        t.expand_or_descend(FoldKey::Turn(0));
+        t.expand_or_open_detail(FoldKey::Turn(0));
         assert!(!t.fold_state.is_collapsed(FoldKey::Turn(0)));
-        assert_eq!(t.cursor, 2, "折叠态 l 只展开不下降");
-        // pre-turn 标签同理
-        let mut t2 = TrajectoryTui::new(Trajectory::from_activity(&trajectory_sample()), false);
-        t2.expand_or_descend(FoldKey::PreTurn);
-        assert_eq!(t2.cursor, 1, "pre-turn 标签 l → 第一个归属行");
+        assert!(!t.in_detail, "折叠态 l 只展开不打开详情");
     }
 
     #[test]
@@ -1913,19 +1901,22 @@ mod tests {
     }
 
     #[test]
-    fn trajectory_detail_entry_only_on_leaves() {
+    fn trajectory_detail_entry_rules() {
         let traj = Trajectory::from_activity(&trajectory_sample());
         let mut t = TrajectoryTui::new(traj, false);
-        // 光标 0 = [pre turn] 标签 → 不进详情栏
+        // 标签行（[pre turn]）无内容 → 不进详情栏
         assert_eq!(t.cursor_kind(), Some(RowKind::Label));
         t.enter_detail();
         assert!(!t.in_detail, "标签行不进详情栏");
-        // 光标 2 = turn 容器 → 不进
+        // turn 容器可进详情栏（内容 = queue 原文）
         t.move_cursor(2);
         assert_eq!(t.cursor_kind(), Some(RowKind::Turn));
         t.enter_detail();
-        assert!(!t.in_detail, "容器行不进详情栏");
-        // 光标 3 = 事件（叶子）→ 进详情栏
+        assert!(t.in_detail);
+        let focused = t.focused_line().unwrap();
+        assert!(focused.detail.contains("用户问的完整内容全文"));
+        t.leave_detail();
+        // 事件（叶子）→ 进详情栏
         t.move_cursor(1);
         assert_eq!(t.cursor_kind(), Some(RowKind::Event));
         t.enter_detail();
