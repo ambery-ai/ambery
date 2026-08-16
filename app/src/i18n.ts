@@ -13,7 +13,6 @@ export type UiLanguage = "zh" | "en";
 const zh = {
   // pet 正式默认名（名称，用户定案「不改」）：名称不参与翻译，两语言同值
   "pet.default-name": "pet",
-  "chat.placeholder": "和{name}说话…",
   "chat.offline": "⚠ 未连接到 core",
   "chat.thinking-title": "思考中（点击看思维链）",
   "chat.send": "发送",
@@ -51,7 +50,6 @@ const zh = {
 
 const en: Record<keyof typeof zh, string> = {
   "pet.default-name": "pet", // 名称不参与翻译（名称）
-  "chat.placeholder": "Talk to {name}…",
   "chat.offline": "⚠ Cannot reach core",
   "chat.thinking-title": "Thinking (click to view the reasoning trace)",
   "chat.send": "Send",

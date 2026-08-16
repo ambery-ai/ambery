@@ -36,7 +36,7 @@ it("字段默认与校验：harness_language 默认 zh；非法语言原子拒�
   expect(r.ok).toBe(false);
 });
 
-it("切换 ui_language 即重渲染：chat placeholder 与 card chrome 跟随", async () => {
+it("切换 ui_language 即重渲染：card chrome 跟随", async () => {
   const bridge = await createBridge();
   const store = await Store.create(bridge);
   const mount = document.createElement("div");
@@ -53,14 +53,11 @@ it("切换 ui_language 即重渲染：chat placeholder 与 card chrome 跟随", 
     await vi.waitFor(() => expect(uiLanguage()).toBe("zh"));
   }
   const input = mount.querySelector(".chat-input") as HTMLInputElement;
-  expect(input.placeholder).toBe("和Ambery说话…");
+  expect(input.placeholder).toBe("");
   expect(mount.querySelector(".cmp-body button")?.textContent).toBe("复制");
 
   expect((await postConfig("ui_language", lang1)).ok).toBe(true);
   await vi.waitFor(() => expect(uiLanguage()).toBe(lang1));
-  // chat placeholder 跟随（含 pet 名插值；名称不翻译）
-  const expected = lang1 === "en" ? "Talk to Ambery…" : "和Ambery说话…";
-  await vi.waitFor(() => expect(input.placeholder).toBe(expected));
   // card chrome 原地重贴（DOM 不重建）
   const expectedCopy = lang1 === "en" ? "Copy" : "复制";
   await vi.waitFor(() =>
@@ -76,26 +73,22 @@ it("切换 ui_language 即重渲染：chat placeholder 与 card chrome 跟随", 
   await vi.waitFor(() => expect(uiLanguage()).toBe(lang0));
 });
 
-it("缺失 key 回退 zh；插值工作", async () => {
-  expect(t("chat.placeholder", { name: "X" })).toContain("X");
+it("插值工作", async () => {
+  expect(t("chat.queued", { n: 3 })).toContain("3");
 });
 
-it("pet 名称：Config name 流入 chat 标题/placeholder，改名即重贴（名称）", async () => {
+it("pet 名称：Config name 流入 chat 标题，改名即重贴（名称）", async () => {
   const bridge = await createBridge();
   const store = await Store.create(bridge);
   const mount = document.createElement("div");
   document.body.appendChild(mount);
   new ChatPanel(mount, bridge, store);
   const title = mount.querySelector(".chat-header span")!;
-  const input = mount.querySelector(".chat-input") as HTMLInputElement;
   // 默认名（改名轮定案）：Ambery
   expect(title.textContent).toBe("Ambery");
-  // 改名 → 标题与 placeholder 即当前名称
+  // 改名 → 标题即当前名称
   expect((await postConfig("name", "監督ちゃん")).ok).toBe(true);
   await vi.waitFor(() => expect(title.textContent).toBe("監督ちゃん"));
-  expect(input.placeholder).toContain("監督ちゃん");
-  // 校验：空名原子拒绝；名称不参与翻译（en UI 下同值）
+  // 校验：空名原子拒绝
   expect((await postConfig("name", " ")).ok).toBe(false);
-  expect((await postConfig("ui_language", "en")).ok).toBe(true);
-  await vi.waitFor(() => expect(input.placeholder).toBe("Talk to 監督ちゃん…"));
 });
