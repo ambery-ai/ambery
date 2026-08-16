@@ -18,10 +18,12 @@ Reads the JSONL files under the Storage directory (docs/storage.md) and interact
 
 Reads according to the storage layout (docs/storage.md):
 
-- `context.jsonl` — Context messages (message / autonomy / head / Compression boundary)
-- `queue.jsonl` — Queue input enqueue records
+- `queue.jsonl` — Queue input enqueue records (one turn boundary per line)
+- `context.jsonl` — Context messages (message / autonomy / head / session / Compression boundary)
 - `effect.jsonl` — action stream (render / close / window lifecycle / event_emit)
 - `terminal-content.jsonl` — Terminal Content raw text
+- `work-agents.jsonl` — Code CLI instance lifecycle records
+- `cron.jsonl` — scheduled tasks
 
 ### Form
 
@@ -40,12 +42,28 @@ Both forms share the same key set; horizontal movement mirrors vertical:
 |---|---|
 | `↑` / `k`, `↓` / `j` | move cursor up / down (scroll the detail pane when focused) |
 | `←` / `h` | collapse the focused foldable (trajectory form); return to the list from the detail pane |
-| `→` / `l` | expand the focused foldable (trajectory form); open the detail pane on a leaf (trajectory event) or any flat row || `gg` | jump to the top |
+| `→` / `l` | expand the focused foldable (trajectory form); open the detail pane on a leaf (trajectory event) or any flat row |
+| `gg` | jump to the top |
 | `G` | jump to the bottom |
-| `Tab` | switch file source |
+| `Tab` / `Shift+Tab` | switch file source forward / backward |
 | `/` | start filtering (kind / summary substring) |
 | `f` | toggle follow (tail newly written records) |
 | `q` / `Esc` | quit |
+
+### Symbol prefixes
+
+Every row carries a one-symbol prefix (single glyph + one space) identifying its source file at a glance:
+
+| Symbol | Source |
+|---|---|
+| `▸` | turn boundary / `[pre turn]` region (foldable container) |
+| `•` | `context.jsonl` (message / autonomy / head / usage / session / compact_boundary) |
+| `▪` | `effect.jsonl` |
+| `–` | `terminal-content.jsonl` |
+| `◇` | `work-agents.jsonl` (Code CLI instances — supervised external agents, not this system's LLM) |
+| `◷` | `cron.jsonl` |
+
+The selected row is marked with `❯` (not `▶`, which would collide with the `▸` container prefix). Source is expressed solely by the symbol — rows carry no redundant `[file]` tag; the detail pane still shows the full metadata.
 
 ### Detail pane
 
@@ -53,12 +71,13 @@ A leaf row has two states — opened and closed. `→` / `l` on a leaf row (an e
 
 ### Trajectory form (`--trajectory`)
 
-References the trajectory concept from dsh: projects the flat JSONL into a **turn-aware compact trajectory ledger** — preserving causal structure rather than just giving line-by-line logs.
+Projects the flat JSONL into a **turn-centric trajectory ledger**: the top-level unit is one complete processing round of this system's LLM — a **turn** = one Queue release (concepts §10c; one `queue.jsonl` line per turn). Everything the round produced — context writes, effects, terminal reads, agent records, cron actions — is attributed to the nearest turn by ts and rendered one level indented under it.
 
-- A `context.jsonl` `session` line = session boundary (heavier rule); each `queue.jsonl` line = one turn boundary (one Queue release round = one trigger); remaining lines are attributed to the nearest turn by ts and indented as event lines.
-- When there is no queue data (common in case snapshots), a user message in `context.jsonl` degrades into a turn boundary.
-- Events before the first turn (no queue record to attribute to) render under a `[pre turn]` label, which folds like a session (`←` / `h` collapses all its events, `→` / `l` expands).
-- **Per-item folding**: folding is per session / per turn, not global. Press `←` / `h` to collapse the rows under the focused foldable — on a Session row its turns and events, on a Turn row its events, on an event row its containing turn; `→` / `l` expands it back — on a Session row it expands the whole subtree including any folded turns beneath it; on a leaf it opens the detail pane instead. Fold state is keyed by stable row identity (session ordinal / turn index), so rows fold and unfold independently; a folded row shows a `[+n]` marker with the hidden count. `/` filters, Tab switches files, `f` follows, same as the normal form.
+- Each `queue.jsonl` line = one turn boundary. When there is no queue data (common in case snapshots), a `context.jsonl` user message degrades into a turn boundary.
+- **Code CLI is not this system's LLM**: supervised external instances (concepts §9) appear only as ordinary `◇` rows, never as hierarchy levels.
+- A `context.jsonl` `session` line is an ordinary `•` row (a context-store startup boundary, one per backend startup) — attributed to its turn, not a container.
+- Rows before the first turn render under a `[pre turn]` region — the same glyph and folding semantics as a turn.
+- **Folding** is per container, two levels only (turn / `[pre turn]` > its rows): `←` / `h` collapses the focused container — on a container row itself, or on any of its rows (folding up to the containing container); `→` / `l` expands it. A folded container keeps its boundary row with a `[+n]` marker (hidden count). `/` filters, Tab / Shift+Tab switch files, `f` follows, same as the normal form.
 
 ### Implementation
 

@@ -18,10 +18,12 @@
 
 按 storage 布局（docs/storage.md）读取：
 
-- `context.jsonl` — Context 消息（message / autonomy / head / 压缩边界）
-- `queue.jsonl` — Queue 输入排队记录
+- `queue.jsonl` — Queue 输入排队记录（每行一个 turn 边界）
+- `context.jsonl` — Context 消息（message / autonomy / head / session / 压缩边界）
 - `effect.jsonl` — 动作流（render / close / window 生命周期 / event_emit）
 - `terminal-content.jsonl` — Terminal Content 原文
+- `work-agents.jsonl` — Code CLI 实例生命周期记录
+- `cron.jsonl` — 定时任务
 
 ### 形态
 
@@ -43,10 +45,25 @@ TUI 交互界面（`ratatui`）。核心交互：
 | `→` / `l` | 展开光标所在的可折叠对象（trajectory 形态）；在叶子行（trajectory 事件）或平铺任意行上打开详情栏 |
 | `gg` | 跳到顶部 |
 | `G` | 跳到底部 |
-| `Tab` | 切换文件源 |
+| `Tab` / `Shift+Tab` | 切换文件源 前进 / 后退 |
 | `/` | 开始筛选（kind / summary 子串） |
 | `f` | 切换跟随（tail 新写入记录） |
 | `q` / `Esc` | 退出 |
+
+### 符号前缀
+
+每一行带一个符号前缀（单符号 + 一个空格），来源文件一眼可辨：
+
+| 符号 | 来源 |
+|---|---|
+| `▸` | turn 边界 / `[pre turn]` 区域（可折叠容器） |
+| `•` | `context.jsonl`（message / autonomy / head / usage / session / compact_boundary） |
+| `▪` | `effect.jsonl` |
+| `–` | `terminal-content.jsonl` |
+| `◇` | `work-agents.jsonl`（Code CLI 实例——被监管的外部 agent，不是本系统 LLM） |
+| `◷` | `cron.jsonl` |
+
+选中行用 `❯` 标记（不用 `▶`——会与 `▸` 容器前缀撞形）。来源只由符号表达——行内不再带冗余的 `[file]` 标签；详情栏仍显示完整元信息。
 
 ### 详情栏
 
@@ -54,12 +71,13 @@ TUI 交互界面（`ratatui`）。核心交互：
 
 ### Trajectory 形态（`--trajectory`）
 
-参考 dsh 的 trajectory 概念：平铺 JSONL 投影为 **turn-aware 紧凑轨迹账本**——保留因果结构而不是只给一行行日志。
+平铺 JSONL 投影为 **turn-centric 轨迹账本**：顶层单位是本系统 LLM 的一次完整处理回合——**turn** = Queue 放行一轮（concepts §10c；`queue.jsonl` 每行一个 turn）。该轮产生的全部内容——context 写入、effect、终端读取、agent 记录、cron 动作——按 ts 归属到最近的 turn，缩进一级渲染其下。
 
-- `context.jsonl` 的 `session` 行 = 会话边界（较重规则）；`queue.jsonl` 每行 = 一个 turn 边界（Queue 放行一轮 = 一次触发）；其余行按 ts 归属到最近 turn，缩进为事件行。
-- 无 queue 数据时（case 快照常见），`context.jsonl` 的 user message 退化为 turn 边界。
-- 首个 turn 之前的事件（无可归属的 queue 记录）渲染在 `[pre turn]` 标签之下，标签可像 session 一样折叠（`←` / `h` 折全部事件，`→` / `l` 展开）。
-- **单条目折叠**：折叠按 session / turn 独立，不是全局。按 `←` / `h` 折叠光标所在可折叠对象之下的行——Session 行折其 turn 与事件，Turn 行折其事件，事件行折其所属 turn；按 `→` / `l` 展开——Session 行整体展开整棵子树（含其下所有已折叠的 turn），叶子行改为打开详情栏。折叠状态按稳定行身份（session 序数 / turn 索引）键控，各行独立折叠展开；被折叠的行显示 `[+n]` 标记（含隐藏数量）。`/` 筛选、Tab 切文件、`f` 跟随与普通形态一致。
+- `queue.jsonl` 每行 = 一个 turn 边界。无 queue 数据时（case 快照常见），`context.jsonl` 的 user message 退化为 turn 边界。
+- **Code CLI 不是本系统 LLM**：被监管的外部实例（concepts §9）只以普通 `◇` 行出现，从不构成层级。
+- `context.jsonl` 的 `session` 行是普通 `•` 行（context 存储的启动分界，每次后端启动一条）——归属到所在 turn，不是容器。
+- 首个 turn 之前的行渲染在 `[pre turn]` 区域下——与 turn 同 glyph、同折叠语义。
+- **折叠**按容器，仅两层（turn / `[pre turn]` > 其行）：`←` / `h` 折叠光标所在容器——容器行本身，或其下任意行（向上折叠到所属容器）；`→` / `l` 展开。折叠的容器保留边界行并带 `[+n]` 标记（隐藏数量）。`/` 筛选、Tab / Shift+Tab 切文件、`f` 跟随与普通形态一致。
 
 ### 实现
 
