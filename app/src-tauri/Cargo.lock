@@ -69,6 +69,7 @@ dependencies = [
  "sys-locale",
  "tokio",
  "tower-http",
+ "unicode-width",
 ]
 
 [[package]]
