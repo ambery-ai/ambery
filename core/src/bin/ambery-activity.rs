@@ -432,10 +432,9 @@ impl Trajectory {
                             || kind.contains(filter)
                             || summary.contains(filter))
                     {
-                        out.push((
-                            format!("   · {ts} [{f}] {kind} {summary}"),
-                            FoldTarget::None,
-                        ));
+                        // 事件行折叠目标 = 所属 turn（孤儿事件无可折叠祖先 → None）
+                        let target = turn.map(FoldTarget::Turn).unwrap_or(FoldTarget::None);
+                        out.push((format!("   · {ts} [{f}] {kind} {summary}"), target));
                     }
                 }
             }
@@ -1233,6 +1232,9 @@ mod tests {
         assert!(flat[0].0.contains("session s1"));
         assert!(flat[1].0.contains("turn 1"));
         assert_eq!(flat[1].1, FoldTarget::Turn(0));
+        // 事件行折叠目标 = 所属 turn（子对象可向上折叠）
+        assert_eq!(flat[2].1, FoldTarget::Turn(0));
+        assert_eq!(flat[3].1, FoldTarget::Turn(0));
 
         // 折叠 turn 0：事件隐藏，session/turn 边界保留，turn 行带 [+2] 标记
         let folded_t = traj.lines("all", "", &empty_s, &HashSet::from([0]));
@@ -1248,6 +1250,21 @@ mod tests {
         // 单条目独立：turn 折叠不影响 session 折叠的计数与展示
         let both = traj.lines("all", "", &HashSet::from([1]), &HashSet::from([0]));
         assert_eq!(both.len(), 1, "session 折叠优先于 turn 折叠");
+
+        // 孤儿事件（首个 turn 之前）无可折叠祖先 → None
+        let orphan = Trajectory {
+            rows: vec![TrajectoryRow::Event {
+                file: EFFECT_FILE,
+                kind: "k".into(),
+                ts: 0,
+                summary: "o".into(),
+                turn: None,
+            }],
+            turns: 0,
+            sessions: 0,
+        };
+        let ol = orphan.lines("all", "", &empty_s, &empty_t);
+        assert_eq!(ol[0].1, FoldTarget::None);
     }
 
     #[test]
