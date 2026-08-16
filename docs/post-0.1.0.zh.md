@@ -59,3 +59,7 @@ Compression 阈值、Timer 间隔等默认值按真实使用数据校准。
 ## ambery-activity TUI 合并重构
 
 ambery-activity 当前存在两套并行的 TUI 实现（平铺活动视图与 trajectory 轨迹视图），共享脚手架重复（状态字段、光标分页、筛选、follow 增量重读、raw mode/alternate screen、按键循环），仅行投影与渲染不同。后续合并为共享 TUI 骨架加可插拔视图源：平铺 = 无投影模式，trajectory = session/turn/event 三层投影。正式设计时需要独立确定：骨架的抽象边界、两种视图共用的按键协议、折叠状态的数据结构（按稳定行 id 而非视图索引），以及 follow 增量重读在共享骨架中的归属。
+
+## 更多主流终端支持（先 ghostty）
+
+Terminal Content 读取目前覆盖 Windows Terminal（UIA sidecar）与 zellij（进程内 CLI 直调）。逐个支持更多主流终端是后续方向，预计先支持 ghostty（macOS/Linux 主流终端）。正式设计时需要独立确定：ghostty 的读取通道（缓冲区导出 / OSC 语义 / IPC）、与现有 `TerminalAdapter` trait 及 `adapter_wt` / `adapter_zellij` 配置族的接入点、无 UIA 平台的权限与降级路径，以及多终端并存时的选择优先级。
