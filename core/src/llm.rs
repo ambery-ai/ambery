@@ -806,7 +806,8 @@ impl LlmBackend {
     }
 
     pub fn from_config(cfg: &LlmConfig) -> Self {
-        if cfg.active == "debug" {
+        // unconfigured = 未配置（首启默认），视为"无 LLM"：静默回退 DebugAgent，不记错误
+        if cfg.active == "unconfigured" || cfg.active == "debug" {
             return Self::debug(DebugAgent::default());
         }
         match cfg.providers.get(&cfg.active) {
@@ -833,6 +834,27 @@ impl LlmBackend {
             }
         }
     }
+}
+
+/// 连通测试：按 active provider 构建一次 OpenAiClient 并做一次最小调用。
+/// 返回成功，或具体失败原因（env 未设 / 401 / 超时 / 网络 / provider 缺失）。
+/// 复用 LlmProvider → OpenAiClient 构建路径，与真实调用同一条链。
+pub async fn test_llm(cfg: &LlmConfig) -> Result<String, String> {
+    if cfg.active == "unconfigured" || cfg.active == "debug" {
+        return Err(format!("active=「{}」未指向真实 provider", cfg.active));
+    }
+    let provider = cfg
+        .providers
+        .get(&cfg.active)
+        .ok_or_else(|| format!("active=「{}」不在 providers 里", cfg.active))?;
+    let client = OpenAiClient::from_provider(provider)?;
+    let messages = vec![ContextMessage::new(
+        Role::User,
+        "连通测试：只回一个字。".to_string(),
+        0,
+    )];
+    let out = client.complete(&messages, &[], None).await?;
+    Ok(out.content.unwrap_or_default())
 }
 
 impl Llm for LlmBackend {
@@ -1186,5 +1208,44 @@ mod tests {
         let backend = LlmBackend::from_config(&cfg2);
         assert!(backend.is_debug());
         assert!(backend.poll_last_error().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_llm_rejects_non_real_provider() {
+        // unconfigured / debug 未指向真实 provider → 显式错误（引导的"测试连通"前置判定）
+        for active in ["unconfigured", "debug"] {
+            let cfg = LlmConfig {
+                active: active.into(),
+                providers: Default::default(),
+            };
+            let err = test_llm(&cfg).await.unwrap_err();
+            assert!(err.contains(active), "错误应点名 active：{err}");
+        }
+        // active 不在 providers → 显式错误
+        let cfg = LlmConfig {
+            active: "nope".into(),
+            providers: Default::default(),
+        };
+        assert!(test_llm(&cfg).await.unwrap_err().contains("nope"));
+        // provider 存在但 env 未设 → 初始化失败原因（复用 from_provider 链）
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "p".to_string(),
+            LlmProvider {
+                base_url: "http://x".into(),
+                model: "m".into(),
+                api_key_env: Some("DEFINITELY_NOT_SET_ENV_VAR".into()),
+                temperature: None,
+                context_window: None,
+                compression_reserve: None,
+                effort_wire: None,
+            },
+        );
+        let cfg = LlmConfig {
+            active: "p".into(),
+            providers,
+        };
+        let err = test_llm(&cfg).await.unwrap_err();
+        assert!(err.contains("DEFINITELY_NOT_SET_ENV_VAR"), "env 未设原因应点名变量名：{err}");
     }
 }

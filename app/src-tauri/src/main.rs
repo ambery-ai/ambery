@@ -215,6 +215,21 @@ async fn set_config(state: tauri::State<'_, SharedTauriState>, path: String, val
     }
 }
 
+/// LLM 连通测试：按当前 active provider 构建并调用一次，返回成功或具体失败原因
+/// （env 未设 / 401 / 超时 / 网络 / provider 缺失）。
+#[tauri::command]
+async fn test_llm(state: tauri::State<'_, SharedTauriState>) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let cfg = {
+        let ov = s.ambery().lock().await;
+        ov.config.llm.clone()
+    };
+    match ambery_core::llm::test_llm(&cfg).await {
+        Ok(reply) => Ok(json!({ "ok": true, "reply": reply })),
+        Err(e) => Ok(json!({ "ok": false, "error": e })),
+    }
+}
+
 /// Card 跨重启恢复（readonly 查询）：
 /// pet 启动 pull 全部存活卡片（component + _meta）；可见性过滤在前端（pull-on-ready，
 /// 规避 push-at-startup 的 webview 未就绪时序漏洞）
@@ -610,7 +625,7 @@ mod ipc_tests {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
             .manage(CardWindowRegistry::default())
-            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, toggle_pet, list_cards, update_card_layout, set_card_user_closed, ensure_card_window, close_card_window, export_theme, import_theme])
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, test_llm, toggle_pet, list_cards, update_card_layout, set_card_user_closed, ensure_card_window, close_card_window, export_theme, import_theme])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
     }
