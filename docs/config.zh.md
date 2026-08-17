@@ -43,6 +43,10 @@ API key 本体只在环境变量中，config 仅保存变量名；key 不落盘�
 
 provider profile 的 `base_url`、`model`、`api_key_env`、`temperature`、`context_window`、`compression_reserve` 都是 profile 级字段。`context_window` 是模型窗口的事实，不是全局策略；Compression 触发点为 `context_window − reserve`，其中 provider 未设 `compression_reserve` 时使用全局 `compression_reserve_default`。无 `context_window` 即不压缩；唯一生效入口为 `effective_compression_limit()`，计量使用 usage token 真值而非 chars/4 换算。
 
+**默认预设 `api_key_env` 值遵循 `AMBERY_<NAME>_API_KEY` 约定**（`AMBERY_DEEPSEEK_API_KEY` / `AMBERY_MOONSHOT_API_KEY` / `AMBERY_ZHIPU_API_KEY` / `AMBERY_OPENAI_API_KEY`；ollama 无——本地端点，无需 key）。`api_key_env` 按 provider 可编辑（私有 provider 可指向自己的变量）。
+
+**`llm.active` 有显式未配置值**，与 `debug`、provider keys 并列的合法选项（动态 enum：`["unconfigured", "debug", ...provider keys]`）。它是全新安装的默认值：运行时将其视为"无 LLM"（docs/llm-setup.md §后端变更）。
+
 LLM tool 不可访问 `llm` 子树（见 [反射与消费者投影](#反射与消费者投影)），不改变上述本地运行时语义。
 
 ### 表情池
@@ -287,7 +291,7 @@ map 已存在
 `reflect()` 负责把 `Config` 的类型、doc comment、约束与当前值投影为节点；本地 CLI 和设置面板消费完整投影。例如本地完整投影可包含：
 
 ```json
-{ "path": "llm.active", "type": "enum", "options": ["debug", "deepseek"],
+{ "path": "llm.active", "type": "enum", "options": ["unconfigured", "debug", "deepseek"],
   "value": "deepseek", "desc": "当前 LLM" }
 ```
 
@@ -295,7 +299,7 @@ map 已存在
 
 **两个手工钩子**仍是唯一的非自动点：
 
-1. **动态 enum options**：类型表达不了 `llm.active` 的合法值为 `providers` 的 key 加 `debug`，由唯一 `OPTIONS` 注册表提供 `path → fn(&Config) -> Vec<String>`。
+1. **动态 enum options**：类型表达不了 `llm.active` 的合法值为 `unconfigured`、`debug` 与 `providers` 的 key，由唯一 `OPTIONS` 注册表提供 `path → fn(&Config) -> Vec<String>`。
 2. **热/冷语义**：由运行时 diff 如实上报；具体字段分类只在其行为文档定义，未列为热字段的项默认冷更新，写盘但保持当前运行值。热更新从下一项运行操作起生效：不改变已发出的 LLM 请求或正在执行的 tool call，后续运行操作读取新值。冷更新统一在整个应用 / backend 进程重启后生效。agent 自己 update 时，热字段 tool result 以 `msg` 说明“已生效”，冷字段以 `msg` 说明“已保存，重启应用后生效”；用户经反射 Config UI 修改时，只在对应 UI 字段显示 `restartRequired` 状态，不向 agent 主动注入事件、聊天或系统消息。agent 后续按需 query 到存在待重启变更的具体值时，query result 以 `msg` 说明“已保存，重启应用后生效”。
 
 `no_llm_visible` 在 descriptor tree 上形成另一份**LLM 受限投影**。它不是路径硬编码：任何标记节点及其后代都从 LLM 投影移除，且对直接访问统一拒绝。

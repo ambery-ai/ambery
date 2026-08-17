@@ -43,6 +43,10 @@ The API key itself exists only in environment variables; config only stores the 
 
 The provider profile fields `base_url`, `model`, `api_key_env`, `temperature`, `context_window`, `compression_reserve` are all profile-level fields. `context_window` is a fact about the model window, not a global policy; the Compression trigger point is `context_window − reserve`, where the global `compression_reserve_default` is used when a provider does not set `compression_reserve`. Without `context_window`, no compression occurs; the only effective entry point is `effective_compression_limit()`, and the measurement uses the true usage token count rather than a chars/4 conversion.
 
+**Default preset `api_key_env` values follow the `AMBERY_<NAME>_API_KEY` convention** (`AMBERY_DEEPSEEK_API_KEY` / `AMBERY_MOONSHOT_API_KEY` / `AMBERY_ZHIPU_API_KEY` / `AMBERY_OPENAI_API_KEY`; ollama has none — local endpoint, no key). `api_key_env` is editable per provider (a private provider may point at its own variable).
+
+**`llm.active` has an explicit unconfigured value** as a legal option alongside `debug` and the provider keys (dynamic enum: `["unconfigured", "debug", ...provider keys]`). It is the default of a fresh install: the runtime treats it as "no LLM" (docs/llm-setup.md §Backend changes).
+
 The LLM tool cannot access the `llm` subtree (see [Reflection and consumer projections](#reflection-and-consumer-projections)); this does not change the local runtime semantics above.
 
 ### Kaomoji Pool
@@ -287,7 +291,7 @@ The complete descriptor tree must keep locatable nodes for **all containers**: s
 `reflect()` is responsible for projecting the type, doc comment, constraints, and current value of `Config` into nodes; the local CLI and settings panel consume the complete projection. For example, the local complete projection may include:
 
 ```json
-{ "path": "llm.active", "type": "enum", "options": ["debug", "deepseek"],
+{ "path": "llm.active", "type": "enum", "options": ["unconfigured", "debug", "deepseek"],
   "value": "deepseek", "desc": "当前 LLM" }
 ```
 
@@ -295,7 +299,7 @@ Convention: doc comment → `desc`, `#[schemars(range(...))]` → min/max, serde
 
 **Two manual hooks** remain the only non-automatic points:
 
-1. **Dynamic enum options**: the type system cannot express that the legal values of `llm.active` are the keys of `providers` plus `debug`; a single `OPTIONS` registry provides `path → fn(&Config) -> Vec<String>`.
+1. **Dynamic enum options**: the type system cannot express that the legal values of `llm.active` are `unconfigured`, `debug`, and the keys of `providers`; a single `OPTIONS` registry provides `path → fn(&Config) -> Vec<String>`.
 2. **Hot/cold semantics**: reported truthfully by the runtime diff; the classification of concrete fields is only defined in their behavior docs, and items not listed as hot fields are cold updates by default — written to disk but the current running value is kept. Hot updates take effect from the next runtime operation onward: they do not change an already-sent LLM request or an in-flight tool call; subsequent runtime operations read the new value. Cold updates uniformly take effect after the whole application / backend process restarts. When the agent itself updates, a hot field's tool result explains "took effect" in `msg`, and a cold field explains "saved, takes effect after restarting the app" in `msg`; when the user modifies via the reflected Config UI, only the corresponding UI field shows a `restartRequired` status, and no event, chat, or system message is proactively injected to the agent. When the agent later queries a concrete value that has a pending restart change, the query result explains "saved, takes effect after restarting the app" in `msg`.
 
 `no_llm_visible` forms another **LLM restricted projection** on the descriptor tree. It is not path hardcoding: any marked node and its descendants are removed from the LLM projection, and direct access is uniformly denied.
