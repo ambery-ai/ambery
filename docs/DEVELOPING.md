@@ -64,6 +64,11 @@ The shell embeds the built frontend and core. Packaging (`.app` bundle) is not a
 
 Dev iteration with live reload: keep the vite dev server pinned to the port in `tauri.conf.json` `devUrl` (127.0.0.1:5174) — `cd app && npm run dev -- --port 5174 --strictPort` — then run `AMBERY_PORT=47602 npx tauri dev` from `app/` (the shell embeds its own core server, so `AMBERY_PORT` must not collide with the standalone backend).
 
+**macOS: blank/absent windows after `./target/release/ambery`.** Two distinct causes, both producing "no windows on screen" (check with `swift -e 'import CoreGraphics; CGWindowListCopyWindowInfo(...)'`):
+
+1. **Stale frontend embedded** — a bare `cargo build --release` (not `npx tauri build`) can embed an outdated or empty `dist/`; the shell shows a blank UI. Fix: build via `npx tauri build`.
+2. **WebKit cache directory missing** — if `~/Library/Caches/ambery/WebKit/ServiceWorkers/` does not exist, WebKit fails to initialize, the webview never loads (no `[tauri-cmd]` lines in the log), and windows exist but are invisible. Fix: `mkdir -p ~/Library/Caches/ambery/WebKit/ServiceWorkers`, then restart. Symptom in the log: `could not create directory ".../WebKit/ServiceWorkers" ... Operation not permitted`.
+
 ## Debugging LLM failures
 
 Point the backend at a dead endpoint to exercise the non-silent failure path:
