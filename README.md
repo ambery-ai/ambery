@@ -45,6 +45,20 @@ cargo run -p ambery-case -- serve --silent
 cd app && npm install && npm run dev
 ```
 
+## Configuration
+
+Config and session data live under your user config directory (created automatically on first run):
+
+| Platform | Config file | Storage |
+|---|---|---|
+| Windows | `%USERPROFILE%\.config\ambery\config.json` | `%USERPROFILE%\.config\ambery\storage\` |
+| macOS / Linux | `~/.config/ambery/config.json` | `~/.config/ambery/storage/` |
+
+- `AMBERY_CONFIG_DIR` / `AMBERY_STORAGE_DIR` override the two locations (for development).
+- **API keys live in environment variables, never in config** — `config.json` stores only the variable *name* (e.g. `"api_key_env": "AMBERY_DEEPSEEK_API_KEY"`); set the key itself in your shell environment. Default presets follow the `AMBERY_<NAME>_API_KEY` convention.
+- `llm.active` defaults to an **unconfigured** value on a fresh install; on first use, set the key and pick a provider (the setup guide walks you through it).
+- Config is editable by hand, via the settings panel, or via `ambery-cli`; all paths go through the same validation pipeline (docs/config.md).
+
 ## Repository map
 
 - `core/` — Rust core: Harness, backend, server, storage, filters, TUI activity viewer

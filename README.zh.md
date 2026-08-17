@@ -45,6 +45,20 @@ cargo run -p ambery-case -- serve --silent
 cd app && npm install && npm run dev
 ```
 
+## 配置
+
+配置与会话数据位于你的用户配置目录下（首次运行自动创建）：
+
+| 平台 | 配置文件 | Storage |
+|---|---|---|
+| Windows | `%USERPROFILE%\.config\ambery\config.json` | `%USERPROFILE%\.config\ambery\storage\` |
+| macOS / Linux | `~/.config/ambery/config.json` | `~/.config/ambery/storage/` |
+
+- `AMBERY_CONFIG_DIR` / `AMBERY_STORAGE_DIR` 可覆盖这两个位置（开发用）。
+- **API key 只存在环境变量，从不进 config**——`config.json` 只存变量*名*（如 `"api_key_env": "AMBERY_DEEPSEEK_API_KEY"`）；key 本体设在你的 shell 环境里。默认预设遵循 `AMBERY_<NAME>_API_KEY` 约定。
+- 全新安装时 `llm.active` 默认为**未配置**值；首次使用需设置 key 并选择 provider（配置引导会带你走一遍）。
+- config 可手改、经设置面板、或经 `ambery-cli`；所有路径走同一条验证管道（docs/config.md）。
+
 ## 仓库地图
 
 - `core/` — Rust 核心：Harness、backend、server、storage、filter、TUI activity viewer
