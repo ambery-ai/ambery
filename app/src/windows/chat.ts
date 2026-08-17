@@ -298,17 +298,21 @@ export class ChatPanel {
     this.historyEl.append(bubble);
     this.llmErrorEl = bubble;
     this.scrollToBottom();
+    // 连带打开连接失败 banner（同一 setup_banner 元素的"连接失败"态）
+    this.showSetupBanner("chat.llm-error-banner");
     // 动作记录：前端渲染了错误气泡（docs/storage.md effect——记录不驱动渲染）
     reportEffect("error_bubble", { message });
   }
 
-  /** 未配置 banner：LLM 未配置时显示（点击打开引导 modal）；可关闭（仅隐藏当前） */
-  showSetupBanner() {
+  /** 未配置/连接失败 banner（同一元素两种状态，docs/llm-setup.md）：
+   *  unconfigured → "未配置"文案；LLM 失败 → "连接失败"文案。
+   *  点击打开引导 modal；可关闭（仅隐藏当前）。文案 key 由调用方给。 */
+  showSetupBanner(textKey: "chat.setup-banner" | "chat.llm-error-banner") {
     if (this.setupBannerEl) return;
     const banner = document.createElement("div");
     banner.className = "chat-setup-banner";
     const text = document.createElement("span");
-    text.textContent = t("chat.setup-banner");
+    text.textContent = t(textKey);
     banner.appendChild(text);
     banner.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).classList.contains("chat-setup-banner-close")) return;
@@ -321,8 +325,8 @@ export class ChatPanel {
     banner.appendChild(close);
     this.historyEl.before(banner);
     this.setupBannerEl = banner;
-    // 动作记录：前端显示了未配置 banner（docs/storage.md effect——记录不驱动渲染）
-    reportEffect("setup_banner");
+    // 动作记录：前端显示了 banner（docs/storage.md effect——记录不驱动渲染）
+    reportEffect("setup_banner", { state: textKey });
   }
 
   clearSetupBanner() {

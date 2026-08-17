@@ -499,14 +499,23 @@ html.browser body {
   justify-content: center;
   z-index: 1000;
 }
+/* LLM 引导 modal（docs/llm-setup.md；setup.ts）：
+ * 与菜单面板 #menu-panel 视觉对齐——控件渲染共享 renderConfigNode（DOM 结构一致），
+ * 但样式由容器继承决定（字号/文字色/背景），故显式对齐下列属性：
+ * - font-size 12px（= #menu-panel；不设则继承 #chat-panel 的 13px）
+ * - color var(--ov-text-strong)（= #menu-panel；不设则继承 chat 的 --ov-text）
+ * - 背景用主题 modal token（--ov-modal-bg），非 panel token——modal 是独立视觉层
+ * 改动任一属性时保持三处同步：本注释 / .setup-modal / #menu-panel。 */
 .setup-modal {
   width: 360px;
   max-height: 70vh;
   overflow-y: auto;
-  background: var(--ov-panel-bg);
+  background: var(--ov-modal-bg);
+  color: var(--ov-text-strong);
   border: 1px solid var(--ov-panel-border);
   border-radius: var(--ov-panel-radius);
   padding: 12px 14px;
+  font-size: 12px;
 }
 .setup-head {
   display: flex;
