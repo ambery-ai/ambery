@@ -141,15 +141,16 @@ See concepts §10g / docs/harness.md for the concept and boundaries. `cron.jsonl
 
 ## effect.jsonl (Frontend/Backend Unified Action Stream)
 
-Append-only log of the Effect action stream (docs/case-runner.md §Observability system / case-eval-system.md): backend execute_tool side effects + non-read-only Tauri runtime actions are uniformly recorded. Tauri runtime actions cover the WebView's `@tauri-apps/api` and the Rust shell's `tauri` API, both recorded through the runtime action layer after success.
+Append-only log of the Effect action stream (docs/case-runner.md §Observability system / case-eval-system.md): **actions are recorded, not driven**. Both backend side effects and frontend UI/runtime actions are uniformly recorded — including UI actions the frontend performed (rendering a bubble, showing a banner). Effects do **not** drive rendering: the frontend renders by its own local logic (optimistic bubbles, self-detected banners) and records the action afterward through the frontend reporting channel. Tauri runtime actions cover the WebView's `@tauri-apps/api` and the Rust shell's `tauri` API, both recorded through the runtime action layer after success.
 
 ```json
 {"type":"effect","origin":"backend","kind":"render_component","payload":{...},"ts":1785600000000}
 {"type":"effect","origin":"frontend","kind":"window_moved","payload":{"x":100,"y":200},"ts":1785600001000}
+{"type":"effect","origin":"frontend","kind":"error_bubble","payload":{"message":"..."},"ts":1785600002000}
 ```
 
 - `origin`: frontend / backend (initiator)
-- `kind`: action type — backend (render_component / close_component / set_autonomy / config_changed / assistant_delta / assistant_done); frontend (user_message / interaction / config_update / window_opened / window_closed / window_resized / window_moved / window_drag / window_visible / window_hidden / event_emit)
+- `kind`: action type — backend (render_component / close_component / set_autonomy / config_changed / assistant_delta / assistant_done / llm_error); frontend (user_message / user_bubble / error_bubble / setup_banner / interaction / config_update / window_opened / window_closed / window_resized / window_moved / window_drag / window_visible / window_hidden / event_emit)
 - `payload`: payload (snake_case field names, a Storage convention; unrelated to the camelCase form delivered over WS)
 - High-frequency events (onMoved dragging) are packed into one line
 - observe's `effects` item (path category) reads it
@@ -161,8 +162,9 @@ Append-only log of the Effect action stream (docs/case-runner.md §Observability
 | config_changed | `edit_config_update` finish (LLM tool path, origin=backend) | LLM edit_config |
 | config_update | endpoint finish (server post_config / Tauri set_config, origin=frontend) | frontend settings panel |
 | render_component / close_component / set_autonomy | `execute_tool` finish (includes early returns; single-point recording via inner wrapper) | LLM tool loop / case tool_call step / tests |
-| assistant_delta / assistant_done | the sink call site in `run_trigger` | streaming and non-streaming finish |
+| assistant_delta / assistant_done / llm_error | the sink call site in `run_trigger` | streaming and non-streaming finish / LLM failure degraded |
 | user_message | `enqueue` (when role==User, origin=frontend) | post_user / append_user / case user step |
+| user_bubble / error_bubble / setup_banner | frontend `reportEffect` (record_effect command / POST /effect, origin=frontend) | frontend rendered a user bubble / error bubble / setup banner |
 | interaction | endpoint (server post_event / Tauri push_event, origin=frontend) | frontend Component interaction |
 | window_* / event_emit | Tauri runtime action layer (WebView `record_effect` command / POST `/effect`; the Rust shell uses the same recording entry) | non-read-only Tauri runtime actions of WebView / Rust shell (docs/effect-reporting.md) |
 

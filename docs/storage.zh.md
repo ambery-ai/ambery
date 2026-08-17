@@ -166,15 +166,16 @@ Card 文件是当前持续工作产物的真相，完整 JSON 同位保存 Compo
 
 ## effect.jsonl（前后端统一动作流）
 
-Effect 动作流的 append-only 日志（docs/case-runner.md §可观测体系 / case-eval-system.md）：后端 execute_tool 副作用 + 非只读 Tauri 运行时动作统一记录。Tauri 运行时动作涵盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API，均经运行时动作层在成功后记录。
+Effect 动作流的 append-only 日志（docs/case-runner.md §可观测体系 / case-eval-system.md）：**记录动作，不驱动渲染**。后端副作用与前端 UI/运行时动作统一记录——包括前端执行过的 UI 动作（渲染气泡、显示 banner）。effect **不驱动**渲染：前端按自己的本地逻辑渲染（乐观气泡、自检测 banner），渲染后经前端上报通道记录该动作。Tauri 运行时动作涵盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API，均经运行时动作层在成功后记录。
 
 ```json
 {"type":"effect","origin":"backend","kind":"render_component","payload":{...},"ts":1785600000000}
 {"type":"effect","origin":"frontend","kind":"window_moved","payload":{"x":100,"y":200},"ts":1785600001000}
+{"type":"effect","origin":"frontend","kind":"error_bubble","payload":{"message":"..."},"ts":1785600002000}
 ```
 
 - `origin`：frontend / backend（发起者）
-- `kind`：动作类型——后端（render_component / close_component / set_autonomy / config_changed / assistant_delta / assistant_done）；前端（user_message / interaction / config_update / window_opened / window_closed / window_resized / window_moved / window_drag / window_visible / window_hidden / event_emit）
+- `kind`：动作类型——后端（render_component / close_component / set_autonomy / config_changed / assistant_delta / assistant_done / llm_error）；前端（user_message / user_bubble / error_bubble / setup_banner / interaction / config_update / window_opened / window_closed / window_resized / window_moved / window_drag / window_visible / window_hidden / event_emit）
 - `payload`：载荷（snake_case 字段名，storage 约定；与 WS 下发的 camelCase 形态无关）
 - 高频（onMoved 拖动）打包成一条
 - observe 的 `effects` 项（路径类）读它
@@ -186,8 +187,9 @@ Effect 动作流的 append-only 日志（docs/case-runner.md §可观测体系 /
 | config_changed | `edit_config_update` 收尾（LLM tool 路径，origin=backend） | LLM edit_config |
 | config_update | 端点收尾（server post_config / Tauri set_config，origin=frontend） | 前端设置面板 |
 | render_component / close_component / set_autonomy | `execute_tool` 收尾（内含早退，经 inner 包装单点记录） | LLM tool 循环 / case tool_call step / 测试 |
-| assistant_delta / assistant_done | `run_trigger` 的 sink 调用点 | 流式与非流式收尾 |
+| assistant_delta / assistant_done / llm_error | `run_trigger` 的 sink 调用点 | 流式与非流式收尾 / LLM 失败降级 |
 | user_message | `enqueue`（role==User 时，origin=frontend） | post_user / append_user / case user step |
+| user_bubble / error_bubble / setup_banner | 前端 `reportEffect`（record_effect command / POST /effect，origin=frontend） | 前端渲染了用户气泡 / 错误气泡 / 未配置 banner |
 | interaction | 端点（server post_event / Tauri push_event，origin=frontend） | 前端组件交互 |
 | window_* / event_emit | Tauri 运行时动作层（WebView `record_effect` command / POST `/effect`，Rust 壳同一记录入口） | WebView / Rust 壳的非只读 Tauri 运行时动作（docs/effect-reporting.md） |
 
