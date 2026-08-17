@@ -2204,11 +2204,12 @@ mod tests {
         assert!(head.contains("你是 Ambery"), "{head}");
         assert!(!head.contains("{name}"), "{head}");
         // 改名 → 下一次拼装即当前名称（身份文案热读取）；空名/超长名原子拒绝
+        // 用非 ASCII 多字节名验证 {name} 占位替换（Unicode 边界）
         let mut ov = ov;
-        let r = ov.apply_config_by_path("name", serde_json::json!("監督ちゃん"));
+        let r = ov.apply_config_by_path("name", serde_json::json!("测试名字"));
         assert!(r.is_ok());
         let head = ov.assemble_system_prompt();
-        assert!(head.contains("你是 監督ちゃん"), "{head}");
+        assert!(head.contains("你是 测试名字"), "{head}");
         assert!(ov.apply_config_by_path("name", serde_json::json!("  ")).is_err());
         assert!(ov.apply_config_by_path("name", serde_json::json!("x".repeat(65))).is_err());
     }

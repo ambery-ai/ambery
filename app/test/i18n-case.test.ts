@@ -86,8 +86,8 @@ it("chat 标题 = i18n 文案（不显示 pet 名称），改名不重贴标题"
   const title = mount.querySelector(".chat-header span")!;
   // 标题 = chat.title（i18n），不是 pet 名称
   expect(title.textContent).toBe(t("chat.title"));
-  // 改名 → 标题不变
-  expect((await postConfig("name", "監督ちゃん")).ok).toBe(true);
+  // 改名 → 标题不变（非 ASCII 多字节名验证 i18n 不随 pet 名变）
+  expect((await postConfig("name", "测试名字")).ok).toBe(true);
   await vi.waitFor(() => expect(title.textContent).toBe(t("chat.title")));
   // 校验：空名原子拒绝
   expect((await postConfig("name", " ")).ok).toBe(false);
