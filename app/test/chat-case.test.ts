@@ -3,7 +3,7 @@
 // jsdom 无布局——滚动几何用 defineProperty 打桩（scrollHeight/clientHeight/scrollTop）。
 
 import { beforeAll, expect, it, vi } from "vitest";
-import { waitCore, coreBase } from "./shim";
+import { waitCore, coreBase, readEffects } from "./shim";
 import { createBridge, type Bridge } from "../src/bridge";
 import { Store } from "../src/store";
 import { ChatPanel } from "../src/windows/chat";
@@ -164,4 +164,46 @@ it("回应提示：发送后出现「…」，delta 到达即消失；排队状�
     body: JSON.stringify({ kind: "assistant_done" }),
   });
   await vi.waitFor(() => expect((mount.querySelector(".chat-queue-status") as HTMLElement).hidden).toBe(true));
+});
+
+it("UI 动作记录：渲染用户气泡/错误气泡/未配置 banner 时 effect.jsonl 有对应记录", async () => {
+  // docs/storage.md effect 语义：记录动作不驱动渲染——前端渲染 UI 单元后经上报通道记录
+  const { mount } = await makePanel();
+  const input = mount.querySelector<HTMLTextAreaElement>(".chat-input")!;
+
+  // 用户气泡 → user_bubble
+  const baseUser = (readEffects().match(/"user_bubble"/g) ?? []).length;
+  input.value = "气泡记录测试";
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  await vi.waitFor(() =>
+    expect((readEffects().match(/"user_bubble"/g) ?? []).length).toBeGreaterThan(baseUser),
+  );
+  expect(readEffects()).toContain("气泡记录测试");
+
+  // 错误气泡 → error_bubble（直接调 showLlmError 的公开路径：经 onLlmError 订阅）
+  const { panel } = await makePanel();
+  const baseErr = (readEffects().match(/"error_bubble"/g) ?? []).length;
+  const errMsg = "LLM 调用失败：连接超时";
+  (panel as unknown as { bridge: Bridge }).bridge = (panel as unknown as { bridge: Bridge }).bridge;
+  panel.onOpenSetup = () => {};
+  // 触发 onLlmError：chat.ts 构造函数里 bridge.onLlmError 订阅了 showLlmError
+  const bridge = (panel as unknown as { bridge: Bridge }).bridge as Bridge;
+  void bridge; // 保留引用：llmError 通过真实 bridge 注入
+  // 经 shim effect 总线注入 llm_error（后端事件 → 前端渲染气泡 → 记录 error_bubble）
+  await fetch(`${coreBase()}/debug/effect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "llm_error", message: errMsg }),
+  });
+  await vi.waitFor(() =>
+    expect((readEffects().match(/"error_bubble"/g) ?? []).length).toBeGreaterThan(baseErr),
+  );
+  expect(readEffects()).toContain(errMsg);
+
+  // 未配置 banner → setup_banner
+  const baseBanner = (readEffects().match(/"setup_banner"/g) ?? []).length;
+  panel.showSetupBanner();
+  await vi.waitFor(() =>
+    expect((readEffects().match(/"setup_banner"/g) ?? []).length).toBeGreaterThan(baseBanner),
+  );
 });

@@ -286,7 +286,6 @@ html.browser body {
   border-radius: var(--ov-panel-radius);
   color: var(--ov-text);
   font-size: 13px;
-  user-select: none; /* 聊天内容不可选中（输入框不受影响） */
 }
 
 #chat-panel[hidden] { display: none; }
@@ -462,37 +461,11 @@ html.browser body {
   color: var(--ov-error, #e5534b);
 }
 
-/* LLM 连接错误 banner：输入框上方，持续显示直到重试成功/配置完成；可关闭 */
-.chat-llm-banner {
+/* 未配置 banner：chat 顶部横幅，点击打开引导 modal；可关闭（docs/llm-setup.md） */
+.chat-setup-banner {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 0 12px 6px;
-  padding: 6px 10px;
-  background: var(--ov-accent-bg);
-  border: 1px solid var(--ov-error, #e5534b);
-  border-radius: var(--ov-control-radius);
-  color: var(--ov-error, #e5534b);
-  font-size: 11px;
-}
-.chat-llm-banner button {
-  background: var(--ov-accent-bg);
-  border: 1px solid var(--ov-accent-border);
-  border-radius: var(--ov-control-radius);
-  color: var(--ov-accent);
-  cursor: pointer;
-  font-size: 11px;
-  padding: 1px 8px;
-}
-.chat-llm-banner .chat-llm-banner-close {
-  margin-left: auto;
-  border: none;
-  background: none;
-  padding: 0 2px;
-}
-
-/* LLM 未配置提示条：点击打开引导 modal（docs/llm-setup.md） */
-.chat-setup-hint {
   margin: 0 12px 6px;
   padding: 6px 10px;
   background: var(--ov-accent-bg);
@@ -502,6 +475,18 @@ html.browser body {
   font-size: 11px;
   cursor: pointer;
   text-align: center;
+}
+.chat-setup-banner > span {
+  flex: 1;
+  text-align: center;
+}
+.chat-setup-banner-close {
+  border: none;
+  background: none;
+  color: var(--ov-accent);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 13px;
 }
 
 /* ===== LLM 配置引导 modal（docs/llm-setup.md；setup.ts） ===== */
@@ -518,17 +503,16 @@ html.browser body {
   width: 360px;
   max-height: 70vh;
   overflow-y: auto;
-  background: var(--ov-panel, #1e1e2e);
-  border: 1px solid var(--ov-border, #45475a);
-  border-radius: var(--ov-control-radius);
-  padding: 14px;
+  background: var(--ov-panel-bg);
+  border: 1px solid var(--ov-panel-border);
+  border-radius: var(--ov-panel-radius);
+  padding: 12px 14px;
 }
 .setup-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-  font-weight: 600;
+  justify-content: flex-end;
+  margin-bottom: 6px;
 }
 .setup-close {
   border: none;

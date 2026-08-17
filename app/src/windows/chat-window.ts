@@ -123,13 +123,15 @@ async function showChat() {
   await adapter?.show();
 }
 
-/** LLM 未配置检测（docs/llm-setup.md）：llm.active == "unconfigured" → 弹引导 modal + 提示条 */
+/** LLM 未配置检测（docs/llm-setup.md）：llm.active == "unconfigured" → 弹引导 modal + banner；
+ *  unconfigured 状态下发送被拦截为错误气泡（chat.ts send） */
 async function checkUnconfigured(bridge: import("../bridge").Bridge, panel: ChatPanel) {
   try {
     const resp = await bridge.getConfigSchema!();
     const active = resp.nodes.find((n) => n.path === "llm.active")?.value;
     if (active === "unconfigured") {
-      panel.showSetupHint();
+      panel.unconfigured = true;
+      panel.showSetupBanner();
       panel.onOpenSetup?.();
     }
   } catch {
