@@ -2644,6 +2644,7 @@ mod tests {
         let dir = tmp_dir("compact");
         let harness = Harness::load(&dir, &dir, 10, 0).unwrap();
         let mut config = Config::default();
+        config.llm.active = "debug".into();
         config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
             context_window: Some(10), compression_reserve: Some(0), effort_wire: None,
@@ -3095,6 +3096,7 @@ mod tests {
             usage: Some(big),
         });
         let mut ov = make_ambery_with("compress-truth", agent);
+        ov.config.llm.active = "debug".into();
         ov.config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
             context_window: Some(100), compression_reserve: Some(0), effort_wire: None,
@@ -3118,6 +3120,7 @@ mod tests {
     async fn compression_triggers_on_est_fallback_without_usage() {
         // #16 兜底：DebugAgent 默认无 usage → 全量 est 触发（现状路径）
         let mut ov = make_ambery("compress-est");
+        ov.config.llm.active = "debug".into();
         ov.config.llm.providers.insert("debug".into(), crate::config::LlmProvider {
             base_url: String::new(), model: String::new(), api_key_env: None, temperature: None,
             context_window: Some(50), compression_reserve: Some(0), effort_wire: None,

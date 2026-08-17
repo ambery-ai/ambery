@@ -819,7 +819,7 @@ mod tests {
         // null = 缺失：view_scale/llm.active 回 default；显式值保留
         assert_eq!(cfg.view_scale, 1.0);
         assert_eq!(cfg.timer.interval_ms, 60000);
-        assert_eq!(cfg.llm.active, "debug");
+        assert_eq!(cfg.llm.active, "unconfigured");
     }
 
     #[test]

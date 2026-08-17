@@ -227,10 +227,10 @@ impl Default for LlmConfig {
         // (name, base_url, model, key_env, context_window——模型窗口事实，#16, effort_wire——
         // 方言只给已确认值；未确认的留 None = 不发送+告警)
         for (name, base_url, model, key_env, window, effort_wire) in [
-            ("deepseek", "https://api.deepseek.com", "deepseek-chat", "DEEPSEEK_API_KEY", 128_000, Some("deepseek")),
-            ("moonshot", "https://api.moonshot.cn/v1", "kimi-k2", "MOONSHOT_API_KEY", 256_000, None),
-            ("zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash", "ZHIPU_API_KEY", 128_000, None),
-            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", "OPENAI_API_KEY", 128_000, Some("openai")),
+            ("deepseek", "https://api.deepseek.com", "deepseek-chat", "AMBERY_DEEPSEEK_API_KEY", 128_000, Some("deepseek")),
+            ("moonshot", "https://api.moonshot.cn/v1", "kimi-k2", "AMBERY_MOONSHOT_API_KEY", 256_000, None),
+            ("zhipu", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash", "AMBERY_ZHIPU_API_KEY", 128_000, None),
+            ("openai", "https://api.openai.com/v1", "gpt-4o-mini", "AMBERY_OPENAI_API_KEY", 128_000, Some("openai")),
             ("ollama", "http://localhost:11434/v1", "qwen3", "", 32_000, None),
         ] {
             providers.insert(
@@ -251,7 +251,7 @@ impl Default for LlmConfig {
             );
         }
         Self {
-            active: "debug".into(),
+            active: "unconfigured".into(),
             providers,
         }
     }
