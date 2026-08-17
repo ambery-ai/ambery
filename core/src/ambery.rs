@@ -930,6 +930,13 @@ impl<L: Llm> AmberyBackend<L> {
                 .await
                 .map_err(std::io::Error::other)?;
             if let Some(message) = self.llm.take_last_error() {
+                // 落盘（docs/storage.md effect：记录动作——llm_error 是后端副作用，进动作流）
+                let _ = self.harness.log_effect(
+                    crate::EffectOrigin::Backend,
+                    "llm_error",
+                    json!({ "message": message.clone() }),
+                    crate::server::now_ms(),
+                );
                 effects.push(Effect::LlmError { message });
             }
             // usage 真值留痕（#16：每轮一条，覆盖刷新 last_usage）
