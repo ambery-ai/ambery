@@ -287,12 +287,16 @@ export class ChatPanel {
     }
   }
 
-  /** LLM 连接错误：消息流错误气泡（区分原因；失败当轮回退 DebugAgent 仍出回复，须注明降级） */
+  /** LLM 连接错误：消息流错误气泡（区分原因；失败当轮回退 DebugAgent 仍出回复，须注明降级）。
+   *  界面瞬态（非 Context 内容）：renderHistory 全量重渲时保留（与 sendErrorEl 同模式） */
+  private llmErrorEl: HTMLDivElement | null = null;
+
   private showLlmError(message: string) {
     const bubble = document.createElement("div");
     bubble.className = "chat-msg chat-system chat-llm-error";
     bubble.textContent = `${t("chat.llm-error")}: ${message}（${t("chat.degraded-reply")}）`;
     this.historyEl.append(bubble);
+    this.llmErrorEl = bubble;
     this.scrollToBottom();
     // 动作记录：前端渲染了错误气泡（docs/storage.md effect——记录不驱动渲染）
     reportEffect("error_bubble", { message });
@@ -524,6 +528,7 @@ export class ChatPanel {
     if (this.streamRow) this.historyEl.append(this.streamRow);
     if (this.thinkEl) this.historyEl.append(this.thinkEl);
     if (this.sendErrorEl) this.historyEl.append(this.sendErrorEl);
+    if (this.llmErrorEl) this.historyEl.append(this.llmErrorEl);
     // 新消息计数（阅读历史时；一条流式回复只计一条，不因增量重复计）
     if (!this.follow && visible.length > this.lastRenderedCount) {
       this.pendingNew += visible.length - this.lastRenderedCount;
