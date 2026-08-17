@@ -13,6 +13,8 @@ let chatPanel: ChatPanel | null = null;
 let adapter: WindowAdapter | null = null;
 let panelW = 320;
 let panelH = 380;
+/** 未配置检测是否已跑过（首次打开 chat 时弹 modal，之后不重复弹） */
+let checkedUnconfigured = false;
 
 export async function main() {
   if ("__TAURI_INTERNALS__" in window) {
@@ -65,6 +67,7 @@ export async function main() {
   }
 
   const bridge = await createBridge();
+  bridgeRefCached = bridge;
   const store = await Store.create(bridge);
   wireTheme(store); // 新窗口随当前主题，切换即生效
   const mount = document.getElementById("app")!;
@@ -84,8 +87,8 @@ export async function main() {
     void requestRelease("chat-panel");
     void adapter?.hide();
   };
-  // LLM 未配置检测（llm-setup.md）：chat 打开 → 弹 modal + 提示条
-  await checkUnconfigured(bridge, chatPanel);
+  // LLM 未配置检测（llm-setup.md）：在 chat 打开路径触发（showChat），不在窗口初始化时——
+  // 窗口常驻，初始化即弹会弹在隐藏窗口里（只弹 modal 不开 chat）
 
   const el = document.getElementById("chat-panel");
   if (el) {
@@ -103,9 +106,17 @@ export async function main() {
   await adapter?.hide();
 }
 
+/** 模块级 bridge 引用（main 初始化后赋值；showChat 的未配置检测用） */
+let bridgeRefCached: import("../bridge").Bridge | null = null;
+
 async function showChat() {
-  if (!chatPanel) return;
+  if (!chatPanel || !bridgeRefCached) return;
   chatPanel.showPanel();
+  // LLM 未配置检测：首次打开 chat 时弹 modal + 提示条（之后不重复弹）
+  if (!checkedUnconfigured) {
+    checkedUnconfigured = true;
+    await checkUnconfigured(bridgeRefCached, chatPanel);
+  }
   // 固定 sse 方位经 engine.place 落到 pet 旁
   const pos = await requestPlace("chat-panel", { id: "chat-panel", width: panelW, height: panelH }, Direction.sse);
   await adapter?.setPosition(Math.round(pos.x - panelW / 2), Math.round(pos.y - panelH / 2));
