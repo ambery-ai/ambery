@@ -64,6 +64,11 @@ cd app/src-tauri && AMBERY_PORT=47601 ./target/release/ambery   # 非默认端�
 
 开发期热更新迭代：把 vite dev server 固定到 `tauri.conf.json` 的 `devUrl` 端口（127.0.0.1:5174）——`cd app && npm run dev -- --port 5174 --strictPort`——再在 `app/` 下跑 `AMBERY_PORT=47602 npx tauri dev`（壳内嵌自己的 core server，`AMBERY_PORT` 必须避开独立后端）。
 
+**macOS：`./target/release/ambery` 后窗口空白/缺失。** 两种不同根因，症状相同（屏幕上无窗口；用 `swift -e 'import CoreGraphics; CGWindowListCopyWindowInfo(...)'` 确认）：
+
+1. **嵌入过期前端**——裸 `cargo build --release`（非 `npx tauri build`）可能嵌入旧版或空 `dist/`，壳呈现空白 UI。修复：走 `npx tauri build` 构建。
+2. **WebKit 缓存目录缺失**——`~/Library/Caches/ambery/WebKit/ServiceWorkers/` 不存在时 WebKit 初始化失败，webview 永不加载（日志无 `[tauri-cmd]` 行），窗口存在但不可见。修复：`mkdir -p ~/Library/Caches/ambery/WebKit/ServiceWorkers` 后重启。日志症状：`could not create directory ".../WebKit/ServiceWorkers" ... Operation not permitted`。
+
 ## 调试 LLM 失败
 
 把后端指向死端点以演练非静默失败路径：
