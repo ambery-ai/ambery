@@ -17,12 +17,10 @@ export function openSetupModal(bridge: Bridge): () => void {
 
   const head = document.createElement("div");
   head.className = "setup-head";
-  const title = document.createElement("span");
-  title.textContent = t("setup.title");
   const close = document.createElement("button");
   close.className = "setup-close";
   close.textContent = "×";
-  head.append(title, close);
+  head.append(close);
 
   const body = document.createElement("div");
   body.className = "setup-body";

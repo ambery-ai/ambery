@@ -4,6 +4,7 @@
 
 import type { Bridge, ContextMessage } from "../bridge";
 import { attachDrag } from "../drag";
+import { reportEffect } from "../effects";
 import { t, wireI18n } from "../i18n";
 import type { PositioningEngine } from "../positioning/engine";
 import type { Store } from "../store";
@@ -49,12 +50,12 @@ export class ChatPanel {
   private lastRenderedCount = 0;
   /** 发送失败提示行（界面瞬态，Context 全量重渲不冲掉——失败说明必须留到用户处理） */
   private sendErrorEl: HTMLDivElement | null = null;
-  /** LLM 连接错误 banner（输入框上方；仅错误激活时显示，可关闭——关闭只隐藏当前，下次错误再现） */
-  private llmBannerEl: HTMLDivElement | null = null;
+  /** 未配置 banner（chat 顶部横幅；LLM 未配置时显示，点击打开引导；配置完成由宿主清除） */
+  private setupBannerEl: HTMLDivElement | null = null;
+  /** LLM 未配置（宿主检测注入；true 时发送被拦截为错误气泡） */
+  unconfigured = false;
   /** 打开配置引导 modal 的回调（由宿主注入；未配置/连接失败是同一 modal 的两种状态） */
   onOpenSetup?: () => void;
-  /** 未配置提示条（LLM 未配置时显示，点击打开引导；配置完成由宿主清除） */
-  private setupHintEl: HTMLDivElement | null = null;
 
   constructor(
     mount: HTMLElement,
@@ -216,6 +217,11 @@ export class ChatPanel {
   private async send() {
     const text = this.inputEl.value.trim();
     if (!text) return;
+    // LLM 未配置：发消息不静默——显示错误气泡（不真正发送；banner 已提示引导入口）
+    if (this.unconfigured) {
+      this.showUnconfiguredError();
+      return;
+    }
     this.follow = true;
     this.pendingNew = 0;
     this.updatePill();
@@ -224,6 +230,8 @@ export class ChatPanel {
     userRow.className = "chat-msg chat-user";
     userRow.textContent = text;
     this.historyEl.append(userRow);
+    // 动作记录：前端渲染了用户气泡（docs/storage.md effect——记录不驱动渲染）
+    reportEffect("user_bubble", { text });
     this.showReplying();
     this.scrollToBottom();
     this.inputEl.value = "";
@@ -244,6 +252,15 @@ export class ChatPanel {
       this.autoGrow();
       this.showSendError(text);
     }
+  }
+
+  /** LLM 未配置：发消息被拦截——错误气泡（输入框文字保留，可先配置再发） */
+  private showUnconfiguredError() {
+    const row = document.createElement("div");
+    row.className = "chat-msg chat-system chat-llm-error";
+    row.textContent = t("chat.unconfigured-error");
+    this.historyEl.append(row);
+    this.scrollToBottom();
   }
 
   private showSendError(text: string) {
@@ -270,54 +287,44 @@ export class ChatPanel {
     }
   }
 
-  /** LLM 连接错误：消息流错误气泡（含降级回复说明）+ 输入框上方 banner（可关闭，带打开配置） */
+  /** LLM 连接错误：消息流错误气泡（区分原因；失败当轮回退 DebugAgent 仍出回复，须注明降级） */
   private showLlmError(message: string) {
-    // 消息流错误气泡（区分原因；失败当轮回退 DebugAgent 仍出回复，须注明降级）
     const bubble = document.createElement("div");
     bubble.className = "chat-msg chat-system chat-llm-error";
     bubble.textContent = `${t("chat.llm-error")}: ${message}（${t("chat.degraded-reply")}）`;
     this.historyEl.append(bubble);
     this.scrollToBottom();
+    // 动作记录：前端渲染了错误气泡（docs/storage.md effect——记录不驱动渲染）
+    reportEffect("error_bubble", { message });
+  }
 
-    // 输入框上方 banner：持续显示直到重试成功/配置完成；可关闭（仅隐藏当前）
-    if (this.llmBannerEl) return;
+  /** 未配置 banner：LLM 未配置时显示（点击打开引导 modal）；可关闭（仅隐藏当前） */
+  showSetupBanner() {
+    if (this.setupBannerEl) return;
     const banner = document.createElement("div");
-    banner.className = "chat-llm-banner";
-    banner.textContent = `${t("chat.llm-error")}: ${message}（${t("chat.degraded-reply")}）`;
-    const open = document.createElement("button");
-    open.textContent = t("chat.open-config");
-    open.addEventListener("click", () => this.onOpenSetup?.());
+    banner.className = "chat-setup-banner";
+    const text = document.createElement("span");
+    text.textContent = t("chat.setup-banner");
+    banner.appendChild(text);
+    banner.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).classList.contains("chat-setup-banner-close")) return;
+      this.onOpenSetup?.();
+    });
     const close = document.createElement("button");
-    close.className = "chat-llm-banner-close";
+    close.className = "chat-setup-banner-close";
     close.textContent = "×";
-    close.addEventListener("click", () => this.clearLlmBanner());
-    banner.append(open, close);
-    this.historyEl.after(banner);
-    this.llmBannerEl = banner;
+    close.addEventListener("click", () => this.clearSetupBanner());
+    banner.appendChild(close);
+    this.historyEl.before(banner);
+    this.setupBannerEl = banner;
+    // 动作记录：前端显示了未配置 banner（docs/storage.md effect——记录不驱动渲染）
+    reportEffect("setup_banner");
   }
 
-  private clearLlmBanner() {
-    if (this.llmBannerEl) {
-      this.llmBannerEl.remove();
-      this.llmBannerEl = null;
-    }
-  }
-
-  /** 未配置提示条：LLM 未配置时显示（点击打开引导 modal）；配置完成由宿主清除 */
-  showSetupHint() {
-    if (this.setupHintEl) return;
-    const hint = document.createElement("div");
-    hint.className = "chat-setup-hint";
-    hint.textContent = t("chat.setup-hint");
-    hint.addEventListener("click", () => this.onOpenSetup?.());
-    this.historyEl.before(hint);
-    this.setupHintEl = hint;
-  }
-
-  clearSetupHint() {
-    if (this.setupHintEl) {
-      this.setupHintEl.remove();
-      this.setupHintEl = null;
+  clearSetupBanner() {
+    if (this.setupBannerEl) {
+      this.setupBannerEl.remove();
+      this.setupBannerEl = null;
     }
   }
 
