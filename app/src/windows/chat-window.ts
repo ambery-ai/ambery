@@ -131,7 +131,7 @@ async function checkUnconfigured(bridge: import("../bridge").Bridge, panel: Chat
     const active = resp.nodes.find((n) => n.path === "llm.active")?.value;
     if (active === "unconfigured") {
       panel.unconfigured = true;
-      panel.showSetupBanner();
+      panel.showSetupBanner("chat.setup-banner");
       panel.onOpenSetup?.();
     }
   } catch {

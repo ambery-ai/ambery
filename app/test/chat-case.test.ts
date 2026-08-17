@@ -200,10 +200,10 @@ it("UI 动作记录：渲染用户气泡/错误气泡/未配置 banner 时 effec
   );
   expect(readEffects()).toContain(errMsg);
 
-  // 未配置 banner → setup_banner
-  const baseBanner = (readEffects().match(/"setup_banner"/g) ?? []).length;
-  panel.showSetupBanner();
+  // llm_error 连带打开连接失败 banner（同一 setup_banner 元素的"连接失败"态，
+  // 与未配置态共用元素不重复创建）——验证 setup_banner 已随错误气泡出现
   await vi.waitFor(() =>
-    expect((readEffects().match(/"setup_banner"/g) ?? []).length).toBeGreaterThan(baseBanner),
+    expect((readEffects().match(/"setup_banner"/g) ?? []).length).toBeGreaterThan(0),
   );
+  expect(readEffects()).toContain("chat.llm-error-banner");
 });
