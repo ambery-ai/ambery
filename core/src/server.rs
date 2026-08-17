@@ -117,6 +117,7 @@ pub fn router(state: Arc<AppState>, ws_tx: tokio::sync::broadcast::Sender<String
         .route("/events", post(post_event))
         .route("/config", get(get_config))
         .route("/config/schema", get(get_config_schema))
+        .route("/config/test-llm", get(test_llm))
         .route("/config", post(post_config))
         .route("/effect", post(post_effect))
         .route("/cards", get(get_cards))
@@ -502,6 +503,19 @@ async fn post_config(State(s): State<Arc<AppState>>, Json(body): Json<SetConfigB
             (StatusCode::OK, Json(json!({ "ok": true, "restartRequired": restart })))
         }
         Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),
+    }
+}
+
+/// LLM 连通测试（browser 调试模式；Tauri 模式走同名 command）：
+/// 按 active provider 构建一次调用，返回成功或具体失败原因。
+async fn test_llm(State(s): State<Arc<AppState>>) -> impl IntoResponse {
+    let cfg = {
+        let ov = s.ambery.lock().await;
+        ov.config.llm.clone()
+    };
+    match crate::llm::test_llm(&cfg).await {
+        Ok(reply) => (StatusCode::OK, Json(json!({ "ok": true, "reply": reply }))),
+        Err(e) => (StatusCode::OK, Json(json!({ "ok": false, "error": e }))),
     }
 }
 

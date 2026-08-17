@@ -2,6 +2,7 @@
 // Tauri B 方案：通过 requestPlace/requestRemove 调 pet 窗 engine
 import { createBridge } from "../bridge";
 import { ChatPanel } from "./chat";
+import { openSetupModal } from "../setup";
 import { Store } from "../store";
 import { wireTheme } from "../theme";
 import { createTauriAdapter, type WindowAdapter } from "../window-adapter";
@@ -69,12 +70,22 @@ export async function main() {
   const mount = document.getElementById("app")!;
   // ChatPanel 不需要 engine，toggle 直接用 DOM show/hide
   chatPanel = new ChatPanel(mount, bridge, store, null!, true);
+  // 打开配置引导 modal（未配置/连接失败同一 modal 两种状态）
+  let setupDismiss: (() => void) | null = null;
+  chatPanel.onOpenSetup = () => {
+    setupDismiss?.();
+    setupDismiss = openSetupModal(bridge);
+  };
   // 统一关闭副作用（#26：× / toggle 关 / OS 关闭请求同一收口）：
   // 用户隐藏释放占区、布局入记忆（重开原位恢复），窗口随藏
   chatPanel.onIntentClose = () => {
+    setupDismiss?.();
+    setupDismiss = null;
     void requestRelease("chat-panel");
     void adapter?.hide();
   };
+  // LLM 未配置检测（llm-setup.md）：chat 打开 → 弹 modal + 提示条
+  await checkUnconfigured(bridge, chatPanel);
 
   const el = document.getElementById("chat-panel");
   if (el) {
@@ -99,4 +110,18 @@ async function showChat() {
   const pos = await requestPlace("chat-panel", { id: "chat-panel", width: panelW, height: panelH }, Direction.sse);
   await adapter?.setPosition(Math.round(pos.x - panelW / 2), Math.round(pos.y - panelH / 2));
   await adapter?.show();
+}
+
+/** LLM 未配置检测（docs/llm-setup.md）：llm.active == "unconfigured" → 弹引导 modal + 提示条 */
+async function checkUnconfigured(bridge: import("../bridge").Bridge, panel: ChatPanel) {
+  try {
+    const resp = await bridge.getConfigSchema!();
+    const active = resp.nodes.find((n) => n.path === "llm.active")?.value;
+    if (active === "unconfigured") {
+      panel.showSetupHint();
+      panel.onOpenSetup?.();
+    }
+  } catch {
+    // core 不可达：不弹（offline 已有独立提示）
+  }
 }

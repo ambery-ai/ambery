@@ -205,6 +205,14 @@ export class RemoteBridge implements Bridge {
   async setConfig(path: string, value: unknown): Promise<SetConfigResp> {
     return (await fetch(`${BASE}/config`, post({ path, value }))).json() as Promise<SetConfigResp>;
   }
+
+  async testLlm(): Promise<{ ok: boolean; reply?: string; error?: string }> {
+    return (await fetch(`${BASE}/config/test-llm`)).json() as Promise<{
+      ok: boolean;
+      reply?: string;
+      error?: string;
+    }>;
+  }
 }
 
 function post(body: unknown): RequestInit {

@@ -457,6 +457,110 @@ html.browser body {
   padding: 1px 8px;
 }
 
+/* LLM 连接错误：消息流气泡（区分原因 + 降级回复说明） */
+.chat-llm-error {
+  color: var(--ov-error, #e5534b);
+}
+
+/* LLM 连接错误 banner：输入框上方，持续显示直到重试成功/配置完成；可关闭 */
+.chat-llm-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 6px;
+  padding: 6px 10px;
+  background: var(--ov-accent-bg);
+  border: 1px solid var(--ov-error, #e5534b);
+  border-radius: var(--ov-control-radius);
+  color: var(--ov-error, #e5534b);
+  font-size: 11px;
+}
+.chat-llm-banner button {
+  background: var(--ov-accent-bg);
+  border: 1px solid var(--ov-accent-border);
+  border-radius: var(--ov-control-radius);
+  color: var(--ov-accent);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 8px;
+}
+.chat-llm-banner .chat-llm-banner-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0 2px;
+}
+
+/* LLM 未配置提示条：点击打开引导 modal（docs/llm-setup.md） */
+.chat-setup-hint {
+  margin: 0 12px 6px;
+  padding: 6px 10px;
+  background: var(--ov-accent-bg);
+  border: 1px solid var(--ov-accent-border);
+  border-radius: var(--ov-control-radius);
+  color: var(--ov-accent);
+  font-size: 11px;
+  cursor: pointer;
+  text-align: center;
+}
+
+/* ===== LLM 配置引导 modal（docs/llm-setup.md；setup.ts） ===== */
+.setup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.setup-modal {
+  width: 360px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--ov-panel, #1e1e2e);
+  border: 1px solid var(--ov-border, #45475a);
+  border-radius: var(--ov-control-radius);
+  padding: 14px;
+}
+.setup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+.setup-close {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--ov-muted);
+}
+.setup-body .cfg-row {
+  margin-bottom: 8px;
+}
+.setup-test-status {
+  margin-top: 10px;
+  font-size: 12px;
+}
+.setup-test-status.ok {
+  color: #40c057;
+}
+.setup-test-status.fail {
+  color: var(--ov-error, #e5534b);
+}
+.setup-test-btn {
+  margin-top: 8px;
+  background: var(--ov-accent-bg);
+  border: 1px solid var(--ov-accent-border);
+  border-radius: var(--ov-control-radius);
+  color: var(--ov-accent);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 12px;
+}
+
 
 /* ===== Cards Shelf（windows/shelf.ts） ===== */
 #shelf-panel {

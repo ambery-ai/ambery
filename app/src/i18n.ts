@@ -20,6 +20,10 @@ const zh = {
   "chat.retry": "重试",
   "chat.send-failed": "发送失败（文字已保留在输入框，可继续编辑）",
   "chat.queued": "已排队等待处理（{n}）",
+  "chat.llm-error": "LLM 连接失败",
+  "chat.degraded-reply": "当前为降级回复",
+  "chat.open-config": "打开配置",
+  "chat.setup-hint": "LLM 未配置，点击打开配置引导",
   "chat.new-messages": "↓ {n} 条新消息",
   "card.copy": "复制",
   "card.expand-diff": "展开 diff",
@@ -47,6 +51,10 @@ const zh = {
   "menu.exported": "✓ 已导出 {path}",
   "menu.imported": "✓ 已导入 {name}",
   "menu.map-tag": "(map)",
+  "setup.title": "LLM 配置引导",
+  "setup.test": "测试连通",
+  "setup.ok": "✓ 连通正常",
+  "setup.fail": "✗ 连接失败：{error}",
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -58,6 +66,10 @@ const en: Record<keyof typeof zh, string> = {
   "chat.retry": "Retry",
   "chat.send-failed": "Failed to send (your text is kept in the input for editing)",
   "chat.queued": "Queued for processing ({n})",
+  "chat.llm-error": "LLM connection failed",
+  "chat.degraded-reply": "degraded reply",
+  "chat.open-config": "Open config",
+  "chat.setup-hint": "LLM not configured — click to open the setup guide",
   "chat.new-messages": "↓ {n} new messages",
   "card.copy": "Copy",
   "card.expand-diff": "Expand diff",
@@ -85,6 +97,10 @@ const en: Record<keyof typeof zh, string> = {
   "menu.exported": "✓ Exported to {path}",
   "menu.imported": "✓ Imported {name}",
   "menu.map-tag": "(map)",
+  "setup.title": "LLM setup guide",
+  "setup.test": "Test connection",
+  "setup.ok": "✓ Connected",
+  "setup.fail": "✗ Failed: {error}",
 };
 
 export type I18nKey = keyof typeof zh;
