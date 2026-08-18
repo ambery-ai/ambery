@@ -55,6 +55,14 @@ const zh = {
   "setup.test": "测试连通",
   "setup.ok": "✓ 连通正常",
   "setup.fail": "✗ 连接失败：{error}",
+  "setup.key-not-needed": "本地端点，无需 key",
+  "setup.key-placeholder-unset": "请输入 API key",
+  "setup.key-placeholder-set": "••••••••（已设置，留空则不改动）",
+  "setup.key-set-hint": "已设置（来源：{source}）",
+  "setup.key-unset-hint": "未设置——填写并保存后自动测试连通",
+  "setup.key-save": "保存",
+  "setup.key-clear": "清除",
+  "setup.key-save-fail": "✗ 保存失败：{error}",
 };
 
 const en: Record<keyof typeof zh, string> = {
@@ -101,6 +109,14 @@ const en: Record<keyof typeof zh, string> = {
   "setup.test": "Test connection",
   "setup.ok": "✓ Connected",
   "setup.fail": "✗ Failed: {error}",
+  "setup.key-not-needed": "Local endpoint, no key needed",
+  "setup.key-placeholder-unset": "Enter API key",
+  "setup.key-placeholder-set": "•••••••• (set — leave empty to keep)",
+  "setup.key-set-hint": "Set (source: {source})",
+  "setup.key-unset-hint": "Not set — fill in and save to auto-run the connection test",
+  "setup.key-save": "Save",
+  "setup.key-clear": "Clear",
+  "setup.key-save-fail": "✗ Save failed: {error}",
 };
 
 export type I18nKey = keyof typeof zh;

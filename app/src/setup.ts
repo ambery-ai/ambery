@@ -1,10 +1,10 @@
 // LLM 首启配置引导 modal（docs/llm-setup.md）：
 // 从 Chat 打开；反射渲染 llm 相关 schema 节点（与设置面板同一 get_config_schema 投影），
-// 非手写表单；提供 provider 选择、key 状态检测（test_llm 结果当状态）、测试连通。
+// 非手写表单；提供 provider 选择、key 输入（形态乙——写应用级 env 文件）、测试连通。
 // menu 本身不变——引导不在 menu 里，也不改变 menu 行为。
 
 import type { Bridge } from "./bridge";
-import { renderConfigNode } from "./config-reflect";
+import { renderConfigNode, renderApiKeyRow } from "./config-reflect";
 import { t } from "./i18n";
 
 /** 打开引导 modal（overlay + 面板）；返回关闭函数（宿主可在 ChatPanel 关闭时一并收起） */
@@ -69,7 +69,7 @@ async function render(bridge: Bridge, body: HTMLElement) {
     );
   }
 
-  // provider 字段（当前 active 对应的 providers.<name>.* 节点）
+  // provider 字段（当前 active 对应的 providers.<name>.* 节点）+ key 输入行
   const active = String(activeNode?.value ?? "");
   const provPrefix = `llm.providers.${active}.`;
   if (active && active !== "unconfigured" && active !== "debug") {
@@ -82,6 +82,19 @@ async function render(bridge: Bridge, body: HTMLElement) {
         }),
       );
     }
+    // key 输入行（形态乙）：本地端点（base_url 指向本机）无需 key；
+    // 远程端点渲染密码框。保存/清除成功后自动重跑 test_llm（Q6a 定案）。
+    const envNode = llmNodes.find((n) => n.path === `${provPrefix}api_key_env`);
+    const envValue = envNode?.value as string | null | undefined;
+    const baseUrlNode = llmNodes.find((n) => n.path === `${provPrefix}base_url`);
+    const baseUrl = String(baseUrlNode?.value ?? "");
+    const local = /localhost|127\.0\.0\.1|::1/i.test(baseUrl);
+    body.appendChild(
+      renderApiKeyRow(active, envValue, local, bridge, {
+        readOnly: resp.readOnly,
+        onChanged: () => void runTest(bridge, statusEl, testBtn),
+      }),
+    );
   }
 
   // key 状态 + 测试连通

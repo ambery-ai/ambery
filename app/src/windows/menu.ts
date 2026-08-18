@@ -4,7 +4,7 @@
 // 读取走 bridge 方法、写入走动作层（invoke 收口规则）。
 
 import { createBridge, type Bridge, type ConfigSchemaNode, type ConfigSchemaResp } from "../bridge";
-import { renderConfigNode } from "../config-reflect";
+import { renderConfigNode, renderApiKeyRow } from "../config-reflect";
 import { Store } from "../store";
 import { t, wireI18n } from "../i18n";
 import { wireTheme } from "../theme";
@@ -112,6 +112,28 @@ async function render() {
           applyValue: (path, value, control) => void apply(path, value, control),
         }),
       );
+    }
+    // provider key 输入行（形态乙）：llm.providers.<name>.api_key_env 节点后插一行。
+    // 单渲染源：与引导 modal 同一 renderApiKeyRow；变更后重渲面板（config effect 广播同款）。
+    // 本地端点判定用 base_url（远程 provider 清除 key 后 api_key_env 也是 null——不能用它判）。
+    if (name === "llm") {
+      const envNodes = nodes.filter((n) =>
+        /^llm\.providers\.[^.]+\.api_key_env$/.test(n.path),
+      );
+      for (const n of envNodes) {
+        const provider = n.path.split(".")[2];
+        const baseUrlNode = nodes.find(
+          (m) => m.path === `llm.providers.${provider}.base_url`,
+        );
+        const baseUrl = String(baseUrlNode?.value ?? "");
+        const local = /localhost|127\.0\.0\.1|::1/i.test(baseUrl);
+        body.appendChild(
+          renderApiKeyRow(provider, n.value as string | null | undefined, local, bridge, {
+            readOnly: resp.readOnly,
+            onChanged: () => void render(),
+          }),
+        );
+      }
     }
   }
   // 主题分享：导出到 config_root/themes/，按文件名导入

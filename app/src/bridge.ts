@@ -150,6 +150,12 @@ export interface Bridge {
   /** 可选（TauriBridge/RemoteBridge）：LLM 连通测试——按 active provider 构建一次调用，
    *  返回成功或具体失败原因（env 未设 / 401 / 超时 / 网络 / provider 缺失） */
   testLlm?(): Promise<{ ok: boolean; reply?: string; error?: string }>;
+  /** 可选（TauriBridge/RemoteBridge）：provider key 存在性状态（env 文件 → 进程环境，
+   *  本地即时）——返回 set 与来源（"env 文件" / "环境变量" / null） */
+  getApiKeyStatus?(provider: string): Promise<{ ok: boolean; set: boolean; source: string | null }>;
+  /** 可选（TauriBridge/RemoteBridge）：写/清 provider key——Some 写入应用级 env 文件
+   *  （统一 AMBERY_<PROVIDER>_API_KEY 名 + api_key_env 归一），null 清除 */
+  setApiKey?(provider: string, key: string | null): Promise<{ ok: boolean; error?: string }>;
   /** 可选（TauriBridge）：Card 布局回写（写：拖拽结束落 _meta.layout，
    *  端点记录 card_layout effect） */
   updateCardLayout?(id: string, offset: [number, number]): Promise<{ ok: boolean; error?: string }>;
@@ -554,6 +560,12 @@ class TauriBridge implements Bridge {
 
   async testLlm(): Promise<{ ok: boolean; reply?: string; error?: string }> {
     return this.invokeFn("test_llm") as Promise<{ ok: boolean; reply?: string; error?: string }>;
+  }
+  async getApiKeyStatus(provider: string): Promise<{ ok: boolean; set: boolean; source: string | null }> {
+    return this.invokeFn("get_api_key_status", { provider }) as Promise<{ ok: boolean; set: boolean; source: string | null }>;
+  }
+  async setApiKey(provider: string, key: string | null): Promise<{ ok: boolean; error?: string }> {
+    return this.invokeFn("set_api_key", { provider, key }) as Promise<{ ok: boolean; error?: string }>;
   }
   async updateCardLayout(id: string, offset: [number, number]): Promise<{ ok: boolean; error?: string }> {
     return this.invokeFn("update_card_layout", { id, offset }) as Promise<{ ok: boolean; error?: string }>;

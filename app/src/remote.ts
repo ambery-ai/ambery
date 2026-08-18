@@ -213,6 +213,21 @@ export class RemoteBridge implements Bridge {
       error?: string;
     }>;
   }
+
+  async getApiKeyStatus(provider: string): Promise<{ ok: boolean; set: boolean; source: string | null }> {
+    return (await fetch(`${BASE}/config/api-key/status?provider=${encodeURIComponent(provider)}`)).json() as Promise<{
+      ok: boolean;
+      set: boolean;
+      source: string | null;
+    }>;
+  }
+
+  async setApiKey(provider: string, key: string | null): Promise<{ ok: boolean; error?: string }> {
+    return (await fetch(`${BASE}/config/api-key`, post({ provider, key }))).json() as Promise<{
+      ok: boolean;
+      error?: string;
+    }>;
+  }
 }
 
 function post(body: unknown): RequestInit {

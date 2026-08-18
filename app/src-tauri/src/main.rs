@@ -230,6 +230,43 @@ async fn test_llm(state: tauri::State<'_, SharedTauriState>) -> Result<Value, St
     }
 }
 
+/// provider key 存在性状态（应用级 env 文件 → 进程环境，本地即时）
+#[tauri::command]
+async fn get_api_key_status(
+    state: tauri::State<'_, SharedTauriState>,
+    provider: String,
+) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let cfg = {
+        let ov = s.ambery().lock().await;
+        ov.config.llm.clone()
+    };
+    let (set, source) = ambery_core::llm::api_key_status(&provider, &cfg);
+    Ok(json!({ "ok": true, "set": set, "source": source }))
+}
+
+/// 写/清 provider key（形态乙）：Some upsert 进应用级 env 文件 + api_key_env 归一；
+/// null 从 env 文件清除。写失败返回错误（前端内联报错，绝不静默）。
+#[tauri::command]
+async fn set_api_key(
+    state: tauri::State<'_, SharedTauriState>,
+    provider: String,
+    key: Option<String>,
+) -> Result<Value, String> {
+    let s = wait_state(&state)?;
+    let mut ov = s.ambery().lock().await;
+    let provider_name = provider.clone();
+    match ambery_core::llm::set_api_key(&provider, key.as_deref(), &mut ov.config.llm) {
+        Ok(()) => {
+            ov.record_frontend_effect("config_update", json!({ "path": format!("llm.providers.{provider_name}.api_key_env") }));
+            let cfg_dir = ambery_core::paths::config_root();
+            let _ = ov.config.save(&cfg_dir);
+            Ok(json!({ "ok": true }))
+        }
+        Err(e) => Ok(json!({ "ok": false, "error": e })),
+    }
+}
+
 /// Card 跨重启恢复（readonly 查询）：
 /// pet 启动 pull 全部存活卡片（component + _meta）；可见性过滤在前端（pull-on-ready，
 /// 规避 push-at-startup 的 webview 未就绪时序漏洞）
@@ -625,7 +662,7 @@ mod ipc_tests {
         tauri::test::mock_builder()
             .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
             .manage(CardWindowRegistry::default())
-            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, test_llm, toggle_pet, list_cards, update_card_layout, set_card_user_closed, ensure_card_window, close_card_window, export_theme, import_theme])
+            .invoke_handler(tauri::generate_handler![get_state, get_config, get_config_schema, set_config, test_llm, get_api_key_status, set_api_key, toggle_pet, list_cards, update_card_layout, set_card_user_closed, ensure_card_window, close_card_window, export_theme, import_theme])
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .unwrap()
     }

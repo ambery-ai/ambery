@@ -2,8 +2,10 @@
 // 单个 Config schema 节点的机械渲染（enum/bool/int/str/map/只读/desc/表情池移动）。
 // 单一语义源：menu 设置面板与 LLM 引导 modal 共用同一渲染，不各自实现。
 // 加字段零成本自动出现；写值经调用方注入的 applyValue（统一修改管道在 core）。
+// 另有 renderApiKeyRow：provider key 输入行（形态乙——写应用级 env 文件，
+// config.json 永不存 key；menu 与引导 modal 同一渲染源）。
 
-import type { ConfigSchemaNode } from "./bridge";
+import type { Bridge, ConfigSchemaNode } from "./bridge";
 import { t } from "./i18n";
 
 export type ConfigNode = ConfigSchemaNode;
@@ -125,4 +127,139 @@ export function renderConfigNode(n: ConfigNode, opts: RenderNodeOpts): HTMLEleme
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+export interface ApiKeyRowOpts {
+  /** 只读降级模式：输入与按钮禁用 */
+  readOnly: boolean;
+  /** 保存/清除成功后回调（宿主刷新：引导 modal 重跑 test_llm；menu 刷状态） */
+  onChanged: () => void;
+}
+
+/**
+ * provider key 输入行（形态乙）：
+ * - `local` = 本地端点（base_url 指向本机）→ 无需 key，显示提示。
+ * - 否则渲染密码框 + 保存 + 清除：状态按 getApiKeyStatus 判定
+ *   （未设置 → 警示占位"请输入 API key"；已设置 → "•••••••• 已设置，留空则不改动" + 来源提示）。
+ * - 保存：空值 = 不改动；填值 = upsert；清除 = 删除。写后刷新状态并回调 onChanged。
+ */
+export function renderApiKeyRow(
+  provider: string,
+  apiKeyEnv: string | null | undefined,
+  local: boolean,
+  bridge: Bridge,
+  opts: ApiKeyRowOpts,
+): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "cfg-row api-key-row";
+  row.dataset.provider = provider;
+
+  if (local) {
+    row.innerHTML = `<div class="cfg-line"><div class="name">${escapeHtml(
+      provider,
+    )} · key</div><span class="dim">${t("setup.key-not-needed")}</span></div>`;
+    return row;
+  }
+
+  const envName = apiKeyEnv ?? "";
+  const nameHtml = `<div class="name" title="${escapeHtml(envName)}">${escapeHtml(
+    provider,
+  )} · key</div>`;
+  const input = document.createElement("input");
+  input.type = "password";
+  input.className = "api-key-input";
+  input.placeholder = t("setup.key-placeholder-unset");
+  input.disabled = opts.readOnly;
+
+  const save = document.createElement("button");
+  save.textContent = t("setup.key-save");
+  save.disabled = opts.readOnly;
+  const clear = document.createElement("button");
+  clear.textContent = t("setup.key-clear");
+  clear.disabled = opts.readOnly;
+  clear.hidden = true;
+
+  const line = document.createElement("div");
+  line.className = "cfg-line";
+  line.innerHTML = nameHtml;
+  line.appendChild(input);
+  line.appendChild(save);
+  line.appendChild(clear);
+  row.appendChild(line);
+
+  const hint = document.createElement("div");
+  hint.className = "desc api-key-hint";
+  row.appendChild(hint);
+
+  const refresh = async () => {
+    let set = false;
+    let source: string | null = null;
+    try {
+      const r = await bridge.getApiKeyStatus!(provider);
+      set = r.set;
+      source = r.source;
+    } catch {
+      /* 状态查询失败 = 按未设置显示（保存动作仍可试） */
+    }
+    if (set) {
+      input.placeholder = t("setup.key-placeholder-set");
+      hint.textContent = t("setup.key-set-hint", { source: source ?? "" });
+      hint.className = "desc api-key-hint ok";
+      clear.hidden = false;
+    } else {
+      input.placeholder = t("setup.key-placeholder-unset");
+      hint.textContent = t("setup.key-unset-hint");
+      hint.className = "desc api-key-hint warn";
+      clear.hidden = true;
+    }
+  };
+
+  const saving = (busy: boolean) => {
+    input.disabled = opts.readOnly || busy;
+    save.disabled = opts.readOnly || busy;
+    clear.disabled = opts.readOnly || busy;
+  };
+
+  save.addEventListener("click", async () => {
+    saving(true);
+    const value = input.value.trim();
+    try {
+      const r = await bridge.setApiKey!(provider, value === "" ? null : value);
+      if (!r.ok) {
+        hint.textContent = t("setup.key-save-fail", { error: r.error ?? "" });
+        hint.className = "desc api-key-hint warn";
+      } else {
+        input.value = "";
+        await refresh();
+        opts.onChanged();
+      }
+    } catch {
+      hint.textContent = t("setup.key-save-fail", { error: "?" });
+      hint.className = "desc api-key-hint warn";
+    } finally {
+      saving(false);
+    }
+  });
+
+  clear.addEventListener("click", async () => {
+    saving(true);
+    try {
+      const r = await bridge.setApiKey!(provider, null);
+      if (!r.ok) {
+        hint.textContent = t("setup.key-save-fail", { error: r.error ?? "" });
+        hint.className = "desc api-key-hint warn";
+      } else {
+        await refresh();
+        opts.onChanged();
+      }
+    } catch {
+      hint.textContent = t("setup.key-save-fail", { error: "?" });
+      hint.className = "desc api-key-hint warn";
+    } finally {
+      saving(false);
+    }
+  });
+
+  void refresh();
+  return row;
 }

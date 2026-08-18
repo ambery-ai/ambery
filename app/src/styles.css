@@ -668,6 +668,19 @@ html.browser body {
 .cfg-line input.bad, .cfg-line select.bad { border-color: var(--ov-error); }
 .cfg-line input:disabled { opacity: 0.45; }
 .desc { color: color-mix(in srgb, var(--ov-text-strong) 45%, transparent); font-size: 11px; margin-top: 1px; }
+/* provider key 输入行（形态乙）：密码框 + 保存/清除 + 状态提示 */
+.api-key-row .api-key-input {
+  width: 170px;
+  background: var(--ov-input-bg);
+  border: 1px solid var(--ov-input-border);
+  border-radius: 5px;
+  color: var(--ov-text-strong);
+  padding: 3px 6px;
+}
+.api-key-row .api-key-input::placeholder { color: color-mix(in srgb, var(--ov-text-strong) 40%, transparent); }
+.api-key-row button { margin-left: 2px; }
+.api-key-hint.ok { color: var(--ov-ok); }
+.api-key-hint.warn { color: var(--ov-warn); }
 .map-head { color: color-mix(in srgb, var(--ov-text-strong) 75%, transparent); font-weight: 600; margin-top: 6px; }
 .dim { color: color-mix(in srgb, var(--ov-text-strong) 35%, transparent); font-weight: 400; }
 .warn { color: var(--ov-warn); padding: 6px 0; }
