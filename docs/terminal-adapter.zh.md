@@ -2,7 +2,7 @@
 
 [English](terminal-adapter.md) | 中文
 
-终端访问抽象：向 Code CLI 实例提供「定位、读取、遗忘」能力的统一接口。多终端兼容 = 抽象接口 + 按终端分发实现。
+终端访问抽象：向 Code CLI 实例提供「定位、读取、解除定位」能力的统一接口。多终端兼容 = 抽象接口 + 按终端分发实现。
 
 > 概念定位见 `concepts.md` §14（Terminal Adapter）。本文件定接口能力、实现与 config 字段。
 
@@ -16,8 +16,8 @@ pub trait TerminalAdapter: Send + Sync {
     fn locate(&self, inst: &str) -> Option<TabRef>;
     /// 读取：读该位置的终端文字
     fn read(&self, tab: &TabRef) -> Option<String>;
-    /// 遗忘：定位缓存清除（instance 会话结束/判死）
-    fn forget(&self, inst: &str);
+    /// 解除定位：终止 instance 与位置之间的定位关系（instance 会话结束/判死）
+    fn unlocate(&self, inst: &str);
 }
 ```
 
@@ -30,7 +30,7 @@ pub trait TerminalAdapter: Send + Sync {
 | **WtAdapter** | 独立 C# 进程 | stdio JSONL 调 C#；UIA（CASCADIA/TermControl）定位+读取 | Windows |
 | **ZellijAdapter** | 进程内（Rust 直调 CLI） | `zellij action` 命令（list-tabs / rename-tab / query-tab-names…） | 跨平台 |
 | **MapAdapter** | 进程内（core 内建） | 共享 map（case-runner 的 terminal/terminal_gone 剧情源） | 跨平台 |
-| **Composite** | 进程内（core 内建） | 多 adapter 分发：locate 首中记录路由、read 回到产出 adapter、forget 广播 | 跨平台 |
+| **Composite** | 进程内（core 内建） | 多 adapter 分发：locate 首中记录路由、read 回到产出 adapter、unlocate 广播 | 跨平台 |
 
 WtAdapter 保持独立进程形态——UIA 读取依赖 .NET 程序集，Rust 无法直接接 UIA TextPattern，故独立 exe。ZellijAdapter 调 CLI 即可，Rust 原生执行，无独立进程。
 

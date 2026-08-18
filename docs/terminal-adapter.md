@@ -2,7 +2,7 @@
 
 English | [中文](terminal-adapter.zh.md)
 
-Terminal access abstraction: a unified interface that gives Code CLI instances the ability to "locate, read, forget". Multi-terminal compatibility = abstract interface + per-terminal dispatch implementations.
+Terminal access abstraction: a unified interface that gives Code CLI instances the ability to "locate, read, unlocate". Multi-terminal compatibility = abstract interface + per-terminal dispatch implementations.
 
 > See `concepts.md` §14 (Terminal Adapter) for the concept positioning. This file defines the interface capabilities, implementations, and config fields.
 
@@ -16,8 +16,8 @@ pub trait TerminalAdapter: Send + Sync {
     fn locate(&self, inst: &str) -> Option<TabRef>;
     /// 读取：读该位置的终端文字
     fn read(&self, tab: &TabRef) -> Option<String>;
-    /// 遗忘：定位缓存清除（instance 会话结束/判死）
-    fn forget(&self, inst: &str);
+    /// 解除定位：终止 instance 与位置之间的定位关系（instance 会话结束/判死）
+    fn unlocate(&self, inst: &str);
 }
 ```
 
@@ -30,7 +30,7 @@ An adapter instance corresponds to one terminal type (wt / zellij / …). The co
 | **WtAdapter** | standalone C# process | stdio JSONL calls into C#; UIA (CASCADIA/TermControl) locate + read | Windows |
 | **ZellijAdapter** | in-process (Rust calls CLI directly) | `zellij action` commands (list-tabs / rename-tab / query-tab-names…) | cross-platform |
 | **MapAdapter** | in-process (built into core) | shared map (the terminal/terminal_gone scenario source for case-runner) | cross-platform |
-| **Composite** | in-process (built into core) | multi-adapter dispatch: locate routes by first hit, read returns to the producing adapter, forget broadcasts | cross-platform |
+| **Composite** | in-process (built into core) | multi-adapter dispatch: locate routes by first hit, read returns to the producing adapter, unlocate broadcasts | cross-platform |
 
 WtAdapter keeps its standalone process form — UIA reading depends on .NET assemblies, and Rust cannot directly consume the UIA TextPattern, hence a separate exe. ZellijAdapter only needs to call the CLI, executes natively in Rust, and has no separate process.
 

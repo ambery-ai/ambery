@@ -26,7 +26,7 @@ pub trait TerminalAdapter: Send + Sync {
     /// 读取：读该位置的终端文字
     fn read(&self, tab: &TabRef) -> Option<String>;
     /// 遗忘：定位缓存清除（instance 会话结束/判死）
-    fn forget(&self, inst: &str);
+    fn unlocate(&self, inst: &str);
 }
 
 /// Platform Primitives 接口
@@ -40,7 +40,7 @@ pub trait PlatformPrimitives: Send + Sync {
 /// 定位缓存与 #10 hwnd 回收验证在本层（SidecarClient 是纯协议客户端）。
 pub struct WtAdapter {
     sidecar: Arc<crate::sidecar::SidecarClient>,
-    /// 定位缓存：实例名 → TabRef（forget / 自愈驱逐）
+    /// 定位缓存：实例名 → TabRef（unlocate / 自愈驱逐）
     cache: Mutex<HashMap<String, TabRef>>,
 }
 
@@ -99,7 +99,7 @@ impl TerminalAdapter for WtAdapter {
         Some(text)
     }
 
-    fn forget(&self, inst: &str) {
+    fn unlocate(&self, inst: &str) {
         if let Ok(mut c) = self.cache.lock() {
             c.remove(inst);
         }
@@ -155,7 +155,7 @@ impl TerminalAdapter for MapAdapter {
         self.contents.lock().ok()?.get(&inst).cloned()
     }
 
-    fn forget(&self, inst: &str) {
+    fn unlocate(&self, inst: &str) {
         if let Ok(mut tabs) = self.tabs.lock() {
             tabs.remove(inst);
         }
@@ -164,13 +164,13 @@ impl TerminalAdapter for MapAdapter {
 
 /// ZellijAdapter：zellij 复用器经 `zellij action` CLI
 /// 进程内直调，无独立进程。locate 经 `list-panes -a --json` 匹配 marker（pane 是读取单元，
-/// tab 只是容器），read 经 `dump-screen -p <pane_id>` 读内容；forget 清定位缓存。
+/// tab 只是容器），read 经 `dump-screen -p <pane_id>` 读内容；unlocate 清定位缓存。
 ///
 /// 合成 hwnd 取 `-(100000 + pane_id)` 深负段——与 MapAdapter 的小负数段（-1..-N）隔离，
 /// 避免 Composite::read 按 TabRef 精确路由时两个 adapter 产出相同 TabRef 产生歧义。
 pub struct ZellijAdapter {
     runner: Arc<dyn ZellijRunner>,
-    /// 定位缓存：实例名 → TabRef（forget 驱逐；read 直接用 TabRef.index 承载的 pane id，
+    /// 定位缓存：实例名 → TabRef（unlocate 驱逐；read 直接用 TabRef.index 承载的 pane id，
     /// 不缓存反查——pane 关闭时 dump-screen 失败返回 None，交由调用方重定位）
     cache: Mutex<HashMap<String, TabRef>>,
 }
@@ -243,7 +243,7 @@ impl TerminalAdapter for ZellijAdapter {
             .run(&["action", "dump-screen", "-p", &tab.index.to_string()])
     }
 
-    fn forget(&self, inst: &str) {
+    fn unlocate(&self, inst: &str) {
         if let Ok(mut c) = self.cache.lock() {
             c.remove(inst);
         }
@@ -252,7 +252,7 @@ impl TerminalAdapter for ZellijAdapter {
 
 /// Composite：多 adapter 分发（「多终端兼容 = 抽象接口 +
 /// 按终端分发实现」）。locate 首中者胜并记录路由；read 按路由精确回到同一 adapter
-/// （TabRef 只在产出它的 adapter 上有意义）；forget 广播（各 adapter 缓存独立）。
+/// （TabRef 只在产出它的 adapter 上有意义）；unlocate 广播（各 adapter 缓存独立）。
 pub struct Composite {
     adapters: Vec<Arc<dyn TerminalAdapter>>,
     /// locate 路由记录：实例名 →（adapter 序号，TabRef）
@@ -290,12 +290,12 @@ impl TerminalAdapter for Composite {
         self.adapters.get(i)?.read(tab)
     }
 
-    fn forget(&self, inst: &str) {
+    fn unlocate(&self, inst: &str) {
         if let Ok(mut r) = self.routes.lock() {
             r.remove(inst);
         }
         for a in &self.adapters {
-            a.forget(inst);
+            a.unlocate(inst);
         }
     }
 }
@@ -326,7 +326,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn map_adapter_locate_read_forget() {
+    fn map_adapter_locate_read_unlocate() {
         let map = Arc::new(Mutex::new(HashMap::from([(
             "ft".to_string(),
             "终端内容".to_string(),
@@ -340,8 +340,8 @@ mod tests {
         assert_eq!(a.read(&tab).as_deref(), Some("终端内容"));
         // 同实例再定位 = 同一 TabRef（缓存稳定）
         assert_eq!(a.locate("ft"), Some(tab));
-        // forget 清定位缓存（内容不动，由 terminal_gone 剧情负责）
-        a.forget("ft");
+        // unlocate 清定位缓存（内容不动，由 terminal_gone 剧情负责）
+        a.unlocate("ft");
         let tab2 = a.locate("ft").expect("重新定位");
         assert_ne!(tab2, tab, "遗忘后重新分配");
         // 内容移除后定位失败
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn zellij_adapter_locate_read_forget() {
+    fn zellij_adapter_locate_read_unlocate() {
         // zellij pane title 带 marker 前缀与描述后缀；
         // plugin pane（tab-bar）混入以验证 TYPE 过滤
         let z = Arc::new(StubZellij {
@@ -405,15 +405,15 @@ mod tests {
         assert_eq!(a.read(&tab).as_deref(), Some("终端内容"));
         // 同实例再定位 = 同一 TabRef（缓存稳定）
         assert_eq!(a.locate("ft"), Some(tab));
-        // forget 清定位缓存（重定位仍可读）
-        a.forget("ft");
+        // unlocate 清定位缓存（重定位仍可读）
+        a.unlocate("ft");
         let tab2 = a.locate("ft").expect("重新定位");
         assert_eq!(tab2, tab, "pane id 稳定，重定位回到同一 TabRef");
         assert_eq!(a.read(&tab2).as_deref(), Some("终端内容"));
     }
 
     #[test]
-    fn composite_first_hit_routes_read_and_broadcasts_forget() {
+    fn composite_first_hit_routes_read_and_broadcasts_unlocate() {
         let empty = Arc::new(Mutex::new(HashMap::new()));
         let filled = Arc::new(Mutex::new(HashMap::from([(
             "ft".to_string(),
@@ -425,8 +425,8 @@ mod tests {
         // 首中者胜：第一个 adapter 定不到 → 第二个命中
         let tab = c.locate("ft").expect("locate");
         assert_eq!(c.read(&tab).as_deref(), Some("内容"), "read 路由到产出 adapter");
-        // forget 广播后重定位成功（缓存已清，重新分配）
-        c.forget("ft");
+        // unlocate 广播后重定位成功（缓存已清，重新分配）
+        c.unlocate("ft");
         let tab2 = c.locate("ft").expect("重新定位");
         assert_ne!(tab, tab2);
         // 全 adapter 定不到 → None

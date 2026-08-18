@@ -34,7 +34,7 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 
 ### Terminal access
 
-- `terminal-adapter.md` — terminal access abstraction: locate/read/forget interfaces, per-terminal implementations, and config fields
+- `terminal-adapter.md` — terminal access abstraction: locate/read/unlocate interfaces, per-terminal implementations, and config fields
 - `sidecar.md` — WtAdapter process protocol (the independent process of the wt terminal adapter: stdio JSONL, command set, and lifecycle)
 
 ### Cross-platform

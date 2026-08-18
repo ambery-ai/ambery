@@ -33,7 +33,7 @@
 
 ### 终端访问
 
-- `terminal-adapter.md` — 终端访问抽象：定位/读取/遗忘接口、各终端实现与 config 字段
+- `terminal-adapter.md` — 终端访问抽象：定位/读取/解除定位接口、各终端实现与 config 字段
 - `sidecar.md` — WtAdapter 进程协议（wt 终端适配器的独立进程：stdio JSONL、命令集与生命周期）
 
 ### 跨平台

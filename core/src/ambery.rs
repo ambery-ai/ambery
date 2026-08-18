@@ -1244,7 +1244,7 @@ impl<L: Llm> AmberyBackend<L> {
                 // closed 快照 tab=null+ 清定位缓存
                 upsert(AgentStatus::Closed, None)?;
                 if let Some(t) = self.terminal.as_ref() {
-                    t.forget(&name);
+                    t.unlocate(&name);
                 }
                 let alive = self.alive_count().to_string();
                 self.harness
@@ -1582,7 +1582,7 @@ impl<L: Llm> AmberyBackend<L> {
             })?;
             // Timer 判死同样清定位缓存
             if let Some(t) = self.terminal.as_ref() {
-                t.forget(&name);
+                t.unlocate(&name);
             }
             // 判死 diff 事件化 + post-count（#16 ①：每条 hash 一条，post-count 逐条现算，
             // 同名连坐自然形成递减序列；LLM 直接读数免对账）
@@ -2098,11 +2098,11 @@ mod tests {
         DebugAgent::new(move |_| rest.lock().unwrap().pop_front().unwrap_or_else(silence))
     }
 
-    /// 测试用 TerminalAdapter：固定定位/内容，记录 forget
+    /// 测试用 TerminalAdapter：固定定位/内容，记录 unlocate
     struct StubAdapter {
         tab: Option<crate::TabRef>,
         content: Option<String>,
-        forgotten: std::sync::Mutex<Vec<String>>,
+        unlocated: std::sync::Mutex<Vec<String>>,
     }
     impl crate::terminal::TerminalAdapter for StubAdapter {
         fn locate(&self, _inst: &str) -> Option<crate::TabRef> {
@@ -2111,15 +2111,15 @@ mod tests {
         fn read(&self, _tab: &crate::TabRef) -> Option<String> {
             self.content.clone()
         }
-        fn forget(&self, inst: &str) {
-            self.forgotten.lock().unwrap().push(inst.to_string());
+        fn unlocate(&self, inst: &str) {
+            self.unlocated.lock().unwrap().push(inst.to_string());
         }
     }
     fn stub_adapter(tab: Option<crate::TabRef>, content: Option<&str>) -> std::sync::Arc<StubAdapter> {
         std::sync::Arc::new(StubAdapter {
             tab,
             content: content.map(String::from),
-            forgotten: std::sync::Mutex::new(Vec::new()),
+            unlocated: std::sync::Mutex::new(Vec::new()),
         })
     }
 
@@ -2136,7 +2136,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tab_lifecycle_locate_writeback_and_forget() {
+    async fn tab_lifecycle_locate_writeback_and_unlocate() {
         // session_start 定位探测回写、
         // session_end closed 快照 tab=null + 清定位缓存
         let mut ov = make_ambery("tab-lifecycle");
@@ -2155,14 +2155,14 @@ mod tests {
             .unwrap()
             .clone();
         assert_eq!(a.tab, Some(crate::TabRef { hwnd: 100, index: 2 }), "定位探测回写");
-        // session_end：tab=null + forgetter 调用
+        // session_end：tab=null + unlocate 调用
         ov.handle_real_hook("session_end", "sess-1234-abc", "/tmp/demo", Some("claude"), None, None, None, 1001)
             .await
             .unwrap();
         let last = ov.harness.agents.last().unwrap();
         assert_eq!(last.status, crate::AgentStatus::Closed);
         assert_eq!(last.tab, None, "closed 快照 tab 为 null");
-        assert!(adapter.forgotten.lock().unwrap().contains(&a.name), "清定位缓存");
+        assert!(adapter.unlocated.lock().unwrap().contains(&a.name), "清定位缓存");
     }
 
     #[tokio::test]
@@ -3298,7 +3298,7 @@ mod tests {
             fn read(&self, _tab: &crate::TabRef) -> Option<String> {
                 self.readable.lock().unwrap().then(|| "内容".to_string())
             }
-            fn forget(&self, _inst: &str) {}
+            fn unlocate(&self, _inst: &str) {}
         }
         struct SwitchUnlocks(std::sync::Arc<std::sync::Mutex<bool>>);
         impl crate::terminal::PlatformPrimitives for SwitchUnlocks {
