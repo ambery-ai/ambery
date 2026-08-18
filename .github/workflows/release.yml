@@ -67,6 +67,10 @@ jobs:
           mkdir -p ../app/src-tauri/binaries
           cp bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe ../app/src-tauri/binaries/
 
+      - name: Install app dependencies
+        working-directory: app
+        run: npm ci
+
       # beforeBuildCommand（npm run build）产出 dist；tauri build 嵌入并打包
       - name: Tauri build
         working-directory: app
