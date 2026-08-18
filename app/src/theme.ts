@@ -13,6 +13,7 @@ export const KNOWN_TOKENS = [
   "panel-border",
   "panel-border-soft",
   "panel-radius",
+  "overlay",
   "card-bg",
   "card-border",
   "card-radius",
