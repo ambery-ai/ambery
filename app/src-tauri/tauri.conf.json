@@ -76,7 +76,7 @@
     }
   },
   "bundle": {
-    "active": false,
+    "active": true,
     "icon": ["icons/icon.ico"]
   }
 }

@@ -1,0 +1,80 @@
+name: Release
+
+# 发布 workflow：三平台构建安装包（Windows NSIS / Linux AppImage+deb / macOS dmg 未签名附赠）。
+# 触发：workflow_dispatch 手动；push tag v* 自动。
+# bundle 平台差异走 tauri.<platform>.conf.json（externalBin sidecar 仅 Windows）。
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundles: nsis
+            sidecar: true
+          - os: ubuntu-latest
+            bundles: appimage,deb
+          - os: macos-latest
+            bundles: dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Linux system deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Setup .NET (UIA sidecar)
+        if: matrix.sidecar
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.x"
+
+      - name: Build UIA sidecar (Windows)
+        if: matrix.sidecar
+        working-directory: sidecar
+        run: |
+          dotnet publish -c Release
+          mkdir -p ../app/src-tauri/binaries
+          cp bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe ../app/src-tauri/binaries/
+
+      # beforeBuildCommand（npm run build）产出 dist；tauri build 嵌入并打包
+      - name: Tauri build
+        working-directory: app
+        run: npx tauri build --bundles ${{ matrix.bundles }}
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.os }}
+          path: app/src-tauri/target/release/bundle/
+          if-no-files-found: error
