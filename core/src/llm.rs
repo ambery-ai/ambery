@@ -388,14 +388,21 @@ pub struct OpenAiClient {
 impl OpenAiClient {
     /// 从 provider profile 构造；key 从 api_key_env 指向的环境变量读（本体不落 config）。
     /// 解析链：应用级 env 文件优先 → 进程环境（见 docs/llm-setup.md §Key storage model）。
-    /// api_key_env 缺省 = 无需鉴权端点（None）；显式给了变量名但两处都未设 = 错误
+    /// api_key_env 缺省 = 本地端点无需鉴权（None）；远程端点 api_key_env 为空 = 明确报未设置
+    /// （形态乙清除 key 后 api_key_env 归 None——不能静默当无鉴权端点直连，否则 401 误导）。
     pub fn from_provider(p: &LlmProvider) -> Result<Self, String> {
         let api_key = match p.api_key_env.as_deref() {
             Some(key_env) => Some(
                 crate::envfile::var_override(key_env)
                     .ok_or_else(|| format!("环境变量 {key_env} 未设置"))?,
             ),
-            None => None,
+            None => {
+                if is_local_endpoint(&p.base_url) {
+                    None
+                } else {
+                    return Err("未设置 API key（远程端点需要 key，请到配置里填写）".to_string());
+                }
+            }
         };
         let effort_wire = match p.effort_wire.as_deref() {
             Some("openai") => Some(EffortWire::OpenAi),
@@ -1163,9 +1170,9 @@ mod tests {
         client.effort_wire = Some(EffortWire::OpenAi);
         let body = client.build_body(&msgs, &[], None);
         assert!(body.get("reasoning_effort").is_none());
-        // from_provider 方言解析：未知值告警回落 None
+        // from_provider 方言解析：未知值告警回落 None（本地端点，无需 key）
         let p = LlmProvider {
-            base_url: "http://x".into(),
+            base_url: "http://127.0.0.1:47777".into(),
             model: "m".into(),
             api_key_env: None,
             temperature: None,
@@ -1189,14 +1196,33 @@ mod tests {
             compression_reserve: None,
             effort_wire: None,
         };
-        let client = OpenAiClient::from_provider(&p).expect("无 key 端点构造成功");
-        assert!(client.api_key.is_none());
+        let c = OpenAiClient::from_provider(&p).unwrap();
+        assert_eq!(c.api_key, None, "本地端点不带 key");
         // 显式给了变量名但未设 = 错误（防手滑配错静默无鉴权）
         let p2 = LlmProvider {
             api_key_env: Some("DEFINITELY_NOT_SET_ENV_VAR".into()),
             ..p
         };
         assert!(OpenAiClient::from_provider(&p2).is_err());
+    }
+
+    #[test]
+    fn remote_provider_without_key_env_reports_unset_not_silent() {
+        // 远程端点 + api_key_env None（形态乙清除后）：明确报未设置，不静默直连（否则 401 误导）
+        let p = LlmProvider {
+            base_url: "https://api.deepseek.com".into(),
+            model: "m".into(),
+            api_key_env: None,
+            temperature: None,
+            context_window: None,
+            compression_reserve: None,
+            effort_wire: None,
+        };
+        let err = match OpenAiClient::from_provider(&p) {
+            Ok(_) => panic!("远程端点无 key 应构造失败"),
+            Err(e) => e,
+        };
+        assert!(err.contains("未设置"), "远程端点无 key 应点名未设置：{err}");
     }
 
     #[test]
