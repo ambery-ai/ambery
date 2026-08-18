@@ -12,6 +12,7 @@ pub mod content;
 pub mod context;
 pub mod cron;
 pub mod event_buffer;
+pub mod envfile;
 pub mod filter;
 pub mod host;
 pub mod i18n;

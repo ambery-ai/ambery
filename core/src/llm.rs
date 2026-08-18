@@ -386,13 +386,14 @@ pub struct OpenAiClient {
 }
 
 impl OpenAiClient {
-    /// 从 provider profile 构造；key 从 api_key_env 指向的环境变量读（本体不落盘）。
-    /// api_key_env 缺省 = 无需鉴权端点（None）；显式给了变量名但环境变量未设 = 错误
+    /// 从 provider profile 构造；key 从 api_key_env 指向的环境变量读（本体不落 config）。
+    /// 解析链：应用级 env 文件优先 → 进程环境（见 docs/llm-setup.md §Key storage model）。
+    /// api_key_env 缺省 = 无需鉴权端点（None）；显式给了变量名但两处都未设 = 错误
     pub fn from_provider(p: &LlmProvider) -> Result<Self, String> {
         let api_key = match p.api_key_env.as_deref() {
             Some(key_env) => Some(
-                std::env::var(key_env)
-                    .map_err(|_| format!("环境变量 {key_env} 未设置"))?,
+                crate::envfile::var_override(key_env)
+                    .ok_or_else(|| format!("环境变量 {key_env} 未设置"))?,
             ),
             None => None,
         };
@@ -857,6 +858,63 @@ pub async fn test_llm(cfg: &LlmConfig) -> Result<String, String> {
     Ok(out.content.unwrap_or_default())
 }
 
+/// 统一 key 变量名：`AMBERY_<PROVIDER>_API_KEY`（provider 名大写）。
+/// UI 写入与归一都以它为准（docs/llm-setup.md：隐式单向迁移旧名）。
+pub fn unified_key_env(provider: &str) -> String {
+    format!("AMBERY_{}_API_KEY", provider.to_uppercase())
+}
+
+/// key 存在性状态（UI 提示用）：经 env 文件 → 进程环境解析链判定，本地即时。
+/// 返回 (是否已设置, 来源标签)。
+pub fn api_key_status(provider: &str, cfg: &LlmConfig) -> (bool, Option<&'static str>) {
+    let Some(p) = cfg.providers.get(provider) else {
+        return (false, None);
+    };
+    match p.api_key_env.as_deref() {
+        Some(env_name) => (
+            crate::envfile::is_set(env_name),
+            crate::envfile::source_of(env_name),
+        ),
+        // 本地端点（无 api_key_env）：无需 key，视为恒已满足
+        None => (true, None),
+    }
+}
+
+/// 写/清 provider key（形态乙）：
+/// - `Some(key)`：upsert 进应用级 env 文件（统一名 `AMBERY_<PROVIDER>_API_KEY`）；
+///   若 config 里 `api_key_env` 缺省或为旧名，归一为统一名（只动 config 字段，不写 key 值）。
+/// - `None`：从 env 文件删除该 key；`api_key_env` 若指向统一名则归 None（旧名保留不动）。
+/// 双通道暴露（Tauri command + HTTP route）；core 函数可单测直调。
+pub fn set_api_key(provider: &str, key: Option<&str>, cfg: &mut LlmConfig) -> Result<(), String> {
+    let env_name = unified_key_env(provider);
+    if let Some(key) = key {
+        crate::envfile::upsert(&env_name, key)?;
+        let p = cfg
+            .providers
+            .entry(provider.to_string())
+            .or_insert_with(|| LlmProvider {
+                base_url: String::new(),
+                model: String::new(),
+                api_key_env: None,
+                temperature: None,
+                context_window: None,
+                compression_reserve: None,
+                effort_wire: None,
+            });
+        if p.api_key_env.as_deref() != Some(env_name.as_str()) {
+            p.api_key_env = Some(env_name.clone());
+        }
+    } else {
+        crate::envfile::remove(&env_name)?;
+        if let Some(p) = cfg.providers.get_mut(provider) {
+            if p.api_key_env.as_deref() == Some(env_name.as_str()) {
+                p.api_key_env = None;
+            }
+        }
+    }
+    Ok(())
+}
+
 impl Llm for LlmBackend {
     fn take_last_error(&self) -> Option<String> {
         self.poll_last_error()
@@ -1247,5 +1305,132 @@ mod tests {
         };
         let err = test_llm(&cfg).await.unwrap_err();
         assert!(err.contains("DEFINITELY_NOT_SET_ENV_VAR"), "env 未设原因应点名变量名：{err}");
+    }
+
+    /// key 管理测试需要写真实 env 文件路径（paths::env_file）——
+    /// 用 AMBERY_CONFIG_DIR 隔离到临时目录，且串行执行（set_var 是进程全局）。
+    fn with_isolated_env_dir(f: impl FnOnce()) {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+        let tmp = std::env::temp_dir().join(format!(
+            "ambery-llm-key-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("AMBERY_CONFIG_DIR", &tmp);
+        f();
+        std::env::remove_var("AMBERY_CONFIG_DIR");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    fn provider_with(name: &str) -> LlmProvider {
+        LlmProvider {
+            base_url: "http://x".into(),
+            model: "m".into(),
+            api_key_env: if name.is_empty() { None } else { Some(name.into()) },
+            temperature: None,
+            context_window: None,
+            compression_reserve: None,
+            effort_wire: None,
+        }
+    }
+
+    #[test]
+    fn unified_key_env_uppercases_provider_name() {
+        assert_eq!(unified_key_env("deepseek"), "AMBERY_DEEPSEEK_API_KEY");
+        assert_eq!(unified_key_env("moonshot"), "AMBERY_MOONSHOT_API_KEY");
+    }
+
+    #[test]
+    fn set_api_key_upserts_env_and_normalizes_api_key_env() {
+        with_isolated_env_dir(|| {
+            let mut providers = std::collections::HashMap::new();
+            providers.insert(
+                "deepseek".to_string(),
+                provider_with("LEGACY_DEEPSEEK_KEY"),
+            );
+            let mut cfg = LlmConfig {
+                active: "deepseek".into(),
+                providers,
+            };
+
+            // 写 key：env 文件出现统一名 + api_key_env 归一
+            set_api_key("deepseek", Some("sk-secret"), &mut cfg).unwrap();
+            assert_eq!(
+                crate::envfile::var_override("AMBERY_DEEPSEEK_API_KEY").as_deref(),
+                Some("sk-secret")
+            );
+            assert_eq!(
+                cfg.providers["deepseek"].api_key_env.as_deref(),
+                Some("AMBERY_DEEPSEEK_API_KEY"),
+                "旧名应归一为统一名"
+            );
+
+            // 覆盖写
+            set_api_key("deepseek", Some("sk-new"), &mut cfg).unwrap();
+            assert_eq!(
+                crate::envfile::var_override("AMBERY_DEEPSEEK_API_KEY").as_deref(),
+                Some("sk-new")
+            );
+
+            // 清除：env 文件删除 + api_key_env 归 None
+            set_api_key("deepseek", None, &mut cfg).unwrap();
+            assert!(!crate::envfile::is_set("AMBERY_DEEPSEEK_API_KEY"));
+            assert_eq!(cfg.providers["deepseek"].api_key_env, None);
+        });
+    }
+
+    #[test]
+    fn api_key_status_reflects_env_file_and_process_env() {
+        with_isolated_env_dir(|| {
+            let mut providers = std::collections::HashMap::new();
+            providers.insert("p".to_string(), provider_with("AMBERY_P_API_KEY"));
+            providers.insert("local".to_string(), provider_with(""));
+            let cfg = LlmConfig {
+                active: "p".into(),
+                providers,
+            };
+
+            // 未设置
+            let (set, source) = api_key_status("p", &cfg);
+            assert!(!set);
+            assert_eq!(source, None);
+
+            // env 文件设置 → set + 来源 env 文件
+            crate::envfile::upsert("AMBERY_P_API_KEY", "sk-x").unwrap();
+            let (set, source) = api_key_status("p", &cfg);
+            assert!(set);
+            assert_eq!(source, Some("env 文件"));
+
+            // 进程环境设置（env 文件无该 key）→ set + 来源环境变量
+            crate::envfile::remove("AMBERY_P_API_KEY").unwrap();
+            std::env::set_var("AMBERY_P_API_KEY", "sk-proc");
+            let (set, source) = api_key_status("p", &cfg);
+            assert!(set);
+            assert_eq!(source, Some("环境变量"));
+            std::env::remove_var("AMBERY_P_API_KEY");
+
+            // 本地端点（api_key_env None）→ 恒已设置
+            let (set, _) = api_key_status("local", &cfg);
+            assert!(set);
+        });
+    }
+
+    #[test]
+    fn from_provider_reads_env_file_before_process_env() {
+        with_isolated_env_dir(|| {
+            let p = provider_with("AMBERY_P_API_KEY");
+            // 进程有、env 文件无 → 进程值
+            std::env::set_var("AMBERY_P_API_KEY", "from-proc");
+            let c = OpenAiClient::from_provider(&p).unwrap();
+            assert_eq!(c.api_key.as_deref(), Some("from-proc"));
+            // env 文件有 → 文件值优先（覆盖进程）
+            crate::envfile::upsert("AMBERY_P_API_KEY", "from-file").unwrap();
+            let c = OpenAiClient::from_provider(&p).unwrap();
+            assert_eq!(c.api_key.as_deref(), Some("from-file"));
+            std::env::remove_var("AMBERY_P_API_KEY");
+        });
     }
 }

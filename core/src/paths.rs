@@ -33,6 +33,12 @@ pub fn config_file() -> PathBuf {
     config_root().join(crate::CONFIG_FILE)
 }
 
+/// 应用级 env 文件（key 存储位；0600，`KEY=value` 行）——
+/// 覆盖系统环境变量的应用级层，见 docs/llm-setup.md §Key storage model
+pub fn env_file() -> PathBuf {
+    config_root().join("env")
+}
+
 /// UIA sidecar exe 路径发现（顺序即优先级）：
 /// `AMBERY_SIDECAR` env > 当前 exe 旁（Tauri externalBin 布局）> exe 旁 sidecar/ >
 /// Release publish（self-contained win-x64，打包定案）> Debug（仓库开发）。

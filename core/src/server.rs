@@ -4,7 +4,7 @@
 
 use axum::{
     extract::ws::Message,
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -118,6 +118,8 @@ pub fn router(state: Arc<AppState>, ws_tx: tokio::sync::broadcast::Sender<String
         .route("/config", get(get_config))
         .route("/config/schema", get(get_config_schema))
         .route("/config/test-llm", get(test_llm))
+        .route("/config/api-key/status", get(api_key_status))
+        .route("/config/api-key", post(post_api_key))
         .route("/config", post(post_config))
         .route("/effect", post(post_effect))
         .route("/cards", get(get_cards))
@@ -516,6 +518,57 @@ async fn test_llm(State(s): State<Arc<AppState>>) -> impl IntoResponse {
     match crate::llm::test_llm(&cfg).await {
         Ok(reply) => (StatusCode::OK, Json(json!({ "ok": true, "reply": reply }))),
         Err(e) => (StatusCode::OK, Json(json!({ "ok": false, "error": e }))),
+    }
+}
+
+/// provider key 存在性状态（应用级 env 文件 → 进程环境，本地即时）
+async fn api_key_status(
+    State(s): State<Arc<AppState>>,
+    Query(q): Query<ApiKeyStatusQuery>,
+) -> impl IntoResponse {
+    let cfg = {
+        let ov = s.ambery.lock().await;
+        ov.config.llm.clone()
+    };
+    let (set, source) = crate::llm::api_key_status(&q.provider, &cfg);
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "set": set, "source": source })),
+    )
+}
+
+#[derive(Deserialize)]
+struct ApiKeyStatusQuery {
+    provider: String,
+}
+
+#[derive(Deserialize)]
+struct ApiKeyBody {
+    provider: String,
+    /// Some = 写/覆盖；null = 清除
+    key: Option<String>,
+}
+
+/// 写/清 provider key（形态乙）：Some upsert 进 env 文件 + api_key_env 归一；
+/// null 从 env 文件删除。写失败回 400（前端内联报错，绝不静默）。
+async fn post_api_key(
+    State(s): State<Arc<AppState>>,
+    Json(body): Json<ApiKeyBody>,
+) -> impl IntoResponse {
+    let mut ov = s.ambery.lock().await;
+    let provider = body.provider.clone();
+    match crate::llm::set_api_key(&provider, body.key.as_deref(), &mut ov.config.llm) {
+        Ok(()) => {
+            ov.record_frontend_effect("config_update", json!({ "path": format!("llm.providers.{provider}.api_key_env") }));
+            // config 可能变了 api_key_env（归一）——落盘，外部自动载入同款原子写
+            let cfg_dir = crate::paths::config_root();
+            let _ = ov.config.save(&cfg_dir);
+            (
+                StatusCode::OK,
+                Json(json!({ "ok": true, "provider": provider })),
+            )
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": e }))),
     }
 }
 
