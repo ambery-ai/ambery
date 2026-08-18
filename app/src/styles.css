@@ -9,6 +9,7 @@
   --ov-panel-border: rgba(255, 255, 255, 0.18); /* chat */
   --ov-panel-border-soft: rgba(255, 255, 255, 0.12); /* shelf / menu */
   --ov-panel-radius: 12px;
+  --ov-overlay: rgba(0, 0, 0, 0.35); /* 弹层遮罩（引导 modal / 横幅） */
 
   /* 卡片族（Component） */
   --ov-card-bg: rgba(30, 30, 46, 0.96);
@@ -458,7 +459,7 @@ html.browser body {
 
 /* LLM 连接错误：消息流气泡（区分原因 + 降级回复说明） */
 .chat-llm-error {
-  color: var(--ov-error, #e5534b);
+  color: var(--ov-error);
 }
 
 /* 未配置 banner：chat 顶部横幅，点击打开引导 modal；可关闭（docs/llm-setup.md） */
@@ -493,7 +494,7 @@ html.browser body {
 .setup-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--ov-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -538,10 +539,10 @@ html.browser body {
   font-size: 12px;
 }
 .setup-test-status.ok {
-  color: #40c057;
+  color: var(--ov-ok);
 }
 .setup-test-status.fail {
-  color: var(--ov-error, #e5534b);
+  color: var(--ov-error);
 }
 .setup-test-btn {
   margin-top: 8px;
