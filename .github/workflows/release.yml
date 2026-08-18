@@ -65,7 +65,8 @@ jobs:
         run: |
           dotnet publish -c Release
           mkdir -p ../app/src-tauri/binaries
-          cp bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe ../app/src-tauri/binaries/
+          cp bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe \
+            ../app/src-tauri/binaries/ambery-uia-sidecar-x86_64-pc-windows-msvc.exe
 
       - name: Install app dependencies
         working-directory: app
