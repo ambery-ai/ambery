@@ -119,8 +119,14 @@ mod tests {
             .collect();
         assert_eq!(names, vec!["env-sidecar.exe", "ambery-uia-sidecar.exe", "ambery-uia-sidecar.exe", "ambery-uia-sidecar.exe", "ambery-uia-sidecar.exe"], "{candidates:?}");
         // 顺序：env > exe 旁 sibling > exe 旁 sidecar/ > Release publish > Debug
-        let paths: Vec<_> = candidates.iter().map(|p| p.display().to_string()).collect();
-        let pos = |needle: &str| paths.iter().position(|p| p.contains(needle)).unwrap();
+        // join 字符串字面量在 Windows 保留 `/`（display 混用分隔符）——先统一为平台分隔符再匹配
+        let sep = std::path::MAIN_SEPARATOR;
+        let paths: Vec<_> = candidates
+            .iter()
+            .map(|p| p.display().to_string().replace('/', &sep.to_string()))
+            .collect();
+        let norm = |n: &str| n.replace('/', &sep.to_string());
+        let pos = |needle: &str| paths.iter().position(|p| p.contains(&norm(needle))).unwrap();
         assert!(pos("env-sidecar") < pos("sidecar/ambery-uia-sidecar"));
         assert!(pos("sidecar/ambery-uia-sidecar") < pos("Release/net9.0-windows/win-x64/publish"));
         assert!(pos("Release/net9.0-windows/win-x64/publish") < pos("Debug/net9.0-windows"));
