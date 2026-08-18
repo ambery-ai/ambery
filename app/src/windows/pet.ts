@@ -31,6 +31,10 @@ export async function main() {
   const applyBadgeStyle = (style: string, side: string) => {
     badge.className = `badge-${style === "bubble" ? "bubble" : "number"} side-${side === "left" ? "left" : "right"}`;
   };
+  // 角标字号跟随 viewScale（基线 10px 更小 × scale；CSS 默认灰 --ov-text）
+  const applyBadgeScale = () => {
+    badge.style.fontSize = `${Math.max(6, Math.round(10 * scale))}px`;
+  };
   view.el.appendChild(badge);
   let unreadCount = 0;
   store.onContext((msgs) => {
@@ -214,6 +218,7 @@ export async function main() {
   };
   applyBadgeStyle(cfg.badgeStyle ?? "number", cfg.badgeSide ?? "right");
   scale = cfg.viewScale ?? 1;
+  applyBadgeScale();
   view.el.style.setProperty("--view-scale", String(scale));
   maxFaceW = scanMaxFaceW(cfg);
   faceW = measureFaceW(); // face 未渲染（空）→ 0 → minFaceW 兜底
@@ -314,11 +319,14 @@ export async function main() {
 
     // #9: 每个 card 一个独立 Tauri 窗口；#25 断根——窗口决策上提 Rust 权威注册表
     const renderCard = (spec: any) => {
+      console.log("[pet] renderCard:", spec?.id, "petVisible:", petVisible);
       if (!petVisible) {
         pendingCards.set(spec.id, spec);
         return;
       }
-      void actions.ensureCardWindow(spec.id, spec);
+      void actions.ensureCardWindow(spec.id, spec).catch((e) => {
+        console.error("[pet] ensureCardWindow 失败:", e);
+      });
     };
     bridge.onRenderComponent(renderCard);
 
@@ -522,6 +530,7 @@ export async function main() {
     const ns = cfg.viewScale ?? 1;
     if (ns !== scale) {
       scale = ns; // 入口 2/6：scale 变 → 重算 + 障碍区同步
+      applyBadgeScale();
       view.el.style.setProperty("--view-scale", String(scale));
     }
     faceW = measureFaceW();
