@@ -116,7 +116,7 @@ AmberyBackend 和 pet 的持久化配置（LLM profiles、Timer、Compression、
 运行时数据的持久化层。与 Config 同类型（持久化文件），用途不同：Config 存启动配置，Storage 存 session 数据与 Harness 持久化状态（读写）。布局与文件语义归设计文档。跨 AmberyBackend 生命周期保留，重启后恢复完整对话和未来计划。
 
 ### 14. Terminal Adapter（终端适配器）— system
-终端访问抽象：向 Code CLI 实例提供「定位、读取、遗忘」能力的统一接口。它是可实例化的一类东西——一个实现对应一个终端类型（wt 独立 C# 进程、zellij CLI），多终端兼容 = 抽象接口 + 按终端分发实现。
+终端访问抽象：向 Code CLI 实例提供「定位、读取、解除定位」能力的统一接口。它是可实例化的一类东西——一个实现对应一个终端类型（wt 独立 C# 进程、zellij CLI），多终端兼容 = 抽象接口 + 按终端分发实现。
 
 ### 15. Platform Primitives（平台原语）— system
 平台特定能力的抽象组（不叫 adapter）：虚拟桌面切换等跨终端复用的 OS 层能力。被 Terminal Adapter 消费（读取时目标不可见 → 切桌面后读；打断性切换经显式同意门控）。Windows 实现走 COM；其他平台各有对应实现。

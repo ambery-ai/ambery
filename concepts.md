@@ -114,7 +114,7 @@ The persistent configuration for AmberyBackend and pet (LLM profiles, Timer, Com
 The persistence layer for runtime data. It is the same type as Config (persistent files) but with a different purpose: Config stores startup configuration, while Storage stores session data and Harness persistent state (read/write). Layout and file semantics belong to the design docs. It is preserved across AmberyBackend lifecycles, and full conversations and future plans are restored after a restart.
 
 ### 14. Terminal Adapter — system
-The terminal access abstraction: a unified interface providing "locate, read, forget" capabilities for Code CLI instances. It is an instantiable kind of thing — one implementation corresponds to one terminal type (wt is a separate C# process, zellij CLI); multi-terminal compatibility = abstract interface + per-terminal dispatch implementation.
+The terminal access abstraction: a unified interface providing "locate, read, unlocate" capabilities for Code CLI instances. It is an instantiable kind of thing — one implementation corresponds to one terminal type (wt is a separate C# process, zellij CLI); multi-terminal compatibility = abstract interface + per-terminal dispatch implementation.
 
 ### 15. Platform Primitives — system
 The abstraction group for platform-specific capabilities (not called adapter): OS-layer capabilities reused across terminals, such as virtual desktop switching. Consumed by Terminal Adapter (when the target is invisible while reading → switch desktop then read; interruptive switching is gated by explicit consent). The Windows implementation uses COM; other platforms have their corresponding implementations.
