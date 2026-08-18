@@ -31,9 +31,9 @@ export async function main() {
   const applyBadgeStyle = (style: string, side: string) => {
     badge.className = `badge-${style === "bubble" ? "bubble" : "number"} side-${side === "left" ? "left" : "right"}`;
   };
-  // 角标字号跟随 viewScale（基线 10px 更小 × scale；CSS 默认灰 --ov-text）
+  // 角标字号：固有基线 5px（12px 的 40%）× viewScale；CSS 默认灰 --ov-text
   const applyBadgeScale = () => {
-    badge.style.fontSize = `${Math.max(6, Math.round(10 * scale))}px`;
+    badge.style.fontSize = `${Math.max(3, Math.round(5 * scale))}px`;
   };
   view.el.appendChild(badge);
   let unreadCount = 0;

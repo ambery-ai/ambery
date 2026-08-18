@@ -116,13 +116,14 @@ html.browser body {
 }
 
 /* #5 pet 未读角标：样式/方位由 Config 驱动（pet.ts 切 class），默认纯数字容器内右。
-   颜色默认灰（--ov-text）；字号由 pet.ts 按 viewScale 现算（JS 设 fontSize，跟随缩放） */
+   颜色默认灰（--ov-text）；字号为固有 px（12px 的 40% = 5px 基线，
+   跟随 viewScale 由 pet.ts 覆写 fontSize——缩放不变时即 5px） */
 #pet-badge {
   display: none;
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 12px; /* 基线；pet.ts 按 scale 覆写 */
+  font-size: 5px; /* 基线：12px 的 40%；pet.ts 按 scale 覆写 */
   font-weight: 700;
   line-height: 1;
   z-index: 10;
@@ -134,8 +135,8 @@ html.browser body {
 #pet-badge.badge-bubble {
   background: color-mix(in srgb, var(--ov-text) 75%, transparent);
   color: var(--ov-view-bg);
-  border-radius: 10px;
-  padding: 1px 6px;
+  border-radius: 5px;
+  padding: 0.5px 3px;
 }
 
 /* ── Autonomy motion ──
