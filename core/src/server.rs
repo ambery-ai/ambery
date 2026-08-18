@@ -563,6 +563,10 @@ async fn post_api_key(
             // config 可能变了 api_key_env（归一）——落盘，外部自动载入同款原子写
             let cfg_dir = crate::paths::config_root();
             let _ = ov.config.save(&cfg_dir);
+            // key 变化后重建 LlmBackend 换入——启动时构建的旧 backend 看不到新 key
+            // （test_llm 每次现建所以之前验证通过，聊天复用旧 backend 所以失败）
+            let new_llm = crate::llm::LlmBackend::from_config(&ov.config.llm);
+            ov.replace_llm(new_llm);
             (
                 StatusCode::OK,
                 Json(json!({ "ok": true, "provider": provider })),

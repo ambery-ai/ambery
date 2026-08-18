@@ -438,6 +438,11 @@ class TauriBridge implements Bridge {
       if (!msg?.kind) return;
       switch (msg.kind) {
         case "render_component":
+          // 临时诊断：Tauri 模式 pet 收不到 render_component 的定位标记
+          void this.invokeFn("record_effect", {
+            kind: "diag_bridge_got_render",
+            payload: { id: (msg.spec as { id?: string } | undefined)?.id ?? "?" },
+          }).catch(() => {});
           if (msg.spec) this.renderListeners.forEach((cb) => cb(msg.spec!));
           this.cardsListeners.forEach((cb) => cb());
           break;

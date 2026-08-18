@@ -261,6 +261,9 @@ async fn set_api_key(
             ov.record_frontend_effect("config_update", json!({ "path": format!("llm.providers.{provider_name}.api_key_env") }));
             let cfg_dir = ambery_core::paths::config_root();
             let _ = ov.config.save(&cfg_dir);
+            // key 变化后重建 LlmBackend 换入——启动时构建的旧 backend 看不到新 key
+            let new_llm = ambery_core::llm::LlmBackend::from_config(&ov.config.llm);
+            ov.replace_llm(new_llm);
             Ok(json!({ "ok": true }))
         }
         Err(e) => Ok(json!({ "ok": false, "error": e })),
