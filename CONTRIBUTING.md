@@ -1,75 +1,52 @@
-# Contributing to Ambery
+# Contributing
 
 English | [中文](CONTRIBUTING.zh.md)
 
-Ambery is an Agent desktop pet: hook-driven reading of Claude Code sessions; pet observes, reports, and manages card components.
-This file gives the contribution entry points; for design and concept terminology see `concepts.md`, for architecture decisions see `spec.md`, and for documentation standards see `docs-spec.md`.
+Ambery is a desktop pet for agent models: it hooks into agent sessions, observes what the model does, and expresses itself through card windows on your desktop.
 
-## Read these first
+Questions, ideas, or bugs? Just open an issue or discussion — no need to ask first. The project is early-stage, and every contribution is welcome.
 
-- `concepts.md`: concept model and glossary — use it for commit messages, comments, and test names.
-- `spec.md`: technology choices and architecture decisions.
-- `docs/`: detailed design split by domain; before changing behavior, find the corresponding domain doc first.
-- `dev/`: development process records (undecided issues, regression records).
+## Docs-first: follow the docs
+
+The docs are the design source. Before changing behavior, read the corresponding domain doc in `docs/`, and when behavior changes, update the doc along with it (docs and code are committed separately). Terms and architecture: `concepts.md`, `spec.md`. Open questions and regression records: `dev/`.
 
 ## Repository layout
 
 ```
-core/             Rust core library (Harness / AmberyBackend / server / storage)
-ambery-case/      case-runner: Storage snapshot replay, concept observation, frontend headless case host
-app/              frontend vanilla TS (pet / chat / components / positioning)
-app/src-tauri/    Tauri shell (static window + multi-window cards + /hook thin server)
-sidecar/          Windows UIA sidecar (C#, Windows-only build/package)
-scripts/          development scripts (hook installation, debug brain)
-tools/            diagnostic tools such as window positioning
+core/             Rust core library (harness / backend / server / storage)
+ambery-case/      case-runner: snapshot replay, concept observation, frontend headless host
+app/              frontend vanilla TypeScript (pet / chat / cards / positioning)
+app/src-tauri/    Tauri shell (static window + card windows + /hook thin server)
+sidecar/          Windows UIA sidecar (C#, Windows-only)
+scripts/          development scripts
+tools/            diagnostic tools
 ```
-
-## Environment
-
-- Rust stable (the workspace excludes the Tauri shell; run `cargo` at the repo root)
-- Node 24 + npm (frontend; `app/package-lock.json` is the only lockfile)
-- Tauri shell built separately: `cd app/src-tauri && cargo check` (mac has `macOSPrivateApi` enabled to support transparent windows)
-- Windows UIA sidecar: .NET 9 SDK; published form self-contained win-x64, see `docs/sidecar.md §Packaging`
-
-## Test commands
-
-```bash
-# Rust workspace (default feature = release form)
-cargo test --workspace
-
-# case-runner feature (observation/replay/frontend headless injection surface)
-cargo test -p ambery-core --features case-runner
-
-# frontend headless case (embedded core + vitest; full-chain mock/keyless)
-cargo run -p ambery-case -- frontend --silent
-
-# type and design token guards
-cd app
-npm ci
-npx tsc --noEmit
-node scripts/lint-tokens.mjs
-```
-
-CI definition is in `.github/workflows/ci.yml`: ubuntu + macos dual-platform runs the above matrix, no secrets, no real LLM calls.
 
 ## Commit conventions
 
-- **One thing per commit**: behavior fixes, test adaptation, and doc updates are committed separately; do not mix them.
-- Commit messages use Chinese (the repo's current convention); the first line summarizes the behavior, and the body gives the reason and impact.
-- Commit messages and comments must not contain any internal project/example names; both code and docs must be directly public.
-- Every behavior change comes with tests: core unit tests go in the corresponding module, and frontend behavior goes into `app/test/*.test.ts`.
-- Docs change together with behavior: when behavior changes, update the corresponding `docs/` design docs in sync, otherwise the docs fall behind.
+- **One thing per commit**: behavior, tests, and docs are committed separately.
+- **Chinese first line** summarizing the behavior change; body explains why.
+- Behavior changes come with tests: Rust unit tests in the module, frontend tests in `app/test/*.test.ts`.
+- No internal project/example names in commits or comments — the repo is public.
 
 ## Code rules
 
-- Frontend reads go through the store (`app/src/store.ts`), and writes go through the action layer (`app/src/tauri_runtime_actions.ts`); main logic does not scatter `invoke` calls.
-- Non-readonly Tauri runtime actions must enter the effect stream (`docs/effect-reporting.md`).
-- New `Effect` variants must sync `effect_kind_payload` and the frontend bridge dispatch (the exhaustive match reminds at compile time).
-- Storage is append-only JSONL: logs are sacred, views are volatile; never rewrite historical lines in place.
-- Path resolution goes only through `core/src/paths.rs`; platform differences are gated with `cfg(windows)`, and non-Windows must not depend on UIA.
+- Frontend reads go through the store (`app/src/store.ts`), writes through the action layer (`app/src/tauri_runtime_actions.ts`); no scattered `invoke` calls.
+- Non-readonly Tauri actions enter the effect stream (`docs/effect-reporting.md`); new `Effect` variants sync `effect_kind_payload` and the bridge dispatch.
+- Storage is append-only JSONL: logs are sacred, views are ephemeral; never rewrite historical lines.
+- Path resolution goes only through `core/src/paths.rs`; platform differences are gated with `cfg(windows)`, non-Windows code must not depend on UIA.
 
-## Windows-specific boundaries
+## Tests
 
-- The UIA sidecar is only compiled and only packaged on Windows; mac/Linux are the hook-driven core experience, not a downgraded version.
-- Changes involving sidecar, Tauri shell window behavior, and install-hooks can only cover compilation and the protocol layer on mac/CI;
-  real-device verification items are recorded in `dev/issues.md`; do not claim that unverified Windows behavior has passed.
+```bash
+cargo test --workspace
+cargo test -p ambery-core --features case-runner
+cargo run -p ambery-case -- frontend --silent   # headless frontend cases, no keys
+cd app && npm ci && npx tsc --noEmit && node scripts/lint-tokens.mjs
+```
+
+CI (`.github/workflows/ci.yml`) runs this on ubuntu + macOS; no secrets, no real LLM calls.
+
+## License
+
+MIT. By contributing, you agree your contributions are licensed under the MIT License.
