@@ -473,6 +473,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             toggle_pet, quit_app,
             get_state, get_context, append_user, push_event, get_config, get_config_schema, set_config,
+            test_llm, get_api_key_status, set_api_key,
             record_effect, list_cards, update_card_layout, set_card_user_closed,
             ensure_card_window, close_card_window, export_theme, import_theme
         ])
