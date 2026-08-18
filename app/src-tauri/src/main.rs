@@ -481,6 +481,7 @@ fn main() {
             ensure_card_window, close_card_window, export_theme, import_theme
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
+        .manage(CardWindowRegistry::default())
         .setup(|app| {
             let pet = app.get_webview_window("pet").expect("pet window");
             let chat = app.get_webview_window("chat").expect("chat window");

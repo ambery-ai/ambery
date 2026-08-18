@@ -319,7 +319,6 @@ export async function main() {
 
     // #9: 每个 card 一个独立 Tauri 窗口；#25 断根——窗口决策上提 Rust 权威注册表
     const renderCard = (spec: any) => {
-      console.log("[pet] renderCard:", spec?.id, "petVisible:", petVisible);
       if (!petVisible) {
         pendingCards.set(spec.id, spec);
         return;
