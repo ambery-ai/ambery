@@ -33,7 +33,7 @@ English | [中文](storage.zh.md)
 concepts §12. Launch config: timer parameters, Compression thresholds and retention targets, system/user expression pools, LLM profiles + active selector, view_scale, set_autonomy_default_ttl_ms, stop_hook_mode, theme/themes, ui_language/harness_language, name, tool call budget. (The hook port is not a Config field: default 127.0.0.1:47600, `AMBERY_PORT` explicitly overrides it — changing the port requires syncing the hook config; docs/core-server.md §Port semantics.)
 
 - Write: bootstrap writes defaults / the unified Config modification entry writes back. Read: loaded at startup + auto-reload of the external file while running.
-- The key itself lives only in the environment variable (the provider's `api_key_env`), never in the file.
+- The key itself lives only in the environment (the provider's `api_key_env`), never in the file. **App-level env layer**: `env` (0600, `KEY=value` lines) is an app-level environment-variable layer that *overrides* the system environment — resolution order is env file → process environment (first hit wins). The env file is the in-app key store (the setup modal writes here); it is not part of `config.json` and never contains the Config domain's data. See docs/llm-setup.md §Key storage model.
 
 ## AGENTS.md (Config Domain)
 

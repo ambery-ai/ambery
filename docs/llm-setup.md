@@ -9,6 +9,7 @@ English | [中文](llm-setup.zh.md)
 - **Unconfigured state** — the default value of `llm.active` is `"unconfigured"`. The setup guide triggers when `llm.active` is in the unconfigured state.
 - **Setup modal** — a modal shown from Chat when unconfigured. It renders Config schema nodes the same way the settings panel (menu) does — the same `config_nodes` projection and mechanical rendering (`get_config_schema` → nodes → controls). It is not a hand-written form; fields appear and disappear with the schema. The menu itself is unchanged: an unconfigured state does not alter any menu behavior.
 - **Connection test** — a backend capability (new) that builds the active provider once and makes one `complete` call, returning success or the concrete failure reason.
+- **App-level env layer** — the key store for provider credentials. `~/.config/ambery/env` (0600) holds `KEY=value` lines; the app reads env *file first, then process environment* (the file overrides the system). Keys never live in `config.json`.
 
 ## Principles
 
@@ -20,7 +21,19 @@ English | [中文](llm-setup.zh.md)
 
 > **Failures are never silent** — sending a chat message while the LLM cannot be reached must produce a visible error. The existing `llm_error` effect already reaches the frontend (only pet renders it today); chat subscribes to the same channel.
 
-> **Key stays out of config** — only the environment-variable *name* (`api_key_env`) is stored in config; the key itself lives in the environment (`std::env::var`). The setup modal shows the variable name and guides the user to set it; it never stores the key.
+> **Key stays out of config** — `config.json` stores only the environment-variable *name* (`api_key_env`); the key itself lives in the app-level env layer or the process environment. The setup modal can *enter* a key: writing it to the env file. `config.json` never contains a key value.
+
+## Key storage model (app-level env layer)
+
+The env file `~/.config/ambery/env` is an **app-level environment-variable layer**:
+
+- Format: `KEY=value` per line; blank lines and `#` comments allowed.
+- Permission: `0600` — the file is user-secret.
+- Resolution order for a key: **env file → process environment** (first hit wins). The file *overrides* the system, it is not a second namespace.
+- Variable naming: unified `AMBERY_<PROVIDER>_API_KEY` (e.g. `AMBERY_DEEPSEEK_API_KEY`). When the UI writes a key for a provider whose `api_key_env` differs (legacy name like `DEEPSEEK_API_KEY`) or is empty, the write also normalizes `api_key_env` to the unified name (config field only — never a key value). This is an implicit one-way migration; no separate migration step.
+- Read path: `LlmBackend::from_config` resolves `api_key_env` through the app-level layer (env file first, then `std::env::var`). Providers with no `api_key_env` (local endpoints like ollama/brain) need no key.
+
+Why this shape: a GUI app launched from Finder/Dock does **not** inherit shell-profile exports (launchd provides the environment), so shell-only key setup breaks for the installed app. The env file gives a shell-independent home for keys while keeping `config.json` key-free.
 
 ## Trigger model
 
@@ -38,8 +51,15 @@ Opened from Chat when unconfigured (or from a banner's "open config" action). Co
 
 1. **Provider selection** — renders the `llm.active` schema node (enum select: unconfigured / debug / providers).
 2. **Provider fields** — renders the selected provider's schema nodes (`base_url` / `model` / `api_key_env` etc.).
-3. **Key status** — each provider's `api_key_env` is a reflected field (present on every provider; `ollama` has none). The modal shows it as a **variable name + detection status**, not an editable input: display the variable name and whether the environment variable is set (backend check). Default preset variable names follow the `AMBERY_<NAME>_API_KEY` convention (e.g. `AMBERY_DEEPSEEK_API_KEY`); the key itself is never entered here — the user sets it in the shell environment.
-4. **Connection test** — a button calling the new `test_llm` backend capability; result shown inline (success, or the concrete failure reason).
+3. **Key input** — each provider gets a password input for its key. Local endpoints (no `api_key_env`, e.g. ollama/brain) show "no key needed" instead. States:
+   - **Unset** — the env file and process environment both lack the key: the input shows a warning style with placeholder "enter API key".
+   - **Set** — either source has the key: placeholder `•••••••• (set — leave empty to keep)` plus a small "set (source: env file / environment)" hint, and a **clear** button that removes the key from the env file.
+   - **Saving** — disabled while writing.
+   - Presence is judged by the same resolution chain as reads (env file → process env), locally and instantly — independent of `test_llm` round-trips.
+4. **Save semantics** — empty submit = no change (keep existing key); filled submit = upsert into the env file (unified `AMBERY_<PROVIDER>_API_KEY` + `api_key_env` normalization); clear = remove from the env file. Write failures surface as an inline error (never silent). After a save/clear the modal immediately refreshes the set/unset state and **auto-reruns `test_llm`**.
+5. **Connection test** — a button calling the `test_llm` backend capability; result shown inline (success, or the concrete failure reason).
+
+The UI distinguishes two failure flavors: **unset** (local presence check — input warning) vs **set but unreachable** (connection test / chat error — error bubble + banner). Same UI component serves both the setup modal and the menu settings panel (single rendering source).
 
 Completion: `llm.active` is no longer the unconfigured value → the modal no longer auto-triggers.
 
@@ -53,9 +73,12 @@ Completion: `llm.active` is no longer the unconfigured value → the modal no lo
 
 - **Unconfigured default** — `LlmConfig::default().active` is `"unconfigured"`; `LlmBackend::from_config` treats the unconfigured value as "no LLM" (silent fallback semantics, no error card spam at startup before any interaction). **No migration**: existing config files keep their current `active`; the unconfigured default applies to fresh installs only (a config file that already exists is never rewritten to the new default).
 - **`test_llm` capability** — a new command that reads the active provider, builds `OpenAiClient` once, makes one `complete` call, returns `{ok, message}` with the concrete failure reason. Reuses the existing provider construction path.
+- **`set_api_key(provider, Option<key>)`** — `Some` upserts the key into the env file (unified name, normalizing `api_key_env`), `None` clears it. Exposed over both channels (Tauri command + HTTP route); the core function is unit-testable directly.
+- **`get_api_key_status(provider)`** — presence check through the env-file-first resolution chain; returns set/unset + source. Local and instant.
 
 ## Explicitly out of scope
 
-- Storing keys in config (the environment-variable discipline is unchanged).
+- Storing keys in config (the env-file discipline keeps `config.json` key-free).
 - Auto-detect "env set but key invalid" at startup (that is the error path, not the setup path).
 - Connection test as a periodic health check (post-0.1.0).
+- OS keychain integration (post-0.1.0; the 0600 env file is the 0.1.0 answer).

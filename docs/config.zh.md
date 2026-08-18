@@ -37,7 +37,7 @@ config_root/                   # Windows: %USERPROFILE%\.config\ambery\
   storage/                     # Storage 域，见 docs/storage.md
 ```
 
-API key 本体只在环境变量中，config 仅保存变量名；key 不落盘。
+API key 本体只在环境中（应用级 env 文件或进程环境——见 docs/llm-setup.md §key 存储模型），config 仅保存变量名；key 永不写入 config.json。
 
 ### LLM 组
 

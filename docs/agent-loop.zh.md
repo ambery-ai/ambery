@@ -23,7 +23,7 @@ struct LlmOutput { content: Option<String>, tool_calls: Vec<ToolCall> }
 - `active: "debug"` → `DebugAgent`：纯 mock，零逻辑。将全量 Context 交给外部决策源（沉默/脚本/HTTP brain），原样返回决策源给的 `LlmOutput`（docs/debug-agent.md）。
 - `active: "<provider 名>"` → `OpenAiClient`（OpenAI 兼容端点），**失败时降级 DebugAgent**（初始化失败：env 未设/provider 不存在 → 整体回退；调用失败：HTTP/超时/解析 → 当轮回退）。失败不再静音：降级同时产出 `llm_error` effect，pet 渲染「LLM 调用失败」错误帧卡片（同 id `llm-error` 原地更新）。
 
-**Config v2（多 profile + active 选择器）**：providers 存各家 `base_url/model/api_key_env/temperature`，切换只改 `active` 不丢配置；key 本体只在环境变量里。首次启动 config.json 不存在时写入默认预设（deepseek/moonshot/zhipu/openai/ollama 公开厂商）；私有 provider 由用户自行加入本地 config.json。
+**Config v2（多 profile + active 选择器）**：providers 存各家 `base_url/model/api_key_env/temperature`，切换只改 `active` 不丢配置；key 本体只在环境中（应用级 env 文件或进程环境——见 docs/llm-setup.md §key 存储模型），永不进 config.json。首次启动 config.json 不存在时写入默认预设（deepseek/moonshot/zhipu/openai/ollama 公开厂商）；私有 provider 由用户自行加入本地 config.json。
 
 **thinking 模型的 reasoning_content 回传要求**：thinking 模型开 thinking 模式时，历史消息里任何带 `tool_calls` 的 assistant 消息**必须带回 `reasoning_content` 字段**，否则 400（空串可过，`thinking:{type:"disabled"}` 不被接受）。因此 ContextMessage 持久化 `reasoning_content`（旧记录无此字段，回放补空串），AmberyBackend 在每轮 assistant tool_calls 消息上存思维链。
 

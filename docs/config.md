@@ -37,7 +37,7 @@ config_root/                   # Windows: %USERPROFILE%\.config\ambery\
   storage/                     # Storage domain, see docs/storage.md
 ```
 
-The API key itself exists only in environment variables; config only stores the variable name; keys are never written to disk.
+The API key itself exists only in the environment (the app-level env file or process environment — see docs/llm-setup.md §Key storage model); config only stores the variable name; keys are never written to config.json.
 
 ### LLM Group
 

@@ -39,7 +39,7 @@ theme/themes、ui_language/harness_language、name、工具调用预算。
 （hook 端口不是 Config 字段：默认 127.0.0.1:47600，`AMBERY_PORT` 显式覆盖——换端口须同步 hook 配置；docs/core-server.md §端口语义。）
 
 - 写：bootstrap 写默认 / 统一 Config 修改入口写回。读：启动加载 + 运行中外部文件自动载入。
-- key 本体只在环境变量（provider 的 `api_key_env`），不入文件。
+- key 本体只在环境（provider 的 `api_key_env`），不入文件。**应用级 env 层**：`env`（0600，`KEY=value` 行）是应用级环境变量层，*覆盖*系统环境——解析顺序为 env 文件 → 进程环境（先命中者胜）。env 文件是应用内 key 存储位（引导 modal 写入处）；它不是 `config.json` 的一部分，永不包含 Config 域数据。见 docs/llm-setup.md §key 存储模型。
 
 ## AGENTS.md（Config 域）
 
