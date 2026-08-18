@@ -20,7 +20,7 @@ effort: low | medium | high | None
 | OpenAI | `reasoning_effort` | `"low"` | `"medium"` | `"high"` |
 | Anthropic 4.6+ | `output_config:{effort}` | `"low"` | `"medium"` | `"high"` |
 | Anthropic 4.5- | `thinking:{type:"enabled", budget_tokens:N}` | ≈20%×max_tokens | ≈50% | ≈80% |
-| DeepSeek v4 | `thinking:{reasoning_effort}` | `"low"` | `"high"` (no medium) | `"max"` |
+| DeepSeek v4 | `thinking:{type:"enabled"}` + 顶层 `reasoning_effort` | `"low"` | `"high"` (no medium) | `"max"` |
 | Gemini 3.x | `generation_config.thinking_level` | `"low"` | `"medium"` | `"high"` |
 | Unsupported endpoints | — | Ignore, do not send | Ignore | Ignore |
 

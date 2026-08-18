@@ -497,12 +497,14 @@ impl OpenAiClient {
                 });
             }
             (Some(EffortWire::DeepSeek), Some(e)) => {
-                body["thinking"] = json!({
-                    "reasoning_effort": match e {
-                        Effort::Low => "low",
-                        Effort::Medium => "high", // 无 medium：就近归并
-                        Effort::High => "max",
-                    }
+                // DeepSeek v4 官方格式（api-docs.deepseek.com/guides/thinking_mode）：
+                // thinking:{type:"enabled"} 开 thinking，reasoning_effort 是顶层参数——
+                // 不是 thinking 里的字段（缺 type 会 400）
+                body["thinking"] = json!({ "type": "enabled" });
+                body["reasoning_effort"] = json!(match e {
+                    Effort::Low => "low",
+                    Effort::Medium => "high", // 无 medium：就近归并
+                    Effort::High => "max",
                 });
             }
             (None, Some(_)) => {
@@ -1155,13 +1157,15 @@ mod tests {
         let body = client.build_body(&msgs, &[], Some(Effort::High));
         assert_eq!(body["reasoning_effort"], json!("high"));
         assert!(body.get("thinking").is_none());
-        // deepseek 方言：thinking.reasoning_effort；无 medium 就近归并 high；high → max
+        // deepseek 方言：thinking:{type:"enabled"} + 顶层 reasoning_effort；
+        // 无 medium 就近归并 high；high → max
         client.effort_wire = Some(EffortWire::DeepSeek);
         let body = client.build_body(&msgs, &[], Some(Effort::Medium));
-        assert_eq!(body["thinking"]["reasoning_effort"], json!("high"));
+        assert_eq!(body["thinking"]["type"], json!("enabled"));
+        assert_eq!(body["reasoning_effort"], json!("high"));
         let body = client.build_body(&msgs, &[], Some(Effort::High));
-        assert_eq!(body["thinking"]["reasoning_effort"], json!("max"));
-        assert!(body.get("reasoning_effort").is_none());
+        assert_eq!(body["thinking"]["type"], json!("enabled"));
+        assert_eq!(body["reasoning_effort"], json!("max"));
         // 未声明方言：忽略不发送（绝不塞陌生参数进 body）
         client.effort_wire = None;
         let body = client.build_body(&msgs, &[], Some(Effort::Low));
