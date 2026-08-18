@@ -864,19 +864,30 @@ pub fn unified_key_env(provider: &str) -> String {
     format!("AMBERY_{}_API_KEY", provider.to_uppercase())
 }
 
+/// 本地端点判定（无需 key）：base_url 指向本机（localhost/127.0.0.1/::1）。
+/// 不能用 api_key_env 是否为 None 判定——形态乙清除 key 后 api_key_env 归 None，
+/// 但远程 provider 仍然需要 key（docs/llm-setup.md §Key storage model）。
+fn is_local_endpoint(base_url: &str) -> bool {
+    let u = base_url.to_lowercase();
+    u.contains("localhost") || u.contains("127.0.0.1") || u.contains("[::1]") || u.contains("::1")
+}
+
 /// key 存在性状态（UI 提示用）：经 env 文件 → 进程环境解析链判定，本地即时。
-/// 返回 (是否已设置, 来源标签)。
+/// 返回 (是否已设置, 来源标签)。本地端点恒已满足；远程端点看 api_key_env 解析链。
 pub fn api_key_status(provider: &str, cfg: &LlmConfig) -> (bool, Option<&'static str>) {
     let Some(p) = cfg.providers.get(provider) else {
         return (false, None);
     };
+    if is_local_endpoint(&p.base_url) {
+        return (true, None);
+    }
     match p.api_key_env.as_deref() {
         Some(env_name) => (
             crate::envfile::is_set(env_name),
             crate::envfile::source_of(env_name),
         ),
-        // 本地端点（无 api_key_env）：无需 key，视为恒已满足
-        None => (true, None),
+        // 远程端点但无 api_key_env（尚未配置或已清除）→ 未设置
+        None => (false, None),
     }
 }
 
@@ -1387,7 +1398,12 @@ mod tests {
         with_isolated_env_dir(|| {
             let mut providers = std::collections::HashMap::new();
             providers.insert("p".to_string(), provider_with("AMBERY_P_API_KEY"));
-            providers.insert("local".to_string(), provider_with(""));
+            // 本地端点（base_url 本机、api_key_env None）→ 恒已设置
+            let mut local_p = provider_with("");
+            local_p.base_url = "http://127.0.0.1:11434/v1".into();
+            providers.insert("local".to_string(), local_p);
+            // 远程端点但 api_key_env None（清除后）→ 未设置
+            providers.insert("remote-noenv".to_string(), provider_with(""));
             let cfg = LlmConfig {
                 active: "p".into(),
                 providers,
@@ -1412,9 +1428,12 @@ mod tests {
             assert_eq!(source, Some("环境变量"));
             std::env::remove_var("AMBERY_P_API_KEY");
 
-            // 本地端点（api_key_env None）→ 恒已设置
+            // 本地端点 → 恒已设置
             let (set, _) = api_key_status("local", &cfg);
             assert!(set);
+            // 远程端点但 api_key_env None（清除后）→ 未设置（不能用 api_key_env 判本地）
+            let (set, _) = api_key_status("remote-noenv", &cfg);
+            assert!(!set);
         });
     }
 
