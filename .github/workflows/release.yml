@@ -82,3 +82,30 @@ jobs:
           name: bundles-${{ matrix.os }}
           path: app/src-tauri/target/release/bundle/
           if-no-files-found: error
+
+  # 发布：仅 tag push（v*）触发——下载三平台产物，建 Release 并上传 asset。
+  # 手动 dispatch 只验证构建（出包），不建 Release（避免误发布）。
+  create-release:
+    name: Create GitHub Release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Create Release and upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: release-assets
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            bundles-windows-latest/nsis/* \
+            bundles-ubuntu-latest/*.AppImage \
+            bundles-ubuntu-latest/*.deb \
+            bundles-macos-latest/*.dmg \
+            --generate-notes \
+            --prerelease
