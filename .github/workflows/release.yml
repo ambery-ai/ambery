@@ -107,8 +107,8 @@ jobs:
         run: |
           gh release create "${{ github.ref_name }}" \
             bundles-windows-latest/nsis/* \
-            bundles-ubuntu-latest/*.AppImage \
-            bundles-ubuntu-latest/*.deb \
-            bundles-macos-latest/*.dmg \
+            bundles-ubuntu-latest/appimage/*.AppImage \
+            bundles-ubuntu-latest/deb/*.deb \
+            bundles-macos-latest/dmg/*.dmg \
             --generate-notes \
             --prerelease
