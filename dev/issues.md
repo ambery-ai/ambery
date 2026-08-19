@@ -303,3 +303,13 @@ chat 面板头部的 × 按钮（chat.ts `close.addEventListener("click", () => 
 3. **install-hooks.ps1**：settings.json 缺失容错分支未经 PowerShell 实机执行（mac 无 pwsh）。
 4. **全局热键**：已明确 cut，无需验证。
 5. **调试链路**：`debug_brain.py` 经 HTTP brain 连通已在 mac 验证；Windows 下脑连 serve/frontend 仅需路径差异，不单独列验证项。
+
+## #29 启动后周期性闪 Windows Terminal 窗——sidecar 每次拉起弹可见控制台 (2026-08-19) — fixed
+
+用户观察：启动 app 后约每分钟闪一次 Windows Terminal 窗。真因两条：
+
+① **spawn 未设 `CREATE_NO_WINDOW`**：`core/src/sidecar.rs` `spawn()` 用 `Command::new` 拉起 C# 控制台 sidecar（`OutputType=Exe`），但 amber 是 GUI 进程（无控制台），Windows 默认给子进程**分配可见控制台**（Win11 默认终端 = WT 时表现为 WT 闪窗）。最小 Rust 复现：GUI 子系统父进程拉起控制台子进程（piped stdio）——无标志产生 OpenConsole、加 `CREATE_NO_WINDOW` 无。
+
+② **本机 sidecar 是残缺 apphost**：`target/release/ambery-uia-sidecar.exe` 缺同目录 `ambery-uia-sidecar.dll`，拉起即崩（"The application to execute does not exist"）。`sidecar_exe()` 候选序第一个命中它（完整 publish 在 `sidecar/bin/Release/net9.0-windows/win-x64/publish/`，排第 4 位）。终端请求 = 拉起→崩→闪；有定时实例的环境 = 每分钟闪。
+
+2026-08-19 修复：`spawn()` 加 `creation_flags(0x08000000)`（CREATE_NO_WINDOW，`#[cfg(windows)]` 门控）。验证：最小复现对照（有/无标志）；cargo check 过。② 的 sidecar 残缺产物解析问题另待——本机 target/release 的残缺 apphost 会继续让 sidecar 功能失效（读到终端失败），需确认该产物来源与正确的 sidecar 分发布局。
