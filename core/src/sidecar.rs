@@ -86,15 +86,23 @@ fn roundtrip(p: &mut Proc, req: &Value) -> Option<Value> {
 }
 
 fn spawn(exe: &Path) -> Option<Proc> {
-    let mut c = Command::new(exe)
+    let mut c = Command::new(exe);
+    // GUI 进程（无控制台）拉起控制台子进程时，Windows 默认会为其分配一个
+    // 可见控制台窗口（Win11 默认终端 = WT 时表现为「闪窗」）。CREATE_NO_WINDOW 抑制之。
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let mut child = c
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let stdin = c.stdin.take()?;
-    let stdout = BufReader::new(c.stdout.take()?);
-    Some(Proc(c, stdin, stdout))
+    let stdin = child.stdin.take()?;
+    let stdout = BufReader::new(child.stdout.take()?);
+    Some(Proc(child, stdin, stdout))
 }
 
 impl Drop for Proc {
