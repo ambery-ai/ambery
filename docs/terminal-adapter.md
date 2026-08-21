@@ -2,54 +2,78 @@
 
 English | [中文](terminal-adapter.zh.md)
 
-Terminal access abstraction: a unified interface that gives Code CLI instances the ability to "locate, read, unlocate". Multi-terminal compatibility = abstract interface + per-terminal dispatch implementations.
+Terminal access abstraction: a layered model — L1 (hook + lookup) → M1 → L2 (comprehensive query pipeline) → M2 → L3 (visible & adjustable) → M3 → agenttool. Multi-terminal compatibility = each terminal provides L1 (transport/lookup); the query strategy is independent as L2.
 
-> See `concepts.md` §14 (Terminal Adapter) for the concept positioning. This file defines the interface capabilities, implementations, and config fields.
+> See `concepts.md` §14 (Terminal Adapter) for the concept positioning.
 
-## Capability interface
+## Layered model
 
-terminal-adapter is **an instantiable kind of thing** — realized as a Rust trait with one implementation per terminal:
-
-```rust
-pub trait TerminalAdapter: Send + Sync {
-    /// 定位：instance → 它在终端会话中的位置（TabRef）
-    fn locate(&self, inst: &str) -> Option<TabRef>;
-    /// 读取：读该位置的终端文字
-    fn read(&self, tab: &TabRef) -> Option<String>;
-    /// 解除定位：终止 instance 与位置之间的定位关系（instance 会话结束/判死）
-    fn unlocate(&self, inst: &str);
-}
+```
+agenttool — agent obtains M3
+  ▲ M3 = query result (instance status + hit + optional content + parameters)
+L3 · visible & adjustable
+  ▲ M2 (final hit result)
+L2 · comprehensive query (pipeline, composable, user-rewritable)
+  ├─ stage 1 · conclusive-condition filtering ──► M2
+  ├─ stage 2 · ambiguity scoring          ──► M2
+  └─ … user-insertable stages             ──► M2
+  ▲ M1 = { tab attributes, hook records }
+L1 · hook + lookup itself
 ```
 
-An adapter instance corresponds to one terminal type (wt / zellij / …). The core side assembles the corresponding adapters according to config enablement.
+### L1 · hook + lookup itself
 
-## Implementations
+Operational layer: receives Claude hook events (session_start / stop / …), enumerates and locates panes / tabs. One implementation per terminal (transport primitives: WT sidecar, zellij CLI). Produces **M1**.
+
+### M1 · contract (pure data)
+
+`{ tab attributes, hook records }`. The lookup's input data, fully preserved (tab: id / title / cwd / command / focused / …; hook: sid8 / project / status / …), nothing dropped.
+
+### L2 · comprehensive query (pipeline, composable, user-rewritable)
+
+A composable pipeline with multiple stages (conclusive-condition filtering → ambiguity scoring → …). Users can insert / rewrite their own stages (a seam, toward user plugins). **Each stage boundary produces one M2**.
+
+### M2 · match result
+
+`Hit / Ambiguous (candidates) / Not-found`. Hit = Found(tab); ambiguous and not-found are failure paths (error channel), not normal results.
+
+### L3 · visible & adjustable
+
+Result presentation + parameter adjustment (on ambiguity the user sees the candidates and corrects the match). Produces **M3**.
+
+### M3 · query result
+
+Instance status + match result + optional content + adjustable parameters.
+
+### agenttool
+
+The tool through which the agent obtains M3.
+
+## Principles
+
+- **Plugin-ability (seam)** — each layer boundary is a provider/consumer contract (a seam), so the adapter is pluggable: users add new terminal types and query stages without touching the core.
+
+## Implementations (L1 transport / lookup providers)
 
 | adapter | form | access | platform |
 |---|---|---|---|
 | **WtAdapter** | standalone C# process | stdio JSONL calls into C#; UIA (CASCADIA/TermControl) locate + read | Windows |
-| **ZellijAdapter** | in-process (Rust calls CLI directly) | `zellij action` commands (list-tabs / rename-tab / query-tab-names…) | cross-platform |
+| **ZellijAdapter** | in-process (Rust calls CLI directly) | `zellij action` commands (list-panes / dump-screen / …) | cross-platform |
 | **MapAdapter** | in-process (built into core) | shared map (the terminal/terminal_gone scenario source for case-runner) | cross-platform |
-| **Composite** | in-process (built into core) | multi-adapter dispatch: locate routes by first hit, read returns to the producing adapter, unlocate broadcasts | cross-platform |
+| **Composite** | in-process (built into core) | multi-adapter dispatch | cross-platform |
 
 WtAdapter keeps its standalone process form — UIA reading depends on .NET assemblies, and Rust cannot directly consume the UIA TextPattern, hence a separate exe. ZellijAdapter only needs to call the CLI, executes natively in Rust, and has no separate process.
 
-### WtAdapter
-
-Locating scans CASCADIA windows via UIA, reading goes through the TermControl TextPattern; for the stdio JSONL protocol and lifecycle see `docs/sidecar.md`. It is one implementation of terminal-adapter.
-
-### ZellijAdapter
-
-zellij is a multiplexer running inside the terminal (pane layer) and needs positioning layered on top of the underlying terminal. The implementation adapts via the `zellij action` CLI (locate markers, read pane content).
+The locate query strategy lives in **L2**, not hardcoded in the adapter: `find_pane`'s `title.contains(instance)` assumes the zellij title carries the marker (`project·sid8`); observed real pane titles are `◐ ambery` / `✳ agent-team` (spinner + project name, no sid8) → locate mismatch. The query strategy moves to the L2 pipeline.
 
 ## Config fields
 
-One boolean switch per adapter (pure switch to start; parameters use conventions for now):
+One boolean switch per adapter:
 
 ```text
-terminal.adapter_wt: bool      // 启用 wt 适配器
-terminal.adapter_zellij: bool  // 启用 zellij 适配器
-// 未列出的 adapter 默认 false；全 false = 无终端访问，Hook 驱动核心体验仍可用
+terminal.adapter_wt: bool      // enable the wt adapter
+terminal.adapter_zellij: bool  // enable the zellij adapter
+// adapters not listed default to false; all false = no terminal access, Hook-driven core experience still works
 ```
 
 WtAdapter uses the conventional path (env `AMBERY_SIDECAR` > repo conventional path); ZellijAdapter uses the default session.

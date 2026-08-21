@@ -2,49 +2,73 @@
 
 [English](terminal-adapter.md) | 中文
 
-终端访问抽象：向 Code CLI 实例提供「定位、读取、解除定位」能力的统一接口。多终端兼容 = 抽象接口 + 按终端分发实现。
+终端访问抽象：分层模型——L1（hook + 查找）→ M1 → L2（综合查询管线）→ M2 → L3（可见可调）→ M3 → agenttool。多终端兼容 = 每终端提供 L1（传输/查找），查询策略独立成 L2。
 
-> 概念定位见 `concepts.md` §14（Terminal Adapter）。本文件定接口能力、实现与 config 字段。
+> 概念定位见 `concepts.md` §14（Terminal Adapter）。
 
-## 能力接口
+## 分层模型
 
-terminal-adapter 是**可实例化的一类东西**——落成 Rust trait，各终端一个实现：
-
-```rust
-pub trait TerminalAdapter: Send + Sync {
-    /// 定位：instance → 它在终端会话中的位置（TabRef）
-    fn locate(&self, inst: &str) -> Option<TabRef>;
-    /// 读取：读该位置的终端文字
-    fn read(&self, tab: &TabRef) -> Option<String>;
-    /// 解除定位：终止 instance 与位置之间的定位关系（instance 会话结束/判死）
-    fn unlocate(&self, inst: &str);
-}
+```
+agenttool —— agent 拿 M3
+  ▲ M3 = 查询结果（实例状态 + 命中 + 可选内容 + 参数）
+L3 · 可见可调
+  ▲ M2（最终命中结果）
+L2 · 综合查询（管线，可组合，用户可重写）
+  ├─ stage 1 · 确凿条件过滤 ──► M2
+  ├─ stage 2 · 歧义打分     ──► M2
+  └─ … 用户可插自己的阶段    ──► M2
+  ▲ M1 = { tab 属性, hook 记录 }
+L1 · hook + 查找本身
 ```
 
-一个 adapter 实例对应一个终端类型（wt / zellij / …）。core 侧按 config 启用情况装配对应 adapter。
+### L1 · hook + 查找本身
 
-## 实现
+操作层：收 claude hook 事件（session_start / stop / …），枚举并定位 pane / tab。每终端一实现（传输原语：WT sidecar、zellij CLI）。产出 **M1**。
+
+### M1 · 契约（纯数据）
+
+`{ tab 属性, hook 记录 }`。查找的输入数据，全量保留（tab 的 id/title/cwd/command/focused/…；hook 的 sid8/project/status/…），一个不丢。
+
+### L2 · 综合查询（管线，可组合，用户可重写）
+
+一条可组合管线，内部套多个阶段（确凿条件过滤 → 歧义打分 → …）。用户可插入 / 重写自己的阶段（seam，为用户插件）。**每个阶段边界产出一次 M2**。
+
+### M2 · 匹配结果
+
+`命中 / 歧义（候选）/ 没找到`。命中 = Found(tab)；歧义与没找到是失败路径（错误通道），不进正常结果。
+
+### L3 · 可见可调
+
+结果呈现 + 参数调整（歧义时用户可看到候选、修正匹配）。产出 **M3**。
+
+### M3 · 查询结果
+
+实例状态 + 匹配结果 + 可选内容 + 可调参数。
+
+### agenttool
+
+agent 拿 M3 的工具。
+
+## 原则
+
+- **可插件化（seam）** — 每层边界是 provider/consumer 契约（一个 seam），adapter 可插件化：用户新增终端类型与查询阶段，不碰 core。
+
+## 实现（L1 传输 / 查找 provider）
 
 | adapter | 形态 | 访问方式 | 平台 |
 |---|---|---|---|
 | **WtAdapter** | 独立 C# 进程 | stdio JSONL 调 C#；UIA（CASCADIA/TermControl）定位+读取 | Windows |
-| **ZellijAdapter** | 进程内（Rust 直调 CLI） | `zellij action` 命令（list-tabs / rename-tab / query-tab-names…） | 跨平台 |
+| **ZellijAdapter** | 进程内（Rust 直调 CLI） | `zellij action` 命令（list-panes / dump-screen / …） | 跨平台 |
 | **MapAdapter** | 进程内（core 内建） | 共享 map（case-runner 的 terminal/terminal_gone 剧情源） | 跨平台 |
-| **Composite** | 进程内（core 内建） | 多 adapter 分发：locate 首中记录路由、read 回到产出 adapter、unlocate 广播 | 跨平台 |
+| **Composite** | 进程内（core 内建） | 多 adapter 分发 | 跨平台 |
 
 WtAdapter 保持独立进程形态——UIA 读取依赖 .NET 程序集，Rust 无法直接接 UIA TextPattern，故独立 exe。ZellijAdapter 调 CLI 即可，Rust 原生执行，无独立进程。
 
-### WtAdapter
-
-定位经 UIA 扫 CASCADIA 窗口、读取经 TermControl TextPattern，stdio JSONL 协议与生命周期见 `docs/sidecar.md`。它是 terminal-adapter 的一个实现。
-
-### ZellijAdapter
-
-zellij 是跑在终端里的复用器（pane 层），需在底层终端之上叠加定位。实现经 `zellij action` CLI 适配（定位 marker、读 pane 内容）。
+定位的查询策略在 **L2**，不硬编码在 adapter：`find_pane` 的 `title.contains(实例名)` 假设 zellij title 带 marker（`project·sid8`），实测真实 pane title 是 `◐ ambery` / `✳ agent-team`（spinner + 项目名，无 sid8）→ 定位失配。查询策略改走 L2 综合管线。
 
 ## Config 字段
 
-每 adapter 一个布尔开关（纯开关起步，参数先用约定）：
+每 adapter 一个布尔开关：
 
 ```text
 terminal.adapter_wt: bool      // 启用 wt 适配器
