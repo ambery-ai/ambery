@@ -18,14 +18,14 @@ one home per fact — a topic is fully stated in only one document; when mention
 | `docs-spec.md` | Navigation: responsibility map and admission boundaries for `docs/*.md` and `concepts.md` | Writing rules (→ this file), document body |
 | `docs/*.md` | Contract body: one topic per file (defined by the docs-spec responsibility map) | Other documents' topics (→ link) |
 | `concepts.md` | Concept model: domain terms and layering | Implementation mechanisms (→ `docs/`) |
-| `spec.md` | Tech stack and architecture constraints | Runtime mechanisms (→ `docs/`) |
+| `spec.md` | Tech stack, divergent decisions, and tradeoffs | Runtime mechanisms (→ `docs/`) |
 | `reports/` | Research conclusions: evidence + conclusion | Process records, contract body |
 | `dev/issues.md` | Issue tracking | Solution narratives (→ `docs/`) |
 | Root `README.md` | Project entry: what it is, quickstart, platform matrix | Architecture details (→ `docs/`) |
 | Root `VISION.md` | Project vision: one handwritten page | Design details (→ `docs/`) |
 | This file | Repo-wide documentation writing standard | Responsibility map (→ `docs-spec.md`) |
 
-Placement rules: decided issues → `dev/issues.md`; undecided → development ticket / `docs/post-0.1.0.md`; research → `reports/`; contracts → `docs/`; concepts → `concepts.md`; constraints → `spec.md`; entry → `README.md`.
+Placement rules: decided issues → `dev/issues.md`; undecided → development ticket / `docs/post-0.1.0.md`; research → `reports/`; contracts → `docs/`; concepts → `concepts.md`; tech stack, divergent decisions, tradeoffs → `spec.md`; entry → `README.md`.
 
 The public document set = all rows of the table above (README / VISION to be created). `drafts/`, `user-goals.md`, `ideas.md`, `debug-lessons.md`, and `mem.md` are not public and do not enter the public repo.
 

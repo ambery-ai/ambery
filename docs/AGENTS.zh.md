@@ -18,14 +18,14 @@ one home per fact —— 一个主题只在一份文档完整陈述；他处提�
 | `docs-spec.md` | 导航：`docs/*.md` 与 `concepts.md` 的职责地图、准入边界 | 写作规则（→ 本文件）、文档正文 |
 | `docs/*.md` | 契约正文：每份一个主题（docs-spec 职责地图定义） | 其他文档的主题（→ 链接） |
 | `concepts.md` | 概念模型：领域术语与分层 | 实现机制（→ `docs/`） |
-| `spec.md` | 技术栈与架构约束 | 运行机制（→ `docs/`） |
+| `spec.md` | 技术栈、分歧决定与 tradeoff | 运行机制（→ `docs/`） |
 | `reports/` | 调研结论：证据 + 结论 | 过程记录、契约正文 |
 | `dev/issues.md` | 问题跟踪 | 解决方案叙述（→ `docs/`） |
 | 根 `README.md` | 项目入口：是什么、quickstart、平台矩阵 | 架构细节（→ `docs/`） |
 | 根 `VISION.md` | 项目愿景：手写一页纸 | 设计细节（→ `docs/`） |
 | 本文件 | 全仓文档写作标准 | 职责地图（→ `docs-spec.md`） |
 
-放置规则：已决问题 → `dev/issues.md`；未决 → 开发 ticket / `docs/post-0.1.0.md`；调研 → `reports/`；契约 → `docs/`；概念 → `concepts.md`；约束 → `spec.md`；入口 → `README.md`。
+放置规则：已决问题 → `dev/issues.md`；未决 → 开发 ticket / `docs/post-0.1.0.md`；调研 → `reports/`；契约 → `docs/`；概念 → `concepts.md`；技术栈、分歧决定、tradeoff → `spec.md`；入口 → `README.md`。
 
 公开文档集 = 上表全部（README / VISION 待创建）。`drafts/`、`user-goals.md`、`ideas.md`、`debug-lessons.md`、`mem.md` 不公开，不进入公开仓库。
 

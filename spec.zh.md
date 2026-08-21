@@ -2,6 +2,7 @@
 
 [English](spec.md) | 中文
 
+> 文档职责/导航：见 [docs-spec.zh.md](docs-spec.zh.md)。
 > 阶段：spec1（技术选型已定，分工初定）。概念定义见 [concepts.md](concepts.zh.md)，本文件只定技术分工，不重复概念。
 
 ## 技术选型

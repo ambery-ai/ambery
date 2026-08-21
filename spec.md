@@ -2,6 +2,7 @@
 
 English | [中文](spec.zh.md)
 
+> Document responsibilities / navigation: see [docs-spec.md](docs-spec.md).
 > Phase: spec1 (tech selection settled, division of work initially set). For concept definitions see [concepts.md](concepts.md); this file only sets the technical division of work and does not repeat concepts.
 
 ## Technology choices
