@@ -5,6 +5,7 @@ Ambery 是 Tauri 多窗口桌宠（pet/chat/menu/shelf/card）+ Rust core。改�
 ## 提交信息
 
 - 精简：subject 一句概括改动即可，不写长 body。
+- 这是一个开源的项目，需要避免在项目和提交信息中加入任何敏感信息。
 
 ## 运行与构建
 
