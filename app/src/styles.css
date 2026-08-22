@@ -668,6 +668,58 @@ html.browser body {
   padding: 3px 6px;
 }
 .cfg-line input.bad, .cfg-line select.bad { border-color: var(--ov-error); }
+/* 自定义下拉（components/custom-select.ts）：原生 select 弹出层在 alwaysOnTop +
+ * 500ms TOPMOST 重申协调器下会被窗口本体盖住，改 DOM 内渲染。
+ * 按钮复刻原生 select（appearance:none + 同 token/尺寸）；箭头 = 内联 SVG 下 chevron
+ * （stroke=currentColor 跟随主题）；列表 position:fixed 浮层逃出滚动容器。 */
+.cfg-select { position: relative; display: inline-block; }
+.cfg-select-btn {
+  position: relative;
+  appearance: none;
+  -webkit-appearance: none;
+  box-sizing: content-box; /* 与 .cfg-line select 默认 box-sizing 一致，渲染尺寸对齐 */
+  width: 170px;            /* 与原生 select 声明宽度一致 */
+  background: var(--ov-input-bg);
+  border: 1px solid var(--ov-input-border);
+  border-radius: 5px;
+  color: var(--ov-text-strong);
+  padding: 3px 6px;        /* 与原生 select 一致 */
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfg-select-arrow {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ov-text-strong);
+  pointer-events: none;
+}
+.cfg-select-btn:disabled { opacity: 0.45; cursor: default; }
+.cfg-select-btn:disabled .cfg-select-arrow { opacity: 0.6; }
+.cfg-select-list {
+  position: fixed; /* 浮层：JS 按按钮 rect 定位，逃出 modal 滚动容器，像原生 popup 一样浮在上层 */
+  z-index: 10000;
+  box-sizing: border-box;
+  background: var(--ov-panel-bg);
+  border: 1px solid var(--ov-input-border);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  overflow-y: auto;
+}
+.cfg-select-option {
+  padding: 3px 8px; /* 上下 3px 与原生 select 一致 → 选项行高≈select 高 */
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfg-select-option:hover { background: var(--ov-accent-bg); }
+.cfg-select-option.selected { color: var(--ov-accent); }
 .cfg-line input:disabled { opacity: 0.45; }
 .desc { color: color-mix(in srgb, var(--ov-text-strong) 45%, transparent); font-size: 11px; margin-top: 1px; }
 /* provider key 输入行（形态乙）：密码框 + 保存/清除 + 状态提示 */

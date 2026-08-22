@@ -6,6 +6,7 @@
 // config.json 永不存 key；menu 与引导 modal 同一渲染源）。
 
 import type { Bridge, ConfigSchemaNode } from "./bridge";
+import { createCustomSelect } from "./components/custom-select";
 import { t } from "./i18n";
 
 export type ConfigNode = ConfigSchemaNode;
@@ -47,16 +48,12 @@ export function renderConfigNode(n: ConfigNode, opts: RenderNodeOpts): HTMLEleme
       break;
     }
     case "enum": {
-      const c = document.createElement("select");
-      for (const o of n.type.options ?? []) {
-        const opt = document.createElement("option");
-        opt.value = o;
-        opt.textContent = o;
-        if (o === n.value) opt.selected = true;
-        c.appendChild(opt);
-      }
-      c.onchange = () => opts.applyValue(n.path, c.value, c);
-      control = c;
+      control = createCustomSelect({
+        options: n.type.options ?? [],
+        value: String(n.value ?? ""),
+        readOnly,
+        onChange: (v) => opts.applyValue(n.path, v, control),
+      });
       break;
     }
     case "int":
