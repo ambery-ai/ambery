@@ -5,7 +5,12 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   server: {
-    port: 5174,
+    port: 3000,
     strictPort: true,
+    // tauri 重编译会锁定 src-tauri/target 下的 Rust 产物；vite 不盯它，
+    // 否则 watcher 撞 EBUSY 崩溃（Windows 文件锁）。
+    watch: {
+      ignored: ["**/src-tauri/target/**"],
+    },
   },
 });

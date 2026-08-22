@@ -5,7 +5,8 @@
   "identifier": "dev.ambery.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://127.0.0.1:5174",
+    "devUrl": "http://127.0.0.1:3000",
+    "beforeDevCommand": "npx vite --port 3000",
     "beforeBuildCommand": "npm run build"
   },
   "app": {
