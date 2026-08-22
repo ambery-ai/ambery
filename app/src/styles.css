@@ -710,6 +710,9 @@ html.browser body {
   border-radius: 5px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   overflow-y: auto;
+  /* 列表 append 到 body，不继承 .cfg-line 的主题色/字体——显式补上（迁移组件时丢失） */
+  color: var(--ov-text-strong);
+  font: inherit;
 }
 .cfg-select-option {
   padding: 3px 8px; /* 上下 3px 与原生 select 一致 → 选项行高≈select 高 */
