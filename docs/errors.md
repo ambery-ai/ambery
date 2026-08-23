@@ -12,7 +12,7 @@ English | [中文](errors.zh.md)
 
 ## Model
 
-An error is a notification — the user learns from the UI, nothing more. Errors do not come in kinds; they differ only in how long they stay visible (retention). `unconfigured` is an error notification like any other — a persistent condition needing action; only the explicit `debug` mock mode produces no notification.
+An error is a notification — the user learns from the UI, nothing more. Errors do not come in kinds; they differ only in how long they stay visible (retention). `unconfigured` is an error notification like any other — a persistent condition needing action; only the explicit `debug` mock mode produces no notification. Internal or background operation failures (terminal reads, timer scans) are not part of this model — they are an observability concern (records / alerts), not user notifications; only errors the user needs to know about or act on enter this model.
 
 ## Sources
 
