@@ -2,7 +2,7 @@
 
 English | [中文](llm-setup.zh.md)
 
-> This document defines the first-run LLM setup guide and connection-error reporting: the unconfigured default state, the setup modal (rendered like the settings panel — a reflection of Config schema nodes), the connection test capability, and how chat reports LLM failures.
+> This document defines the first-run LLM setup guide: the unconfigured default state, the setup modal (rendered like the settings panel — a reflection of Config schema nodes), and the connection test capability. Error presentation follows [errors.md](errors.md).
 
 ## Concepts
 
@@ -19,7 +19,7 @@ English | [中文](llm-setup.zh.md)
 
 > **The menu is unchanged** — the setup guide does not live inside the menu and does not alter menu behavior; it is a modal reached from Chat.
 
-> **Failures are never silent** — sending a chat message while the LLM cannot be reached must produce a visible error. The existing `llm_error` effect already reaches the frontend (only pet renders it today); chat subscribes to the same channel.
+> **Failures are never silent** — when an action fails (an LLM call, a key write), the user sees it; the setup flow never hides a failure.
 
 > **Key stays out of config** — `config.json` stores only the environment-variable *name* (`api_key_env`); the key itself lives in the app-level env layer or the process environment. The setup modal can *enter* a key: writing it to the env file. `config.json` never contains a key value.
 
@@ -41,9 +41,8 @@ Why this shape: a GUI app launched from Finder/Dock does **not** inherit shell-p
 |---|---|---|
 | App startup | `llm.active` == unconfigured value | Mark state "unconfigured" |
 | Chat opens | unconfigured | Chat shows the setup modal + a banner hint |
-| Chat send | LLM call fails | Error bubble in the message stream (reason-specific) + banner above the input |
-| Banner action | "open config" | Opens the setup modal again (unconfigured / connection-failed are two states of the same modal) |
-| Banner dismiss | user closes | Hides the current banner only; reappears on the next error |
+| Chat send | LLM call fails | Error notification per [errors.md](errors.md); the banner's `setup` action opens this modal |
+| Banner action | `setup` action | Opens the setup modal (unconfigured / connection-failed share the modal) |
 
 ## Setup modal
 
@@ -63,15 +62,13 @@ The UI distinguishes two failure flavors: **unset** (local presence check — in
 
 Completion: `llm.active` is no longer the unconfigured value → the modal no longer auto-triggers.
 
-## Connection errors (chat)
+## Connection errors
 
-- **Error bubble** — on LLM call failure, a bubble is inserted into the message stream. It distinguishes the reason: network unreachable / timeout / 401 invalid key / 400 bad request / env var unset / provider missing. It includes a retry action.
-- **Banner** — above the chat input, shown only while errors are active. Dismissible (hides the current banner only; the next error re-shows it). The banner carries an "open config" action that reopens the setup modal.
-- **Degraded-reply note** — when the failure path falls back to DebugAgent, the round still produces a reply; the bubble/banner must note "current reply is degraded (debug fallback)" so the visible reply does not contradict the visible error.
+Error presentation (bubble / banner) follows the model in [errors.md](errors.md). This guide's only connection to it: the banner's `setup` action opens the setup modal above.
 
 ## Backend changes
 
-- **Unconfigured default** — `LlmConfig::default().active` is `"unconfigured"`; `LlmBackend::from_config` treats the unconfigured value as "no LLM" (silent fallback semantics, no error card spam at startup before any interaction). **No migration**: existing config files keep their current `active`; the unconfigured default applies to fresh installs only (a config file that already exists is never rewritten to the new default).
+- **Unconfigured default** — `LlmConfig::default().active` is `"unconfigured"`; `LlmBackend::from_config` treats the unconfigured value as no provider — the setup guide (modal + banner, action `setup`) surfaces it per [errors.md](errors.md). **No migration**: existing config files keep their current `active`; the unconfigured default applies to fresh installs only (a config file that already exists is never rewritten to the new default).
 - **`test_llm` capability** — a new command that reads the active provider, builds `OpenAiClient` once, makes one `complete` call, returns `{ok, message}` with the concrete failure reason. Reuses the existing provider construction path.
 - **`set_api_key(provider, Option<key>)`** — `Some` upserts the key into the env file (unified name, normalizing `api_key_env`), `None` clears it. Exposed over both channels (Tauri command + HTTP route); the core function is unit-testable directly.
 - **`get_api_key_status(provider)`** — presence check through the env-file-first resolution chain; returns set/unset + source. Local and instant.

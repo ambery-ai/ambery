@@ -12,6 +12,7 @@
 
 - `harness.md` — Harness 数据模型、注入规则、触发模型与 JSONL 存储格式
 - `agent-loop.md` — LLM 抽象、Tool Set 协议与 mock hook 契约
+- `llm-setup.md` — 首启 LLM 配置引导（未配置默认、引导 modal、key 输入、连通测试）
 - `autonomy.md` — 表情 Autonomy 的表达式模型、默认映射与覆盖语义
 - `filter.md` — 终端文本过滤策略与结构理解数据类型
 - `debug-agent.md` — DebugAgent 纯 mock 与 debug CLI

@@ -2,7 +2,7 @@
 
 [English](llm-setup.md) | 中文
 
-> 本文档定义首启 LLM 配置引导与连接错误提示：未配置默认态、引导 modal（与设置面板相同的渲染方式——Config schema 节点的反射）、连通测试能力，以及 chat 如何报告 LLM 失败。
+> 本文档定义首启 LLM 配置引导：未配置默认态、引导 modal（与设置面板相同的渲染方式——Config schema 节点的反射）、连通测试能力。错误呈现遵循 [errors.md](errors.md)。
 
 ## 概念
 
@@ -19,7 +19,7 @@
 
 > **menu 不变**——引导不在 menu 里，也不改变 menu 行为；它是从 Chat 触达的 modal。
 
-> **失败绝不静默**——LLM 不可达时发送聊天消息必须产生可见错误。现有 `llm_error` effect 已到达前端（今天只有 pet 渲染它）；chat 订阅同一通道。
+> **失败绝不静默**——动作失败（LLM 调用、key 写入）用户必须可见；引导流绝不隐藏失败。
 
 > **key 不进 config**——`config.json` 只存环境变量*名*（`api_key_env`）；key 本体在应用级 env 层或进程环境中。引导 modal 可以*输入* key：写入 env 文件。`config.json` 永不包含 key 值。
 
@@ -41,9 +41,8 @@ env 文件 `~/.config/ambery/env` 是**应用级环境变量层**：
 |---|---|---|
 | 应用启动 | `llm.active` == 未配置值 | 标记"未配置" |
 | Chat 打开 | 未配置 | Chat 显示引导 modal + 横幅提示 |
-| Chat 发送 | LLM 调用失败 | 消息流错误气泡（区分原因）+ 输入框上方 banner |
-| banner 动作 | "打开配置" | 再次打开引导 modal（未配置 / 连接失败是同一 modal 的两种状态） |
-| banner 关闭 | 用户关闭 | 仅隐藏当前 banner；下次错误再现 |
+| Chat 发送 | LLM 调用失败 | 按 [errors.md](errors.md) 出错误通知；banner 的 `setup` action 打开本 modal |
+| banner 动作 | `setup` action | 打开引导 modal（未配置 / 连接失败共用同一 modal） |
 
 ## 引导 modal
 
@@ -63,15 +62,13 @@ UI 区分两种失败形态：**未设置**（本地存在性检查——输入�
 
 完成：`llm.active` 不再是未配置值 → modal 不再自动触发。
 
-## 连接错误（chat）
+## 连接错误
 
-- **错误气泡**——LLM 调用失败时，消息流插入气泡。区分原因：网络不可达 / 超时 / 401 key 无效 / 400 参数错误 / 环境变量未设 / provider 缺失。带重试动作。
-- **banner**——chat 输入框上方，仅在错误激活时显示。可关闭（仅隐藏当前；下次错误再现）。banner 带"打开配置"动作，重新打开引导 modal。
-- **降级回复说明**——失败路径回退 DebugAgent 时，当轮仍产出回复；气泡/banner 必须注明"当前为降级回复（debug 兜底）"，让可见回复与可见错误不矛盾。
+错误呈现（气泡 / banner）遵循 [errors.md](errors.md) 的模型。本文档与它的唯一连接点：banner 的 `setup` action 打开上文引导 modal。
 
 ## 后端变更
 
-- **未配置默认**——`LlmConfig::default().active` 为 `"unconfigured"`；`LlmBackend::from_config` 将未配置值视为"无 LLM"（静默回退语义，启动时在任何交互前不刷错误卡）。**不加迁移**：存量 config 文件保持其当前 `active`；未配置默认只作用于全新安装（已存在的 config 文件永不被改写为新默认）。
+- **未配置默认**——`LlmConfig::default().active` 为 `"unconfigured"`；`LlmBackend::from_config` 将未配置值视为无 provider——配置引导（modal + banner，action `setup`）按 [errors.md](errors.md) 呈现它。**不加迁移**：存量 config 文件保持其当前 `active`；未配置默认只作用于全新安装（已存在的 config 文件永不被改写为新默认）。
 - **`test_llm` 能力**——新命令：读 active provider，构建一次 `OpenAiClient`，做一次 `complete` 调用，返回 `{ok, message}` 与具体失败原因。复用现有 provider 构建路径。
 - **`set_api_key(provider, Option<key>)`**——`Some` upsert 进 env 文件（统一名 + `api_key_env` 归一），`None` 清除。双通道暴露（Tauri command + HTTP route）；core 函数可单测直调。
 - **`get_api_key_status(provider)`**——经 env 文件优先解析链的存在性检查；返回 未设置/已设置 + 来源。本地即时。

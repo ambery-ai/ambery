@@ -12,7 +12,7 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 
 - `harness.md` — Harness data model, injection rules, trigger model, and JSONL storage format
 - `agent-loop.md` — LLM abstraction, Tool Set protocol, and mock hook contract
-- `llm-setup.md` — first-run LLM setup guide (unconfigured default, setup modal, connection errors) and connection-error reporting
+- `llm-setup.md` — first-run LLM setup guide (unconfigured default, setup modal, key input, connection test)
 - `autonomy.md` — expression model, default mapping, and override semantics of expression Autonomy
 - `filter.md` — terminal text filtering strategy and structure-understanding data types
 - `debug-agent.md` — DebugAgent pure mock and debug CLI
