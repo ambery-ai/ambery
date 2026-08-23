@@ -58,13 +58,28 @@ async function render(bridge: Bridge, body: HTMLElement) {
     void bridge.setConfig!(path, value).then(() => void render(bridge, body));
   };
 
-  // active 选择（enum select）
+  // active 选择（enum select）+ 新增 provider（custom-select addMode，组件内实现）
   const activeNode = llmNodes.find((n) => n.path === "llm.active");
   if (activeNode) {
     body.appendChild(
       renderConfigNode(activeNode, {
         readOnly: resp.readOnly,
         applyValue: (p, v) => applyValue(p, v),
+        enumAddons: {
+          "llm.active": {
+            addMode: {
+              addLabel: "新增 provider（小写字母开头，仅小写/数字/_/-）",
+              onAdd: async (name) => {
+                const r = await bridge.setConfig!(`llm.providers.${name}`, {
+                  base_url: "",
+                  model: "",
+                });
+                if (r.ok) void render(bridge, body); // 重渲染：新 provider 进下拉选项
+                return r;
+              },
+            },
+          },
+        },
       }),
     );
   }

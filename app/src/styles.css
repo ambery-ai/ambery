@@ -723,9 +723,74 @@ html.browser body {
 }
 .cfg-select-option:hover { background: var(--ov-accent-bg); }
 .cfg-select-option.selected { color: var(--ov-accent); }
+/* custom-select addMode：下拉下方「+」触发器（独立行靠右） */
+.cfg-select .cfg-select-add-trigger {
+  display: block;
+  margin: 4px 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  border: 1px solid var(--ov-input-border);
+  border-radius: 5px;
+  background: var(--ov-input-bg);
+  color: var(--ov-text-strong);
+  cursor: pointer;
+}
+.cfg-select .cfg-select-add-trigger:hover {
+  border-color: var(--ov-accent-border);
+  color: var(--ov-accent);
+}
+/* addMode 一格弹层：与 .cfg-select-list 同款（fixed 浮层、同宽、主题化） */
+.cfg-select-add-popup {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  background: var(--ov-panel-bg);
+  border: 1px solid var(--ov-input-border);
+  border-radius: 5px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  color: var(--ov-text-strong);
+  padding: 2px;
+}
+.cfg-select-add-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cfg-select-add-cell .cfg-select-add-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--ov-input-bg);
+  border: 1px solid var(--ov-input-border);
+  border-radius: 4px;
+  color: var(--ov-text-strong);
+  padding: 2px 6px;
+  font: inherit;
+}
+.cfg-select-add-cell .cfg-select-add-confirm {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  line-height: 1;
+  border: 1px solid var(--ov-input-border);
+  border-radius: 4px;
+  background: var(--ov-input-bg);
+  color: var(--ov-ok);
+  cursor: pointer;
+}
+.cfg-select-add-cell .cfg-select-add-confirm:hover {
+  border-color: var(--ov-success);
+}
+.cfg-select-add-err {
+  color: var(--ov-error);
+  font-size: 11px;
+  padding: 2px 6px 4px;
+}
 .cfg-line input:disabled { opacity: 0.45; }
 .desc { color: color-mix(in srgb, var(--ov-text-strong) 45%, transparent); font-size: 11px; margin-top: 1px; }
-/* provider key 输入行（形态乙）：密码框 + 保存/清除 + 状态提示 */
+/* provider key 输入行（形态乙）：密码框 + 保存，保存后自动测连通；无清除 */
 .api-key-row .api-key-input {
   width: 170px;
   background: var(--ov-input-bg);
@@ -733,9 +798,25 @@ html.browser body {
   border-radius: 5px;
   color: var(--ov-text-strong);
   padding: 3px 6px;
+  font: inherit;
 }
 .api-key-row .api-key-input::placeholder { color: color-mix(in srgb, var(--ov-text-strong) 40%, transparent); }
-.api-key-row button { margin-left: 2px; }
+.api-key-row .api-key-input:disabled { opacity: 0.45; }
+.api-key-row .api-key-save {
+  background: var(--ov-input-bg);
+  color: var(--ov-text-strong);
+  border: 1px solid var(--ov-input-border);
+  border-radius: var(--ov-control-radius);
+  padding: 3px 10px;
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.api-key-row .api-key-save:hover {
+  border-color: var(--ov-accent-border);
+  color: var(--ov-accent);
+}
+.api-key-row .api-key-save:disabled { opacity: 0.45; cursor: default; }
 .api-key-hint.ok { color: var(--ov-ok); }
 .api-key-hint.warn { color: var(--ov-warn); }
 .map-head { color: color-mix(in srgb, var(--ov-text-strong) 75%, transparent); font-weight: 600; margin-top: 6px; }
