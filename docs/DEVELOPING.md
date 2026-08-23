@@ -69,6 +69,14 @@ Dev iteration with live reload: keep the vite dev server pinned to the port in `
 1. **Stale frontend embedded** — a bare `cargo build --release` (not `npx tauri build`) can embed an outdated or empty `dist/`; the shell shows a blank UI. Fix: build via `npx tauri build`.
 2. **WebKit cache directory missing** — if `~/Library/Caches/ambery/WebKit/ServiceWorkers/` does not exist, WebKit fails to initialize, the webview never loads (no `[tauri-cmd]` lines in the log), and windows exist but are invisible. Fix: `mkdir -p ~/Library/Caches/ambery/WebKit/ServiceWorkers`, then restart. Symptom in the log: `could not create directory ".../WebKit/ServiceWorkers" ... Operation not permitted`.
 
+## Inspect windows
+
+At runtime, invoke locate to list every ambery window with its position, size, and visibility, leaving a 10s border on the desktop (red visible, lime hidden):
+
+```bash
+pwsh -NoProfile -File tools/locate.ps1 -Highlight
+```
+
 ## Debugging LLM failures
 
 Point the backend at a dead endpoint to exercise the non-silent failure path:

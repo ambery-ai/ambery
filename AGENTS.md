@@ -24,6 +24,7 @@ Ambery 是 Tauri 多窗口桌宠（pet/chat/menu/shelf/card）+ Rust core。改�
 - `cargo run -p ambery-case -- frontend --silent` → 前端行为（headless，嵌 core + vitest）。
 - `cargo run -p ambery-case -- serve --brain-addr <url>` → 端到端链路（配合 LLM 替身 `python3 scripts/debug_brain.py` 与前端 `npm run dev`，浏览器观察）。
 - tauri CLI（`npx tauri dev` / `build`）→ 壳层（窗口、构建形态）。
+- `tools/locate.ps1` → 定位 Ambery 所有窗口的位置/尺寸/可见性（表格式输出）。
 
 ## User Goals
 

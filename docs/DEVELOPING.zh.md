@@ -69,6 +69,14 @@ cd app/src-tauri && AMBERY_PORT=47601 ./target/release/ambery   # 非默认端�
 1. **嵌入过期前端**——裸 `cargo build --release`（非 `npx tauri build`）可能嵌入旧版或空 `dist/`，壳呈现空白 UI。修复：走 `npx tauri build` 构建。
 2. **WebKit 缓存目录缺失**——`~/Library/Caches/ambery/WebKit/ServiceWorkers/` 不存在时 WebKit 初始化失败，webview 永不加载（日志无 `[tauri-cmd]` 行），窗口存在但不可见。修复：`mkdir -p ~/Library/Caches/ambery/WebKit/ServiceWorkers` 后重启。日志症状：`could not create directory ".../WebKit/ServiceWorkers" ... Operation not permitted`。
 
+## 查看窗口
+
+运行时调用 locate 列出所有 ambery 窗口的位置/尺寸/可见性，运行后在桌面上停留 10 秒边框（红色=可见，青绿=隐藏）：
+
+```bash
+pwsh -NoProfile -File tools/locate.ps1 -Highlight
+```
+
 ## 调试 LLM 失败
 
 把后端指向死端点以演练非静默失败路径：
