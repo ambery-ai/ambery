@@ -69,3 +69,7 @@ Terminal Content reading currently covers Windows Terminal (UIA sidecar) and zel
 ## Full Icon Redesign
 
 The 0.1.0 icon is a minimal placeholder: a transparent amber 16-tooth ring (mapping to the 16-direction positioning ring), no inner element. A full redesign — symbol, palette, inner motif, and per-size variants — is deferred to 0.2.0. A formal design must independently determine: the core symbol and its relationship to the pet character, the palette (current amber family vs a wider brand palette), the inner motif (repeated elements forming an inside/outside contrast), tray-size simplification (16px legibility), and the format pipeline (SVG source → PNG matrix → icns/ico) reproducibility.
+
+## Card Animation Overhaul
+
+Cards currently appear and close instantly, only following the View's movement; a holistic motion pass — entrance / exit, pop-out along the card's direction, hover / emphasis, and state-driven transitions coherent with the pet's autonomy motion — is a later capability. A formal design must independently determine: the motion vocabulary and whether cards share the pet's Motion registry or carry their own; per-card-type animation mapping and their differences; interruption / cancellation semantics when the user drags a card or a rapid effect update re-renders it; and whether animation belongs to the Surface display layer (local `_meta` management state, invisible to the Agent projection) or enters the card spec.

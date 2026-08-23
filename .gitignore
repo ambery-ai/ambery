@@ -21,4 +21,5 @@ ambery-case/cases/
 .idea/
 *.bak
 .vite/
-app/src-tauri/binaries/  # tauri externalBin 构建产物（CI 生成）
+# tauri externalBin 构建产物（CI 生成）
+app/src-tauri/binaries/
