@@ -2,47 +2,48 @@
 
 English | [中文](errors.zh.md)
 
-> This document defines ambery's two-layer error model — the **error layer** (what can fail and its nature) and the **display layer** (where each error surfaces). It does not define the current implementation, protocol, or configuration structure.
+> This document defines ambery's error presentation model — errors as notifications. It does not define the current implementation, protocol, or configuration structure.
 
-## Two layers
+## Model
 
-```
-   error layer                  display layer
- (sources × nature)           (where the user sees it)
-                        ──►
-    事件 / 状态                 气泡 / banner / Card
-```
+An error is a notification — the user learns from the UI, nothing more. Errors do not come in kinds; they differ only in how long they stay visible (retention). `unconfigured` is an error notification like any other — a persistent condition needing action; only the explicit `debug` mock mode produces no notification.
 
-## Error layer
+## Sources
 
-Each error source has a **nature**:
+| source | retention | action | example |
+|--------|-----------|--------|---------|
+| LLM call failure | transient | — | HTTP error / timeout on one call |
+| LLM init failure | persistent | setup | active provider misconfigured (no key / empty base_url) |
+| message enqueue failure | transient | — | queue full |
+| key write failure | transient | — | env file unwritable |
+| core unreachable | persistent | — | backend offline |
+| unconfigured | persistent | setup | no provider configured |
 
-- **Event** — a one-time occurrence (this turn's call failed). Consumed once and cleared.
-- **State** — a persistent condition (the active provider is broken). Lasts until the condition is fixed.
+## Presentation
 
-| source | nature | example |
-|--------|--------|---------|
-| LLM call failure | event | HTTP error / timeout on one call |
-| LLM init failure | state | active provider misconfigured (no key / empty base_url) |
-| message enqueue failure | event | queue full |
-| key write failure | event | env file unwritable |
-| core unreachable | state | backend offline |
+Two outlets, one per retention:
 
-`unconfigured` / `debug` are not errors — they have their own onboarding flow.
+- **Bubble** (chat stream) — transient: "what happened this turn". One per occurrence, consumed and cleared.
+- **Banner** (chat top) — persistent: "the system needs your attention". Opened by an error event with persistent retention, stays until dismissed. An action is optional: with one, click dispatches to the destination; without one, the banner is a pure persistent notice (dismissible only). At most two banners show at once — one per condition (repeat events of a condition claim no extra slot); excess conditions queue and slide into a slot when one is dismissed.
 
-## Display layer
+Retention lives in the outlet, not in a separate state value: the same error event opens both the transient bubble and the persistent banner. A persistent condition must reach the persistent outlet — a transient bubble alone would surface it once and go silent.
 
-Three outlets, each answering one question:
-
-- **Bubble** (chat stream) — "what happened this turn"; event-driven, one per occurrence.
-- **Banner** (chat top) — "the system needs attention"; state-driven, persistent entry to the setup guide.
-- **Error-frame Card** (pet side) — the standing presence of a degraded state; complements the bubble's one-shot nature.
+Cards are a component-rendering concern, not an error outlet.
 
 ## Channel
 
-The nature of a source decides its channel:
+```
+ error sources (any, see table above)
+      │
+      ▼
+error event { message, retention, action? }
+      │
+      ├─ persistent ──► Banner (≤2 on screen, one per condition, excess
+      │                     queue slides up on dismiss; action? optional —
+      │                     present: click dispatches; absent: pure notice)
+      └─ transient ────► Bubble (one per occurrence, consumed and cleared)
+```
 
-- **Events** flow as an `llm_error`-style effect (consume-and-clear per turn) → **bubble**.
-- **State** is detected independently of events → **banner / Card**.
+All errors flow through the event channel as `error` events. Each event carries `message` (user-facing text), `retention` (`transient` | `persistent`), and an optional `action` — a destination id (initial set: `setup`, the setup guide). The frontend routes by retention: persistent opens the banner, transient shows a bubble only; an action, when present, decides the banner's click behavior. The source is not part of the contract — the frontend never branches on it.
 
-A source reported through the wrong channel breaks: a persistent state reported as a one-shot event goes silent after the first report; an event re-reported every turn becomes spam.
+A persistent condition is emitted at its change points (startup, config or key change, call outcome), not re-emitted every turn; the banner treats repeat events as no-ops.

@@ -46,6 +46,7 @@
 - `core-server.md` — 内嵌薄 HTTP server：仅绑 127.0.0.1 承载外部 hook 接入
 - `streaming.md` — LLM 回复流式增量推送契约
 - `effect-reporting.md` — Tauri 运行时动作 effect 上报：动作层、通道、kind/payload
+- `errors.md` — 错误呈现模型：错误即通知、气泡 / banner 出口、记录与呈现分离
 
 ### 前端与窗口
 

@@ -47,6 +47,7 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 - `core-server.md` — embedded thin HTTP server: binds only 127.0.0.1 to carry external hook access
 - `streaming.md` — LLM reply streaming incremental push contract
 - `effect-reporting.md` — Tauri runtime action effect reporting: action layer, channel, kind/payload
+- `errors.md` — error presentation model: errors as notifications, bubble/banner outlets, record–presentation separation
 
 ### Frontend and windows
 
