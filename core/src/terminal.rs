@@ -205,25 +205,37 @@ impl ZellijAdapter {
         }
     }
 
-    /// 定位：list-panes 枚举 pane，TYPE=terminal（is_plugin=false）且 TITLE contains marker 者
+    /// 定位：list-panes 枚举 pane，跳过 plugin pane，按 project 名匹配 title。
+    /// inst = `<project>·<sid8>`，真实 zellij title 只含 project（`◐ ambery`），
+    /// 故拆出 project 做 Contains 匹配；多命中时 focused 优先（内部消解），否则取首个。
     fn find_pane(&self, inst: &str) -> Option<TabRef> {
         let out = self.runner.run(&["action", "list-panes", "-a", "--json"])?;
         let panes: Vec<serde_json::Value> = serde_json::from_str(&out).ok()?;
+        // inst 无 '·'（mock 回退 / project-only）时整体作为 project
+        let project = inst.split('·').next().unwrap_or(inst);
+        let mut hits: Vec<(i64, bool)> = Vec::new(); // (pane_id, is_focused)
         for p in panes {
             // 只认真实终端 pane，跳过 plugin pane（tab-bar / status-bar / zellij:link）
             if p["is_plugin"].as_bool() == Some(false) {
                 let title = p["title"].as_str().unwrap_or("");
-                // Contains 匹配（✳ 前缀与 | 描述后缀不影响命中）
-                if title.contains(inst) {
-                    let id = p["id"].as_i64()?;
-                    return Some(TabRef {
-                        hwnd: -(100_000 + id),
-                        index: id,
-                    });
+                // Contains 匹配（spinner / ✳ 前缀与 | 描述后缀不影响命中）
+                if title.contains(project) {
+                    if let Some(id) = p["id"].as_i64() {
+                        hits.push((id, p["is_focused"].as_bool() == Some(true)));
+                    }
                 }
             }
         }
-        None
+        let id = match hits.len() {
+            0 => return None,
+            1 => hits[0].0,
+            _ => hits
+                .iter()
+                .find(|(_, f)| *f)
+                .map(|(id, _)| *id)
+                .unwrap_or(hits[0].0),
+        };
+        Some(TabRef { hwnd: -(100_000 + id), index: id })
     }
 }
 
@@ -352,8 +364,8 @@ mod tests {
     /// Stub zellij CLI runner（系统边界 mock，仅在系统边界打桩）。
     /// 复刻真实命令形态：list-panes -a --json（数组）/ dump-screen -p <id>。
     struct StubZellij {
-        /// (pane_id, title, is_plugin)
-        panes: Vec<(i64, String, bool)>,
+        /// (pane_id, title, is_plugin, is_focused)
+        panes: Vec<(i64, String, bool, bool)>,
         /// pane_id → 内容
         contents: HashMap<i64, String>,
     }
@@ -365,11 +377,12 @@ mod tests {
                     let arr: Vec<serde_json::Value> = self
                         .panes
                         .iter()
-                        .map(|(id, title, is_plugin)| {
+                        .map(|(id, title, is_plugin, is_focused)| {
                             serde_json::json!({
                                 "id": id,
                                 "title": title,
                                 "is_plugin": is_plugin,
+                                "is_focused": is_focused,
                             })
                         })
                         .collect();
@@ -386,12 +399,12 @@ mod tests {
 
     #[test]
     fn zellij_adapter_locate_read_unlocate() {
-        // zellij pane title 带 marker 前缀与描述后缀；
-        // plugin pane（tab-bar）混入以验证 TYPE 过滤
+        // zellij pane title 含 project（spinner 前缀与描述后缀）；
+        // plugin pane（zellij:link）混入以验证 TYPE 过滤
         let z = Arc::new(StubZellij {
             panes: vec![
-                (0, "(.) - zellij:link".into(), true),
-                (3, "✳ ft | 收尾中".into(), false),
+                (0, "(.) - zellij:link".into(), true, false),
+                (3, "◐ ft | 收尾中".into(), false, false),
             ],
             contents: HashMap::from([(3, "终端内容".to_string())]),
         });
@@ -410,6 +423,39 @@ mod tests {
         let tab2 = a.locate("ft").expect("重新定位");
         assert_eq!(tab2, tab, "pane id 稳定，重定位回到同一 TabRef");
         assert_eq!(a.read(&tab2).as_deref(), Some("终端内容"));
+    }
+
+    #[test]
+    fn zellij_locate_matches_project_not_marker() {
+        // 真实 zellij title 只含 project（spinner 前缀），定位名是 <project>·<sid8>——
+        // 按 project 命中，而非全名 marker
+        let z = Arc::new(StubZellij {
+            panes: vec![
+                (0, "(.) - zellij:link".into(), true, false),
+                (2, "◐ ambery".into(), false, false),
+            ],
+            contents: HashMap::from([(2, "ambery 内容".to_string())]),
+        });
+        let a = ZellijAdapter::new(z);
+        let tab = a.locate("ambery·a1b2c3d4").expect("按 project 命中");
+        assert_eq!(tab.index, 2);
+        assert_eq!(a.read(&tab).as_deref(), Some("ambery 内容"));
+    }
+
+    #[test]
+    fn zellij_locate_prefers_focused_on_multiple_project_hits() {
+        // 同名 project 多个 pane → focused 优先（内部消解），否则取首个
+        let z = Arc::new(StubZellij {
+            panes: vec![
+                (1, "◐ agent-team".into(), false, false),
+                (2, "◐ ambery".into(), false, false),
+                (5, "◐ ambery".into(), false, true),
+            ],
+            contents: HashMap::new(),
+        });
+        let a = ZellijAdapter::new(z);
+        let tab = a.locate("ambery·deadbeef").expect("多命中取 focused");
+        assert_eq!(tab.index, 5, "focused pane 5 胜出");
     }
 
     #[test]

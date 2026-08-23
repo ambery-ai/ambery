@@ -532,10 +532,16 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     ambery.sidecar_enabled = sidecar.is_some();
 
     {
-        use ambery_core::terminal::{Composite, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
+        use ambery_core::terminal::{
+            Composite, ProcessZellijRunner, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter, ZellijAdapter,
+        };
         let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
         if let Some(sc) = &sidecar {
             adapters.push(Arc::new(WtAdapter::new(sc.clone())));
+        }
+        // zellij 直调 CLI（跨平台，adapter_zellij 开关门控）——与 host.rs 装配一致
+        if ambery.config.terminal.adapter_zellij {
+            adapters.push(Arc::new(ZellijAdapter::new(Arc::new(ProcessZellijRunner))));
         }
         if !adapters.is_empty() {
             ambery.terminal = Some(Arc::new(Composite::new(adapters)));
