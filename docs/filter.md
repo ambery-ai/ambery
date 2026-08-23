@@ -54,7 +54,7 @@ Note: **diff is not a separate block type** — it is the content of the ToolCal
 core/src/filter/
   mod.rs      # trait + TerminalDigest/ContentBlock + render + detect_change 默认实现 + by_name
   claude.rs   # Claude Code 规则
-  opencode.rs # OpenCode 规则（glyph 表）
+  opencode.rs # OpenCode 策略（glyph 表；未注册不生效）
 ```
 
 trait:
@@ -70,7 +70,13 @@ pub trait Filter {
 }
 ```
 
-Filter selects the per-instance hook `kind` (docs/hook.md §Payload); currently supported: `"claude"` / `"opencode"`; a missing or unsupported kind is rejected directly before the instance state update, Terminal Content read, Filter, and Queue.
+Filter selects the per-instance hook `kind` (docs/hook.md §Payload) through the `by_name` registry — the seam where per-harness policies plug in. A harness strategy lives in its own module (claude.rs, opencode.rs, …) and takes effect by registration; an unregistered kind is unsupported and rejected directly before the instance state update, Terminal Content read, Filter, and Queue — no fallback, no partial support. The registry is the single admission point; the generic layer never hardcodes a harness.
+
+## Boundaries
+
+- **Filter ↔ TerminalAdapter** — the adapter reads raw text (locate + read); filter does structure understanding (digest + detect_change). One-way dependency adapter → filter. The adapter abstraction is not code-cli-specific: future terminals may serve purposes beyond a code CLI (see terminal-adapter.md).
+- **Filter ↔ hook** — the hook manages lifecycle state (register / close / status); filter manages content understanding. Orthogonal, no overlap.
+- **Hardcoded inside the seam** — per-harness rules are hardcoded in the policy file (claude.rs), never in the generic layer (mod.rs). Adding a harness = new module + register in `by_name`; core untouched.
 
 ## claude.rs Noise List (From Real Samples)
 

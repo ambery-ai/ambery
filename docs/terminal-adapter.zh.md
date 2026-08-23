@@ -52,6 +52,7 @@ agent 拿 M3 的工具。
 ## 原则
 
 - **可插件化（seam）** — 每层边界是 provider/consumer 契约（一个 seam），adapter 可插件化：用户新增终端类型与查询阶段，不碰 core。
+- **职责不 code-cli 专用化** — adapter 抽象服务于闭环的读取与枚举；未来终端可能服务 code cli 之外的多用途，抽象不得写成 code cli 专用。
 
 ## 实现（L1 传输 / 查找 provider）
 

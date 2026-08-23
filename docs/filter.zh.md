@@ -54,7 +54,7 @@ pub enum ContentBlock {
 core/src/filter/
   mod.rs      # trait + TerminalDigest/ContentBlock + render + detect_change 默认实现 + by_name
   claude.rs   # Claude Code 规则
-  opencode.rs # OpenCode 规则（glyph 表）
+  opencode.rs # OpenCode 策略（glyph 表；未注册不生效）
 ```
 
 trait：
@@ -70,7 +70,13 @@ pub trait Filter {
 }
 ```
 
-Filter 唯一按实例的 hook `kind` 选择（docs/hook.md §Payload）；当前支持 `"claude"` / `"opencode"`；缺失或不受支持的 kind 在实例状态更新、读 Terminal Content、Filter 与 Queue 之前直接拒绝。
+Filter 唯一按实例的 hook `kind` 选择（docs/hook.md §Payload），经 `by_name` 注册表接入——这是 per-harness 策略的 seam（可插拔缝）。每个 harness 策略是独立模块（claude.rs、opencode.rs、…），**注册即生效**；未注册的 kind = 不受支持，在实例状态更新、读 Terminal Content、Filter 与 Queue 之前直接拒绝——无回退、无半支持。注册表是唯一准入点；通用层永不硬编码某个 harness。
+
+## 边界
+
+- **Filter ↔ TerminalAdapter** — adapter 读原文（定位+读取）；filter 做结构理解（digest + detect_change）。单向依赖 adapter → filter。adapter 抽象不得 code-cli 专用化：未来终端可能服务 code cli 之外的多用途（见 terminal-adapter.md）。
+- **Filter ↔ hook** — hook 管生命周期状态（register / close / status）；filter 管内容理解。正交，无重叠。
+- **硬编码在 seam 内** — per-harness 规则硬编码在策略文件（claude.rs）里，绝不进通用层（mod.rs）。新增 harness = 新模块 + `by_name` 注册；core 不碰。
 
 ## claude.rs 噪音清单（来自真实样本）
 

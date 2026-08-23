@@ -52,6 +52,7 @@ The tool through which the agent obtains M3.
 ## Principles
 
 - **Plugin-ability (seam)** — each layer boundary is a provider/consumer contract (a seam), so the adapter is pluggable: users add new terminal types and query stages without touching the core.
+- **Responsibilities are not code-cli-specific** — the adapter abstraction serves reading and enumeration for the loop; future terminals may serve purposes beyond a code CLI, so the abstraction must not become code-cli-specialized.
 
 ## Implementations (L1 transport / lookup providers)
 
