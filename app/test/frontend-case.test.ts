@@ -113,12 +113,17 @@ it("T4 #26：× 走 intentClose——userClosed + release（非 remove）+ 钩�
   expect(hook).toHaveBeenCalled(); // windowed 副作用钩子（requestRelease+adapter.hide）
 });
 
-it("T6 LLM 失败不再静音：llm_error effect 渲染错误帧卡片", async () => {
-  await emitEffect({ kind: "llm_error", message: "openai 超时" });
-  await poll(() => cardsById("llm-error").length === 1, "llm-error 卡片渲染");
-  const el = cardsById("llm-error")[0] as HTMLElement;
-  expect(el.textContent).toContain("LLM 调用失败");
-  expect(el.textContent).toContain("openai 超时");
+it("T6 LLM 失败不再静音：error effect 在 chat 出错误气泡（非卡片）", async () => {
+  await emitEffect({ kind: "error", message: "openai 超时", retention: "transient" });
+  await poll(
+    () =>
+      [...document.querySelectorAll(".chat-llm-error")].some((el) =>
+        el.textContent?.includes("openai 超时"),
+      ),
+    "chat 错误气泡",
+  );
+  // 错误不走卡片渲染通道（卡片是组件渲染语义，非错误出口）
+  expect(cardsById("llm-error").length).toBe(0);
 });
 
 it("T3b #25 压测：create→close→update 快速序列下同 id 不重复、不复活", async () => {

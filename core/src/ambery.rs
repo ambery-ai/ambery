@@ -54,8 +54,6 @@ pub enum Effect {
         retention: ErrorRetention,
         action: Option<String>,
     },
-    /// LLM 失败已降级 DebugAgent——显式 UI 错误帧（不再静默）
-    LlmError { message: String },
     /// 流式增量：LLM 回复片段——纯显示优化，不经 Queue/Context。
     /// 不走 effects Vec（实时性），经 effect_sink 旁路直推。
     AssistantDelta {
@@ -81,7 +79,6 @@ impl Effect {
             Effect::ConfigChanged { llm_changed } => {
                 ("config_changed", json!({ "llm_changed": llm_changed }))
             }
-            Effect::LlmError { message } => ("llm_error", json!({ "message": message })),
             Effect::Error { message, retention, action } => (
                 "error",
                 json!({ "message": message, "retention": retention.as_str(), "action": action }),
@@ -2919,7 +2916,6 @@ mod tests {
                 "set_autonomy",
             ),
             (Effect::ConfigChanged { llm_changed: false }, "config_changed"),
-            (Effect::LlmError { message: "boom".into() }, "llm_error"),
             (
                 Effect::Error { message: "boom".into(), retention: ErrorRetention::Persistent, action: Some("setup".into()) },
                 "error",

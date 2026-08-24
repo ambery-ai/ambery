@@ -2,7 +2,7 @@
 // 滚动由用户意图驱动（跟随最新 / 阅读历史两态），输入服务于「组织一段话并决定发送」，
 // 内部状态（Queue/Context/流式增量/窗口尺寸）必须翻译为用户可理解的反馈，不得抢视口。
 
-import type { Bridge, ContextMessage } from "../bridge";
+import type { Bridge, ContextMessage, ErrorEvent } from "../bridge";
 import { attachDrag } from "../drag";
 import { reportEffect } from "../effects";
 import { t, wireI18n } from "../i18n";
@@ -192,9 +192,9 @@ export class ChatPanel {
       this.updateQueueStatus();
     });
 
-    // LLM 连接错误：消息流错误气泡（区分原因）+ 输入框上方 banner（可关闭，带打开配置）
-    bridge.onLlmError?.((message) => {
-      this.showLlmError(message);
+    // 错误通知（错误即通知模型）：按 retention 路由——transient 气泡 / persistent banner
+    bridge.onError?.((e) => {
+      this.showError(e);
     });
 
     store.onContext((msgs) => {
@@ -287,37 +287,46 @@ export class ChatPanel {
     }
   }
 
-  /** LLM 连接错误：消息流错误气泡（区分原因；失败当轮回退 DebugAgent 仍出回复，须注明降级）。
-   *  界面瞬态（非 Context 内容）：renderHistory 全量重渲时保留（与 sendErrorEl 同模式） */
-  private llmErrorEl: HTMLDivElement | null = null;
+  /** 错误通知按 retention 路由：transient → 消息流气泡（一次一现，文案 = 后端用户可读
+   *  message）；persistent → 顶部 banner。气泡是界面瞬态（非 Context 内容）：
+   *  renderHistory 全量重渲时保留（与 sendErrorEl 同模式） */
+  private errorBubbleEl: HTMLDivElement | null = null;
 
-  private showLlmError(message: string) {
+  private showError(e: ErrorEvent) {
+    if (e.retention === "persistent") {
+      this.showBanner(e.message, e.action ?? null, e.action ?? "notice");
+      return;
+    }
     const bubble = document.createElement("div");
     bubble.className = "chat-msg chat-system chat-llm-error";
-    bubble.textContent = `${t("chat.llm-error")}: ${message}（${t("chat.degraded-reply")}）`;
+    bubble.textContent = e.message;
     this.historyEl.append(bubble);
-    this.llmErrorEl = bubble;
+    this.errorBubbleEl = bubble;
     this.scrollToBottom();
-    // 连带打开连接失败 banner（同一 setup_banner 元素的"连接失败"态）
-    this.showSetupBanner("chat.llm-error-banner");
-    // 动作记录：前端渲染了错误气泡（docs/storage.md effect——记录不驱动渲染）
-    reportEffect("error_bubble", { message });
+    // 动作记录：前端渲染了错误气泡（记录不驱动渲染）
+    reportEffect("error_bubble", { message: e.message });
   }
 
-  /** 未配置/连接失败 banner（同一元素两种状态，docs/llm-setup.md）：
-   *  unconfigured → "未配置"文案；LLM 失败 → "连接失败"文案。
-   *  点击打开引导 modal；可关闭（仅隐藏当前）。文案 key 由调用方给。 */
-  showSetupBanner(textKey: "chat.setup-banner" | "chat.llm-error-banner") {
+  /** 配置引导 banner 入口（chat-window 首启未配置检测调用） */
+  showSetupBanner(textKey: "chat.setup-banner") {
+    this.showBanner(t(textKey), "setup", textKey);
+  }
+
+  /** banner 出口：单元素——已有 banner 在屏时不叠加。
+   *  action="setup" → 点击打开配置引导 modal；无 action → 纯告知。关闭仅隐藏当前 */
+  private showBanner(text: string, action: string | null, reportState: string) {
     if (this.setupBannerEl) return;
     const banner = document.createElement("div");
     banner.className = "chat-setup-banner";
-    const text = document.createElement("span");
-    text.textContent = t(textKey);
-    banner.appendChild(text);
-    banner.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).classList.contains("chat-setup-banner-close")) return;
-      this.onOpenSetup?.();
-    });
+    const span = document.createElement("span");
+    span.textContent = text;
+    banner.appendChild(span);
+    if (action === "setup") {
+      banner.addEventListener("click", (e) => {
+        if ((e.target as HTMLElement).classList.contains("chat-setup-banner-close")) return;
+        this.onOpenSetup?.();
+      });
+    }
     const close = document.createElement("button");
     close.className = "chat-setup-banner-close";
     close.textContent = "×";
@@ -325,8 +334,8 @@ export class ChatPanel {
     banner.appendChild(close);
     this.historyEl.before(banner);
     this.setupBannerEl = banner;
-    // 动作记录：前端显示了 banner（docs/storage.md effect——记录不驱动渲染）
-    reportEffect("setup_banner", { state: textKey });
+    // 动作记录：前端显示了 banner（记录不驱动渲染）
+    reportEffect("setup_banner", { state: reportState });
   }
 
   clearSetupBanner() {
@@ -532,7 +541,7 @@ export class ChatPanel {
     if (this.streamRow) this.historyEl.append(this.streamRow);
     if (this.thinkEl) this.historyEl.append(this.thinkEl);
     if (this.sendErrorEl) this.historyEl.append(this.sendErrorEl);
-    if (this.llmErrorEl) this.historyEl.append(this.llmErrorEl);
+    if (this.errorBubbleEl) this.historyEl.append(this.errorBubbleEl);
     // 新消息计数（阅读历史时；一条流式回复只计一条，不因增量重复计）
     if (!this.follow && visible.length > this.lastRenderedCount) {
       this.pendingNew += visible.length - this.lastRenderedCount;

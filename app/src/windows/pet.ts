@@ -329,17 +329,6 @@ export async function main() {
     };
     bridge.onRenderComponent(renderCard);
 
-    // LLM 失败不再静音：错误帧走同一卡片渲染路径（同 id 原地更新/覆盖）
-    bridge.onLlmError?.((message) => {
-      renderCard({
-        id: "llm-error",
-        type: "text_card",
-        title: "LLM 调用失败",
-        text: message,
-        direction: "auto",
-      });
-    });
-
     // 显式关闭（持续管理协议：agent close action；统一关闭收口，window_closed Rust 端记录）
     bridge.onCloseComponent?.((id) => {
       void actions.closeCardWindow(id);
@@ -372,16 +361,6 @@ export async function main() {
     const mgr = new ComponentManager(mount, bridge, () => view.center(), false, engine);
     const chatPanel = new ChatPanel(mount, bridge, store, engine);
 
-    // LLM 失败错误帧（浏览器调试形态同 Tauri：同 id 原地更新）
-    bridge.onLlmError?.((message) => {
-      mgr.render({
-        id: "llm-error",
-        type: "text_card",
-        title: "LLM 调用失败",
-        text: message,
-        direction: "auto",
-      });
-    });
     // 手势（browser 与 Tauri 同一语义）：
     // 右键 = 唤出/关闭 Chat（chat:toggle；pet 原地不动，无吸附态）
     view.el.addEventListener("chat:toggle", () => chatPanel.toggle());

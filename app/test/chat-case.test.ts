@@ -166,8 +166,8 @@ it("回应提示：发送后出现「…」，delta 到达即消失；排队状�
   await vi.waitFor(() => expect((mount.querySelector(".chat-queue-status") as HTMLElement).hidden).toBe(true));
 });
 
-it("UI 动作记录：渲染用户气泡/错误气泡/未配置 banner 时 effect.jsonl 有对应记录", async () => {
-  // docs/storage.md effect 语义：记录动作不驱动渲染——前端渲染 UI 单元后经上报通道记录
+it("UI 动作记录：渲染用户气泡/错误气泡/错误 banner 时 effect.jsonl 有对应记录", async () => {
+  // effect 语义：记录动作不驱动渲染——前端渲染 UI 单元后经上报通道记录
   const { mount } = await makePanel();
   const input = mount.querySelector<HTMLTextAreaElement>(".chat-input")!;
 
@@ -180,30 +180,38 @@ it("UI 动作记录：渲染用户气泡/错误气泡/未配置 banner 时 effec
   );
   expect(readEffects()).toContain("气泡记录测试");
 
-  // 错误气泡 → error_bubble（直接调 showLlmError 的公开路径：经 onLlmError 订阅）
+  // 错误通知按 retention 路由（错误即通知模型）：transient → 气泡（不开 banner）；
+  // persistent → banner（不开气泡）。经 shim effect 总线注入 error 事件驱动
   const { panel } = await makePanel();
-  const baseErr = (readEffects().match(/"error_bubble"/g) ?? []).length;
-  const errMsg = "LLM 调用失败：连接超时";
-  (panel as unknown as { bridge: Bridge }).bridge = (panel as unknown as { bridge: Bridge }).bridge;
   panel.onOpenSetup = () => {};
-  // 触发 onLlmError：chat.ts 构造函数里 bridge.onLlmError 订阅了 showLlmError
-  const bridge = (panel as unknown as { bridge: Bridge }).bridge as Bridge;
-  void bridge; // 保留引用：llmError 通过真实 bridge 注入
-  // 经 shim effect 总线注入 llm_error（后端事件 → 前端渲染气泡 → 记录 error_bubble）
+  const baseErr = (readEffects().match(/"error_bubble"/g) ?? []).length;
+  const baseBanner = (readEffects().match(/"setup_banner"/g) ?? []).length;
+  const errMsg = "LLM 调用失败：连接超时";
   await fetch(`${coreBase()}/debug/effect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind: "llm_error", message: errMsg }),
+    body: JSON.stringify({ kind: "error", message: errMsg, retention: "transient" }),
   });
   await vi.waitFor(() =>
     expect((readEffects().match(/"error_bubble"/g) ?? []).length).toBeGreaterThan(baseErr),
   );
   expect(readEffects()).toContain(errMsg);
+  // transient 只气泡：banner 不增（retention 是唯一路由轴）
+  expect((readEffects().match(/"setup_banner"/g) ?? []).length).toBe(baseBanner);
 
-  // llm_error 连带打开连接失败 banner（同一 setup_banner 元素的"连接失败"态，
-  // 与未配置态共用元素不重复创建）——验证 setup_banner 已随错误气泡出现
+  // persistent + action=setup → banner（文案 = 后端 message 进 DOM；记录带 state）
+  const bannerMsg = "provider「x」初始化失败：环境变量未设置";
+  await fetch(`${coreBase()}/debug/effect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "error", message: bannerMsg, retention: "persistent", action: "setup" }),
+  });
   await vi.waitFor(() =>
-    expect((readEffects().match(/"setup_banner"/g) ?? []).length).toBeGreaterThan(0),
+    expect((readEffects().match(/"setup_banner"/g) ?? []).length).toBeGreaterThan(baseBanner),
   );
-  expect(readEffects()).toContain("chat.llm-error-banner");
+  // banner 文案 = 后端 message（本面板的 banner 元素）
+  const banner = [...document.querySelectorAll(".chat-setup-banner")].find((b) =>
+    b.textContent?.includes(bannerMsg),
+  );
+  expect(banner).toBeTruthy();
 });

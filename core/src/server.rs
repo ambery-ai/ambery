@@ -90,7 +90,6 @@ pub fn effect_json(e: &Effect) -> Value {
         Effect::CloseComponent(id) => json!({ "kind": "close_component", "id": id }),
         Effect::SetAutonomy { face, motion, ttl_ms, once } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms, "once": once }),
         Effect::ConfigChanged { .. } => json!({ "kind": "config" }),
-        Effect::LlmError { message } => json!({ "kind": "llm_error", "message": message }),
         Effect::Error { message, retention, action } => json!({
             "kind": "error", "message": message, "retention": retention.as_str(), "action": action,
         }),

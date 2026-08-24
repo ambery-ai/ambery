@@ -103,6 +103,14 @@ export interface ContextMessage {
   ts: number;
 }
 
+/** 错误通知（错误即通知模型）：retention 是唯一路由轴——transient 瞬时气泡 /
+ *  persistent 常驻 banner；action 可选：banner 点击分派目标（如 "setup" 配置引导），无则纯告知 */
+export interface ErrorEvent {
+  message: string;
+  retention: "transient" | "persistent";
+  action?: string;
+}
+
 export interface Bridge {
   getConfig(): Promise<AppConfig>;
   getTopState(): Promise<TopState>;
@@ -131,8 +139,8 @@ export interface Bridge {
   onAssistantDelta?(cb: (d: { content?: string; reasoning_content?: string }) => void): void;
   /** 可选：一轮回复完毕（loading 收尾，完整回复已写 Context） */
   onAssistantDone?(cb: () => void): void;
-  /** 可选：LLM 失败已降级——显式错误帧（不再静音） */
-  onLlmError?(cb: (message: string) => void): void;
+  /** 可选：错误通知（错误即通知模型）——按 retention 路由呈现 */
+  onError?(cb: (e: ErrorEvent) => void): void;
   /** 可选：显式关闭卡片（Component 持续管理协议：action="close"） */
   onCloseComponent?(cb: (id: string) => void): void;
   /** 可选（TauriBridge）：Card 跨重启恢复——启动拉取全部存活卡片
@@ -413,7 +421,7 @@ class TauriBridge implements Bridge {
   private configListeners: ((cfg: AppConfig) => void)[] = [];
   private deltaListeners: ((d: { content?: string; reasoning_content?: string }) => void)[] = [];
   private doneListeners: (() => void)[] = [];
-  private llmErrorListeners: ((message: string) => void)[] = [];
+  private errorListeners: ((e: ErrorEvent) => void)[] = [];
   private closeListeners: ((id: string) => void)[] = [];
   private cardsListeners: (() => void)[] = [];
 
@@ -433,6 +441,8 @@ class TauriBridge implements Bridge {
         content?: string;
         reasoning_content?: string;
         message?: string;
+        retention?: "transient" | "persistent";
+        action?: string | null;
         id?: string;
       };
       if (!msg?.kind) return;
@@ -467,8 +477,14 @@ class TauriBridge implements Bridge {
         case "assistant_done":
           this.doneListeners.forEach((cb) => cb());
           break;
-        case "llm_error":
-          this.llmErrorListeners.forEach((cb) => cb(msg.message ?? "LLM 调用失败"));
+        case "error":
+          this.errorListeners.forEach((cb) =>
+            cb({
+              message: msg.message ?? "LLM 调用失败",
+              retention: msg.retention === "persistent" ? "persistent" : "transient",
+              action: msg.action ?? undefined,
+            }),
+          );
           break;
       }
     });
@@ -532,8 +548,8 @@ class TauriBridge implements Bridge {
   onAssistantDone(cb: () => void): void {
     this.doneListeners.push(cb);
   }
-  onLlmError(cb: (message: string) => void): void {
-    this.llmErrorListeners.push(cb);
+  onError(cb: (e: ErrorEvent) => void): void {
+    this.errorListeners.push(cb);
   }
   onCloseComponent(cb: (id: string) => void): void {
     this.closeListeners.push(cb);
