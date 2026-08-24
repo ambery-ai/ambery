@@ -894,6 +894,22 @@ impl<L: Llm> AmberyBackend<L> {
         }
     }
 
+    /// 错误通知单点：动作流落盘 + effect_sink 即时下发
+    /// （与 delta 同旁路——不等轮末 effects Vec，轮次中段错误即时可见）
+    fn emit_error(&self, message: String, retention: ErrorRetention, action: Option<String>) {
+        let e = Effect::Error { message, retention, action };
+        let (kind, payload) = e.effect_kind_payload();
+        let _ = self.harness.log_effect(
+            crate::EffectOrigin::Backend,
+            kind,
+            payload,
+            crate::server::now_ms(),
+        );
+        if let Some(sink) = &self.effect_sink {
+            sink(&e);
+        }
+    }
+
     /// 一轮触发
     /// 调用前输入已写 Context、Event Buffer 已在放行点附带（release_one）。
     /// pending_notifications：未决通知数（server 层计数传入，推导 notify key 用）
@@ -954,11 +970,19 @@ impl<L: Llm> AmberyBackend<L> {
                     sink(&e);
                 }
             };
-            let out = self
+            let out = match self
                 .llm
                 .complete_streaming(&request, &tools, effort, &on_delta)
                 .await
-                .map_err(std::io::Error::other)?;
+            {
+                Ok(out) => out,
+                Err(err) => {
+                    // LLM 调用失败 = transient 错误通知；本轮到此为止，
+                    // 统一走结尾 AssistantDone 收尾（loading 不悬挂）
+                    self.emit_error(format!("LLM 调用失败：{err}"), ErrorRetention::Transient, None);
+                    break;
+                }
+            };
             if let Some(message) = self.llm.take_last_error() {
                 // 落盘（docs/storage.md effect：记录动作——llm_error 是后端副作用，进动作流）
                 let _ = self.harness.log_effect(
@@ -1044,11 +1068,18 @@ impl<L: Llm> AmberyBackend<L> {
                         sink(&e);
                     }
                 };
-                let out = self
+                let out = match self
                     .llm
                     .complete_streaming(&request, &[], effort, &on_delta)
                     .await
-                    .map_err(std::io::Error::other)?;
+                {
+                    Ok(out) => out,
+                    Err(err) => {
+                        // 收尾调用失败同主路径：transient 错误通知 + 本轮收尾
+                        self.emit_error(format!("LLM 调用失败：{err}"), ErrorRetention::Transient, None);
+                        break;
+                    }
+                };
                 if let Some(message) = self.llm.take_last_error() {
                     effects.push(Effect::LlmError { message });
                 }
@@ -2840,6 +2871,49 @@ mod tests {
             Some("流式回复全文")
         );
         let _ = std::fs::remove_dir_all(tmp_dir("stream"));
+    }
+
+    /// 恒失败的 LLM（错误通道测试）：complete 即 Err，流式默认回落同路
+    struct FailingLlm;
+    impl crate::llm::Llm for FailingLlm {
+        fn complete(
+            &self,
+            _messages: &[ContextMessage],
+            _tools: &[crate::llm::ToolDef],
+            _effort: Option<crate::llm::Effort>,
+        ) -> impl std::future::Future<Output = Result<LlmOutput, String>> + Send {
+            async { Err("boom".to_string()) }
+        }
+    }
+
+    #[tokio::test]
+    async fn llm_call_failure_surfaces_transient_error_and_done() {
+        // LLM 调用失败：transient error 经 sink 即时下发 + 动作流落盘；
+        // AssistantDone 照发（loading 收尾不变式），run_trigger 不炸
+        let dir = tmp_dir("llm-fail");
+        let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
+        let mut ov = AmberyBackend::new(harness, Config::default(), FailingLlm);
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<Effect>::new()));
+        let seen2 = seen.clone();
+        ov.effect_sink = Some(std::sync::Arc::new(move |e: &Effect| {
+            seen2.lock().unwrap().push(e.clone());
+        }));
+        ov.enqueue(Role::User, "hi".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
+        let effects = ov.drain_queue(0).await.unwrap();
+        let seen = seen.lock().unwrap();
+        assert!(
+            seen.iter().any(|e| matches!(e, Effect::Error { retention: ErrorRetention::Transient, message, .. } if message.contains("boom"))),
+            "{seen:?}"
+        );
+        assert!(seen.iter().any(|e| matches!(e, Effect::AssistantDone)), "{seen:?}");
+        // 错误走 sink 旁路即时下发，不进 effects Vec 等轮末
+        assert!(!effects.iter().any(|e| matches!(e, Effect::Error { .. })), "{effects:?}");
+        let recs = ov.harness.read_effects().unwrap();
+        assert!(
+            recs.iter().any(|r| r.kind == "error" && r.payload["retention"] == json!("transient")),
+            "{recs:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ── 动作流记录──
