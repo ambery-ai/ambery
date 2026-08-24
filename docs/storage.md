@@ -102,9 +102,9 @@ Terminal Content **raw text** (ANSI/spinner all included; concepts §8 instantan
   - `kind` = CLI kind (`"claude"`, input to the per-instance Filter strategy, docs/filter.md).
   - `tab` = `{hwnd, index}` location result. **Same treatment as status: just one field of the snapshot** — event snapshots after a successful location carry it; "re-finding" = appending another new snapshot; the current value is always derived by projection (the latest line per hash); no in-place updates. The closed snapshot of session_end has tab = null.
   - `first_seen` / `last_seen` = the moment the backend first saw / most recently saw the event (the backend only knows when it saw something).
-- Status state machine (concepts §9a): `idle | processing | unknown | closed`. `closed` is terminal: the primary signal = SessionEnd hook (real closure); the Timer fallback scan finding the tab no longer exists is the fallback — a permanent log must have death semantics, otherwise the panorama accumulates corpses forever.
+- Status belief state machine (concepts §9a): `idle | processing | unknown | closed`. Belief moves only on concrete evidence: a hook event, a terminal read, or a process check. `closed` is terminal — out of the active set — reached on confirmed close evidence (SessionEnd hook; or a positively confirmed "gone": reader NotFound / process check) or by retiring a long-unknown instance (lost track of; the confirmed-dead vs lost distinction is not maintained); the Timer scan is the observation cycle that delivers the evidence, never a time inference to death. A transient read failure is never death. A permanent log must still retire unknown instances, otherwise the panorama accumulates corpses forever.
 - **Registry (current state) = log projection**: replay folds by hash and takes the latest.
-- The panorama after startup zero-resync = the set in the projection where `status ≠ closed`.
+- The panorama after startup zero-resync = the set in the projection where `status ≠ closed`; unknown entries are shown as unconfirmed, not as alive.
 
 ## Context: In-Memory View, Log in context.jsonl (concepts §10b)
 

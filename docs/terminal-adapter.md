@@ -21,13 +21,21 @@ L2 · comprehensive query (pipeline, composable, user-rewritable)
 L1 · hook + lookup itself
 ```
 
-### L1 · hook + lookup itself
+### L1 · transport & enumeration (terminal-carrier language only)
 
-Operational layer: receives Claude hook events (session_start / stop / …), enumerates and locates panes / tabs. One implementation per terminal (transport primitives: WT sidecar, zellij CLI). Produces **M1**.
+The minimal per-terminal contract — the protocol asks for as little as possible, and every term is terminal-carrier language, never Code CLI:
+
+- `enumerate() -> Vec<TabInfo>` — traverse the terminal's tabs/panes, returning carrier attributes (id / title / cwd / command / focused / …); this is the M1 tab-attributes part, the basis of discovery (startup scan, reconciliation).
+- `read(tab_id) -> ReadOutcome` — read one carrier's text by its opaque id:
+  - `Content(text)` — read succeeds → observation: alive;
+  - `Gone` — positively confirmed absent (the reader can verify the id no longer exists) → observation: dead (strong evidence);
+  - `Error` — transient failure → no observation, retry; **never** treated as death.
+
+L1 does **not** know instances: no `locate(instance)`, no marker matching, no sid8 / project / status. Those live above — the hook-records part of M1 comes from the hook event channel, and the Code CLI ↔ tab **join** is the L2 pipeline's job (matching by marker / attributes, ambiguity scoring).
 
 ### M1 · contract (pure data)
 
-`{ tab attributes, hook records }`. The lookup's input data, fully preserved (tab: id / title / cwd / command / focused / …; hook: sid8 / project / status / …), nothing dropped.
+`{ tab attributes, hook records }`. The query's input data, fully preserved (tab: id / title / cwd / command / focused / …; hook: sid8 / project / status / …), nothing dropped. Tab attributes are produced by L1's `enumerate`; hook records arrive via the hook event channel of the backend.
 
 ### L2 · comprehensive query (pipeline, composable, user-rewritable)
 

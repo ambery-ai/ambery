@@ -21,13 +21,21 @@ L2 · 综合查询（管线，可组合，用户可重写）
 L1 · hook + 查找本身
 ```
 
-### L1 · hook + 查找本身
+### L1 · 传输 + 枚举（终端载体语言，没有 codecli）
 
-操作层：收 claude hook 事件（session_start / stop / …），枚举并定位 pane / tab。每终端一实现（传输原语：WT sidecar、zellij CLI）。产出 **M1**。
+每终端一个实现的**最小契约**——协议要求尽可能少，所有术语都是终端载体语言，绝不出现 Code CLI：
+
+- `enumerate() -> Vec<TabInfo>` — 遍历该终端的 tab/pane，返回载体属性（id / title / cwd / command / focused / …）；这是 M1 的 tab 属性部分，也是发现（启动扫描、对账）的基础。
+- `read(tab_id) -> ReadOutcome` — 按不透明 id 读一个载体的文字：
+  - `Content(text)` — 读到 → 观测：活着；
+  - `Gone` — **确证**不存在（reader 能验证该 id 已无）→ 观测：死亡（强证据）；
+  - `Error` — 瞬时失败 → 无观测，重试；**绝不当作死亡**。
+
+L1 **不认识实例**：没有 `locate(实例名)`、没有 marker 匹配、没有 sid8 / project / status。这些都在上层——M1 的 hook 记录部分来自 hook 事件通道；Code CLI ↔ tab 的 **JOIN** 是 L2 综合查询管线的职责（按 marker / 属性匹配、歧义打分）。
 
 ### M1 · 契约（纯数据）
 
-`{ tab 属性, hook 记录 }`。查找的输入数据，全量保留（tab 的 id/title/cwd/command/focused/…；hook 的 sid8/project/status/…），一个不丢。
+`{ tab 属性, hook 记录 }`。查询的输入数据，全量保留（tab 的 id/title/cwd/command/focused/…；hook 的 sid8/project/status/…），一个不丢。tab 属性由 L1 的 `enumerate` 产出；hook 记录经后端 hook 事件通道到达。
 
 ### L2 · 综合查询（管线，可组合，用户可重写）
 

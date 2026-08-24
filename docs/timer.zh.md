@@ -6,7 +6,7 @@
 
 ## 定位
 
-Hook 是主通道，Timer 是兜底。实例 Hook 长时间未触发时补扫一次——读 Terminal Content → Filter → 变化检测 → 有实质变化才注入 Queue 评估（Example C：「config-service 上次 Hook 未触发，但 Timer 兜底扫描已更新其 Context」）。
+Hook 是主通道，Timer 是观测循环兼兜底。实例 Hook 长时间未触发时补扫一次——读 Terminal Content → Filter → 变化检测 → 有实质变化才注入 Queue 评估（Example C：「config-service 上次 Hook 未触发，但 Timer 兜底扫描已更新其 Context」）。扫描同时把读证据交给实例信念状态（concepts §9a）：`Content` 刷新"活着"信念，确证 `Gone` 是死亡证据，`Error` 不是观测——**Timer 绝不用时间推断生死**；证据缺席只是把信念移向 `unknown`。
 
 **开关**：`timer.interval_ms ≤ 0 = 禁用`（Config，面板/CLI 可配）。真实 hook 接入初期建议禁用——只留 hook 驱动，避免全量实例周期扫描带来的 LLM 触发频率；mock 调试期用正数。
 
@@ -47,7 +47,7 @@ struct TimerWheel {
 ```
 tick（server 后台任务，默认 60s（config `timer.tick_ms`；case-runner 可经 AMBERY_TIMER_TICK_MS 覆盖））
   → due(now, batch)
-  → adapter locate+read（读不到 None 则跳过；sidecar 在链时判死 closed，docs/storage.md）
+  → adapter 按已定位 tab 读（三态：Content=证据存活 / Gone=确证不存在→closed 证据 / Error=跳过一次，信念不动，docs/storage.md）
   → 原文存 terminal-content.jsonl → Filter.digest 归一
   → 与内存 prev 基准 detect_change（归一全文不持久化，prev 存内存重启丢）
   → Substantive：注入「{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。」进 Queue（source=timer_scan）→ run_trigger（归一全文本身不进 Context）

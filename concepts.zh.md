@@ -43,12 +43,14 @@ Code CLI 实例在终端会话载体中的位置标识（一个实例一个位�
 ### 9. Code CLI（Claude Code 命令行实例）— runtime
 一个 Terminal Tab 里运行的 Claude Code CLI 会话。Tab 与 Code CLI 是 1:1 关系。Code CLI 是 AmberyBackend 管理的基本单元——AmberyBackend 不管理 Tab 本身，而是管理 Tab 中运行的 Code CLI 实例。所有被监工的 Code CLI 实例汇成实例清单，持久化在 work-agents.jsonl。**实例身份 = session_id 前 8 位（sid8）**（同名不同命：同项目重开 = 新生命周期新 hash；与 marker 定位同源）；display 名 = `<project>·<sid8>`，与 Tab 定位标记同构。实例发现 = register-on-first-sight（任何 hook 事件到达时未知 session_id 先落注册）+ 启动扫描（只认带 marker 的 tab）。
 
-#### 9a. Status（状态机）— 子概念
-Code CLI 的运行时状态，由 hook 事件驱动：
-- **Idle**：Code CLI 等待用户输入（SessionStart 落地、Stop 到达）
-- **Processing**：Code CLI 正在思考或执行（**UserPromptSubmit 到达**——用户派活驱动，而非 CLI 开着）
-- **Unknown**：无法判定（如 Tab 内不是 Code CLI）
-- **Closed**：终态。首要信号 = **SessionEnd Hook**（真实关闭）；Timer 兜底扫描发现 tab 不复存在为兜底（无 hook 实例）
+#### 9a. Status（信念状态机）— 子概念
+Code CLI 的运行时状态是**由证据维护的信念**，不是被跟踪的事实——Ambery 是不可控进程的观测者，永不完备（被杀的 CLI 可能从不报告自己的关闭）。信念状态：
+- **Idle**：确证存活，等待用户输入（证据：SessionStart 落地、Stop 到达）
+- **Processing**：确证工作中——思考或执行（**UserPromptSubmit 到达**——用户派活驱动，而非 CLI 开着）
+- **Unknown**：双向都无确证证据且无法验证（如读失败、无 reader）。既不声称活着，也不声称死了，仍被跟踪。
+- **Closed**：终态——退出活跃集，在**确证**关闭证据下（SessionEnd Hook——CLI 自己报告关闭；或"确证不存在"：reader 返回 NotFound / 进程检查查无进程），或**长期 unknown**（失去联系；确证死亡与失去联系不分开维护）。瞬时读失败永不判死——只是推迟信念更新。
+
+信念只由具体证据更新：hook 事件、终端读、进程检查。
 
 #### 9b. Hook（钩子）— 子概念
 Claude Code 的生命周期事件通知机制。通过全局 Hook 配置（`~/.claude/settings.json`），所有 Code CLI 实例自动继承。Hook 类型为 `"command"`——hook 脚本读 stdin JSON 后 POST 到 AmberyBackend 本地端口（fire-and-forget）。当前使用五个事件（SessionStart / UserPromptSubmit / Stop / SessionEnd / Notification），分层处理；其余 30+ 事件保留扩展空间，当前不启用。

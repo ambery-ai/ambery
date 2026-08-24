@@ -6,7 +6,7 @@ English | [中文](timer.zh.md)
 
 ## Positioning
 
-hook is the primary channel; Timer is the fallback. When an instance's hook has not fired for a long time, Timer does one catch-up scan — read Terminal Content → Filter → change detection → only inject into the Queue for evaluation when there is substantive change (Example C: "config-service's last hook did not fire, but the Timer fallback scan has already updated its Context").
+hook is the primary channel; Timer is the observation cycle and fallback. When an instance's hook has not fired for a long time, Timer does one catch-up scan — read Terminal Content → Filter → change detection → only inject into the Queue for evaluation when there is substantive change (Example C: "config-service's last hook did not fire, but the Timer fallback scan has already updated its Context"). The scan also delivers read evidence to the instance's belief state (concepts §9a): `Content` refreshes the belief as alive, a confirmed `Gone` is death evidence, `Error` is not an observation — Timer never infers life or death from elapsed time; absence of evidence only moves a belief toward `unknown`.
 
 **Switch**: `timer.interval_ms ≤ 0 = 禁用` (Config, configurable from panel/CLI). It is recommended to disable it in the early stage of real hook integration — keep only the hook drive and avoid the LLM trigger frequency caused by periodic full-instance scans; use a positive value during mock debugging.
 
@@ -47,7 +47,8 @@ The scan read channel = Terminal Adapter (docs/terminal-adapter.md): `locate(ins
 ```
 tick（server 后台任务，默认 60s（config `timer.tick_ms`；case-runner 可经 AMBERY_TIMER_TICK_MS 覆盖））
   → due(now, batch)
-  → adapter locate+read（读不到 None 则跳过；sidecar 在链时判死 closed，docs/storage.md）
+  → due(now, batch)
+  → adapter read by located tab（三态：Content=证据存活 / Gone=确证不存在→closed 证据 / Error=跳过一次，信念不动，docs/storage.md）
   → 原文存 terminal-content.jsonl → Filter.digest 归一
   → 与内存 prev 基准 detect_change（归一全文不持久化，prev 存内存重启丢）
   → Substantive：注入「{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。」进 Queue（source=timer_scan）→ run_trigger（归一全文本身不进 Context）

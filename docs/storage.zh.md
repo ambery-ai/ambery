@@ -121,11 +121,12 @@ Terminal Content **原文**（ANSI/spinner 全在，concepts §8 瞬时全量文
   - `kind` = CLI 种类（`"claude"`，per-instance filter 策略输入，docs/filter.md）。
   - `tab` = `{hwnd, index}` 定位结果。**与 status 同等待遇：只是快照的一个字段**——定位成功后的事件快照带上它，「重找」= 再 append 一条新快照，当前值永远由投影（每 hash 最新行）得出；无原地更新。session_end 的 closed 快照 tab 为 null。
   - `first_seen` / `last_seen` = 后端初见/最近事件时刻（backend 只知自己什么时候见的）。
-- Status 状态机（concepts §9a）：`idle | processing | unknown | closed`。
-  `closed` 为终态：首要信号 = SessionEnd Hook（真实关闭）；Timer 兜底扫描发现 tab 不复存在为兜底——永久日志必须有消亡语义，
-  否则全景无限累积尸体。
+- Status 信念状态机（concepts §9a）：`idle | processing | unknown | closed`。
+  信念只随具体证据移动：hook 事件、终端读、进程检查。`closed` 为终态——退出活跃集——在确证关闭证据下（SessionEnd Hook；或"确证不存在"：reader NotFound / 进程检查查无进程），
+  或因**长期 unknown 退休**（失去联系；确证死亡与失去联系不分开维护）；Timer 扫描是交付证据的观测循环，不做时间推断判死。
+  瞬时读失败永不判死。永久日志仍须退休 unknown 实例，否则全景无限累积尸体。
 - **注册表（当前状态）= 日志投影**：replay 按 hash 折叠取最新。
-- 启动归零重同步的全景 = 投影中 `status ≠ closed` 的集合。
+- 启动归零重同步的全景 = 投影中 `status ≠ closed` 的集合；unknown 条目按「未确认」呈现，不当作活体。
 
 ## Context：内存视图，日志在 context.jsonl（concepts §10b）
 

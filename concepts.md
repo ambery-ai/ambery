@@ -43,12 +43,14 @@ The instantaneous full text of a terminal session read via terminal-adapter. It 
 ### 9. Code CLI (Claude Code command-line instance) — runtime
 A Claude Code CLI session running in a Terminal Tab. Tab and Code CLI are a 1:1 relationship. Code CLI is the basic unit managed by AmberyBackend — AmberyBackend does not manage Tabs themselves, but the Code CLI instances running in Tabs. All monitored Code CLI instances form the instance list, persisted in work-agents.jsonl. **Instance identity = the first 8 characters of session_id (sid8)** (same name, different fate: reopening the same project = a new lifecycle and a new hash; the same source as marker location); display name = `<project>·<sid8>`, the same shape as the Tab location marker. Instance discovery = register-on-first-sight (when any hook event arrives with an unknown session_id, register it first) + startup scan (only recognizes tabs with markers).
 
-#### 9a. Status (state machine) — subconcept
-Code CLI's runtime state, driven by hook events:
-- **Idle**: Code CLI is waiting for user input (SessionStart lands, Stop arrives)
-- **Processing**: Code CLI is thinking or executing (**UserPromptSubmit arrives** — driven by the user assigning work, not merely the CLI being open)
-- **Unknown**: cannot be determined (e.g. the Tab does not contain Code CLI)
-- **Closed**: terminal state. The primary signal = **SessionEnd hook** (real close); the Timer fallback scan finding that the tab no longer exists is the fallback (for hookless instances)
+#### 9a. Status (belief state machine) — subconcept
+The runtime state of a Code CLI is a **belief maintained from evidence**, not a tracked fact — Ambery is an observer of processes it does not control and never assumes its lifecycle knowledge is complete (a killed CLI may never report its own close). Belief states:
+- **Idle**: confirmed alive, waiting for user input (evidence: SessionStart lands, Stop arrives)
+- **Processing**: confirmed working — thinking or executing (**UserPromptSubmit arrives**, driven by the user assigning work, not merely the CLI being open)
+- **Unknown**: no confirmed evidence either way and unverifiable (e.g. reads fail, no reader available). It is neither claimed alive nor claimed dead, and is still tracked.
+- **Closed**: terminal state — out of the active set, reached on **confirmed** close evidence (SessionEnd hook — the CLI reports its own close; or a positively confirmed "gone": the reader returns NotFound / a process check finds no process), or when an instance stays unknown for too long (lost track of — the confirmed-dead vs lost distinction is deliberately not maintained). A transient read failure is never death; it only defers the belief update.
+
+Belief is updated only by concrete evidence: hook events, terminal reads, and process checks.
 
 #### 9b. hook — subconcept
 Claude Code's lifecycle event notification mechanism. Through the global hook configuration (`~/.claude/settings.json`), all Code CLI instances inherit it automatically. The hook type is `"command"` — the hook script reads stdin JSON and POSTs to AmberyBackend's local port (fire-and-forget). Five events are currently used (SessionStart / UserPromptSubmit / Stop / SessionEnd / Notification), processed in layers; the remaining 30+ events are reserved for extension and not currently enabled.
