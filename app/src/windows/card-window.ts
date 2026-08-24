@@ -8,11 +8,17 @@ import { Store } from "../store";
 import { wireI18n } from "../i18n";
 import { wireTheme } from "../theme";
 import * as actions from "../tauri_runtime_actions";
+import { reportEffect } from "../effects";
 import { Direction } from "../positioning/types";
 
 let adapter: WindowAdapter | null = null;
 let lastPw = 260, lastPh = 140;
 let dpr = 1;
+
+/** 双 rAF：等浏览器完成布局与字体定稿后再量（单帧不够，字体/折行以最终宽度为准）。
+ *  包裹流量在 show 后仍会随宽度变化收敛，详见 fitWindow 的增长循环。 */
+const nextFrame = () =>
+  new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
 export async function main() {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -62,16 +68,48 @@ export async function main() {
     const card = document.querySelector(".component") as HTMLElement | null;
     if (!card) return;
     const dir = cardDirection(card);
-    const pw = Math.ceil((card.offsetWidth || 260) * dpr);
-    const ph = Math.ceil((card.offsetHeight || 140) * dpr);
-    lastPw = pw;
-    lastPh = ph;
     const label = win.label; // e.g., "card-notify-ft"
-    const pos = await requestPlace(label, { id: label, width: pw, height: ph }, dir);
+
+    // 测量→精确包裹。首测在初始窗口(520×440)内、页尚未稳定（字体/折行以最终窗口宽度
+    // 定稿），50ms 单测易偏小 → 窗口短一截，裁掉卡片底边（圆角+按钮）。
+    // 修法：show 后双 rAF 复测，只增不减直到稳定，窗口恰好包裹真实内容；show 的
+    // setFocus 在 macOS 可能抛错，不得中断包裹流程（原 settle 从未触发与这有关）。
+    const measure = () => ({
+      pw: Math.ceil((card.offsetWidth || 260) * dpr),
+      ph: Math.ceil((card.offsetHeight || 140) * dpr),
+    });
+    let applied = measure();
+    lastPw = applied.pw;
+    lastPh = applied.ph;
+    reportEffect("debug_card_diag", { phase: "measure", label, w_css: card.offsetWidth, h_css: card.offsetHeight, dpr, pw: applied.pw, ph: applied.ph });
+    let pos = await requestPlace(label, { id: label, width: applied.pw, height: applied.ph }, dir);
     // chrome 规则（styles.css）：测量值已含 border，窗口恰好包裹内容（阴影留边已废弃）
-    await adapter?.setSize(pw, ph);
-    await adapter?.setPosition(Math.round(pos.x - pw / 2), Math.round(pos.y - ph / 2));
-    await adapter?.show();
+    await adapter?.setSize(applied.pw, applied.ph);
+    await adapter?.setPosition(Math.round(pos.x - applied.pw / 2), Math.round(pos.y - applied.ph / 2));
+    try {
+      await adapter?.show();
+    } catch (e) {
+      // macOS 无焦点窗 setFocus 可能抛（focus:false）；窗口已 show，仅记录并继续复测
+      console.warn("[card] show 未完成（继续复测）", e);
+    }
+    // 增长循环：show 后布局定稿，内容可能折行变高/变宽 → 只增不减直到测量稳定
+    for (let i = 0; i < 4; i++) {
+      await nextFrame();
+      const m = measure();
+      if (m.pw === applied.pw && m.ph === applied.ph) break;
+      applied = m;
+      lastPw = m.pw;
+      lastPh = m.ph;
+      pos = await requestPlace(label, { id: label, width: m.pw, height: m.ph }, dir);
+      await adapter?.setSize(m.pw, m.ph);
+      await adapter?.setPosition(Math.round(pos.x - m.pw / 2), Math.round(pos.y - m.ph / 2));
+    }
+    // [DEBUG-card-diag] settle 后再量：内容实际高度 vs 窗口实际 inner 尺寸
+    setTimeout(async () => {
+      const after = document.querySelector(".component") as HTMLElement | null;
+      const inner = await win.innerSize();
+      reportEffect("debug_card_diag", { phase: "settle", label, h_css_after: after?.offsetHeight ?? -1, win_phys_w: inner.width, win_phys_h: inner.height, dpr });
+    }, 800);
   });
 
   // 拖拽 hide/restore
