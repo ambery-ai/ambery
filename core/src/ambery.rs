@@ -830,12 +830,15 @@ impl<L: Llm> AmberyBackend<L> {
         }
         let pre_tokens = trigger_tokens; // 同尺：触发瞬间的真值锚点+增量（#16 ④）
         let t0 = std::time::Instant::now();
-        // summarize 返回（摘要, usage 真值）；摘要调用也留真值（#16）
-        let (summary, summary_usage) = self
-            .llm
-            .summarize(self.harness.context.messages())
-            .await
-            .map_err(std::io::Error::other)?;
+        // summarize 返回（摘要, usage 真值）；摘要调用也留真值（#16）。
+        // 摘要失败不炸轮：跳过本次压缩（下轮再评估），transient 错误通知即时下发
+        let (summary, summary_usage) = match self.llm.summarize(self.harness.context.messages()).await {
+            Ok(s) => s,
+            Err(err) => {
+                self.emit_error(format!("LLM 压缩摘要失败：{err}"), ErrorRetention::Transient, None);
+                return Ok(());
+            }
+        };
         if let Some(u) = summary_usage {
             self.harness.log_usage(u, ts)?;
         }
@@ -983,16 +986,6 @@ impl<L: Llm> AmberyBackend<L> {
                     break;
                 }
             };
-            if let Some(message) = self.llm.take_last_error() {
-                // 落盘（docs/storage.md effect：记录动作——llm_error 是后端副作用，进动作流）
-                let _ = self.harness.log_effect(
-                    crate::EffectOrigin::Backend,
-                    "llm_error",
-                    json!({ "message": message.clone() }),
-                    crate::server::now_ms(),
-                );
-                effects.push(Effect::LlmError { message });
-            }
             // usage 真值留痕（#16：每轮一条，覆盖刷新 last_usage）
             if let Some(u) = out.usage {
                 self.harness.log_usage(u, ts)?;
@@ -1080,9 +1073,6 @@ impl<L: Llm> AmberyBackend<L> {
                         break;
                     }
                 };
-                if let Some(message) = self.llm.take_last_error() {
-                    effects.push(Effect::LlmError { message });
-                }
                 if let Some(u) = out.usage {
                     self.harness.log_usage(u, ts)?;
                 }
@@ -2962,28 +2952,6 @@ mod tests {
         .effect_kind_payload();
         assert_eq!(p["retention"], json!("transient"));
         assert!(p["action"].is_null());
-    }
-
-    #[tokio::test]
-    async fn llm_init_failure_surfaces_error_effect() {
-        use crate::llm::LlmBackend;
-        // 初始化失败降级 DebugAgent 的同时，run_trigger 必须产出 LlmError（不再静音）
-        let dir = tmp_dir("llm-err");
-        let harness = Harness::load(&dir, &dir, 100_000, 0).unwrap();
-        let mut config = Config::default();
-        config.llm.active = "nope".into();
-        let backend = LlmBackend::from_config(&config.llm);
-        assert!(backend.is_debug());
-        let mut ov = AmberyBackend::new(harness, config, backend);
-        ov.enqueue(Role::User, "hi".into(), crate::queue::QueueSource::UserChat, 1).unwrap();
-        let effects = ov.release_one(crate::queue::QueueInput {
-            role: Role::User,
-            content: "hi".into(),
-            source: crate::queue::QueueSource::UserChat,
-            ts: 1,
-        }, 0).await.unwrap();
-        assert!(effects.iter().any(|e| matches!(e, Effect::LlmError { .. })), "{effects:?}");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

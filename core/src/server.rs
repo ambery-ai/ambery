@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::llm::LlmBackend;
+use crate::llm::{DebugAgent, LlmBackend};
 use crate::lifecycle::Lifecycle;
 use crate::ambery::{read_terminal_via, Effect, AmberyBackend};
 use crate::context::Role;
@@ -429,10 +429,14 @@ async fn get_config_schema(State(s): State<Arc<AppState>>) -> impl IntoResponse 
 
 /// ConfigOutcome 应用收尾（统一管道热应用）：
 /// llm_changed → 重建 LlmBackend 注入（热字段立即生效）；effects 广播。
+/// init 失败不阻断热应用：记日志 + 按无 LLM 态运行（保循环可用，让用户能修配置）
 pub async fn finish_config_outcome(s: &Arc<AppState>, outcome: crate::ambery::ConfigOutcome) {
     if outcome.llm_changed {
         let llm_cfg = { s.ambery.lock().await.config.llm.clone() };
-        let backend = LlmBackend::from_config(&llm_cfg);
+        let backend = LlmBackend::from_config(&llm_cfg).unwrap_or_else(|err| {
+            eprintln!("[llm] {err}——按无 LLM 态运行");
+            LlmBackend::debug(DebugAgent::default())
+        });
         s.ambery.lock().await.replace_llm(backend);
     }
     for e in outcome.effects {
@@ -478,7 +482,10 @@ pub fn spawn_config_watcher(s: Arc<AppState>, dir: std::path::PathBuf) {
                     drop(ov);
                     if llm_changed {
                         let llm_cfg = { s.ambery.lock().await.config.llm.clone() };
-                        let backend = LlmBackend::from_config(&llm_cfg);
+                        let backend = LlmBackend::from_config(&llm_cfg).unwrap_or_else(|err| {
+                            eprintln!("[llm] {err}——按无 LLM 态运行");
+                            LlmBackend::debug(DebugAgent::default())
+                        });
                         s.ambery.lock().await.replace_llm(backend);
                     }
                     s.broadcast_effect_json(json!({ "kind": "config" })).await;
@@ -568,7 +575,10 @@ async fn post_api_key(
             let _ = ov.config.save(&cfg_dir);
             // key 变化后重建 LlmBackend 换入——启动时构建的旧 backend 看不到新 key
             // （test_llm 每次现建所以之前验证通过，聊天复用旧 backend 所以失败）
-            let new_llm = crate::llm::LlmBackend::from_config(&ov.config.llm);
+            let new_llm = crate::llm::LlmBackend::from_config(&ov.config.llm).unwrap_or_else(|err| {
+                eprintln!("[llm] {err}——按无 LLM 态运行");
+                LlmBackend::debug(DebugAgent::default())
+            });
             ov.replace_llm(new_llm);
             (
                 StatusCode::OK,

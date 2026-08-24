@@ -262,7 +262,10 @@ async fn set_api_key(
             let cfg_dir = ambery_core::paths::config_root();
             let _ = ov.config.save(&cfg_dir);
             // key 变化后重建 LlmBackend 换入——启动时构建的旧 backend 看不到新 key
-            let new_llm = ambery_core::llm::LlmBackend::from_config(&ov.config.llm);
+            let new_llm = ambery_core::llm::LlmBackend::from_config(&ov.config.llm).unwrap_or_else(|err| {
+                eprintln!("[llm] {err}——按无 LLM 态运行");
+                LlmBackend::debug(ambery_core::llm::DebugAgent::default())
+            });
             ov.replace_llm(new_llm);
             Ok(json!({ "ok": true }))
         }
@@ -514,7 +517,8 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
         now_ms(),
         ambery_core::i18n::Lang::of(&config.harness_language),
     ).expect("load harness");
-    let backend = LlmBackend::from_config(&config.llm);
+        let backend = LlmBackend::from_config(&config.llm)
+            .unwrap_or_else(|_| LlmBackend::debug(ambery_core::llm::DebugAgent::default()));
     let (timer_tick, timer_batch) = (config.timer.tick_ms, config.timer.batch);
     let mut ambery = AmberyBackend::new(harness, config, backend);
 
@@ -638,7 +642,11 @@ mod ipc_tests {
         let _ = std::fs::remove_dir_all(&dir);
         let config = Config::load_or_default(&dir);
         let harness = Harness::load(&dir, &dir, config.effective_compression_limit().unwrap_or(usize::MAX), 0).unwrap();
-        let backend = LlmBackend::from_config(&config.llm);
+    // init 失败不阻断启动：记日志 + 按无 LLM 态运行（保循环可用，让用户能修配置）
+    let backend = LlmBackend::from_config(&config.llm).unwrap_or_else(|err| {
+        eprintln!("[llm] {err}——按无 LLM 态运行");
+        LlmBackend::debug(ambery_core::llm::DebugAgent::default())
+    });
         let ov = AmberyBackend::new(harness, config, backend);
         Arc::new(AppState::new(ov))
     }

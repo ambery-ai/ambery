@@ -265,7 +265,11 @@ fn setup(
 
     let harness = ambery_core::Harness::load(&tmp, &tmp, config.effective_compression_limit().unwrap_or(usize::MAX), now_ms())
         .expect("load harness");
-    let backend = LlmBackend::from_config(&config.llm);
+    // init 失败即 FAIL（测试设施不保活：real 模式配错 provider/key 必须响亮）
+    let backend = LlmBackend::from_config(&config.llm).unwrap_or_else(|err| {
+        eprintln!("[case] FAIL: {err}");
+        std::process::exit(1);
+    });
     let mut ov = AmberyBackend::new(harness, config, backend);
 
     // 读通道：MapAdapter（空 map 起步 = tab 不复存在），terminal/terminal_gone step 写剧情

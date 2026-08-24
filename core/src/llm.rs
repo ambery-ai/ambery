@@ -237,7 +237,7 @@ pub enum Effort {
     High,
 }
 
-/// 返回 Result：OpenAiClient 网络/解析失败时 LlmBackend 可降级 DebugAgent
+/// 调用失败经 Err 传播——本层无静默降级，错误的通知呈现由调用方负责
 pub trait Llm: Send + Sync {
     fn complete(
         &self,
@@ -278,11 +278,6 @@ pub trait Llm: Send + Sync {
         let summary = deterministic_summary(messages);
         async move { Ok((summary, None)) }
     }
-
-    /// 最近一次已降级失败（默认 None）。LlmBackend 覆写：run_trigger 取走后转 UI 错误帧。
-    fn take_last_error(&self) -> Option<String> {
-        None
-    }
 }
 
 /// 确定性摘要 stub（Compression 的 debug 回退：保证测试确定性）
@@ -306,7 +301,7 @@ pub fn deterministic_summary(messages: &[ContextMessage]) -> String {
 }
 
 /// debug 模式 agent：纯 mock，零逻辑。决策源由外部注入——
-/// 测试用脚本闭包、HTTP brain（OpenAI 兼容端点）、降级兜底用沉默。
+/// 测试用脚本闭包、HTTP brain（OpenAI 兼容端点）、显式无 LLM 态用沉默。
 pub struct DebugAgent {
     decide: Box<dyn Fn(&[ContextMessage]) -> LlmOutput + Send + Sync>,
 }
@@ -319,7 +314,7 @@ impl DebugAgent {
         }
     }
 
-    /// 永远沉默：OpenAi 失败降级、不需要反应的测试
+    /// 永远沉默：显式无 LLM 态（unconfigured/debug）、不需要反应的测试
     pub fn silent() -> Self {
         Self::new(|_| LlmOutput {
             content: None,
@@ -772,32 +767,23 @@ fn parse_usage(v: &Value) -> Option<Usage> {
     })
 }
 
-// ── LlmBackend：按 Config 装配，OpenAI 失败降级 DebugAgent ──
+// ── LlmBackend：按 Config 装配（debug = 显式无 LLM 态）──
 
 use crate::LlmConfig;
 
-type ErrorSlot = std::sync::Arc<std::sync::Mutex<Option<String>>>;
-
 enum LlmBackendInner {
     Debug(DebugAgent),
-    OpenAi {
-        client: OpenAiClient,
-        fallback: DebugAgent,
-    },
+    OpenAi { client: OpenAiClient },
 }
 
 pub struct LlmBackend {
     inner: LlmBackendInner,
-    /// 最近一次 OpenAI 失败（初始化/调用），供 run_trigger 取走转成 UI 错误帧。
-    /// 取走后清空：一条失败对应一次可见反馈，不重复报旧错误。
-    last_error: ErrorSlot,
 }
 
 impl LlmBackend {
     pub fn debug(agent: DebugAgent) -> Self {
         Self {
             inner: LlmBackendInner::Debug(agent),
-            last_error: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -805,43 +791,20 @@ impl LlmBackend {
         matches!(self.inner, LlmBackendInner::Debug(_))
     }
 
-    pub fn poll_last_error(&self) -> Option<String> {
-        self.last_error.lock().ok()?.take()
-    }
-
-    fn record_error(&self, message: impl Into<String>) {
-        if let Ok(mut slot) = self.last_error.lock() {
-            *slot = Some(message.into());
-        }
-    }
-
-    pub fn from_config(cfg: &LlmConfig) -> Self {
-        // unconfigured = 未配置（首启默认），视为"无 LLM"：静默回退 DebugAgent，不记错误
+    /// 按 Config 装配。unconfigured / debug = 显式无 LLM 态（Ok(debug backend)，非错误）；
+    /// init 失败（provider 缺失 / key 未设）= Err——不静默降级，错误通知由调用方呈现
+    pub fn from_config(cfg: &LlmConfig) -> Result<Self, String> {
         if cfg.active == "unconfigured" || cfg.active == "debug" {
-            return Self::debug(DebugAgent::default());
+            return Ok(Self::debug(DebugAgent::default()));
         }
         match cfg.providers.get(&cfg.active) {
             Some(p) => match OpenAiClient::from_provider(p) {
-                Ok(client) => Self {
-                    inner: LlmBackendInner::OpenAi {
-                        client,
-                        fallback: DebugAgent::default(),
-                    },
-                    last_error: std::sync::Arc::new(std::sync::Mutex::new(None)),
-                },
-                Err(err) => {
-                    let backend = Self::debug(DebugAgent::default());
-                    eprintln!("[llm] provider「{}」初始化失败（{err}），回退 DebugAgent", cfg.active);
-                    backend.record_error(format!("provider「{}」初始化失败：{err}", cfg.active));
-                    backend
-                }
+                Ok(client) => Ok(Self {
+                    inner: LlmBackendInner::OpenAi { client },
+                }),
+                Err(err) => Err(format!("provider「{}」初始化失败：{err}", cfg.active)),
             },
-            None => {
-                let backend = Self::debug(DebugAgent::default());
-                eprintln!("[llm] active=「{}」不在 providers 里，回退 DebugAgent", cfg.active);
-                backend.record_error(format!("active=「{}」不在 providers 里", cfg.active));
-                backend
-            }
+            None => Err(format!("active=「{}」不在 providers 里", cfg.active)),
         }
     }
 }
@@ -936,10 +899,6 @@ pub fn set_api_key(provider: &str, key: Option<&str>, cfg: &mut LlmConfig) -> Re
 }
 
 impl Llm for LlmBackend {
-    fn take_last_error(&self) -> Option<String> {
-        self.poll_last_error()
-    }
-
     fn complete(
         &self,
         messages: &[ContextMessage],
@@ -949,16 +908,7 @@ impl Llm for LlmBackend {
         async move {
             match &self.inner {
                 LlmBackendInner::Debug(agent) => agent.complete(messages, tools, effort).await,
-                LlmBackendInner::OpenAi { client, fallback } => {
-                    match client.complete(messages, tools, effort).await {
-                        Ok(out) => Ok(out),
-                        Err(err) => {
-                            eprintln!("[llm] openai complete 失败（{err}），本轮回退 DebugAgent");
-                            self.record_error(format!("LLM 调用失败：{err}"));
-                            fallback.complete(messages, tools, effort).await
-                        }
-                    }
-                }
+                LlmBackendInner::OpenAi { client } => client.complete(messages, tools, effort).await,
             }
         }
     }
@@ -975,15 +925,8 @@ impl Llm for LlmBackend {
                 LlmBackendInner::Debug(agent) => {
                     agent.complete_streaming(messages, tools, effort, on_delta).await
                 }
-                LlmBackendInner::OpenAi { client, fallback } => {
-                    match client.complete_streaming(messages, tools, effort, on_delta).await {
-                        Ok(out) => Ok(out),
-                        Err(err) => {
-                            eprintln!("[llm] openai streaming 失败（{err}），本轮回退 DebugAgent");
-                            self.record_error(format!("LLM 调用失败：{err}"));
-                            fallback.complete_streaming(messages, tools, effort, on_delta).await
-                        }
-                    }
+                LlmBackendInner::OpenAi { client } => {
+                    client.complete_streaming(messages, tools, effort, on_delta).await
                 }
             }
         }
@@ -996,16 +939,7 @@ impl Llm for LlmBackend {
         async move {
             match &self.inner {
                 LlmBackendInner::Debug(agent) => agent.summarize(messages).await,
-                LlmBackendInner::OpenAi { client, fallback } => {
-                    match client.summarize(messages).await {
-                        Ok(s) => Ok(s),
-                        Err(err) => {
-                            eprintln!("[llm] openai summarize 失败（{err}），回退确定性 stub");
-                            self.record_error(format!("LLM 压缩摘要失败：{err}"));
-                            fallback.summarize(messages).await
-                        }
-                    }
-                }
+                LlmBackendInner::OpenAi { client } => client.summarize(messages).await,
             }
         }
     }
@@ -1277,16 +1211,18 @@ mod tests {
     }
 
     #[test]
-    fn llm_backend_falls_back_to_debug() {
-        // active 不在 providers → Debug（且错误可被 UI 读取）
+    fn llm_backend_from_config_loud_outcomes() {
+        // active 不在 providers → Err（点名 active，不静默回退）
         let cfg = LlmConfig {
             active: "nope".into(),
             providers: Default::default(),
         };
-        let backend = LlmBackend::from_config(&cfg);
-        assert!(backend.is_debug());
-        assert!(backend.poll_last_error().is_some());
-        // provider 存在但 env 未设 → Debug（且初始化错误可被 UI 读取）
+        let err = match LlmBackend::from_config(&cfg) {
+            Ok(_) => panic!("active 缺失应构造失败"),
+            Err(e) => e,
+        };
+        assert!(err.contains("nope"), "{err}");
+        // provider 存在但 env 未设 → Err（初始化失败原因含具体变量名）
         let mut providers = std::collections::HashMap::new();
         providers.insert(
             "p".to_string(),
@@ -1304,9 +1240,19 @@ mod tests {
             active: "p".into(),
             providers,
         };
-        let backend = LlmBackend::from_config(&cfg2);
-        assert!(backend.is_debug());
-        assert!(backend.poll_last_error().is_some());
+        let err = match LlmBackend::from_config(&cfg2) {
+            Ok(_) => panic!("env 未设应构造失败"),
+            Err(e) => e,
+        };
+        assert!(err.contains("初始化失败") && err.contains("DEFINITELY_NOT_SET_ENV_VAR"), "{err}");
+        // unconfigured / debug → Ok 显式无 LLM 态（非错误）
+        for active in ["unconfigured", "debug"] {
+            let cfg = LlmConfig {
+                active: active.into(),
+                providers: Default::default(),
+            };
+            assert!(LlmBackend::from_config(&cfg).unwrap().is_debug());
+        }
     }
 
     #[tokio::test]

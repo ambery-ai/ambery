@@ -60,7 +60,11 @@ pub fn assemble_host(
     )
     .expect("load harness");
     println!("llm: active=「{}」", config.llm.active);
-    let backend = wrap_backend(LlmBackend::from_config(&config.llm));
+    // init 失败不阻断启动：记日志 + 按无 LLM 态运行（保循环可用，让用户能修配置）
+    let backend = wrap_backend(LlmBackend::from_config(&config.llm).unwrap_or_else(|err| {
+        eprintln!("[llm] {err}——按无 LLM 态运行");
+        LlmBackend::debug(crate::llm::DebugAgent::default())
+    }));
     let mut ambery = AmberyBackend::new(harness, config, backend);
 
     // Terminal Adapter 装配：adapter_wt 开关门控（冷字段）
