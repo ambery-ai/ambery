@@ -63,7 +63,7 @@ pub fn assemble_host(
     // init 失败不阻断启动：记日志 + 按无 LLM 态运行（保循环可用，让用户能修配置）
     let backend = wrap_backend(LlmBackend::from_config(&config.llm).unwrap_or_else(|err| {
         eprintln!("[llm] {err}——按无 LLM 态运行");
-        LlmBackend::debug(crate::llm::DebugAgent::default())
+        LlmBackend::unavailable(err)
     }));
     let mut ambery = AmberyBackend::new(harness, config, backend);
 

@@ -133,6 +133,10 @@ async function checkUnconfigured(bridge: import("../bridge").Bridge, panel: Chat
       panel.unconfigured = true;
       panel.showSetupBanner("chat.setup-banner");
       panel.onOpenSetup?.();
+    } else if (resp.llmError) {
+      // active 指向真实 provider 但初始化失败（base_url/key/model 损坏）：
+      // 常驻 banner + setup 点击进引导，与 unconfigured 同一入口
+      panel.showSetupError(resp.llmError);
     }
   } catch {
     // core 不可达：不弹（offline 已有独立提示）

@@ -774,6 +774,9 @@ use crate::LlmConfig;
 enum LlmBackendInner {
     Debug(DebugAgent),
     OpenAi { client: OpenAiClient },
+    /// init 失败兜底：调用即 Err（发送触发 transient 气泡，不静默）；
+    /// 摘要走确定性 stub（压缩不挂）。与 DebugAgent「显式无 LLM 态静默」区分
+    Unavailable(String),
 }
 
 pub struct LlmBackend {
@@ -784,6 +787,14 @@ impl LlmBackend {
     pub fn debug(agent: DebugAgent) -> Self {
         Self {
             inner: LlmBackendInner::Debug(agent),
+        }
+    }
+
+    /// init 失败兜底后端：保循环可用但调用即 Err——每次发送触发 transient
+    /// 错误气泡（errors.md「调用结果只作瞬时事件」），不静默
+    pub fn unavailable(reason: impl Into<String>) -> Self {
+        Self {
+            inner: LlmBackendInner::Unavailable(reason.into()),
         }
     }
 
@@ -909,6 +920,7 @@ impl Llm for LlmBackend {
             match &self.inner {
                 LlmBackendInner::Debug(agent) => agent.complete(messages, tools, effort).await,
                 LlmBackendInner::OpenAi { client } => client.complete(messages, tools, effort).await,
+                LlmBackendInner::Unavailable(reason) => Err(reason.clone()),
             }
         }
     }
@@ -928,6 +940,7 @@ impl Llm for LlmBackend {
                 LlmBackendInner::OpenAi { client } => {
                     client.complete_streaming(messages, tools, effort, on_delta).await
                 }
+                LlmBackendInner::Unavailable(reason) => Err(reason.clone()),
             }
         }
     }
@@ -940,6 +953,8 @@ impl Llm for LlmBackend {
             match &self.inner {
                 LlmBackendInner::Debug(agent) => agent.summarize(messages).await,
                 LlmBackendInner::OpenAi { client } => client.summarize(messages).await,
+                // Unavailable 保压缩可用：确定性 stub，不炸轮
+                LlmBackendInner::Unavailable(_) => Ok((deterministic_summary(messages), None)),
             }
         }
     }

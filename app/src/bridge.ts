@@ -207,6 +207,8 @@ export interface ConfigSchemaResp {
   readOnly: boolean;
   restartRequired?: string[];
   loadError?: string | null;
+  /** LLM 初始化失败原因（active 指向损坏 provider）；null = 可初始化 */
+  llmError?: string | null;
   nodes: ConfigSchemaNode[];
 }
 

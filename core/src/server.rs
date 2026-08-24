@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::llm::{DebugAgent, LlmBackend};
+use crate::llm::LlmBackend;
 use crate::lifecycle::Lifecycle;
 use crate::ambery::{read_terminal_via, Effect, AmberyBackend};
 use crate::context::Role;
@@ -434,7 +434,7 @@ pub async fn finish_config_outcome(s: &Arc<AppState>, outcome: crate::ambery::Co
         let llm_cfg = { s.ambery.lock().await.config.llm.clone() };
         let backend = LlmBackend::from_config(&llm_cfg).unwrap_or_else(|err| {
             eprintln!("[llm] {err}——按无 LLM 态运行");
-            LlmBackend::debug(DebugAgent::default())
+            LlmBackend::unavailable(err)
         });
         s.ambery.lock().await.replace_llm(backend);
     }
@@ -483,7 +483,7 @@ pub fn spawn_config_watcher(s: Arc<AppState>, dir: std::path::PathBuf) {
                         let llm_cfg = { s.ambery.lock().await.config.llm.clone() };
                         let backend = LlmBackend::from_config(&llm_cfg).unwrap_or_else(|err| {
                             eprintln!("[llm] {err}——按无 LLM 态运行");
-                            LlmBackend::debug(DebugAgent::default())
+                            LlmBackend::unavailable(err)
                         });
                         s.ambery.lock().await.replace_llm(backend);
                     }
@@ -576,7 +576,7 @@ async fn post_api_key(
             // （test_llm 每次现建所以之前验证通过，聊天复用旧 backend 所以失败）
             let new_llm = crate::llm::LlmBackend::from_config(&ov.config.llm).unwrap_or_else(|err| {
                 eprintln!("[llm] {err}——按无 LLM 态运行");
-                LlmBackend::debug(DebugAgent::default())
+                LlmBackend::unavailable(err)
             });
             ov.replace_llm(new_llm);
             (

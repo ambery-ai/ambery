@@ -188,11 +188,17 @@ async fn get_config_schema(state: tauri::State<'_, SharedTauriState>) -> Result<
     let ov = s.ambery().lock().await;
     let restart = ov.restart_required();
     let load_error = s.config_error().await;
+    // llm 初始化失败（active 指向损坏 provider）随 schema 拉取暴露——
+    // 启动时事件通道未就绪 push 即丢，schema 是前端首启已用的拉取面（race-free）
+    let llm_err = ambery_core::llm::LlmBackend::from_config(&ov.config.llm)
+        .err()
+        .map(|e| format!("LLM 配置损坏：{e}"));
     Ok(json!({
         "version": ambery_core::config::migrate::CURRENT_VERSION,
         "readOnly": ov.config.read_only,
         "restartRequired": restart,
         "loadError": load_error,
+        "llmError": llm_err,
         "nodes": ambery_core::config::reflect::config_nodes(&ov.config),
     }))
 }
@@ -264,7 +270,7 @@ async fn set_api_key(
             // key 变化后重建 LlmBackend 换入——启动时构建的旧 backend 看不到新 key
             let new_llm = ambery_core::llm::LlmBackend::from_config(&ov.config.llm).unwrap_or_else(|err| {
                 eprintln!("[llm] {err}——按无 LLM 态运行");
-                LlmBackend::debug(ambery_core::llm::DebugAgent::default())
+                LlmBackend::unavailable(err)
             });
             ov.replace_llm(new_llm);
             Ok(json!({ "ok": true }))
@@ -518,7 +524,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
         ambery_core::i18n::Lang::of(&config.harness_language),
     ).expect("load harness");
         let backend = LlmBackend::from_config(&config.llm)
-            .unwrap_or_else(|_| LlmBackend::debug(ambery_core::llm::DebugAgent::default()));
+            .unwrap_or_else(|err| LlmBackend::unavailable(err));
     let (timer_tick, timer_batch) = (config.timer.tick_ms, config.timer.batch);
     let mut ambery = AmberyBackend::new(harness, config, backend);
 

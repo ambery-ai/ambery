@@ -312,6 +312,11 @@ export class ChatPanel {
     this.showBanner(t(textKey), "setup", textKey);
   }
 
+  /** LLM 初始化失败（active 指向损坏 provider）常驻 banner：点击进配置引导 */
+  showSetupError(message: string) {
+    this.showBanner(message, "setup", "llm-error");
+  }
+
   /** banner 出口：单元素——已有 banner 在屏时不叠加。
    *  action="setup" → 点击打开配置引导 modal；无 action → 纯告知。关闭仅隐藏当前 */
   private showBanner(text: string, action: string | null, reportState: string) {
