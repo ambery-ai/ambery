@@ -20,6 +20,9 @@ type Anchor = () => { x: number; y: number };
 export class ComponentManager {
   private layer: HTMLDivElement;
   private cards = new Map<string, HTMLDivElement>();
+  /** windowed 单卡身份：首张卡的 id 即窗口身份，之后只认它——
+   *  「窗口=单卡」从约定变结构（关闭不释放身份：临终窗口期异 id 仍被拒） */
+  private windowedId: string | null = null;
 
   /** 屏幕逻辑高度缓存（#20 高度 cap 取口） */
   private screenH: number | null = null;
@@ -74,6 +77,15 @@ export class ComponentManager {
   }
 
   render(spec: ComponentSpec) {
+    // windowed 单卡不变式：异 id spec 一律忽略并报出（数据完整性可见）。
+    // 正常路径不会到达（card:spec 已按窗口 label 定向 + 过滤），这是结构防线
+    if (this.windowed) {
+      this.windowedId ??= spec.id;
+      if (spec.id !== this.windowedId) {
+        console.error(`[card] windowed 单卡守卫：忽略异 id spec（本窗身份 ${this.windowedId}，来 ${spec.id}）`);
+        return;
+      }
+    }
     // 持续管理协议：同 id = **原地更新**（重建内容，不销毁窗口/DOM）；
     // 关闭只走显式 close（closeById / 用户 ×），render 永不关
     const existing = this.cards.get(spec.id);

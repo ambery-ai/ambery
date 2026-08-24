@@ -49,8 +49,13 @@ export async function main() {
     }, 250);
   });
 
-  // 接收 pet 发来的组件 spec
+  // 接收 pet 发来的组件 spec：定向防线——spec.id 必须匹配本窗 label，
+  // 异 id = 后端误发/广播，忽略并报出（数据完整性可见）
   await listen<ComponentSpec>("card:spec", async (ev) => {
+    if (!acceptsSpec(win.label, ev.payload)) {
+      console.error(`[card] 忽略异 id spec（本窗 ${win.label}，来 ${ev.payload?.id}）`);
+      return;
+    }
     mgr.render(ev.payload);
     await new Promise((r) => setTimeout(r, 50));
 
@@ -99,6 +104,11 @@ export async function main() {
     requestRemove(win.label);
     void actions.closeCardWindow(win.label.slice("card-".length));
   });
+}
+
+/** card:spec 定向判定：spec.id 必须等于窗口 label 去 "card-" 前缀 */
+export function acceptsSpec(label: string, spec: ComponentSpec): boolean {
+  return spec?.id === label.slice("card-".length);
 }
 
 function cardDirection(el: HTMLElement): Direction | "auto" {
