@@ -290,7 +290,9 @@ export class ChatPanel {
   /** 错误通知按 retention 路由：transient → 消息流气泡（一次一现，文案 = 后端用户可读
    *  message）；persistent → 顶部 banner。气泡是界面瞬态（非 Context 内容）：
    *  renderHistory 全量重渲时保留（与 sendErrorEl 同模式） */
-  private errorBubbleEl: HTMLDivElement | null = null;
+  /** transient 错误气泡（界面瞬态，非 Context 内容）：记触发时刻 ts，
+   *  renderHistory 按 ts 合并插回消息流正确时序位置；会话态不跨重启 */
+  private errorBubbles: { ts: number; el: HTMLDivElement }[] = [];
 
   private showError(e: ErrorEvent) {
     if (e.retention === "persistent") {
@@ -301,7 +303,7 @@ export class ChatPanel {
     bubble.className = "chat-msg chat-system chat-llm-error";
     bubble.textContent = e.message;
     this.historyEl.append(bubble);
-    this.errorBubbleEl = bubble;
+    this.errorBubbles.push({ ts: Date.now(), el: bubble });
     this.scrollToBottom();
     // 动作记录：前端渲染了错误气泡（记录不驱动渲染）
     reportEffect("error_bubble", { message: e.message });
@@ -536,17 +538,27 @@ export class ChatPanel {
     const anchor = this.follow ? null : this.captureAnchor();
     const visible = msgs.filter((m) => (m.role === "user" || m.role === "assistant") && m.content);
     this.historyEl.replaceChildren();
-    for (const m of visible) {
-      const row = document.createElement("div");
-      row.className = `chat-msg chat-${m.role}`;
-      row.textContent = m.content;
-      this.historyEl.append(row);
+    // 消息 + 错误气泡按 ts 合并排序渲染：气泡插在触发它的消息之后（时序正确）
+    const items: Array<
+      | { ts: number; kind: "msg"; m: ContextMessage }
+      | { ts: number; kind: "err"; el: HTMLDivElement }
+    > = visible.map((m) => ({ ts: m.ts, kind: "msg" as const, m }));
+    for (const b of this.errorBubbles) items.push({ ts: b.ts, kind: "err", el: b.el });
+    items.sort((a, b) => a.ts - b.ts);
+    for (const it of items) {
+      if (it.kind === "msg") {
+        const row = document.createElement("div");
+        row.className = `chat-msg chat-${it.m.role}`;
+        row.textContent = it.m.content;
+        this.historyEl.append(row);
+      } else {
+        this.historyEl.append(it.el);
+      }
     }
     // 全量重渲不冲掉在飞的流式气泡与发送失败提示行（界面瞬态，非 Context 内容）
     if (this.streamRow) this.historyEl.append(this.streamRow);
     if (this.thinkEl) this.historyEl.append(this.thinkEl);
     if (this.sendErrorEl) this.historyEl.append(this.sendErrorEl);
-    if (this.errorBubbleEl) this.historyEl.append(this.errorBubbleEl);
     // 新消息计数（阅读历史时；一条流式回复只计一条，不因增量重复计）
     if (!this.follow && visible.length > this.lastRenderedCount) {
       this.pendingNew += visible.length - this.lastRenderedCount;
