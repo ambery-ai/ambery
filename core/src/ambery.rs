@@ -13,6 +13,25 @@ use crate::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+/// 错误留存档位（错误通知的唯一分派轴）：前端按留存路由，不按来源
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorRetention {
+    /// 瞬时：消息流气泡，一次一现
+    Transient,
+    /// 常驻：chat 顶部 banner，直至用户关闭（恢复再失败视为新条件重开）
+    Persistent,
+}
+
+impl ErrorRetention {
+    /// wire/记录形态（effect 载荷与前端路由共用同一对字符串）
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Transient => "transient",
+            Self::Persistent => "persistent",
+        }
+    }
+}
+
 /// 副作用：经 WS 广播给前端
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
@@ -28,6 +47,13 @@ pub enum Effect {
     },
     /// llm_changed=true 时 server 广播前重建 LlmBackend
     ConfigChanged { llm_changed: bool },
+    /// 错误通知（错误即通知模型）：message 用户可读文本；
+    /// action 可选——banner 点击分派目标 id（如 "setup" 配置引导），无则纯告知
+    Error {
+        message: String,
+        retention: ErrorRetention,
+        action: Option<String>,
+    },
     /// LLM 失败已降级 DebugAgent——显式 UI 错误帧（不再静默）
     LlmError { message: String },
     /// 流式增量：LLM 回复片段——纯显示优化，不经 Queue/Context。
@@ -56,6 +82,10 @@ impl Effect {
                 ("config_changed", json!({ "llm_changed": llm_changed }))
             }
             Effect::LlmError { message } => ("llm_error", json!({ "message": message })),
+            Effect::Error { message, retention, action } => (
+                "error",
+                json!({ "message": message, "retention": retention.as_str(), "action": action }),
+            ),
             Effect::AssistantDelta { content, reasoning_content } => (
                 "assistant_delta",
                 json!({ "content": content, "reasoning_content": reasoning_content }),
@@ -2816,7 +2846,7 @@ mod tests {
 
     #[test]
     fn effect_kind_payload_exhaustive() {
-        // 穷尽 match 投影：7 变体全部有 kind/payload（新增变体 = effect_kind_payload 编译错）
+        // 穷尽 match 投影：全部变体都有 kind/payload（新增变体 = effect_kind_payload 编译错）
         let cases: Vec<(Effect, &str)> = vec![
             (Effect::RenderComponent(json!({"id":"c"})), "render_component"),
             (Effect::CloseComponent("c".into()), "close_component"),
@@ -2826,6 +2856,10 @@ mod tests {
             ),
             (Effect::ConfigChanged { llm_changed: false }, "config_changed"),
             (Effect::LlmError { message: "boom".into() }, "llm_error"),
+            (
+                Effect::Error { message: "boom".into(), retention: ErrorRetention::Persistent, action: Some("setup".into()) },
+                "error",
+            ),
             (
                 Effect::AssistantDelta { content: Some("x".into()), reasoning_content: None },
                 "assistant_delta",
@@ -2837,6 +2871,23 @@ mod tests {
             assert_eq!(k, kind);
             assert!(payload.is_object());
         }
+        // error 载荷契约：retention 字符串形态 + action 可选携带
+        let (_, p) = Effect::Error {
+            message: "m".into(),
+            retention: ErrorRetention::Persistent,
+            action: Some("setup".into()),
+        }
+        .effect_kind_payload();
+        assert_eq!(p["retention"], json!("persistent"));
+        assert_eq!(p["action"], json!("setup"));
+        let (_, p) = Effect::Error {
+            message: "m".into(),
+            retention: ErrorRetention::Transient,
+            action: None,
+        }
+        .effect_kind_payload();
+        assert_eq!(p["retention"], json!("transient"));
+        assert!(p["action"].is_null());
     }
 
     #[tokio::test]

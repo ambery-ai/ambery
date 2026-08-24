@@ -91,6 +91,9 @@ pub fn effect_json(e: &Effect) -> Value {
         Effect::SetAutonomy { face, motion, ttl_ms, once } => json!({ "kind": "set_autonomy", "face": face, "motion": motion, "ttlMs": ttl_ms, "once": once }),
         Effect::ConfigChanged { .. } => json!({ "kind": "config" }),
         Effect::LlmError { message } => json!({ "kind": "llm_error", "message": message }),
+        Effect::Error { message, retention, action } => json!({
+            "kind": "error", "message": message, "retention": retention.as_str(), "action": action,
+        }),
         Effect::AssistantDelta { content, reasoning_content } => json!({ "kind": "assistant_delta", "content": content, "reasoning_content": reasoning_content }),
         Effect::AssistantDone => json!({ "kind": "assistant_done" }),
     }
