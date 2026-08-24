@@ -37,7 +37,9 @@ export function renderConfigNode(n: ConfigNode, opts: RenderNodeOpts): HTMLEleme
     return row;
   }
 
-  const nameHtml = `<div class="name" ${title}>${escapeHtml(label)}</div>`;
+  // name 的 hover 显示完整字段路径（长路径在面板内被截断，hover 看全）；
+  // desc 已作为行下 hint 可见，hover 不再重复 desc
+  const nameHtml = `<div class="name" title="${escapeHtml(n.path)}">${escapeHtml(label)}</div>`;
   let control: HTMLElement;
 
   switch (n.type.kind) {
