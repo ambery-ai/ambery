@@ -73,8 +73,14 @@ Dev iteration with live reload: keep the vite dev server pinned to the port in `
 
 At runtime, invoke locate to list every ambery window with its position, size, and visibility, leaving a 10s border on the desktop (red visible, lime hidden):
 
+Windows PowerShell:
 ```bash
 pwsh -NoProfile -File tools/locate.ps1 -Highlight
+```
+
+macOS:
+```bash
+swift tools/locate.swift --highlight
 ```
 
 ## Debugging LLM failures

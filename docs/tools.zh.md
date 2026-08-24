@@ -9,6 +9,7 @@
 | 工具 | 说明 | 调用 |
 |---|---|---|
 | `locate.ps1` | 枚举进程下所有窗口（定位/验证窗口相关改动） | 直接运行 |
+| `locate.swift` | `locate.ps1` 的 macOS 对应版——枚举进程下所有窗口 | 直接运行（`swift tools/locate.swift`） |
 | `run-vite-dev.ps1` | vite dev 常驻 runner（崩溃自动重启） | 后台常驻 |
 | `ambery-activity` | 读取 storage JSONL 的活动查看器（core 独立 bin） | 见下 |
 

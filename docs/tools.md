@@ -9,6 +9,7 @@ Unified definition of development tools: script tools under the `tools/` directo
 | Tool | Description | Invocation |
 |---|---|---|
 | `locate.ps1` | enumerates all windows under a process (locating/verifying window-related changes) | run directly |
+| `locate.swift` | macOS counterpart of `locate.ps1` — enumerates all windows under a process | run directly (`swift tools/locate.swift`) |
 | `run-vite-dev.ps1` | vite dev resident runner (auto-restart on crash) | run in background as a resident process |
 | `ambery-activity` | activity viewer that reads Storage JSONL (core standalone bin) | see below |
 

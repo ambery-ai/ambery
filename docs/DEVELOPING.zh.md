@@ -73,8 +73,14 @@ cd app/src-tauri && AMBERY_PORT=47601 ./target/release/ambery   # 非默认端�
 
 运行时调用 locate 列出所有 ambery 窗口的位置/尺寸/可见性，运行后在桌面上停留 10 秒边框（红色=可见，青绿=隐藏）：
 
+Windows PowerShell：
 ```bash
 pwsh -NoProfile -File tools/locate.ps1 -Highlight
+```
+
+macOS：
+```bash
+swift tools/locate.swift --highlight
 ```
 
 ## 调试 LLM 失败
