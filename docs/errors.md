@@ -29,7 +29,7 @@ An error is a notification — the user learns from the UI, nothing more. Errors
 
 Two outlets, one per retention:
 
-- **Bubble** (chat stream) — transient: "what happened this turn". One per occurrence, consumed and cleared.
+- **Bubble** (chat stream) — transient: "what happened this turn". One per occurrence, kept in the stream for the session. Rendered at the chronological position of the failing turn (interleaved with messages, never piled at the end); session-scoped — not persisted, not replayed across restart.
 - **Banner** (chat top) — persistent: "the system needs your attention". Opened by an error event with persistent retention, stays until dismissed. Dismissing ignores that condition until it recovers and fails again (a recover→fail cycle counts as a new condition). An action is optional: with one, click dispatches to the destination; without one, the banner is a pure persistent notice (dismissible only). At most two banners show at once — one per condition; excess conditions queue and slide into a slot when one is dismissed.
 
 Retention lives in the outlet, not in a separate state value: the same error event opens both the transient bubble and the persistent banner. A persistent condition must reach the persistent outlet — a transient bubble alone would surface it once and go silent.
