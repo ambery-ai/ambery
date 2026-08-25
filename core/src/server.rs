@@ -378,6 +378,46 @@ mod tests {
         drop(ov);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// 读失败 + 枚举对账确认 marker 缺席 = 判死（观察非推断，WT 判死的主路径）
+    #[tokio::test]
+    async fn timer_step_close_when_reconcile_confirms_absent() {
+        let adapter = std::sync::Arc::new(TimerAdapter::new(
+            Some(crate::TabRef { hwnd: -1, index: 0 }),
+            "p·s0a00000",
+            TimerScript::Error,
+        ));
+        let (state, name, dir) = timer_state("abs", adapter.clone()).await;
+        // 注册后 tab 消失：枚举不再含 marker（read 失败只是 Error，对账才定生死）
+        adapter.tabs.lock().unwrap().clear();
+        timer_step(&state, &name).await;
+        let ov = state.ambery.lock().await;
+        let latest = ov.harness.agents.iter().rev().find(|a| a.name == name).unwrap();
+        assert_eq!(latest.status, crate::AgentStatus::Closed, "枚举确认缺席 = 确证死亡");
+        drop(ov);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// tab 位置漂移：read 失败 + 对账在新位置找到 marker → 自愈回写，不判死
+    #[tokio::test]
+    async fn timer_step_relocates_on_drift() {
+        let tab_x = crate::TabRef { hwnd: -1, index: 0 };
+        let tab_y = crate::TabRef { hwnd: -2, index: 1 };
+        let adapter = std::sync::Arc::new(TimerAdapter::new(
+            Some(tab_x),
+            "p·s0a00000",
+            TimerScript::Error,
+        ));
+        let (state, name, dir) = timer_state("drift", adapter.clone()).await;
+        // 漂移：枚举在新 TabRef 上找到 marker
+        adapter.tabs.lock().unwrap()[0].tab = tab_y;
+        timer_step(&state, &name).await;
+        let ov = state.ambery.lock().await;
+        let latest = ov.harness.agents.iter().rev().find(|a| a.name == name && a.status != crate::AgentStatus::Closed).unwrap();
+        assert_eq!(latest.tab, Some(tab_y), "对账自愈：记录回写到新位置");
+        drop(ov);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ── handlers ──
