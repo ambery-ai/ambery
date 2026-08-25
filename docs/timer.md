@@ -45,14 +45,13 @@ The scan read channel = Terminal Adapter (docs/terminal-adapter.md): `locate(ins
 ## Scan processing flow (the real application point of change detection)
 
 ```
-tick（server 后台任务，默认 60s（config `timer.tick_ms`；case-runner 可经 AMBERY_TIMER_TICK_MS 覆盖））
+tick (server background task, default 60s (config `timer.tick_ms`; case-runner can override via AMBERY_TIMER_TICK_MS))
   → due(now, batch)
-  → due(now, batch)
-  → adapter read by located tab（三态：Content=证据存活 / Gone=确证不存在→closed 证据 / Error=跳过一次，信念不动，docs/storage.md）
-  → 原文存 terminal-content.jsonl → Filter.digest 归一
-  → 与内存 prev 基准 detect_change（归一全文不持久化，prev 存内存重启丢）
-  → Substantive：注入「{instance} 兜底扫描发现变化，Context 已更新（{len} 字）。评估是否通知。」进 Queue（source=timer_scan）→ run_trigger（归一全文本身不进 Context）
-  → Minor / Unchanged：原文存档 + prev 更新，不打扰（concepts §9b 沉默精神一致）
+  → adapter read by located tab (three states: Content = evidence of liveness / Gone = confirmed absence → closed evidence / Error = skip this round, belief unchanged — docs/storage.md)
+  → raw text archived to terminal-content.jsonl → Filter.digest normalization
+  → detect_change against the in-memory prev baseline (normalized full text is not persisted; prev lives in memory, lost on restart)
+  → Substantive: inject "{instance} fallback scan detected changes, Context updated ({len} chars). Evaluate whether to notify." into Queue (source=timer_scan) → run_trigger (the normalized full text itself does not enter Context)
+  → Minor / Unchanged: raw archive + prev update, no disturbance (consistent with the concepts §9b silence spirit)
 ```
 
 The injected message is isomorphic to the stop hook (`…，Context 已更新（N 字）。评估是否通知。`) — the notification/silence decision path is identical.

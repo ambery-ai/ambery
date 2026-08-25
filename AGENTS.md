@@ -28,15 +28,7 @@ Ambery 是 Tauri 多窗口桌宠（pet/chat/menu/shelf/card）+ Rust core。改�
 
 ## 存储 JSONL 输出文件
 
-默认目录 `~/.config/ambery/storage/`（`AMBERY_STORAGE_DIR` 可覆盖），app 运行产物，调试/回放用，每个文件一行：
-
-- `context.jsonl` — Context 统一信封（session / head / message / autonomy 行；head 行复现最近上下文，其余留痕）。
-- `queue.jsonl` — 入队输入留痕（role / source；排队轨迹，非对话本体）。
-- `effect.jsonl` — 动作流记录（后端副作用 + 前端非只读调用，如 render_component / window_resized / window_moved）。
-- `terminal-content.jsonl` — 终端原文存档（Filter 前），`filtered_content` 的现算源。
-- `work-agents.jsonl` — 实例生命周期 upsert 日志（register / 状态变更 / closed，每行一条全量快照）。
-- `cron.jsonl` — cron 计划条目（append-only，启动 replay 折叠为当前计划集）。
-- `context.jsonl.bad` — 解析失败坏行的隔离区（`read_all` 跳过并把原行移入此处）。
+默认目录 `~/.config/ambery/storage/`（`AMBERY_STORAGE_DIR` 可覆盖），app 运行产物，调试/回放用。各文件契约见 [docs/storage.md](docs/storage.md)（one home per fact）。
 
 ## User Goals
 

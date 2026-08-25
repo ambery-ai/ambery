@@ -25,7 +25,7 @@ tools/            diagnostic tools
 ## Commit conventions
 
 - **One thing per commit**: behavior, tests, and docs are committed separately.
-- **Chinese first line** summarizing the behavior change; body explains why.
+- **English subject line** summarizing the behavior change; body explains why.
 - Behavior changes come with tests: Rust unit tests in the module, frontend tests in `app/test/*.test.ts`.
 - No internal project/example names in commits or comments — the repo is public.
 
