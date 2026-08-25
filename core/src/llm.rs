@@ -302,7 +302,7 @@ pub fn deterministic_summary(messages: &[ContextMessage]) -> String {
 
 /// debug 模式 agent：纯 mock，零逻辑。决策源由外部注入——
 /// 测试用脚本闭包、HTTP brain（OpenAI 兼容端点）、显式无 LLM 态用沉默。
-/// 仅开发构建（T13 条件编译：debug-agent feature 或 debug_assertions）；
+/// 仅开发构建（条件编译：debug-agent feature 或 debug_assertions）；
 /// 正式出包不含本类型及一切相关代码。
 #[cfg(any(feature = "debug-agent", debug_assertions))]
 pub struct DebugAgent {
@@ -799,7 +799,7 @@ impl LlmBackend {
     }
 
     /// init 失败兜底后端：保循环可用但调用即 Err——每次发送触发 transient
-    /// 错误气泡（errors.md「调用结果只作瞬时事件」），不静默
+    /// 错误气泡（调用结果只作瞬时事件），不静默
     pub fn unavailable(reason: impl Into<String>) -> Self {
         Self {
             inner: LlmBackendInner::Unavailable(reason.into()),

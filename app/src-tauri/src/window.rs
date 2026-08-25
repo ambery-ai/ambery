@@ -1,4 +1,4 @@
-// 窗口置顶模式（T14）：三档应用 + 轮询线程生命周期管理
+// 窗口置顶模式：三档应用 + 轮询线程生命周期管理
 // aggressive = 跨虚拟桌面 pin + 500ms 轮询重申 TOPMOST（任务栏/他窗抢顶时 fight-back）
 // topmost    = 仅 alwaysOnTop 窗口属性
 // off        = 普通窗口（既不 pin 也不置顶）

@@ -441,7 +441,7 @@ async fn ensure_card_window<R: tauri::Runtime>(
         .build()
         .map_err(|e| e.to_string())?;
     registry.0.lock().unwrap().insert(label.clone(), CardWinState::Alive);
-    // 置顶模式统一出口（T14）：aggressive 档补 pin + 轮询线程
+    // 置顶模式统一出口：aggressive 档补 pin + 轮询线程
     window::apply_topmost(&win, card_mode, &topmost);
     {
         let ov = s.ambery().lock().await;
@@ -487,7 +487,7 @@ async fn close_card_window<R: tauri::Runtime>(
     Ok(json!({ "result": "closed" }))
 }
 
-/// 置顶模式统一应用（T14）：常驻三窗按各自档位 + 全部活卡窗按 card 档。
+/// 置顶模式统一应用：常驻三窗按各自档位 + 全部活卡窗按 card 档。
 /// 启动初始化与 config 热更（effect kind=config）共用本出口。
 fn apply_topmost_all(handle: &tauri::AppHandle, cfg: &ambery_core::config::TopmostConfig) {
     let registry = handle.state::<window::TopmostRegistry>();
@@ -521,14 +521,9 @@ fn main() {
             let menu = app.get_webview_window("menu").expect("menu window");
             let shelf = app.get_webview_window("shelf").expect("shelf window");
 
-            // 置顶模式初始应用（T14）：chat/shelf 默认 topmost——不再起轮询线程（WindowNotFound 噪音源根除）
+            // 置顶模式初始应用：chat/shelf 默认 topmost——不再起轮询线程（WindowNotFound 噪音源根除）
             let topmost_cfg = Config::load_or_default(&ambery_core::paths::config_root()).ui.topmost;
-            {
-                let registry = app.state::<window::TopmostRegistry>();
-                window::apply_topmost(&pet, topmost_cfg.pet, &registry);
-                window::apply_topmost(&chat, topmost_cfg.chat, &registry);
-                window::apply_topmost(&shelf, topmost_cfg.shelf, &registry);
-            }
+            apply_topmost_all(app.handle(), &topmost_cfg);
             menu_window::init_menu_window(&menu);
             tray::init_tray(app.handle(), &pet)?;
 
@@ -611,7 +606,7 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
         let handle = handle.clone();
         state
             .set_sender(Box::new(move |msg: Value| {
-                // T14：置顶模式热应用——config 变更已先落盘（统一管道先 persist 后广播），重读即最新
+                // 置顶模式热应用——config 变更已先落盘（统一管道先 persist 后广播），重读即最新
                 if msg.get("kind").and_then(Value::as_str) == Some("config") {
                     let cfg = Config::load_or_default(&ambery_core::paths::config_root());
                     apply_topmost_all(&handle, &cfg.ui.topmost);

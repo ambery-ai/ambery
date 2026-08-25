@@ -73,7 +73,7 @@ async function render(bridge: Bridge, body: HTMLElement) {
                 const r = await bridge.setConfig!(`llm.providers.${name}`, {
                   base_url: "",
                   model: "",
-                  // 统一 key 变量名约定（llm.rs:833）：AMBERY_<PROVIDER>_API_KEY（大写）
+                  // 统一 key 变量名约定：AMBERY_<PROVIDER>_API_KEY（大写）
                   api_key_env: `AMBERY_${name.toUpperCase()}_API_KEY`,
                 });
                 if (r.ok) void render(bridge, body); // 重渲染：新 provider 进下拉选项

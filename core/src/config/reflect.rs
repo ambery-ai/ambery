@@ -125,7 +125,7 @@ pub fn valid_options(config: &Config, path: &str) -> Option<Vec<String>> {
 static OPTIONS: &[(&str, fn(&Config) -> Vec<String>)] = &[
     ("llm.active", |c| {
         let mut v = vec!["unconfigured".to_string()];
-        // debug 档仅开发构建可选（T13 条件编译；release 的 active 枚举无 debug）
+        // debug 档仅开发构建可选（条件编译；release 的 active 枚举无 debug）
         #[cfg(any(feature = "debug-agent", debug_assertions))]
         v.push("debug".to_string());
         let mut keys: Vec<String> = c.llm.providers.keys().cloned().collect();

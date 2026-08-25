@@ -8,7 +8,6 @@ import { Store } from "../store";
 import { wireI18n } from "../i18n";
 import { wireTheme } from "../theme";
 import * as actions from "../tauri_runtime_actions";
-import { reportEffect } from "../effects";
 import { Direction } from "../positioning/types";
 
 let adapter: WindowAdapter | null = null;
@@ -81,7 +80,6 @@ export async function main() {
     let applied = measure();
     lastPw = applied.pw;
     lastPh = applied.ph;
-    reportEffect("debug_card_diag", { phase: "measure", label, w_css: card.offsetWidth, h_css: card.offsetHeight, dpr, pw: applied.pw, ph: applied.ph });
     let pos = await requestPlace(label, { id: label, width: applied.pw, height: applied.ph }, dir);
     // chrome 规则（styles.css）：测量值已含 border，窗口恰好包裹内容（阴影留边已废弃）
     await adapter?.setSize(applied.pw, applied.ph);
@@ -104,12 +102,6 @@ export async function main() {
       await adapter?.setSize(m.pw, m.ph);
       await adapter?.setPosition(Math.round(pos.x - m.pw / 2), Math.round(pos.y - m.ph / 2));
     }
-    // [DEBUG-card-diag] settle 后再量：内容实际高度 vs 窗口实际 inner 尺寸
-    setTimeout(async () => {
-      const after = document.querySelector(".component") as HTMLElement | null;
-      const inner = await win.innerSize();
-      reportEffect("debug_card_diag", { phase: "settle", label, h_css_after: after?.offsetHeight ?? -1, win_phys_w: inner.width, win_phys_h: inner.height, dpr });
-    }, 800);
   });
 
   // 拖拽 hide/restore

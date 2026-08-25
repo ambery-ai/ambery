@@ -156,7 +156,7 @@ impl Default for TerminalConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LlmConfig {
     /// "debug" = DebugAgent（纯 mock 零逻辑，沉默/脚本闭包决策源；仅开发构建可选，
-    /// release 无此档——T13 条件编译）；其他值 = providers 里的 key
+    /// release 无此档——条件编译）；其他值 = providers 里的 key
     pub active: String,
     #[serde(default)]
     pub providers: std::collections::HashMap<String, LlmProvider>,
@@ -265,7 +265,7 @@ impl Default for TopmostConfig {
     }
 }
 
-/// 置顶模式三档（T14）：
+/// 置顶模式三档：
 /// aggressive 强力置顶（跨虚拟桌面 pin + 500ms 轮询重申 TOPMOST，他窗抢顶时 fight-back）/
 /// topmost 置顶（仅 alwaysOnTop 窗口属性）/
 /// off 不置顶（普通窗口）
