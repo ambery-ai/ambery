@@ -27,7 +27,11 @@ impl TopmostRegistry {
 }
 
 /// 按模式应用窗口置顶行为：先停旧轮询（幂等），再按档落定属性 / pin / 轮询。
-pub fn apply_topmost(window: &WebviewWindow, mode: TopmostMode, registry: &TopmostRegistry) {
+pub fn apply_topmost<R: tauri::Runtime>(
+    window: &WebviewWindow<R>,
+    mode: TopmostMode,
+    registry: &TopmostRegistry,
+) {
     let label = window.label().to_string();
     registry.stop(&label);
     let _ = window.set_always_on_top(mode != TopmostMode::Off);
@@ -41,7 +45,11 @@ pub fn apply_topmost(window: &WebviewWindow, mode: TopmostMode, registry: &Topmo
 
 /// aggressive 档全集：跨虚拟桌面 pin + 500ms 轮询重申 TOPMOST（可停止）
 #[cfg(windows)]
-fn start_aggressive(window: &WebviewWindow, label: String, registry: &TopmostRegistry) {
+fn start_aggressive<R: tauri::Runtime>(
+    window: &WebviewWindow<R>,
+    label: String,
+    registry: &TopmostRegistry,
+) {
     use std::sync::Arc;
     use std::sync::atomic::Ordering;
     use std::thread;
@@ -78,7 +86,7 @@ fn start_aggressive(window: &WebviewWindow, label: String, registry: &TopmostReg
 }
 
 #[cfg(windows)]
-fn unpin(window: &WebviewWindow) {
+fn unpin<R: tauri::Runtime>(window: &WebviewWindow<R>) {
     use windows::Win32::Foundation::HWND;
     let raw = window.hwnd().expect("hwnd").0 as *mut core::ffi::c_void;
     let _ = winvd::unpin_window(HWND(raw));
