@@ -85,6 +85,9 @@ pub struct Config {
     /// default）+ user_chat 关键词改写表
     #[serde(default)]
     pub effort: EffortConfig,
+    /// 壳层 UI 行为（窗口置顶模式等；热字段——壳监听 config 变更即时应用）
+    #[serde(default)]
+    pub ui: UiConfig,
     /// 只读降级模式：true 时任何 save 报错。
     /// 运行时标记，不落盘（serde skip）
     #[serde(skip)]
@@ -218,6 +221,64 @@ impl Default for EffortConfig {
             keywords: default_effort_keywords(),
         }
     }
+}
+
+/// 壳层 UI 行为子树
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct UiConfig {
+    /// per-window 置顶模式（pet/chat/shelf/card 各自独立）
+    #[serde(default)]
+    pub topmost: TopmostConfig,
+}
+
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            topmost: TopmostConfig::default(),
+        }
+    }
+}
+
+/// per-window 置顶模式：默认 pet=aggressive（常驻本体需 fight-back），
+/// 其余=topmost（chat/shelf 按需瞬显面板，card 仅属性置顶——均无需轮询）
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TopmostConfig {
+    #[serde(default = "default_topmost_pet")]
+    pub pet: TopmostMode,
+    #[serde(default)]
+    pub chat: TopmostMode,
+    #[serde(default)]
+    pub shelf: TopmostMode,
+    #[serde(default)]
+    pub card: TopmostMode,
+}
+
+impl Default for TopmostConfig {
+    fn default() -> Self {
+        Self {
+            pet: default_topmost_pet(),
+            chat: TopmostMode::default(),
+            shelf: TopmostMode::default(),
+            card: TopmostMode::default(),
+        }
+    }
+}
+
+/// 置顶模式三档（T14）：
+/// aggressive 强力置顶（跨虚拟桌面 pin + 500ms 轮询重申 TOPMOST，他窗抢顶时 fight-back）/
+/// topmost 置顶（仅 alwaysOnTop 窗口属性）/
+/// off 不置顶（普通窗口）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TopmostMode {
+    Aggressive,
+    #[default]
+    Topmost,
+    Off,
+}
+
+fn default_topmost_pet() -> TopmostMode {
+    TopmostMode::Aggressive
 }
 
 impl Default for LlmConfig {
@@ -541,6 +602,7 @@ impl Default for Config {
             context_compression_keep_recent_messages: default_keep_recent(),
             llm: LlmConfig::default(),
             effort: EffortConfig::default(),
+            ui: UiConfig::default(),
             read_only: false,
             load_report: Vec::new(),
         }
@@ -561,6 +623,29 @@ mod tests {
         v.as_object_mut().unwrap().remove("terminal");
         let cfg2: Config = serde_json::from_value(v).unwrap();
         assert_eq!(cfg2.terminal, cfg.terminal);
+    }
+
+    #[test]
+    fn topmost_defaults_and_compat() {
+        let cfg = Config::default();
+        assert_eq!(cfg.ui.topmost.pet, TopmostMode::Aggressive, "pet 默认强力置顶");
+        assert_eq!(cfg.ui.topmost.chat, TopmostMode::Topmost);
+        assert_eq!(cfg.ui.topmost.shelf, TopmostMode::Topmost);
+        assert_eq!(cfg.ui.topmost.card, TopmostMode::Topmost);
+        // 旧 config.json 无 ui 段 → serde default 补齐（无需迁移）
+        let mut v = serde_json::to_value(&cfg).unwrap();
+        v.as_object_mut().unwrap().remove("ui");
+        let cfg2: Config = serde_json::from_value(v).unwrap();
+        assert_eq!(cfg2.ui, cfg.ui);
+        // 显式档位生效
+        let mut v = serde_json::to_value(&cfg).unwrap();
+        v["ui"]["topmost"]["chat"] = serde_json::Value::from("off");
+        let cfg3: Config = serde_json::from_value(v).unwrap();
+        assert_eq!(cfg3.ui.topmost.chat, TopmostMode::Off);
+        // 非法档位必须拒绝（serde enum 白送校验）
+        let mut v = serde_json::to_value(&cfg).unwrap();
+        v["ui"]["topmost"]["pet"] = serde_json::Value::from("bogus");
+        assert!(serde_json::from_value::<Config>(v).is_err());
     }
 
     #[test]

@@ -215,6 +215,13 @@ pub static NODES: &[NodeMeta] = &[
     NodeMeta { path: "llm", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false, migrate: M },
     NodeMeta { path: "llm.active", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
     NodeMeta { path: "llm.providers", kind: NodeKind::Map { entry_probe: probe_llm_provider, free_keys: false }, validate: &[Validation::Func(providers_keys_func)], no_llm_visible: false, cold: false, migrate: M },
+    // ui.* 壳层行为（热字段：壳监听 config 事件即时应用；整棵子树不进 LLM 投影）
+    NodeMeta { path: "ui", kind: NodeKind::Object, validate: V, no_llm_visible: true, cold: false, migrate: M },
+    NodeMeta { path: "ui.topmost", kind: NodeKind::Object, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "ui.topmost.pet", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "ui.topmost.chat", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "ui.topmost.shelf", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
+    NodeMeta { path: "ui.topmost.card", kind: NodeKind::Leaf, validate: V, no_llm_visible: false, cold: false, migrate: M },
 ];
 
 pub fn node_meta(path: &str) -> Option<&'static NodeMeta> {

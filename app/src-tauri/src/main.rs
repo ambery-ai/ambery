@@ -388,6 +388,7 @@ async fn wait_window_gone<R: tauri::Runtime>(app: &tauri::AppHandle<R>, label: &
 async fn ensure_card_window<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     registry: tauri::State<'_, CardWindowRegistry>,
+    topmost: tauri::State<'_, window::TopmostRegistry>,
     state: tauri::State<'_, SharedTauriState>,
     id: String,
     spec: Value,
@@ -424,13 +425,15 @@ async fn ensure_card_window<R: tauri::Runtime>(
             let _ = w.destroy();
         }
         wait_window_gone(&app, &label).await;
+        topmost.stop(&label);
     }
+    let card_mode = s.ambery().lock().await.config.ui.topmost.card;
     let win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html#card".into()))
         .title(&label)
         .inner_size(520.0, 440.0)
         .decorations(false)
         .transparent(true)
-        .always_on_top(true)
+        .always_on_top(card_mode != ambery_core::config::TopmostMode::Off)
         .focused(false)
         .shadow(false)
         .skip_taskbar(true)
@@ -438,6 +441,8 @@ async fn ensure_card_window<R: tauri::Runtime>(
         .build()
         .map_err(|e| e.to_string())?;
     registry.0.lock().unwrap().insert(label.clone(), CardWinState::Alive);
+    // 置顶模式统一出口（T14）：aggressive 档补 pin + 轮询线程
+    window::apply_topmost(&win, card_mode, &topmost);
     {
         let ov = s.ambery().lock().await;
         ov.record_frontend_effect("window_opened", json!({ "window": label.as_str() }));
@@ -458,6 +463,7 @@ async fn ensure_card_window<R: tauri::Runtime>(
 async fn close_card_window<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     registry: tauri::State<'_, CardWindowRegistry>,
+    topmost: tauri::State<'_, window::TopmostRegistry>,
     state: tauri::State<'_, SharedTauriState>,
     id: String,
 ) -> Result<Value, String> {
@@ -474,10 +480,27 @@ async fn close_card_window<R: tauri::Runtime>(
     }
     wait_window_gone(&app, &label).await;
     registry.0.lock().unwrap().remove(&label);
+    topmost.stop(&label);
     let s = wait_state(&state)?;
     let ov = s.ambery().lock().await;
     ov.record_frontend_effect("window_closed", json!({ "window": label.as_str() }));
     Ok(json!({ "result": "closed" }))
+}
+
+/// 置顶模式统一应用（T14）：常驻三窗按各自档位 + 全部活卡窗按 card 档。
+/// 启动初始化与 config 热更（effect kind=config）共用本出口。
+fn apply_topmost_all(handle: &tauri::AppHandle, cfg: &ambery_core::config::TopmostConfig) {
+    let registry = handle.state::<window::TopmostRegistry>();
+    for (label, mode) in [("pet", cfg.pet), ("chat", cfg.chat), ("shelf", cfg.shelf)] {
+        if let Some(w) = handle.get_webview_window(label) {
+            window::apply_topmost(&w, mode, &registry);
+        }
+    }
+    for (label, w) in handle.webview_windows() {
+        if label.starts_with("card-") {
+            window::apply_topmost(&w, cfg.card, &registry);
+        }
+    }
 }
 
 fn main() {
@@ -491,15 +514,21 @@ fn main() {
         ])
         .manage(SharedTauriState::new(TauriState(std::sync::Mutex::new(None))))
         .manage(CardWindowRegistry::default())
+        .manage(window::TopmostRegistry::default())
         .setup(|app| {
             let pet = app.get_webview_window("pet").expect("pet window");
             let chat = app.get_webview_window("chat").expect("chat window");
             let menu = app.get_webview_window("menu").expect("menu window");
             let shelf = app.get_webview_window("shelf").expect("shelf window");
 
-            window::init_window(&pet);
-            window::init_window(&chat);
-            window::init_window(&shelf);
+            // 置顶模式初始应用（T14）：chat/shelf 默认 topmost——不再起轮询线程（WindowNotFound 噪音源根除）
+            let topmost_cfg = Config::load_or_default(&ambery_core::paths::config_root()).ui.topmost;
+            {
+                let registry = app.state::<window::TopmostRegistry>();
+                window::apply_topmost(&pet, topmost_cfg.pet, &registry);
+                window::apply_topmost(&chat, topmost_cfg.chat, &registry);
+                window::apply_topmost(&shelf, topmost_cfg.shelf, &registry);
+            }
             menu_window::init_menu_window(&menu);
             tray::init_tray(app.handle(), &pet)?;
 
@@ -582,6 +611,11 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
         let handle = handle.clone();
         state
             .set_sender(Box::new(move |msg: Value| {
+                // T14：置顶模式热应用——config 变更已先落盘（统一管道先 persist 后广播），重读即最新
+                if msg.get("kind").and_then(Value::as_str) == Some("config") {
+                    let cfg = Config::load_or_default(&ambery_core::paths::config_root());
+                    apply_topmost_all(&handle, &cfg.ui.topmost);
+                }
                 let _ = tx.send(msg.to_string());
                 let _ = handle.emit("effect", msg);
             }))
