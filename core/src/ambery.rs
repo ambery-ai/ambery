@@ -1472,6 +1472,17 @@ impl<L: Llm> AmberyBackend<L> {
         self.timers.due(now, batch)
     }
 
+    /// 实例记录里已定位的 tab（最新存活记录）——timer「按已定位 tab 读」的取口，
+    /// server timer 与 case-runner 共用
+    pub fn located_tab(&self, inst: &str) -> Option<crate::TabRef> {
+        self.harness
+            .agents
+            .iter()
+            .rev()
+            .find(|a| a.name == inst && a.status != crate::AgentStatus::Closed)
+            .and_then(|a| a.tab)
+    }
+
     /// 实例 kind 解析（Filter 按实例 kind 选择）
     fn resolve_kind(&self, instance: &str) -> Option<String> {
         self.harness

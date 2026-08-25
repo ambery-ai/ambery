@@ -74,7 +74,8 @@ fn read_file_lines(path: &std::path::Path) -> Vec<String> {
 }
 
 /// timer 周期：生产路径 TimerWheel 调度——due_timer_scans 取到期实例，
-/// 读 → Some 走 handle_timer_scan（变化检测入队）；None → closed；最后放行。
+/// 读 → Content 走 handle_timer_scan（变化检测入队）；Gone → closed；
+/// Error → 跳过（信念不动，不判死）；最后放行。与 server timer_step 判死同构。
 /// horizon = 模拟一个 interval+stagger 已流逝（case 不等墙钟）。
 /// 返回 (到期扫描数, 判 closed 数)
 pub async fn exec_timer_scan<L: Llm>(ov: &mut AmberyBackend<L>, _ts: i64) -> (usize, usize) {
@@ -86,16 +87,20 @@ pub async fn exec_timer_scan<L: Llm>(ov: &mut AmberyBackend<L>, _ts: i64) -> (us
     let total = due.len();
     let mut closed = 0;
     for inst in due {
-        let content = ov.read_terminal(&inst).await;
+        let (terminal, known_tab) = (ov.terminal.clone(), ov.located_tab(&inst));
+        let outcome = ambery_core::ambery::read_terminal_outcome(terminal, &inst, known_tab).await;
         let ts = ambery_core::server::now_ms();
-        match content {
-            Some(c) => ov
+        match outcome {
+            ambery_core::terminal::ReadOutcome::Content(c) => ov
                 .handle_timer_scan(&inst, &c, ts)
                 .await
                 .expect("timer scan"),
-            None => {
+            ambery_core::terminal::ReadOutcome::Gone => {
                 ov.mark_instance_closed(&inst, ts).expect("mark closed");
                 closed += 1;
+            }
+            ambery_core::terminal::ReadOutcome::Error(e) => {
+                eprintln!("timer scan {inst}: read error: {e}")
             }
         }
     }
