@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::llm::LlmBackend;
 use crate::lifecycle::Lifecycle;
-use crate::ambery::{read_terminal_outcome, Effect, AmberyBackend};
+use crate::ambery::{Effect, AmberyBackend};
 use crate::context::Role;
 use crate::Config;
 
@@ -259,9 +259,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 判死链路 stub：locate 脚本可变；read 按脚本回三态并记录实际读到的 tab
+    /// 判死链路 stub：enumerate 返回脚本化 TabInfo；read 按脚本回三态并记录实际读到的 tab
     struct TimerAdapter {
-        locate: std::sync::Mutex<Option<crate::TabRef>>,
+        tabs: std::sync::Mutex<Vec<crate::terminal::TabInfo>>,
         script: std::sync::Mutex<TimerScript>,
         seen: std::sync::Mutex<Vec<crate::TabRef>>,
     }
@@ -271,17 +271,28 @@ mod tests {
         Error,
     }
     impl TimerAdapter {
-        fn new(locate: Option<crate::TabRef>, script: TimerScript) -> Self {
+        fn new(tab: Option<crate::TabRef>, title: &str, script: TimerScript) -> Self {
+            let tabs = match tab {
+                Some(tab) => vec![crate::terminal::TabInfo {
+                    tab,
+                    title: Some(title.to_string()),
+                    cwd: None,
+                    command: None,
+                    focused: None,
+                    extras: Default::default(),
+                }],
+                None => vec![],
+            };
             Self {
-                locate: std::sync::Mutex::new(locate),
+                tabs: std::sync::Mutex::new(tabs),
                 script: std::sync::Mutex::new(script),
                 seen: std::sync::Mutex::new(Vec::new()),
             }
         }
     }
     impl crate::terminal::TerminalAdapter for TimerAdapter {
-        fn locate(&self, _inst: &str) -> Option<crate::TabRef> {
-            *self.locate.lock().unwrap()
+        fn enumerate(&self) -> Option<Vec<crate::terminal::TabInfo>> {
+            Some(self.tabs.lock().unwrap().clone())
         }
         fn read(&self, tab: &crate::TabRef) -> crate::terminal::ReadOutcome {
             self.seen.lock().unwrap().push(*tab);
@@ -291,7 +302,6 @@ mod tests {
                 TimerScript::Error => crate::terminal::ReadOutcome::Error("transient".into()),
             }
         }
-        fn unlocate(&self, _inst: &str) {}
     }
 
     async fn timer_state(
@@ -310,11 +320,12 @@ mod tests {
         (Arc::new(AppState::new(ov)), name, dir)
     }
 
-    /// 读瞬时失败（Error）= 信念不动，实例不得判死（A-bug 回归）
+    /// 读瞬时失败 + 对账确认 tab 仍在 = 信念不动，实例不得判死（A-bug 回归）
     #[tokio::test]
     async fn timer_step_error_preserves_instance() {
         let adapter = std::sync::Arc::new(TimerAdapter::new(
             Some(crate::TabRef { hwnd: -1, index: 0 }),
+            "p·s0a00000",
             TimerScript::Error,
         ));
         let (state, name, dir) = timer_state("err", adapter).await;
@@ -322,17 +333,18 @@ mod tests {
         let ov = state.ambery.lock().await;
         assert!(
             ov.harness.agents.iter().rev().any(|a| a.name == name && a.status != crate::AgentStatus::Closed),
-            "Error = 信念不动，不得判死"
+            "Error + 对账仍在 = 信念不动，不得判死"
         );
         drop(ov);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Gone = 确证消失 → 判死（不依赖 sidecar 在否）
+    /// read Gone = 位置级强证据 → 判死（不依赖枚举对账）
     #[tokio::test]
     async fn timer_step_gone_marks_closed() {
         let adapter = std::sync::Arc::new(TimerAdapter::new(
             Some(crate::TabRef { hwnd: -1, index: 0 }),
+            "p·s0a00000",
             TimerScript::Gone,
         ));
         let (state, name, dir) = timer_state("gone", adapter).await;
@@ -344,23 +356,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// marker 改名场景：重 locate 失败但已定位 tab 仍可读 → 不判死，且按记录 tab 读
+    /// marker 改名场景：join 不到但已定位 tab 仍可读 → 不判死，且按记录 tab 读
     #[tokio::test]
     async fn timer_step_reads_recorded_tab_when_relocate_fails() {
         let tab_x = crate::TabRef { hwnd: -1, index: 0 };
         let adapter = std::sync::Arc::new(TimerAdapter::new(
             Some(tab_x),
+            "p·s0a00000",
             TimerScript::Content("内容".into()),
         ));
         let (state, name, dir) = timer_state("rec", adapter.clone()).await;
-        // 注册后 marker 改名：重 locate 失败（旧实现在此误判死）
-        *adapter.locate.lock().unwrap() = None;
+        // 注册后 marker 改名：枚举不再有此 title（旧实现在此误判死）
+        adapter.tabs.lock().unwrap().clear();
         timer_step(&state, &name).await;
         assert_eq!(adapter.seen.lock().unwrap().as_slice(), &[tab_x], "应按实例记录的已定位 tab 读");
         let ov = state.ambery.lock().await;
         assert!(
             ov.harness.agents.iter().rev().any(|a| a.name == name && a.status != crate::AgentStatus::Closed),
-            "已定位 tab 可读，不得因重定位失败判死"
+            "已定位 tab 可读，不得因 join 失败判死"
         );
         drop(ov);
         let _ = std::fs::remove_dir_all(&dir);
@@ -736,27 +749,31 @@ async fn post_hook(State(s): State<Arc<AppState>>, Json(body): Json<HookBody>) -
     Json(json!({ "ok": true })).into_response()
 }
 
-/// 单个实例的 timer 步骤：Content → 扫描；Gone → 判死（adapter 正向确证，
-/// 与 sidecar 在否无关）；Error → 无观察、信念不动，只记录绝不判死。
+/// 单个实例的 timer 步骤：Scan → 扫描；Close → 判死（read Gone 或枚举对账
+/// 确认 marker 缺席）；Relocated → 对账自愈回写；Skip → 信念不动只记录。
 async fn timer_step(s: &Arc<AppState>, inst: &str) {
-    // 按已定位 tab 读：实例记录携带的 TabRef 优先，未定位过才现 locate
+    // 按已定位 tab 读：实例记录携带的 TabRef 优先，未定位过才现 join
     let (terminal, known_tab) = {
         let ov = s.ambery.lock().await;
         (ov.terminal.clone(), ov.located_tab(inst))
     };
-    match read_terminal_outcome(terminal, inst, known_tab).await {
-        crate::terminal::ReadOutcome::Content(content) => {
+    match crate::ambery::judge_timer_read(terminal, inst, known_tab).await {
+        crate::ambery::TimerJudgment::Scan(content) => {
             let result = { s.ambery.lock().await.handle_timer_scan(inst, &content, now_ms()).await };
             match result {
                 Ok(()) => s.queue_notify.notify_one(),
                 Err(err) => eprintln!("timer scan {inst}: {err}"),
             }
         }
-        crate::terminal::ReadOutcome::Gone => {
+        crate::ambery::TimerJudgment::Close => {
             let mut ov = s.ambery.lock().await;
             if let Err(err) = ov.mark_instance_closed(inst, now_ms()) { eprintln!("mark closed {inst}: {err}"); }
         }
-        crate::terminal::ReadOutcome::Error(err) => eprintln!("timer scan {inst}: read error: {err}"),
+        crate::ambery::TimerJudgment::Relocated(tab) => {
+            let mut ov = s.ambery.lock().await;
+            ov.heal_instance_tab(inst, tab);
+        }
+        crate::ambery::TimerJudgment::Skip(err) => eprintln!("timer scan {inst}: {err}"),
     }
 }
 

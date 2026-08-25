@@ -219,13 +219,66 @@ pub async fn read_terminal_outcome(
     };
     let inst = inst.to_string();
     tokio::task::spawn_blocking(move || {
-        match known_tab.or_else(|| terminal.locate(&inst)) {
+        match known_tab.or_else(|| crate::terminal::join_instance(terminal.as_ref(), &inst)) {
             None => crate::terminal::ReadOutcome::Error("unlocatable".into()),
             Some(tab) => terminal.read(&tab),
         }
     })
     .await
     .unwrap_or_else(|_| crate::terminal::ReadOutcome::Error("read task join failed".into()))
+}
+
+/// timer 读判结果（server timer 与 case-runner 共用）
+pub enum TimerJudgment {
+    /// Content → 走 handle_timer_scan
+    Scan(String),
+    /// 判死：read 直接 Gone（位置级强证据），或枚举对账确认 marker 缺席
+    Close,
+    /// 信念不动：Error / 枚举对账失败 / tab 仍在原位（载荷为诊断）
+    Skip(String),
+    /// 自愈：枚举对账在新位置找到 marker（位置漂移非死亡）→ 回写实例记录
+    Relocated(crate::TabRef),
+}
+
+/// timer 读判：Content → Scan；Gone → Close；Error → 枚举对账——
+/// 全量枚举确认 marker 缺席才 Close（观察非推断）；新位置找到 → Relocated；
+/// 枚举本身失败 → 信念不动 Skip。
+pub async fn judge_timer_read(
+    terminal: Option<std::sync::Arc<dyn crate::terminal::TerminalAdapter>>,
+    inst: &str,
+    known_tab: Option<crate::TabRef>,
+) -> TimerJudgment {
+    let Some(terminal) = terminal else {
+        return TimerJudgment::Skip("no terminal adapter".into());
+    };
+    match read_terminal_outcome(Some(terminal.clone()), inst, known_tab).await {
+        crate::terminal::ReadOutcome::Content(c) => TimerJudgment::Scan(c),
+        crate::terminal::ReadOutcome::Gone => TimerJudgment::Close,
+        crate::terminal::ReadOutcome::Error(e) => {
+            let inst_owned = inst.to_string();
+            let reconcile = tokio::task::spawn_blocking(move || {
+                terminal.enumerate().map(|tabs| {
+                    tabs.into_iter()
+                        .find(|t| {
+                            t.title
+                                .as_deref()
+                                .map(|s| s.contains(&inst_owned))
+                                .unwrap_or(false)
+                        })
+                        .map(|t| t.tab)
+                })
+            })
+            .await
+            .ok()
+            .flatten();
+            match reconcile {
+                None => TimerJudgment::Skip(format!("{e}; reconcile enumerate failed")),
+                Some(Some(tab)) if Some(tab) != known_tab => TimerJudgment::Relocated(tab),
+                Some(Some(_)) => TimerJudgment::Skip(e),
+                Some(None) => TimerJudgment::Close,
+            }
+        }
+    }
 }
 
 impl<L: Llm> AmberyBackend<L> {
@@ -1298,7 +1351,11 @@ impl<L: Llm> AmberyBackend<L> {
             // 静默簿记（EventBuffer，pet 不醒）；post-count 标注（#16：LLM 免对账）
             "session_start" => {
                 // 定位探测：无 tab 快照时按 marker 现找并回写
-                let located = tab.or_else(|| self.terminal.as_ref().and_then(|t| t.locate(&name)));
+                let located = tab.or_else(|| {
+                    self.terminal
+                        .as_ref()
+                        .and_then(|t| crate::terminal::join_instance(t.as_ref(), &name))
+                });
                 upsert(AgentStatus::Idle, located)?;
                 let alive = self.alive_count().to_string();
                 self.harness
@@ -1306,11 +1363,8 @@ impl<L: Llm> AmberyBackend<L> {
                     .push(crate::i18n::trf(lang, "hook.register", &[("name", name.clone()), ("alive", alive)]));
             }
             "session_end" => {
-                // closed 快照 tab=null+ 清定位缓存
+                // closed 快照 tab=null
                 upsert(AgentStatus::Closed, None)?;
-                if let Some(t) = self.terminal.as_ref() {
-                    t.unlocate(&name);
-                }
                 let alive = self.alive_count().to_string();
                 self.harness
                     .event_buffer
@@ -1483,6 +1537,24 @@ impl<L: Llm> AmberyBackend<L> {
             .and_then(|a| a.tab)
     }
 
+    /// 枚举对账自愈：marker 在新位置找到 → 回写最新存活记录的 tab（位置漂移非死亡）
+    pub fn heal_instance_tab(&mut self, inst: &str, tab: crate::TabRef) {
+        let entry = self
+            .harness
+            .agents
+            .iter()
+            .rev()
+            .find(|a| a.name == inst && a.status != crate::AgentStatus::Closed)
+            .cloned();
+        if let Some(a) = entry {
+            let _ = self.harness.upsert_agent(AgentEntry {
+                tab: Some(tab),
+                last_seen: crate::server::now_ms(),
+                ..a
+            });
+        }
+    }
+
     /// 实例 kind 解析（Filter 按实例 kind 选择）
     fn resolve_kind(&self, instance: &str) -> Option<String> {
         self.harness
@@ -1570,7 +1642,10 @@ impl<L: Llm> AmberyBackend<L> {
         if !needs_locate {
             return;
         }
-        let located = self.terminal.as_ref().and_then(|t| t.locate(instance));
+        let located = self
+            .terminal
+            .as_ref()
+            .and_then(|t| crate::terminal::join_instance(t.as_ref(), instance));
         if let Some(tabref) = located {
             if let Some(a) = self
                 .harness
@@ -1656,10 +1731,6 @@ impl<L: Llm> AmberyBackend<L> {
                 last_seen: ts,
                 ..a
             })?;
-            // Timer 判死同样清定位缓存
-            if let Some(t) = self.terminal.as_ref() {
-                t.unlocate(&name);
-            }
             // 判死 diff 事件化 + post-count（#16 ①：每条 hash 一条，post-count 逐条现算，
             // 同名连坐自然形成递减序列；LLM 直接读数免对账）
             let alive = self.alive_count().to_string();
@@ -1868,11 +1939,11 @@ impl<L: Llm> AmberyBackend<L> {
                         vec![],
                     );
                 }
-                // 切桌面（Example F）：adapter 定位拿 hwnd → primitives 切换
+                // 切桌面（Example F）：join 拿 hwnd → primitives 切换
                 let switched = self
                     .terminal
                     .as_ref()
-                    .and_then(|t| t.locate(inst))
+                    .and_then(|t| crate::terminal::join_instance(t.as_ref(), inst))
                     .map(|tab| tab.hwnd)
                     .and_then(|hwnd| self.primitives.as_ref().map(|p| p.switch_vd(hwnd)))
                     .unwrap_or(false);
@@ -2174,15 +2245,25 @@ mod tests {
         DebugAgent::new(move |_| rest.lock().unwrap().pop_front().unwrap_or_else(silence))
     }
 
-    /// 测试用 TerminalAdapter：固定定位/内容，记录 unlocate
+    /// 测试用 TerminalAdapter：固定 tab/内容；title 承载 join 匹配用实例名
     struct StubAdapter {
         tab: Option<crate::TabRef>,
+        title: String,
         content: Option<String>,
-        unlocated: std::sync::Mutex<Vec<String>>,
     }
     impl crate::terminal::TerminalAdapter for StubAdapter {
-        fn locate(&self, _inst: &str) -> Option<crate::TabRef> {
-            self.tab
+        fn enumerate(&self) -> Option<Vec<crate::terminal::TabInfo>> {
+            Some(match self.tab {
+                Some(tab) => vec![crate::terminal::TabInfo {
+                    tab,
+                    title: Some(self.title.clone()),
+                    cwd: None,
+                    command: None,
+                    focused: None,
+                    extras: Default::default(),
+                }],
+                None => vec![],
+            })
         }
         fn read(&self, _tab: &crate::TabRef) -> crate::terminal::ReadOutcome {
             match self.content.clone() {
@@ -2190,15 +2271,12 @@ mod tests {
                 None => crate::terminal::ReadOutcome::Error("stub no content".into()),
             }
         }
-        fn unlocate(&self, inst: &str) {
-            self.unlocated.lock().unwrap().push(inst.to_string());
-        }
     }
-    fn stub_adapter(tab: Option<crate::TabRef>, content: Option<&str>) -> std::sync::Arc<StubAdapter> {
+    fn stub_adapter(tab: Option<crate::TabRef>, title: &str, content: Option<&str>) -> std::sync::Arc<StubAdapter> {
         std::sync::Arc::new(StubAdapter {
             tab,
+            title: title.to_string(),
             content: content.map(String::from),
-            unlocated: std::sync::Mutex::new(Vec::new()),
         })
     }
 
@@ -2215,13 +2293,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tab_lifecycle_locate_writeback_and_unlocate() {
-        // session_start 定位探测回写、
-        // session_end closed 快照 tab=null + 清定位缓存
+    async fn tab_lifecycle_join_writeback() {
+        // session_start join 探测回写；session_end closed 快照 tab=null
         let mut ov = make_ambery("tab-lifecycle");
-        let adapter = stub_adapter(Some(crate::TabRef { hwnd: 100, index: 2 }), None);
+        let adapter = stub_adapter(Some(crate::TabRef { hwnd: 100, index: 2 }), "demo·sess-123", None);
         ov.terminal = Some(adapter.clone());
-        // session_start：注册 + 定位探测回写 tab 快照
+        // session_start：注册 + join 探测回写 tab 快照
         ov.handle_real_hook("session_start", "sess-1234-abc", "/tmp/demo", Some("claude"), None, None, None, 1000)
             .await
             .unwrap();
@@ -2233,15 +2310,14 @@ mod tests {
             .find(|a| a.status != crate::AgentStatus::Closed)
             .unwrap()
             .clone();
-        assert_eq!(a.tab, Some(crate::TabRef { hwnd: 100, index: 2 }), "定位探测回写");
-        // session_end：tab=null + unlocate 调用
+        assert_eq!(a.tab, Some(crate::TabRef { hwnd: 100, index: 2 }), "join 探测回写");
+        // session_end：tab=null
         ov.handle_real_hook("session_end", "sess-1234-abc", "/tmp/demo", Some("claude"), None, None, None, 1001)
             .await
             .unwrap();
         let last = ov.harness.agents.last().unwrap();
         assert_eq!(last.status, crate::AgentStatus::Closed);
         assert_eq!(last.tab, None, "closed 快照 tab 为 null");
-        assert!(adapter.unlocated.lock().unwrap().contains(&a.name), "清定位缓存");
     }
 
     #[tokio::test]
@@ -2275,7 +2351,7 @@ mod tests {
         ov.handle_real_hook("session_start", "sess0000-1111", "/tmp/ghost", Some("claude"), None, None, None, 1)
             .await
             .unwrap();
-        ov.terminal = Some(stub_adapter(Some(crate::TabRef { hwnd: 1, index: 0 }), Some("内容")));
+        ov.terminal = Some(stub_adapter(Some(crate::TabRef { hwnd: 1, index: 0 }), "ghost·sess0000", Some("内容")));
         let (r, _) = ov.execute_tool(&ToolCall { id: "f2".into(), name: "fetch_terminal".into(), arguments: json!({"instance":"ghost·sess0000","vd_switch":false}).to_string() }).await;
         assert_eq!(r["ok"], json!(true), "{r}");
     }
@@ -3406,14 +3482,22 @@ mod tests {
             .await
             .unwrap();
         let inst_name = ov.harness.agents[0].name.clone();
-        // cloaked 语义：可定位（拿 hwnd）但读不到；切换后读命中
+        // cloaked 语义：可 join（拿 hwnd）但读不到；切换后读命中
         struct CloakedAdapter {
             readable: std::sync::Arc<std::sync::Mutex<bool>>,
             tab: crate::TabRef,
+            title: String,
         }
         impl crate::terminal::TerminalAdapter for CloakedAdapter {
-            fn locate(&self, _inst: &str) -> Option<crate::TabRef> {
-                Some(self.tab)
+            fn enumerate(&self) -> Option<Vec<crate::terminal::TabInfo>> {
+                Some(vec![crate::terminal::TabInfo {
+                    tab: self.tab,
+                    title: Some(self.title.clone()),
+                    cwd: None,
+                    command: None,
+                    focused: None,
+                    extras: Default::default(),
+                }])
             }
             fn read(&self, _tab: &crate::TabRef) -> crate::terminal::ReadOutcome {
                 if self.readable.lock().unwrap().clone() {
@@ -3422,7 +3506,6 @@ mod tests {
                     crate::terminal::ReadOutcome::Error("cloaked".into())
                 }
             }
-            fn unlocate(&self, _inst: &str) {}
         }
         struct SwitchUnlocks(std::sync::Arc<std::sync::Mutex<bool>>);
         impl crate::terminal::PlatformPrimitives for SwitchUnlocks {
@@ -3435,6 +3518,7 @@ mod tests {
         ov.terminal = Some(std::sync::Arc::new(CloakedAdapter {
             readable: readable.clone(),
             tab: crate::TabRef { hwnd: 7, index: 0 },
+            title: inst_name.clone(),
         }));
         ov.primitives = Some(std::sync::Arc::new(SwitchUnlocks(readable)));
         let call3 = ToolCall { id: "c3".into(), name: "fetch_terminal".into(), arguments: json!({"instance":inst_name,"vd_switch":true}).to_string() };

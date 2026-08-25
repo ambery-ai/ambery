@@ -88,19 +88,22 @@ pub async fn exec_timer_scan<L: Llm>(ov: &mut AmberyBackend<L>, _ts: i64) -> (us
     let mut closed = 0;
     for inst in due {
         let (terminal, known_tab) = (ov.terminal.clone(), ov.located_tab(&inst));
-        let outcome = ambery_core::ambery::read_terminal_outcome(terminal, &inst, known_tab).await;
+        let judgment = ambery_core::ambery::judge_timer_read(terminal, &inst, known_tab).await;
         let ts = ambery_core::server::now_ms();
-        match outcome {
-            ambery_core::terminal::ReadOutcome::Content(c) => ov
+        match judgment {
+            ambery_core::ambery::TimerJudgment::Scan(c) => ov
                 .handle_timer_scan(&inst, &c, ts)
                 .await
                 .expect("timer scan"),
-            ambery_core::terminal::ReadOutcome::Gone => {
+            ambery_core::ambery::TimerJudgment::Close => {
                 ov.mark_instance_closed(&inst, ts).expect("mark closed");
                 closed += 1;
             }
-            ambery_core::terminal::ReadOutcome::Error(e) => {
-                eprintln!("timer scan {inst}: read error: {e}")
+            ambery_core::ambery::TimerJudgment::Relocated(tab) => {
+                ov.heal_instance_tab(&inst, tab)
+            }
+            ambery_core::ambery::TimerJudgment::Skip(e) => {
+                eprintln!("timer scan {inst}: {e}")
             }
         }
     }
