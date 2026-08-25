@@ -64,6 +64,14 @@ class Program
                     tabs.Add(new JsonObject { ["index"] = i, ["name"] = list[i].Name, ["selected"] = list[i].Selected });
                 return Ok(new JsonObject { ["tabs"] = tabs });
             }
+            case "list_wt_windows":
+            {
+                // 仅 WT（CASCADIA class）顶层窗口；enumerate 的窗口级原语
+                var wins = new JsonArray();
+                foreach (var (hwnd, title) in Uia.ListWindows())
+                    wins.Add(new JsonObject { ["hwnd"] = hwnd.ToInt64(), ["title"] = title });
+                return Ok(new JsonObject { ["windows"] = wins });
+            }
             case "find_tab":
             {
                 var name = req["name"]!.GetValue<string>();

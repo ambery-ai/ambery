@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 const SWITCH_THROTTLE: Duration = Duration::from_secs(5);
 
 /// 纯协议客户端（stdio JSONL 往返 + 进程冷启 + tab 切换限流）。
-/// 定位缓存与 #10 hwnd 回收验证在 WtAdapter 层（core/terminal.rs）。
+/// 实例语义全在消费方；本客户端只有载体级命令。
 pub struct SidecarClient {
     exe: PathBuf,
     proc: Mutex<Option<Proc>>,
@@ -73,6 +73,16 @@ impl SidecarClient {
         Some(resp["text"].as_str()?.to_string())
     }
 
+    /// list_wt_windows：WT（CASCADIA class）顶层窗口枚举——enumerate 的窗口级原语
+    pub fn list_wt_windows(&self) -> Option<Vec<(i64, String)>> {
+        let resp = self.request(&json!({ "cmd": "list_wt_windows" }))?;
+        resp["windows"]
+            .as_array()?
+            .iter()
+            .map(|w| Some((w["hwnd"].as_i64()?, w["title"].as_str()?.to_string())))
+            .collect()
+    }
+
 }
 
 fn roundtrip(p: &mut Proc, req: &Value) -> Option<Value> {
@@ -120,16 +130,12 @@ mod tests {
     #[test]
     #[ignore = "需要真实 sidecar exe 与 WT 窗口，手动跑"]
     fn sidecar_read_real() {
-        use crate::terminal::{ReadOutcome, TerminalAdapter, WtAdapter};
+        use crate::terminal::{TerminalAdapter, WtAdapter};
         let exe = std::env::var("AMBERY_SIDECAR").expect("AMBERY_SIDECAR not set");
         let adapter = WtAdapter::new(std::sync::Arc::new(SidecarClient::new(exe)));
-        // 任取一个已知存在的 tab 名片段（环境相关，打印人工核对）
-        let outcome = adapter.locate("PowerShell").map(|tab| adapter.read(&tab));
-        let summary = outcome.map(|o| match o {
-            ReadOutcome::Content(t) => format!("Content({} chars)", t.len()),
-            other => format!("{other:?}"),
-        });
-        println!("read(PowerShell) → {:?}", summary);
+        // 枚举全部 WT tab（环境相关，打印人工核对）
+        let tabs = adapter.enumerate();
+        println!("enumerate → {:?}", tabs.map(|t| t.len()));
     }
 
     /// 假 sidecar 进程验证 read_active_tab 协议：非侵入只读命令，不携带 index。
