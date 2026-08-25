@@ -200,19 +200,32 @@ pub async fn read_terminal_via(
     terminal: Option<std::sync::Arc<dyn crate::terminal::TerminalAdapter>>,
     inst: &str,
 ) -> Option<String> {
-    let terminal = terminal?;
+    match read_terminal_outcome(terminal, inst, None).await {
+        crate::terminal::ReadOutcome::Content(text) => Some(text),
+        // agent 面不区分 Gone/Error：统一「读不到」（三态为内部语义）
+        _ => None,
+    }
+}
+
+/// 三态读出口：优先按已定位 tab 读（timer 判死语义），未定位过才现 locate。
+/// locate 失败无法区分 marker 未命中与传输失败 → Error（信念不动，永不判死）。
+pub async fn read_terminal_outcome(
+    terminal: Option<std::sync::Arc<dyn crate::terminal::TerminalAdapter>>,
+    inst: &str,
+    known_tab: Option<crate::TabRef>,
+) -> crate::terminal::ReadOutcome {
+    let Some(terminal) = terminal else {
+        return crate::terminal::ReadOutcome::Error("no terminal adapter".into());
+    };
     let inst = inst.to_string();
     tokio::task::spawn_blocking(move || {
-        let tab = terminal.locate(&inst)?;
-        match terminal.read(&tab) {
-            crate::terminal::ReadOutcome::Content(text) => Some(text),
-            // 折叠过渡：Gone/Error 暂同旧 None 路径（timer 判死消费三态随后续提交接入）
-            crate::terminal::ReadOutcome::Gone | crate::terminal::ReadOutcome::Error(_) => None,
+        match known_tab.or_else(|| terminal.locate(&inst)) {
+            None => crate::terminal::ReadOutcome::Error("unlocatable".into()),
+            Some(tab) => terminal.read(&tab),
         }
     })
     .await
-    .ok()
-    .flatten()
+    .unwrap_or_else(|_| crate::terminal::ReadOutcome::Error("read task join failed".into()))
 }
 
 impl<L: Llm> AmberyBackend<L> {

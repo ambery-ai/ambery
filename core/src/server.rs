@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::llm::LlmBackend;
 use crate::lifecycle::Lifecycle;
-use crate::ambery::{read_terminal_via, Effect, AmberyBackend};
+use crate::ambery::{read_terminal_outcome, Effect, AmberyBackend};
 use crate::context::Role;
 use crate::Config;
 
@@ -637,17 +637,33 @@ pub fn spawn_timer_task(s: Arc<AppState>, tick_ms: u64, batch: usize) {
             interval.tick().await;
             let due = { s.ambery.lock().await.due_timer_scans(now_ms(), batch) };
             for inst in due {
-                let terminal = { s.ambery.lock().await.terminal.clone() };
-                let content = read_terminal_via(terminal, &inst).await;
-                if let Some(content) = content {
-                    let result = { s.ambery.lock().await.handle_timer_scan(&inst, &content, now_ms()).await };
-                    match result {
-                        Ok(()) => s.queue_notify.notify_one(),
-                        Err(err) => eprintln!("timer scan {inst}: {err}"),
+                // 按已定位 tab 读：实例记录携带的 TabRef 优先，未定位过才现 locate
+                let (terminal, known_tab) = {
+                    let ov = s.ambery.lock().await;
+                    let tab = ov
+                        .harness
+                        .agents
+                        .iter()
+                        .rev()
+                        .find(|a| a.name == inst && a.status != crate::AgentStatus::Closed)
+                        .and_then(|a| a.tab);
+                    (ov.terminal.clone(), tab)
+                };
+                match read_terminal_outcome(terminal, &inst, known_tab).await {
+                    crate::terminal::ReadOutcome::Content(content) => {
+                        let result = { s.ambery.lock().await.handle_timer_scan(&inst, &content, now_ms()).await };
+                        match result {
+                            Ok(()) => s.queue_notify.notify_one(),
+                            Err(err) => eprintln!("timer scan {inst}: {err}"),
+                        }
                     }
-                } else {
-                    let mut ov = s.ambery.lock().await;
-                    if ov.sidecar_enabled { if let Err(err) = ov.mark_instance_closed(&inst, now_ms()) { eprintln!("mark closed {inst}: {err}"); } }
+                    // Gone = adapter 正向确证 tab 消失 → 判死（强证据，与 sidecar 在否无关）
+                    crate::terminal::ReadOutcome::Gone => {
+                        let mut ov = s.ambery.lock().await;
+                        if let Err(err) = ov.mark_instance_closed(&inst, now_ms()) { eprintln!("mark closed {inst}: {err}"); }
+                    }
+                    // Error = 无观察，信念不动：只记录，绝不判死
+                    crate::terminal::ReadOutcome::Error(err) => eprintln!("timer scan {inst}: read error: {err}"),
                 }
             }
         }

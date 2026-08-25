@@ -71,6 +71,36 @@ impl WtAdapter {
             index: r["index"].as_i64()?,
         })
     }
+    /// read 失败后的 Gone 确证复核：list_tabs 成功返回（通道本身活）且 marker
+    /// tab 缺席 → Gone；其余（复核失败 / tab 仍在 / 无缓存名可核）→ Error（信念不动）。
+    /// marker 匹配 = 实例词汇，属 locate 同笔跨层债，身份判定上移后改为位置判定。
+    fn confirm_gone(&self, tab: &TabRef) -> ReadOutcome {
+        let name = self.cache.lock().ok().and_then(|c| {
+            c.iter()
+                .find(|(_, t)| t.hwnd == tab.hwnd)
+                .map(|(n, _)| n.clone())
+        });
+        let Some(name) = name else {
+            return ReadOutcome::Error("read failed, no cached name to verify".into());
+        };
+        let r = self.sidecar.call(&json!({ "cmd": "list_tabs", "hwnd": tab.hwnd }));
+        let Some(r) = r else {
+            return ReadOutcome::Error("read failed, list_tabs unreachable".into());
+        };
+        let still_there = r["tabs"].as_array().map(|tabs| {
+            tabs.iter().any(|t| {
+                t["name"]
+                    .as_str()
+                    .map(|n| n.contains(&name))
+                    .unwrap_or(false)
+            })
+        });
+        match still_there {
+            Some(true) => ReadOutcome::Error("read failed but marker tab still listed".into()),
+            Some(false) => ReadOutcome::Gone,
+            None => ReadOutcome::Error("read failed, list_tabs malformed".into()),
+        }
+    }
 }
 
 impl TerminalAdapter for WtAdapter {
@@ -85,8 +115,7 @@ impl TerminalAdapter for WtAdapter {
 
     fn read(&self, tab: &TabRef) -> ReadOutcome {
         let Some(text) = self.sidecar.read_tab(tab.hwnd, tab.index) else {
-            // read 失败一律 Error（信念不动）；list_tabs 确证 Gone 复核随判死链路接入
-            return ReadOutcome::Error("read_tab failed".into());
+            return self.confirm_gone(tab);
         };
         // #10 验证：hwnd 可能被回收——按缓存反查实例名，find_tab 复核 hwnd 一致
         let name = match self.cache.lock() {
