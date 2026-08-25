@@ -25,7 +25,7 @@ L1 · hook + 查找本身
 
 每终端一个实现的**最小契约**——协议要求尽可能少，所有术语都是终端载体语言，绝不出现 Code CLI：
 
-- `enumerate() -> Vec<TabInfo>` — 遍历该终端的 tab/pane，返回载体属性（id / title / cwd / command / focused / …）；这是 M1 的 tab 属性部分，也是发现（启动扫描、对账）的基础。
+- `enumerate() -> Option<Vec<TabInfo>>` — 遍历该终端的 tab/pane，返回载体属性（id / title / cwd / command / focused / …）；这是 M1 的 tab 属性部分，也是发现（启动扫描、对账）的基础。`None` = 枚举失败（无观察，与「枚举成功但为空」严格区分——判死不得以此为据）。
 - `read(tab_id) -> ReadOutcome` — 按不透明 id 读一个载体的文字：
   - `Content(text)` — 读到 → 观测：活着；
   - `Gone` — **确证**不存在（reader 能验证该 id 已无）→ 观测：死亡（强证据）；
@@ -62,31 +62,40 @@ agent 拿 M3 的工具。
 分层名（L1/M1/…）是模型词汇；代码标识符用语义名。
 
 ```rust
+pub struct TabInfo {            // enumerate 产出的载体属性；字段全 Option，缺键优雅降级
+    pub tab: TabRef,
+    pub title: Option<String>,
+    pub cwd: Option<String>,
+    pub command: Option<String>,
+    pub focused: Option<bool>,
+    pub extras: HashMap<String, String>,
+}
+
 pub enum ReadOutcome {
     Content(String),  // 证据：存活
     Gone,             // 证据：死亡（adapter 已正向确证）
     Error(String),    // 无观察，信念不动，永不致死
 }
 
-pub trait TerminalAdapter: Send + Sync {
-    fn locate(&self, inst: &str) -> Option<TabRef>;
+pub trait TerminalAdapter: Send + Sync {   // 纯 L1：只产载体数据，不识实例
+    fn enumerate(&self) -> Option<Vec<TabInfo>>;  // None = 枚举失败（无观察；「空」与「失败」必须可分）
     fn read(&self, tab: &TabRef) -> ReadOutcome;
-    fn unlocate(&self, inst: &str);
 }
-```
 
-`locate`/`unlocate` 吃实例名（marker 匹配）——按分层模型这是 L2 的身份判定，当前由 trait 承载（query 管线上移时随 marker 一起搬）。`read` 只吃载体 `TabRef`，是纯 L1。
+// 消费方（L2 种子）：实例 → tab 的 join = enumerate 全量 + title 含 marker 首中
+pub fn join_instance(terminal: &dyn TerminalAdapter, inst: &str) -> Option<TabRef>;
+```
 
 `Gone` 只在 adapter 内部正向确证后返回，消费方零复核：
 
 | adapter | Gone 的确证方式 |
 |---|---|
-| WtAdapter | `read_tab` 失败 → `list_tabs` 成功返回且 marker tab 缺席；其余失败一律 `Error` |
+| WtAdapter | 不产 Gone——WT tab 位置会漂移，adapter 无位置级确证手段；失败一律 `Error`，判死由消费方枚举对账承担 |
 | ZellijAdapter | `dump-screen` 失败 → `list-panes` 无此 pane id（id 稳定，纯位置判定） |
 | MapAdapter | tab 反查失败，或内容表条目已移除 |
-| Composite | 按路由回到产出 adapter，透传其三态；无路由 = `Error` |
+| Composite | 按枚举路由回到产出 adapter，透传其三态；无路由 = `Error` |
 
-消费：timer 兜底扫描**按已定位 tab 读**（实例记录携带 TabRef，从未定位过才现 locate）——`Content` → 变化检测，`Gone` → 实例判 closed，`Error` → 只记录，绝不判死。agent 面的 `fetch_terminal` 路径把 `Gone`/`Error` 折叠为「读不到」（三态是内部语义）。
+消费：timer 兜底扫描**按已定位 tab 读**（实例记录携带 TabRef，从未定位过才现 join）——`Content` → 变化检测；`Gone` → 判 closed；`Error` → **枚举对账**：全量枚举确认 marker 缺席才判 closed（观察非推断），新位置找到 marker = 自愈回写记录（位置漂移非死亡），枚举本身失败 = 信念不动。agent 面的 `fetch_terminal` 路径把 `Gone`/`Error` 折叠为「读不到」（三态是内部语义）。
 
 ## 原则
 

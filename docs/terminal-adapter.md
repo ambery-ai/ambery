@@ -25,7 +25,7 @@ L1 · hook + lookup itself
 
 The minimal per-terminal contract — the protocol asks for as little as possible, and every term is terminal-carrier language, never Code CLI:
 
-- `enumerate() -> Vec<TabInfo>` — traverse the terminal's tabs/panes, returning carrier attributes (id / title / cwd / command / focused / …); this is the M1 tab-attributes part, the basis of discovery (startup scan, reconciliation).
+- `enumerate() -> Option<Vec<TabInfo>>` — traverse the terminal's tabs/panes, returning carrier attributes (id / title / cwd / command / focused / …); this is the M1 tab-attributes part, the basis of discovery (startup scan, reconciliation). `None` = enumeration failed (no observation, strictly distinct from "succeeded but empty" — never grounds for a death verdict).
 - `read(tab_id) -> ReadOutcome` — read one carrier's text by its opaque id:
   - `Content(text)` — read succeeds → observation: alive;
   - `Gone` — positively confirmed absent (the reader can verify the id no longer exists) → observation: dead (strong evidence);
@@ -62,31 +62,40 @@ The tool through which the agent obtains M3.
 Layer names (L1/M1/…) are model vocabulary; code identifiers use semantic names.
 
 ```rust
+pub struct TabInfo {            // enumerate output, carrier attributes; all Option, missing keys degrade gracefully
+    pub tab: TabRef,
+    pub title: Option<String>,
+    pub cwd: Option<String>,
+    pub command: Option<String>,
+    pub focused: Option<bool>,
+    pub extras: HashMap<String, String>,
+}
+
 pub enum ReadOutcome {
     Content(String),  // evidence: alive
     Gone,             // evidence: dead (positively confirmed by the adapter)
     Error(String),    // no observation; belief unchanged, never fatal
 }
 
-pub trait TerminalAdapter: Send + Sync {
-    fn locate(&self, inst: &str) -> Option<TabRef>;
+pub trait TerminalAdapter: Send + Sync {   // pure L1: produces carrier data only, knows no instances
+    fn enumerate(&self) -> Option<Vec<TabInfo>>;  // None = enumeration failed (no observation; "empty" and "failed" must be distinguishable)
     fn read(&self, tab: &TabRef) -> ReadOutcome;
-    fn unlocate(&self, inst: &str);
 }
-```
 
-`locate`/`unlocate` take instance names (marker matching) — per the layered model that identity judgment belongs to L2; the trait carries it today (it moves up with the query pipeline, marker included). `read` takes only the carrier `TabRef` and is pure L1.
+// Consumer side (L2 seed): instance → tab join = full enumerate + first title containing the marker
+pub fn join_instance(terminal: &dyn TerminalAdapter, inst: &str) -> Option<TabRef>;
+```
 
 `Gone` is returned only after positive confirmation inside the adapter; consumers never recheck:
 
 | adapter | how Gone is confirmed |
 |---|---|
-| WtAdapter | `read_tab` fails → `list_tabs` succeeds and the marker tab is absent; any other failure → `Error` |
+| WtAdapter | never produces Gone — WT tab positions drift, so the adapter has no positional proof; failures are always `Error`, and death judgment is the consumer's enumeration reconciliation |
 | ZellijAdapter | `dump-screen` fails → `list-panes` shows no such pane id (stable ids, positional) |
 | MapAdapter | tab unknown to the adapter, or its content entry removed |
-| Composite | routes to the producing adapter and passes its outcome through; no route = `Error` |
+| Composite | routes by enumeration to the producing adapter and passes its outcome through; no route = `Error` |
 
-Consumers: the fallback timer scan reads **by the already-located tab** (the instance record carries the TabRef; re-locating is only a fallback for never-located instances) — `Content` → change detection, `Gone` → mark the instance closed, `Error` → record only, never close. The agent-facing `fetch_terminal` path collapses `Gone`/`Error` to a plain "unreadable" result (the tri-state is internal semantics).
+Consumers: the fallback timer scan reads **by the already-located tab** (the instance record carries the TabRef; the join runs only for never-located instances) — `Content` → change detection; `Gone` → mark closed; `Error` → **enumeration reconciliation**: closed only when a full enumeration confirms the marker is absent (observation, not inference); marker found at a new position → self-heal the record (drift is not death); enumeration itself failed → belief unchanged. The agent-facing `fetch_terminal` path collapses `Gone`/`Error` to a plain "unreadable" result (the tri-state is internal semantics).
 
 ## Principles
 
