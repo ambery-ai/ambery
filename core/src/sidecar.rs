@@ -120,14 +120,16 @@ mod tests {
     #[test]
     #[ignore = "需要真实 sidecar exe 与 WT 窗口，手动跑"]
     fn sidecar_read_real() {
-        use crate::terminal::{TerminalAdapter, WtAdapter};
+        use crate::terminal::{ReadOutcome, TerminalAdapter, WtAdapter};
         let exe = std::env::var("AMBERY_SIDECAR").expect("AMBERY_SIDECAR not set");
         let adapter = WtAdapter::new(std::sync::Arc::new(SidecarClient::new(exe)));
         // 任取一个已知存在的 tab 名片段（环境相关，打印人工核对）
-        let text = adapter
-            .locate("PowerShell")
-            .and_then(|tab| adapter.read(&tab));
-        println!("read(PowerShell) → {:?}", text.map(|t| t.len()));
+        let outcome = adapter.locate("PowerShell").map(|tab| adapter.read(&tab));
+        let summary = outcome.map(|o| match o {
+            ReadOutcome::Content(t) => format!("Content({} chars)", t.len()),
+            other => format!("{other:?}"),
+        });
+        println!("read(PowerShell) → {:?}", summary);
     }
 
     /// 假 sidecar 进程验证 read_active_tab 协议：非侵入只读命令，不携带 index。

@@ -204,7 +204,11 @@ pub async fn read_terminal_via(
     let inst = inst.to_string();
     tokio::task::spawn_blocking(move || {
         let tab = terminal.locate(&inst)?;
-        terminal.read(&tab)
+        match terminal.read(&tab) {
+            crate::terminal::ReadOutcome::Content(text) => Some(text),
+            // 折叠过渡：Gone/Error 暂同旧 None 路径（timer 判死消费三态随后续提交接入）
+            crate::terminal::ReadOutcome::Gone | crate::terminal::ReadOutcome::Error(_) => None,
+        }
     })
     .await
     .ok()
@@ -2156,8 +2160,11 @@ mod tests {
         fn locate(&self, _inst: &str) -> Option<crate::TabRef> {
             self.tab
         }
-        fn read(&self, _tab: &crate::TabRef) -> Option<String> {
-            self.content.clone()
+        fn read(&self, _tab: &crate::TabRef) -> crate::terminal::ReadOutcome {
+            match self.content.clone() {
+                Some(c) => crate::terminal::ReadOutcome::Content(c),
+                None => crate::terminal::ReadOutcome::Error("stub no content".into()),
+            }
         }
         fn unlocate(&self, inst: &str) {
             self.unlocated.lock().unwrap().push(inst.to_string());
@@ -3384,8 +3391,12 @@ mod tests {
             fn locate(&self, _inst: &str) -> Option<crate::TabRef> {
                 Some(self.tab)
             }
-            fn read(&self, _tab: &crate::TabRef) -> Option<String> {
-                self.readable.lock().unwrap().then(|| "内容".to_string())
+            fn read(&self, _tab: &crate::TabRef) -> crate::terminal::ReadOutcome {
+                if self.readable.lock().unwrap().clone() {
+                    crate::terminal::ReadOutcome::Content("内容".to_string())
+                } else {
+                    crate::terminal::ReadOutcome::Error("cloaked".into())
+                }
             }
             fn unlocate(&self, _inst: &str) {}
         }

@@ -19,12 +19,24 @@ pub struct TabRef {
     pub index: i64,
 }
 
+/// 读取的三态观察（信念检查载体）：Content = 证据存活 / Gone = 正向确证该
+/// tab 已不存在（死亡强证据）/ Error = 瞬时失败，无观察、信念不动，永不致死。
+/// 契约：Gone 只在 adapter 内部正向确证后返回（Wt = list_tabs 复核 marker tab
+/// 缺席；Zellij = list-panes 无此 pane id；Map = 内容表已移除）；不确定一律
+/// Error。复核责任在 adapter，消费方零复核。
+#[derive(Debug)]
+pub enum ReadOutcome {
+    Content(String),
+    Gone,
+    Error(String),
+}
+
 /// Terminal Adapter 接口
 pub trait TerminalAdapter: Send + Sync {
     /// 定位：instance → 它在终端会话中的位置
     fn locate(&self, inst: &str) -> Option<TabRef>;
-    /// 读取：读该位置的终端文字
-    fn read(&self, tab: &TabRef) -> Option<String>;
+    /// 读取：读该位置的终端文字，三态观察（契约见 ReadOutcome）
+    fn read(&self, tab: &TabRef) -> ReadOutcome;
     /// 遗忘：定位缓存清除（instance 会话结束/判死）
     fn unlocate(&self, inst: &str);
 }
@@ -71,32 +83,46 @@ impl TerminalAdapter for WtAdapter {
         Some(tab)
     }
 
-    fn read(&self, tab: &TabRef) -> Option<String> {
-        let text = self.sidecar.read_tab(tab.hwnd, tab.index)?;
+    fn read(&self, tab: &TabRef) -> ReadOutcome {
+        let Some(text) = self.sidecar.read_tab(tab.hwnd, tab.index) else {
+            // read 失败一律 Error（信念不动）；list_tabs 确证 Gone 复核随判死链路接入
+            return ReadOutcome::Error("read_tab failed".into());
+        };
         // #10 验证：hwnd 可能被回收——按缓存反查实例名，find_tab 复核 hwnd 一致
-        let name = self
-            .cache
-            .lock()
-            .ok()?
-            .iter()
-            .find(|(_, t)| t.hwnd == tab.hwnd)
-            .map(|(n, _)| n.clone());
+        let name = match self.cache.lock() {
+            Ok(c) => c
+                .iter()
+                .find(|(_, t)| t.hwnd == tab.hwnd)
+                .map(|(n, _)| n.clone()),
+            Err(_) => return ReadOutcome::Error("cache lock poisoned".into()),
+        };
         let Some(name) = name else {
-            return Some(text); // 无缓存映射（调用方直传 TabRef）：读到即返回
+            return ReadOutcome::Content(text); // 无缓存映射（调用方直传 TabRef）：读到即返回
         };
         let verified = self
             .find_tab(&name)
             .map(|t| t.hwnd == tab.hwnd)
             .unwrap_or(false);
         if verified {
-            return Some(text);
+            return ReadOutcome::Content(text);
         }
         // 自愈：驱逐陈旧缓存 → 重找 → 重读并刷新缓存
-        self.cache.lock().ok()?.remove(&name);
-        let fresh = self.find_tab(&name)?;
-        let text = self.sidecar.read_tab(fresh.hwnd, fresh.index)?;
-        self.cache.lock().ok()?.insert(name, fresh);
-        Some(text)
+        match self.cache.lock() {
+            Ok(mut c) => {
+                c.remove(&name);
+            }
+            Err(_) => return ReadOutcome::Error("cache lock poisoned".into()),
+        }
+        let Some(fresh) = self.find_tab(&name) else {
+            return ReadOutcome::Error("self-heal relocate failed".into());
+        };
+        let Some(text) = self.sidecar.read_tab(fresh.hwnd, fresh.index) else {
+            return ReadOutcome::Error("self-heal re-read failed".into());
+        };
+        if let Ok(mut c) = self.cache.lock() {
+            c.insert(name, fresh);
+        }
+        ReadOutcome::Content(text)
     }
 
     fn unlocate(&self, inst: &str) {
@@ -144,15 +170,21 @@ impl TerminalAdapter for MapAdapter {
         Some(tab)
     }
 
-    fn read(&self, tab: &TabRef) -> Option<String> {
-        let inst = self
-            .tabs
-            .lock()
-            .ok()?
-            .iter()
-            .find(|(_, t)| t.hwnd == tab.hwnd)
-            .map(|(n, _)| n.clone())?;
-        self.contents.lock().ok()?.get(&inst).cloned()
+    fn read(&self, tab: &TabRef) -> ReadOutcome {
+        // 反查失败（未知 tab）或内容已移除 = 载体确证消失 → Gone
+        //（Map 无传输层，无 Error 态）
+        let inst = self.tabs.lock().ok().and_then(|tabs| {
+            tabs.iter()
+                .find(|(_, t)| t.hwnd == tab.hwnd)
+                .map(|(n, _)| n.clone())
+        });
+        let Some(inst) = inst else {
+            return ReadOutcome::Gone;
+        };
+        match self.contents.lock().ok().and_then(|c| c.get(&inst).cloned()) {
+            Some(text) => ReadOutcome::Content(text),
+            None => ReadOutcome::Gone,
+        }
     }
 
     fn unlocate(&self, inst: &str) {
@@ -237,10 +269,29 @@ impl TerminalAdapter for ZellijAdapter {
         Some(tab)
     }
 
-    fn read(&self, tab: &TabRef) -> Option<String> {
+    fn read(&self, tab: &TabRef) -> ReadOutcome {
         // dump-screen -p <pane_id>（裸数字等价 terminal_<id>，跨版本稳定）
-        self.runner
+        if let Some(text) = self
+            .runner
             .run(&["action", "dump-screen", "-p", &tab.index.to_string()])
+        {
+            return ReadOutcome::Content(text);
+        }
+        // 确证复核：list-panes 查无此 pane id → Gone（pane id 稳定，纯位置判定）；
+        // 复核本身失败或 pane 仍在 → Error（信念不动）
+        match self.runner.run(&["action", "list-panes", "-a", "--json"]) {
+            Some(out) => {
+                let absent = serde_json::from_str::<Vec<serde_json::Value>>(&out)
+                    .map(|panes| panes.iter().all(|p| p["id"].as_i64() != Some(tab.index)))
+                    .unwrap_or(false);
+                if absent {
+                    ReadOutcome::Gone
+                } else {
+                    ReadOutcome::Error("dump-screen failed but pane still listed".into())
+                }
+            }
+            None => ReadOutcome::Error("dump-screen and list-panes both failed".into()),
+        }
     }
 
     fn unlocate(&self, inst: &str) {
@@ -279,15 +330,19 @@ impl TerminalAdapter for Composite {
         None
     }
 
-    fn read(&self, tab: &TabRef) -> Option<String> {
-        let (i, _) = self
+    fn read(&self, tab: &TabRef) -> ReadOutcome {
+        let route = self
             .routes
             .lock()
-            .ok()?
-            .values()
-            .find(|(_, t)| t == tab)
-            .cloned()?;
-        self.adapters.get(i)?.read(tab)
+            .ok()
+            .and_then(|r| r.values().find(|(_, t)| t == tab).cloned());
+        match route {
+            Some((i, _)) => match self.adapters.get(i) {
+                Some(a) => a.read(tab),
+                None => ReadOutcome::Error("route adapter missing".into()),
+            },
+            None => ReadOutcome::Error("no route for tab".into()),
+        }
     }
 
     fn unlocate(&self, inst: &str) {
@@ -337,15 +392,16 @@ mod tests {
         // 收录实例：locate → read 配对
         let tab = a.locate("ft").expect("locate");
         assert!(tab.hwnd < 0, "合成 hwnd 取负数段");
-        assert_eq!(a.read(&tab).as_deref(), Some("终端内容"));
+        assert!(matches!(a.read(&tab), ReadOutcome::Content(ref s) if s == "终端内容"));
         // 同实例再定位 = 同一 TabRef（缓存稳定）
         assert_eq!(a.locate("ft"), Some(tab));
         // unlocate 清定位缓存（内容不动，由 terminal_gone 剧情负责）
         a.unlocate("ft");
         let tab2 = a.locate("ft").expect("重新定位");
         assert_ne!(tab2, tab, "遗忘后重新分配");
-        // 内容移除后定位失败
+        // 内容移除后：读 = Gone（确证消失），定位失败
         map.lock().unwrap().remove("ft");
+        assert!(matches!(a.read(&tab), ReadOutcome::Gone));
         assert_eq!(a.locate("ft"), None);
     }
 
@@ -402,14 +458,14 @@ mod tests {
         let tab = a.locate("ft").expect("locate");
         assert!(tab.hwnd < -(100_000 + 2), "合成 hwnd 取深负段，与 MapAdapter 小负段隔离");
         assert_eq!(tab.index, 3, "index 承载真实 pane id");
-        assert_eq!(a.read(&tab).as_deref(), Some("终端内容"));
+        assert!(matches!(a.read(&tab), ReadOutcome::Content(ref s) if s == "终端内容"));
         // 同实例再定位 = 同一 TabRef（缓存稳定）
         assert_eq!(a.locate("ft"), Some(tab));
         // unlocate 清定位缓存（重定位仍可读）
         a.unlocate("ft");
         let tab2 = a.locate("ft").expect("重新定位");
         assert_eq!(tab2, tab, "pane id 稳定，重定位回到同一 TabRef");
-        assert_eq!(a.read(&tab2).as_deref(), Some("终端内容"));
+        assert!(matches!(a.read(&tab2), ReadOutcome::Content(ref s) if s == "终端内容"));
     }
 
     #[test]
@@ -424,7 +480,7 @@ mod tests {
         let c = Composite::new(vec![first, second]);
         // 首中者胜：第一个 adapter 定不到 → 第二个命中
         let tab = c.locate("ft").expect("locate");
-        assert_eq!(c.read(&tab).as_deref(), Some("内容"), "read 路由到产出 adapter");
+        assert!(matches!(c.read(&tab), ReadOutcome::Content(ref s) if s == "内容"), "read 路由到产出 adapter");
         // unlocate 广播后重定位成功（缓存已清，重新分配）
         c.unlocate("ft");
         let tab2 = c.locate("ft").expect("重新定位");
