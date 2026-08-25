@@ -30,3 +30,6 @@ optional = true
 default = []
 # case-runner（docs/case-runner.md）：storage 快照回放、概念观测与 headless 前端 debug 注入面
 case-runner = ["dep:ambery-observe-derive"]
+# debug-agent（T13）：DebugAgent mock 后端。dev 构建经 debug_assertions 自动包含；
+# 正式出包（release）默认不含任何 debug 代码，ambery-case 等开发工具显式开启
+debug-agent = []

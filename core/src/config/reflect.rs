@@ -124,7 +124,10 @@ pub fn valid_options(config: &Config, path: &str) -> Option<Vec<String>> {
 /// 动态 enum 注册表（唯二手工钩子之一）：path → 选项提供者
 static OPTIONS: &[(&str, fn(&Config) -> Vec<String>)] = &[
     ("llm.active", |c| {
-        let mut v = vec!["unconfigured".to_string(), "debug".to_string()];
+        let mut v = vec!["unconfigured".to_string()];
+        // debug 档仅开发构建可选（T13 条件编译；release 的 active 枚举无 debug）
+        #[cfg(any(feature = "debug-agent", debug_assertions))]
+        v.push("debug".to_string());
         let mut keys: Vec<String> = c.llm.providers.keys().cloned().collect();
         keys.sort();
         v.extend(keys);

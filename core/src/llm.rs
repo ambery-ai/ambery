@@ -302,10 +302,14 @@ pub fn deterministic_summary(messages: &[ContextMessage]) -> String {
 
 /// debug 模式 agent：纯 mock，零逻辑。决策源由外部注入——
 /// 测试用脚本闭包、HTTP brain（OpenAI 兼容端点）、显式无 LLM 态用沉默。
+/// 仅开发构建（T13 条件编译：debug-agent feature 或 debug_assertions）；
+/// 正式出包不含本类型及一切相关代码。
+#[cfg(any(feature = "debug-agent", debug_assertions))]
 pub struct DebugAgent {
     decide: Box<dyn Fn(&[ContextMessage]) -> LlmOutput + Send + Sync>,
 }
 
+#[cfg(any(feature = "debug-agent", debug_assertions))]
 impl DebugAgent {
     /// 注入外部决策源（mock 的「人为控制返回」）
     pub fn new(decide: impl Fn(&[ContextMessage]) -> LlmOutput + Send + Sync + 'static) -> Self {
@@ -325,12 +329,14 @@ impl DebugAgent {
     }
 }
 
+#[cfg(any(feature = "debug-agent", debug_assertions))]
 impl Default for DebugAgent {
     fn default() -> Self {
         Self::silent()
     }
 }
 
+#[cfg(any(feature = "debug-agent", debug_assertions))]
 impl Llm for DebugAgent {
     fn complete(
         &self,
@@ -772,6 +778,7 @@ fn parse_usage(v: &Value) -> Option<Usage> {
 use crate::LlmConfig;
 
 enum LlmBackendInner {
+    #[cfg(any(feature = "debug-agent", debug_assertions))]
     Debug(DebugAgent),
     OpenAi { client: OpenAiClient },
     /// init 失败兜底：调用即 Err（发送触发 transient 气泡，不静默）；
@@ -784,6 +791,7 @@ pub struct LlmBackend {
 }
 
 impl LlmBackend {
+    #[cfg(any(feature = "debug-agent", debug_assertions))]
     pub fn debug(agent: DebugAgent) -> Self {
         Self {
             inner: LlmBackendInner::Debug(agent),
@@ -798,15 +806,29 @@ impl LlmBackend {
         }
     }
 
+    #[cfg(any(feature = "debug-agent", debug_assertions))]
     pub fn is_debug(&self) -> bool {
         matches!(self.inner, LlmBackendInner::Debug(_))
     }
 
-    /// 按 Config 装配。unconfigured / debug = 显式无 LLM 态（Ok(debug backend)，非错误）；
+    /// 按 Config 装配。
+    /// - dev（debug-agent 在编）：unconfigured / debug = 显式无 LLM 态（Ok(debug backend)，非错误）
+    /// - release（无 debug 代码）：unconfigured = Ok(Unavailable)（liveness，调用即 transient Err）；
+    ///   active=debug = Err（debug 仅开发构建支持）
     /// init 失败（provider 缺失 / key 未设）= Err——不静默降级，错误通知由调用方呈现
     pub fn from_config(cfg: &LlmConfig) -> Result<Self, String> {
+        #[cfg(any(feature = "debug-agent", debug_assertions))]
         if cfg.active == "unconfigured" || cfg.active == "debug" {
             return Ok(Self::debug(DebugAgent::default()));
+        }
+        #[cfg(not(any(feature = "debug-agent", debug_assertions)))]
+        {
+            if cfg.active == "unconfigured" {
+                return Ok(Self::unavailable("未配置 LLM"));
+            }
+            if cfg.active == "debug" {
+                return Err("active=「debug」仅开发构建支持（release 不含 debug 模式）".into());
+            }
         }
         match cfg.providers.get(&cfg.active) {
             Some(p) => match OpenAiClient::from_provider(p) {
@@ -918,6 +940,7 @@ impl Llm for LlmBackend {
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         async move {
             match &self.inner {
+                #[cfg(any(feature = "debug-agent", debug_assertions))]
                 LlmBackendInner::Debug(agent) => agent.complete(messages, tools, effort).await,
                 LlmBackendInner::OpenAi { client } => client.complete(messages, tools, effort).await,
                 LlmBackendInner::Unavailable(reason) => Err(reason.clone()),
@@ -934,6 +957,7 @@ impl Llm for LlmBackend {
     ) -> impl Future<Output = Result<LlmOutput, String>> + Send {
         async move {
             match &self.inner {
+                #[cfg(any(feature = "debug-agent", debug_assertions))]
                 LlmBackendInner::Debug(agent) => {
                     agent.complete_streaming(messages, tools, effort, on_delta).await
                 }
@@ -951,6 +975,7 @@ impl Llm for LlmBackend {
     ) -> impl Future<Output = Result<(String, Option<Usage>), String>> + Send {
         async move {
             match &self.inner {
+                #[cfg(any(feature = "debug-agent", debug_assertions))]
                 LlmBackendInner::Debug(agent) => agent.summarize(messages).await,
                 LlmBackendInner::OpenAi { client } => client.summarize(messages).await,
                 // Unavailable 保压缩可用：确定性 stub，不炸轮
