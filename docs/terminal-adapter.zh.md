@@ -57,6 +57,37 @@ L1 **不认识实例**：没有 `locate(实例名)`、没有 marker 匹配、没
 
 agent 拿 M3 的工具。
 
+## 实现契约（Rust）
+
+分层名（L1/M1/…）是模型词汇；代码标识符用语义名。
+
+```rust
+pub enum ReadOutcome {
+    Content(String),  // 证据：存活
+    Gone,             // 证据：死亡（adapter 已正向确证）
+    Error(String),    // 无观察，信念不动，永不致死
+}
+
+pub trait TerminalAdapter: Send + Sync {
+    fn locate(&self, inst: &str) -> Option<TabRef>;
+    fn read(&self, tab: &TabRef) -> ReadOutcome;
+    fn unlocate(&self, inst: &str);
+}
+```
+
+`locate`/`unlocate` 吃实例名（marker 匹配）——按分层模型这是 L2 的身份判定，当前由 trait 承载（query 管线上移时随 marker 一起搬）。`read` 只吃载体 `TabRef`，是纯 L1。
+
+`Gone` 只在 adapter 内部正向确证后返回，消费方零复核：
+
+| adapter | Gone 的确证方式 |
+|---|---|
+| WtAdapter | `read_tab` 失败 → `list_tabs` 成功返回且 marker tab 缺席；其余失败一律 `Error` |
+| ZellijAdapter | `dump-screen` 失败 → `list-panes` 无此 pane id（id 稳定，纯位置判定） |
+| MapAdapter | tab 反查失败，或内容表条目已移除 |
+| Composite | 按路由回到产出 adapter，透传其三态；无路由 = `Error` |
+
+消费：timer 兜底扫描**按已定位 tab 读**（实例记录携带 TabRef，从未定位过才现 locate）——`Content` → 变化检测，`Gone` → 实例判 closed，`Error` → 只记录，绝不判死。agent 面的 `fetch_terminal` 路径把 `Gone`/`Error` 折叠为「读不到」（三态是内部语义）。
+
 ## 原则
 
 - **可插件化（seam）** — 每层边界是 provider/consumer 契约（一个 seam），adapter 可插件化：用户新增终端类型与查询阶段，不碰 core。

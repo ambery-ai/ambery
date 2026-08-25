@@ -57,6 +57,37 @@ Instance status + match result + optional content + adjustable parameters.
 
 The tool through which the agent obtains M3.
 
+## Implementation contract (Rust)
+
+Layer names (L1/M1/…) are model vocabulary; code identifiers use semantic names.
+
+```rust
+pub enum ReadOutcome {
+    Content(String),  // evidence: alive
+    Gone,             // evidence: dead (positively confirmed by the adapter)
+    Error(String),    // no observation; belief unchanged, never fatal
+}
+
+pub trait TerminalAdapter: Send + Sync {
+    fn locate(&self, inst: &str) -> Option<TabRef>;
+    fn read(&self, tab: &TabRef) -> ReadOutcome;
+    fn unlocate(&self, inst: &str);
+}
+```
+
+`locate`/`unlocate` take instance names (marker matching) — per the layered model that identity judgment belongs to L2; the trait carries it today (it moves up with the query pipeline, marker included). `read` takes only the carrier `TabRef` and is pure L1.
+
+`Gone` is returned only after positive confirmation inside the adapter; consumers never recheck:
+
+| adapter | how Gone is confirmed |
+|---|---|
+| WtAdapter | `read_tab` fails → `list_tabs` succeeds and the marker tab is absent; any other failure → `Error` |
+| ZellijAdapter | `dump-screen` fails → `list-panes` shows no such pane id (stable ids, positional) |
+| MapAdapter | tab unknown to the adapter, or its content entry removed |
+| Composite | routes to the producing adapter and passes its outcome through; no route = `Error` |
+
+Consumers: the fallback timer scan reads **by the already-located tab** (the instance record carries the TabRef; re-locating is only a fallback for never-located instances) — `Content` → change detection, `Gone` → mark the instance closed, `Error` → record only, never close. The agent-facing `fetch_terminal` path collapses `Gone`/`Error` to a plain "unreadable" result (the tri-state is internal semantics).
+
 ## Principles
 
 - **Plugin-ability (seam)** — each layer boundary is a provider/consumer contract (a seam), so the adapter is pluggable: users add new terminal types and query stages without touching the core.
