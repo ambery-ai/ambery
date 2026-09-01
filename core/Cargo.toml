@@ -4,6 +4,7 @@ version = "0.1.0-alpha0"
 edition = "2021"
 
 [dependencies]
+ambery-terminal-lib = { path = "../packages/terminal-lib" }
 serde = { version = "1", features = ["derive"] }
 schemars = "0.8"
 clap = { version = "4", features = ["derive"] }

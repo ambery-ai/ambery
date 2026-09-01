@@ -1,0 +1,7 @@
+[package]
+name = "ambery-terminal-lib"
+version = "0.1.0-alpha0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
