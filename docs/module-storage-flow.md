@@ -19,7 +19,7 @@ Code module layering + processing flow (storage files appear only on arrows) + p
   ─────────────────────────────────────────────────────────
   数据层    Harness：Queue（queue.rs）│ Context（context.rs）│ EventBuffer（event_buffer.rs）│ agents
   ─────────────────────────────────────────────────────────
-  读通道    sidecar / MapAdapter（case-runner）（外部输入）
+  读通道    terminal 包（wt sidecar / zellij CLI）/ MapAdapter（case-runner）（外部输入）
   ─────────────────────────────────────────────────────────
   存储层    JsonlStore（storage.rs）读写 storage/*；ConfigStore 读写 config.json
 

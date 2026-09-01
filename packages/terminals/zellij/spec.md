@@ -13,4 +13,4 @@ English | [中文](spec.zh.md)
 
 ## Fixed constraints
 
-- Pane title must carry the marker for locate to hit (title convention owned by the agents/claude package); the locate query strategy lives in the access pipeline, not hardcoded in this package.
+- Pane titles carry the marker that the consumer-side join matches on (title convention owned by the agents/claude package); the join/query strategy lives in the consumer's access pipeline, not hardcoded in this package.

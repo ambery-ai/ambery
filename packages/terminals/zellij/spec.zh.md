@@ -13,4 +13,4 @@
 
 ## 固定约束
 
-- pane 标题必须携带 marker，locate 才能命中（标题约定归 agents/claude 包）；locate 查询策略在接入管线中，不硬编码于本包。
+- pane 标题携带 marker，消费方 join 据此命中（标题约定归 agents/claude 包）；join/查询策略在消费方的接入管线中，不硬编码于本包。

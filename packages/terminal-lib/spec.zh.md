@@ -5,7 +5,7 @@
 ## 技术选型
 
 - Rust library crate（`ambery-terminal-lib`），无二进制、无自身运行时。
-- 持有：adapter trait（locate / read / unlocate）、信封类型（Source 投影、三态读 Content / Gone / Error）、Composite 分发（locate 首中）、测试桩（MapAdapter）。
+- 持有：adapter trait（`enumerate` / 三态 `read`）、信封类型（Source 投影、三态读 Content / Gone / Error）、Composite 分发（枚举路由）、平台原语 trait（终端宿主环境能力）、测试桩（MapAdapter）。
 
 ## 架构决定
 

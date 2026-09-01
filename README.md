@@ -64,7 +64,9 @@ Config and session data live under your user config directory (created automatic
 - `core/` — Rust core: Harness, backend, server, storage, filters, TUI activity viewer
 - `ambery-case/` — storage snapshot replay and concept-observation runner
 - `app/` — vanilla TypeScript frontend; `app/src-tauri/` Tauri shell
-- `sidecar/` — C# Windows UIA sidecar
+- `packages/terminal-lib/` — terminal access contract crate (adapter trait / envelope / composite)
+- `packages/terminals/wt/` — Windows Terminal package: C# UIA sidecar + Rust client
+- `packages/terminals/zellij/` — zellij package: in-process CLI adapter
 - `docs/` — per-domain design docs; `concepts.md` terminology; `spec.md` technology choices and structural decisions
 - `dev/` — development records
 
