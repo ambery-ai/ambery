@@ -10,6 +10,7 @@ tauri-build = { version = "2", features = [] }
 # macos-private-api：macOS 透明窗口（tauri.conf 全窗口 transparent:true）必需
 tauri = { version = "2", features = ["tray-icon", "macos-private-api"] }
 ambery-core = { path = "../../core" }
+ambery-terminal-wt = { path = "../../packages/terminals/wt" }
 ambery-terminal-zellij = { path = "../../packages/terminals/zellij" }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"

@@ -29,7 +29,6 @@ pub mod ambery;
 pub mod paths;
 pub mod queue;
 pub mod server;
-pub mod sidecar;
 pub mod storage;
 pub mod terminal;
 pub mod timer;

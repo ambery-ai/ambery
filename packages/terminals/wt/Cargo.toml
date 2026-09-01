@@ -1,0 +1,8 @@
+[package]
+name = "ambery-terminal-wt"
+version = "0.1.0-alpha0"
+edition = "2021"
+
+[dependencies]
+ambery-terminal-lib = { path = "../../terminal-lib" }
+serde_json = "1"

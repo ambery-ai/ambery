@@ -49,6 +49,13 @@ pub trait TerminalAdapter: Send + Sync {
     fn read(&self, tab: &TabRef) -> ReadOutcome;
 }
 
+/// Platform Primitives 接口（终端宿主环境原语：虚拟桌面切换等 OS 层能力，
+/// 读取前置 / 跳转共用；实现随叶子进程交付——wt 叶经 C# sidecar）
+pub trait PlatformPrimitives: Send + Sync {
+    /// 切到目标窗口所在虚拟桌面（读取前置 / 跳转共用）
+    fn switch_vd(&self, hwnd: i64) -> bool;
+}
+
 /// MapAdapter：共享 map 支撑的终端适配器。case-runner 的 terminal/terminal_gone
 /// 剧情用它当终端源。
 /// 合成 hwnd 取负数段，与真实 hwnd 域隔离。

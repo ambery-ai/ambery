@@ -43,6 +43,7 @@ name = "ambery"
 version = "0.1.0-alpha0"
 dependencies = [
  "ambery-core",
+ "ambery-terminal-wt",
  "ambery-terminal-zellij",
  "axum",
  "serde_json",
@@ -79,6 +80,14 @@ name = "ambery-terminal-lib"
 version = "0.1.0-alpha0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "ambery-terminal-wt"
+version = "0.1.0-alpha0"
+dependencies = [
+ "ambery-terminal-lib",
+ "serde_json",
 ]
 
 [[package]]

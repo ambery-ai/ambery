@@ -17,14 +17,13 @@ type SharedTerminals = Arc<std::sync::Mutex<std::collections::HashMap<String, St
 /// 即交付平台原语。无可用读通道时 terminal 保持 None（Hook 驱动核心体验不依赖
 /// Terminal Adapter）。
 fn build_terminal_plugs(config: &Config) -> ambery_core::host::HostPlugs {
-    use ambery_core::terminal::{
-        Composite, PlatformPrimitives, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter,
-    };
+    use ambery_core::terminal::{Composite, PlatformPrimitives, TerminalAdapter};
+    use ambery_terminal_wt::{sidecar_exe, SidecarClient, SidecarPlatformPrimitives, WtAdapter};
     use ambery_terminal_zellij::{ProcessZellijRunner, ZellijAdapter};
     let sidecar = if config.terminal.adapter_wt {
-        ambery_core::paths::sidecar_exe()
+        sidecar_exe()
             .inspect(|p| println!("sidecar enabled: {}", p.display()))
-            .map(ambery_core::sidecar::SidecarClient::new)
+            .map(SidecarClient::new)
             .map(Arc::new)
     } else {
         None

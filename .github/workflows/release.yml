@@ -61,14 +61,14 @@ jobs:
 
       - name: Build UIA sidecar (Windows)
         if: matrix.sidecar
-        working-directory: sidecar
+        working-directory: packages/terminals/wt/sidecar
         # Windows 默认 shell 是 PowerShell，不认 bash 的 `\` 续行——强制 bash
         shell: bash
         run: |
           dotnet publish -c Release
-          mkdir -p ../app/src-tauri/binaries
+          mkdir -p ../../../../app/src-tauri/binaries
           cp bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe \
-            ../app/src-tauri/binaries/ambery-uia-sidecar-x86_64-pc-windows-msvc.exe
+            ../../../../app/src-tauri/binaries/ambery-uia-sidecar-x86_64-pc-windows-msvc.exe
 
       - name: Install app dependencies
         working-directory: app

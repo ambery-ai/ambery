@@ -556,8 +556,8 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     // 装配期生效）——false = wt sidecar 完全不接入（无定位/读取/原语/启动扫描），
     // Hook 驱动核心体验仍可用
     let sidecar = if ambery.config.terminal.adapter_wt {
-        ambery_core::paths::sidecar_exe()
-            .map(ambery_core::sidecar::SidecarClient::new)
+        ambery_terminal_wt::sidecar_exe()
+            .map(ambery_terminal_wt::SidecarClient::new)
             .map(Arc::new)
     } else {
         None
@@ -565,9 +565,8 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let sidecar_for_sweep = sidecar.clone();
 
     {
-        use ambery_core::terminal::{
-            Composite, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter,
-        };
+        use ambery_core::terminal::{Composite, TerminalAdapter};
+        use ambery_terminal_wt::{SidecarPlatformPrimitives, WtAdapter};
         use ambery_terminal_zellij::{ProcessZellijRunner, ZellijAdapter};
         let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
         if let Some(sc) = &sidecar {

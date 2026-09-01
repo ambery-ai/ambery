@@ -5,6 +5,7 @@ members = [
     "observe-derive",
     "ambery-case",
     "packages/terminal-lib",
+    "packages/terminals/wt",
     "packages/terminals/zellij",
 ]
 # Tauri 壳（app/src-tauri）独立构建：壳重依赖（tauri/windows）不进 workspace 日常编译

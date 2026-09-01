@@ -1,6 +1,6 @@
 # C# 构建产物（锚定到具体项目，避免误伤 core/src/bin 等 Rust 源码目录）
-/sidecar/bin/
-/sidecar/obj/
+/packages/terminals/wt/sidecar/bin/
+/packages/terminals/wt/sidecar/obj/
 /experiments/**/bin/
 /experiments/**/obj/
 *.user
