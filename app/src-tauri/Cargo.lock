@@ -43,6 +43,7 @@ name = "ambery"
 version = "0.1.0-alpha0"
 dependencies = [
  "ambery-core",
+ "ambery-terminal-zellij",
  "axum",
  "serde_json",
  "tauri",
@@ -56,6 +57,7 @@ dependencies = [
 name = "ambery-core"
 version = "0.1.0-alpha0"
 dependencies = [
+ "ambery-terminal-lib",
  "axum",
  "clap",
  "crossterm",
@@ -70,6 +72,21 @@ dependencies = [
  "tokio",
  "tower-http",
  "unicode-width",
+]
+
+[[package]]
+name = "ambery-terminal-lib"
+version = "0.1.0-alpha0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "ambery-terminal-zellij"
+version = "0.1.0-alpha0"
+dependencies = [
+ "ambery-terminal-lib",
+ "serde_json",
 ]
 
 [[package]]

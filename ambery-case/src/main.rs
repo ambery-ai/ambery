@@ -19,8 +19,8 @@ type SharedTerminals = Arc<std::sync::Mutex<std::collections::HashMap<String, St
 fn build_terminal_plugs(config: &Config) -> ambery_core::host::HostPlugs {
     use ambery_core::terminal::{
         Composite, PlatformPrimitives, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter,
-        ZellijAdapter,
     };
+    use ambery_terminal_zellij::{ProcessZellijRunner, ZellijAdapter};
     let sidecar = if config.terminal.adapter_wt {
         ambery_core::paths::sidecar_exe()
             .inspect(|p| println!("sidecar enabled: {}", p.display()))
@@ -34,9 +34,7 @@ fn build_terminal_plugs(config: &Config) -> ambery_core::host::HostPlugs {
         adapters.push(Arc::new(WtAdapter::new(sc.clone())));
     }
     if config.terminal.adapter_zellij {
-        adapters.push(Arc::new(ZellijAdapter::new(Arc::new(
-            ambery_core::terminal::ProcessZellijRunner,
-        ))));
+        adapters.push(Arc::new(ZellijAdapter::new(Arc::new(ProcessZellijRunner))));
     }
     ambery_core::host::HostPlugs {
         terminal: if adapters.is_empty() {
