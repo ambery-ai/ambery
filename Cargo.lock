@@ -32,6 +32,7 @@ name = "ambery-core"
 version = "0.1.0-alpha0"
 dependencies = [
  "ambery-observe-derive",
+ "ambery-terminal-lib",
  "axum",
  "clap",
  "crossterm",
@@ -55,6 +56,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "ambery-terminal-lib"
+version = "0.1.0-alpha0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

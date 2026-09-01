@@ -565,10 +565,17 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
     let sidecar_for_sweep = sidecar.clone();
 
     {
-        use ambery_core::terminal::{Composite, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
+        use ambery_core::terminal::{
+            Composite, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter, ZellijAdapter,
+        };
         let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
         if let Some(sc) = &sidecar {
             adapters.push(Arc::new(WtAdapter::new(sc.clone())));
+        }
+        if ambery.config.terminal.adapter_zellij {
+            adapters.push(Arc::new(ZellijAdapter::new(Arc::new(
+                ambery_core::terminal::ProcessZellijRunner,
+            ))));
         }
         if !adapters.is_empty() {
             ambery.terminal = Some(Arc::new(Composite::new(adapters)));
