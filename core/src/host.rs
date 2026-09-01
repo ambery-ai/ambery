@@ -8,9 +8,7 @@ use crate::server::{
     now_ms, router, spawn_config_watcher, spawn_cron_task, spawn_queue_consumer,
     spawn_timer_task, AppState,
 };
-use crate::terminal::{
-    Composite, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter, ZellijAdapter,
-};
+use crate::terminal::{PlatformPrimitives, TerminalAdapter};
 use crate::{Config, Harness};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -25,15 +23,24 @@ pub struct HostParts {
     pub timer_batch: usize,
 }
 
+/// 宿主外插面：终端读通道与平台原语由调用方（binary/config 层）装配注入——
+/// core 只依赖契约 crate，不认识任何叶子实现；哪个叶子活跃是调用方的决定。
+#[derive(Default)]
+pub struct HostPlugs {
+    pub terminal: Option<Arc<dyn TerminalAdapter>>,
+    pub primitives: Option<Arc<dyn PlatformPrimitives>>,
+}
+
 /// 装配宿主：
 /// Config（AMBERY_CONFIG_DIR 可覆盖，`adjust_config` 给调用方一次注入机会，
 /// 如 serve 的 brain provider）→ Harness（AMBERY_STORAGE_DIR）→
 /// LLM（`wrap_backend` 给调用方一次换入决策源的机会；serve/frontend 传恒等）→
-/// Terminal Adapter（WtAdapter 受 adapter_wt 门控 + MapAdapter 兜底 → Composite；
-/// primitives 经 sidecar 交付）。
+/// 外插面（`build_plugs` 吃解析后的 Config，由调用方决定接哪些终端叶子；
+/// 无终端叶子时 terminal 保持 None——Hook 驱动核心体验不依赖 Terminal Adapter）。
 pub fn assemble_host(
     adjust_config: impl FnOnce(&mut Config),
     wrap_backend: impl FnOnce(LlmBackend) -> LlmBackend,
+    build_plugs: impl FnOnce(&Config) -> HostPlugs,
 ) -> HostParts {
     let config_dir = crate::paths::config_root();
     let storage_dir = crate::paths::storage_dir();
@@ -67,36 +74,10 @@ pub fn assemble_host(
     }));
     let mut ambery = AmberyBackend::new(harness, config, backend);
 
-    // Terminal Adapter 装配：adapter_wt 开关门控（冷字段）
-    let sidecar = if ambery.config.terminal.adapter_wt {
-        crate::paths::sidecar_exe()
-            .map(crate::sidecar::SidecarClient::new)
-            .map(Arc::new)
-    } else {
-        None
-    };
-    ambery.sidecar_enabled = sidecar.is_some();
-    if let Some(p) = crate::paths::sidecar_exe() {
-        if ambery.sidecar_enabled {
-            println!("sidecar enabled: {}", p.display());
-        }
-    }
-    let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
-    if let Some(sc) = &sidecar {
-        adapters.push(Arc::new(WtAdapter::new(sc.clone())));
-    }
-    if ambery.config.terminal.adapter_zellij {
-        adapters.push(Arc::new(ZellijAdapter::new(Arc::new(
-            crate::terminal::ProcessZellijRunner,
-        ))));
-    }
-    // 无可用读通道时保持 None（Hook 驱动核心体验不依赖 Terminal Adapter）
-    if !adapters.is_empty() {
-        ambery.terminal = Some(Arc::new(Composite::new(adapters)));
-    }
-    if let Some(sc) = &sidecar {
-        ambery.primitives = Some(Arc::new(SidecarPlatformPrimitives::new(sc.clone())));
-    }
+    // 外插面注入：终端读通道 / 平台原语由调用方按 config 装配（叶子选择不在 core）
+    let plugs = build_plugs(&ambery.config);
+    ambery.terminal = plugs.terminal;
+    ambery.primitives = plugs.primitives;
 
     HostParts {
         state: Arc::new(AppState::new(ambery)),

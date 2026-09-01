@@ -12,6 +12,43 @@ mod runner;
 
 type SharedTerminals = Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>;
 
+/// 终端叶子装配（binary/config 层职责）：adapter_wt 门控 sidecar → WtAdapter；
+/// adapter_zellij 门控 ZellijAdapter；多叶子经 Composite 聚合；sidecar 存在
+/// 即交付平台原语。无可用读通道时 terminal 保持 None（Hook 驱动核心体验不依赖
+/// Terminal Adapter）。
+fn build_terminal_plugs(config: &Config) -> ambery_core::host::HostPlugs {
+    use ambery_core::terminal::{
+        Composite, PlatformPrimitives, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter,
+        ZellijAdapter,
+    };
+    let sidecar = if config.terminal.adapter_wt {
+        ambery_core::paths::sidecar_exe()
+            .inspect(|p| println!("sidecar enabled: {}", p.display()))
+            .map(ambery_core::sidecar::SidecarClient::new)
+            .map(Arc::new)
+    } else {
+        None
+    };
+    let mut adapters: Vec<Arc<dyn TerminalAdapter>> = vec![];
+    if let Some(sc) = &sidecar {
+        adapters.push(Arc::new(WtAdapter::new(sc.clone())));
+    }
+    if config.terminal.adapter_zellij {
+        adapters.push(Arc::new(ZellijAdapter::new(Arc::new(
+            ambery_core::terminal::ProcessZellijRunner,
+        ))));
+    }
+    ambery_core::host::HostPlugs {
+        terminal: if adapters.is_empty() {
+            None
+        } else {
+            Some(Arc::new(Composite::new(adapters)))
+        },
+        primitives: sidecar
+            .map(|sc| Arc::new(SidecarPlatformPrimitives::new(sc)) as Arc<dyn PlatformPrimitives>),
+    }
+}
+
 fn opt_val(args: &[String], flag: &str) -> Option<String> {
     args.iter()
         .position(|a| a == flag)
@@ -88,6 +125,7 @@ async fn main() {
         let parts = ambery_core::host::assemble_host(
             |c| apply_decision(c, brain.as_deref(), silent),
             |b| b,
+            build_terminal_plugs,
         );
         let port: u16 = std::env::var("AMBERY_PORT")
             .ok()
@@ -296,6 +334,7 @@ async fn run_frontend(brain: Option<String>, silent: bool) {
     let parts = ambery_core::host::assemble_host(
         |c| apply_decision(c, brain.as_deref(), silent),
         |b| b,
+        build_terminal_plugs,
     );
     // 独立端口避让生产 47600：bind 0 取空闲端口后释放（serve 任务随即绑定）
     let port = std::net::TcpListener::bind("127.0.0.1:0")

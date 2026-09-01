@@ -563,7 +563,6 @@ async fn run_core(handle: tauri::AppHandle, state_mgr: SharedTauriState) {
         None
     };
     let sidecar_for_sweep = sidecar.clone();
-    ambery.sidecar_enabled = sidecar.is_some();
 
     {
         use ambery_core::terminal::{Composite, SidecarPlatformPrimitives, TerminalAdapter, WtAdapter};
