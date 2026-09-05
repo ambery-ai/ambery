@@ -82,6 +82,14 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 
 - `post-0.1.0.md` — post-0.1.0 capability roadmap: one short statement per future capability
 
+## Document distribution
+
+Where contract documents live in the repository:
+
+- `docs/` is the single home for contract / mechanism / protocol documents; every such document is registered in the responsibility map above. `packages/*/` holds only `spec.md` pairs (technology choices, dependency boundaries, tradeoffs) and code — never contract documents.
+- Flat layout in `docs/` is the default. A subfolder exists only as a mirror of the package structure: category-level documents live in a category folder, leaf-level documents live in a second-level folder under it. Documents that span categories (umbrella contracts, cross-category contracts) stay at the `docs/` root.
+- References use the repository-root path form (`docs/terminal/wt/sidecar.md`); within the same folder, bare filenames are allowed.
+
 ## General principles
 
 The following content is **forbidden** in ordinary `docs/*.md`; each has its own dedicated carrier:
