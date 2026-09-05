@@ -19,7 +19,7 @@ pub trait PlatformPrimitives: Send + Sync {
 
 ## 消费者
 
-- **terminal-adapter**（docs/terminal-adapter.md）：读取时目标窗口不可见（cloaked）→ 切桌面后读。切换是打断性动作，须经 fetch_terminal 的 `vd_switch` 显式同意门控（docs/hook.md §VD 切换能力），adapter 不自动切
+- **terminal-adapter**（docs/terminal/terminal-adapter.md）：读取时目标窗口不可见（cloaked）→ 切桌面后读。切换是打断性动作，须经 fetch_terminal 的 `vd_switch` 显式同意门控（docs/agents/claude/hook.md §VD 切换能力），adapter 不自动切
 
 ## 实现
 

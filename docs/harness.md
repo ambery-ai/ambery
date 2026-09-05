@@ -2,19 +2,19 @@
 
 English | [中文](harness.zh.md)
 
-> Concept definition: see concepts.md §10 and its sub-concepts. This document fixes the data model, injection rules, trigger model, and JSONL storage format.
+> Concept definitions: see [concepts.md](../concepts.md) (Harness = §4 and its sub-concepts). This document fixes the data model, injection rules, trigger model, and JSONL storage format.
 
 ## Data Model
 
 ```rust
-// Queue 输入条目（concepts §10c，输入串行化关口——只装输入）
+// Queue 输入条目（concepts §4c-1，输入串行化关口——只装输入）
 struct QueueInput {
   role: 'system' | 'user',     // hook 内容 = system 输入；用户消息 = user 输入
   content: String,
   ts: i64,
 }
 
-// Context 消息（OpenAI Chat Completions 对齐，concepts §10b——完整消息数组）
+// Context 消息（OpenAI Chat Completions 对齐，concepts §4b——完整消息数组）
 struct ContextMessage {
   role: 'system' | 'user' | 'assistant' | 'tool',
   content: String | null,        // assistant 发起 tool_calls 时 content 可为 null
@@ -23,36 +23,37 @@ struct ContextMessage {
   ts: i64,                       // epoch ms
 }
 
-// Filtered 内容（concepts §8/§11，Filter 后归一全文，agent 实际读到的终端内容）
+// Filtered 内容（终端内容经接入侧过滤归一后的全文，agent 实际读到的来源内容；
+// 概念层无独立 Filter 条目——过滤是接入侧细节）
 // 不持久化——从 terminal-content.jsonl 原文 digest 现算（docs/storage.md §filtered_content 退役）
 struct FilteredContent {
-  instance: string,              // Code CLI 实例名
+  instance: string,              // 被监控会话实例名
   filtered_content: string,      // Filter 后的 Terminal Content 全文
   source: 'hook' | 'timer' | 'fetch_terminal',
   ts: i64,
 }
 
-// Code CLI 实例清单（concepts §9/§13）
+// 被监控会话实例清单（实例身份/生命周期语义见 docs/storage.md §work-agents）
 struct AgentEntry {
-  hash: string,                  // sid8(session_id)；mock/扫描回退见 docs/hook.md §marker 定位
+  hash: string,                  // sid8(session_id)；mock/扫描回退见 docs/agents/claude/hook.md §marker 定位
   name: string, project: string, // display 名 = <project>·<sid8>（即 tab 定位 marker）
-  kind: string | null,           // CLI 种类（Filter 按它选择，docs/filter.md）
+  kind: string | null,           // CLI 种类（接入侧过滤按它选择规则，docs/agents/filter.md）
   tab: TabRef | null,            // tab 定位快照（session_end 的 closed 快照 tab 为 null）
   status: 'idle' | 'processing' | 'unknown' | 'closed',
   first_seen: i64, last_seen: i64,
 }
 ```
 
-## Queue Rules (concepts §10c)
+## Queue Rules (concepts §4c-1)
 
 1. **Queue holds inputs only**: hook content (system input), user messages (user input). assistant / tool output **does not go through Queue** and enters Context directly.
 2. **Every input carries a source field**: source = the semantic reason that triggered this input (`user_chat` / `hook_stop_hint` / `hook_stop_content` / `hook_stop_report` / `hook_user_prompt` / `hook_notification` / `mock_hook` / `timer_scan` / `cron_tick`; for the complete set and enqueue points see `docs/concrete-insight.md §Queue 中的 System 消息来源`). Source is a first-class citizen driving per-source behavior such as effort level and priority; `release_one` passes it into `run_trigger`, and subsequent calls within the tool loop reuse it.
 3. **Serial release + dual queue**: after each input is released, the entire round must finish (input written to Context → LLM → tool execution → output written to Context) before the next input is released — no parallel LLM calls. If an input arrives while processing is underway, it waits in the Queue. The Queue is split into two: `high_q` holds `user_chat` (the user directly asking pet), `normal_q` holds everything else; on release, if `high_q` is non-empty it releases from `high_q` first (FIFO), otherwise from `normal_q` (FIFO) — direct user questions to pet get priority, while each queue internally keeps its own arrival order.
 4. The system prompt **is not** Queue input and not a Context message — it is the request header assembled fresh at each LLM call (base_prompt + AGENTS.md + system expression pool; user expression pool queried on demand); the content is stable and naturally cache-friendly, not persisted (for the head snapshot see docs/storage.md).
 5. Hook trigger → AmberyBackend injects a `system` input into the Queue (e.g. "config-service finished; Context updated (4,958 chars). Evaluate whether to notify.").
-6. **diff as events**: the bookkeeping events of instance registration / state flips do not go through Queue — they are silently attached via the Event Buffer (§10e); the LLM reconstructs the full picture from the event stream in Context, rather than injecting snapshots per round.
+6. **diff as events**: the bookkeeping events of instance registration / state flips do not go through Queue — they are silently attached via the Event Buffer (§4c-2); the LLM reconstructs the full picture from the event stream in Context, rather than injecting snapshots per round.
 
-## Event Buffer Rules (concepts §10e)
+## Event Buffer Rules (concepts §4c-2)
 
 - An independent input channel parallel to the Queue, storing Component interactions and silent bookkeeping.
 - Each record carries a two-part payload: **natural language** (required, a description of the operation process) and a **structured state snapshot** (optional, attached only for todobox-like interactions).
@@ -60,14 +61,14 @@ struct AgentEntry {
 - When the Queue releases an input: all Buffer entries (natural language + structured snapshot) are **merged with that input into one** `system` message entering Context, then cleared (attached semantics, no independent message).
 - Never writes the `user` role; raw entries are not persisted (the merged message is written to the Context log).
 
-## Context Rules (concepts §10b)
+## Context Rules (concepts §4b)
 
 - Context = the complete message array (aligned with OpenAI messages): Queue release writes the input, LLM replies write assistant, tool executions write tool — the context source for LLM requests and also the persistent archive of the full conversation.
 - Terminal content: Hook trigger → AmberyBackend reads Terminal Content → **raw text first stored in terminal-content.jsonl** → Filter → the normalized result updates the in-memory change-detection baseline; after release, what is injected into Context is the evaluation prompt (of the form "{name} finished; Context updated (N chars). Evaluate whether to notify.") — the normalized full text itself does not enter Queue/Context.
 - The normalized full text **is not persisted**: the change-detection prev (each instance's last normalized full text) is kept in memory (lost on restart); "what exactly is that bug" type follow-up questions and the `fetch_terminal` fallback recompute the digest from the raw terminal-content.jsonl.
-- Autonomy state records (type=autonomy) also write one per round into context.jsonl; when assembling the request, take the latest one and append it to the request end (concepts §4 / docs/storage.md).
+- Autonomy state records (type=autonomy) also write one per round into context.jsonl; when assembling the request, take the latest one and append it to the request end (concepts §1a / docs/storage.md).
 
-## Compression (concepts §10d, auto-compact)
+## Compression (concepts §4b-1, auto-compact)
 
 - Trigger (usage is the truth source): **the latest `usage.prompt_tokens` + the est increment of subsequently added messages >
   `effective_compression_limit()`** (the active profile's `context_window − reserve`;
@@ -86,7 +87,7 @@ struct AgentEntry {
 
 - **Reset to zero**: the diff baseline is cleared, all existing instances are treated as just discovered, and one diff enters as one system message — compression does not lose instance awareness.
 
-## Memory (concepts §10f)
+## Memory (concepts §4d)
 
 Memory is a **persistent understanding buffer** managed by Harness and actively maintained by the Agent: it replaces the Agent's reliance on the filesystem for recording understanding; it is not Context, not a compression summary, and not the terminal-content archive. It persists across turns, compression, and restarts; the backend, the user, and the Agent can all manage it, with the Agent adjusting it through `read_memory` / `write_memory`.
 
@@ -97,15 +98,15 @@ For the two tools' parameter schemas, validation, return structures, and the ind
 
 #### ⟡ Consistency Analysis
 
-Memory Workspace, Cron, and Card are all cross-restart concepts managed by Harness: each is restored from its persistent carrier into a runtime projection, managed through controlled entries by the user, the backend, or the Agent, and observable. They do not belong to Context, Queue, or Event Buffer, and the truth must not be delegated to the View or to the LLM's local state. Their persistent forms may differ by semantics — notes / Card use files, Cron uses an append-only schedule log — what is consistent is ownership, restoration, and consumption boundaries, not forcing one file format.
+Memory Workspace, Cron, and Card are all cross-restart concepts managed by Harness: each is restored from its persistent carrier into a runtime projection, managed through controlled entries by the user, the backend, or the Agent, and observable. They do not belong to Context, Queue, or Event Buffer, and the truth must not be delegated to the View or to the LLM's local state. Their persistent forms may differ by semantics — notes / Card use files, the schedule log uses an append-only log — what is consistent is ownership, restoration, and consumption boundaries, not forcing one file format.
 
-## Cron (concepts §10g)
+## Timer (concepts §4e)
 
 Cron is Harness-managed **persistent scheduling and delayed dispatch**: it records future work, e.g. sending a daily report prompt every evening; it can also support continuing a planned behavior after a short sleep, e.g. waiting a few seconds before executing `set_autonomy`. It persists across restarts and can be managed by the backend, the user, and the Agent.
 
-The Agent adjusts Cron via `cron_create` / `cron_delete` and requests a short wait via `sleep`; under the hood the three use the same Harness scheduling implementation (`CronScheduler`). For task representation, cron.jsonl format, due-time behavior, and the three tools' parameters/validation/returns, see **docs/cron.md**.
+The Agent adjusts scheduled plans via `cron_create` / `cron_delete` and requests a short wait via `sleep`; under the hood they share the Harness scheduling implementation (`CronScheduler`). For task representation, cron.jsonl format, due-time behavior, and the three tools' parameters/validation/returns, see **docs/cron.md**.
 
-## Storage (concepts §13, spec: JSONL)
+## Storage (concepts §8, spec: JSONL)
 
 For layout, per-file semantics, and record formats see **docs/storage.md**. Key points:
 

@@ -67,16 +67,16 @@ impl Harness {
 
 | 字段 | 处置 | 理由 |
 |------|------|------|
-| queue | Observable | 概念 §10c |
-| context | Observable | 概念 §10b |
-| event_buffer | Observable | 概念 §10d |
-| agents | Observable | 概念 §9 |
+| queue | Observable | 概念 §4c-1 |
+| context | Observable | 概念 §4b |
+| event_buffer | Observable | 概念 §4c-2 |
+| agents | Observable | 被监控会话注册表（storage.md §work-agents；暂无一等概念条目） |
 | last_usage | Observable | usage 真值 |
 | last_head | skip | 装配留痕（head diff 审计），非概念模块 |
 | last_usage_msg_len | skip | est 增量推导基准（派生数据，经 context_est_delta 现算观测） |
 | last_usage_ts | skip | usage 行 ts 锚点（派生数据，随 last_usage 经 usage 项同步观测） |
-| memory | Observable | §10f 持久化理解 buffer；observe 为 index 摘要（name / description / 条数），不默认展开正文 |
-| cron | Observable | §10g 持久化计划与延时调度；observe 为计划投影（id / schedule / message / next_due），不含 sleep waiter |
+| memory | Observable | §4d 持久理解域；observe 为 index 摘要（name / description / 条数），不默认展开正文 |
+| cron | Observable | §4e Timer 持久化计划与延时调度；observe 为计划投影（id / schedule / message / next_due），不含 sleep waiter |
 | cards | Observable | Card 注册表（components.md §Card 文件）；observe 为注册表投影（id/typ/title/created/user_closed/layout 摘要），不展开 component |
 | store | skip | JSONL 持久化句柄（机制非概念） |
 | config_dir | skip | 路径（机制非概念） |

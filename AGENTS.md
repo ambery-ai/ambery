@@ -4,7 +4,7 @@ Ambery 是 Tauri 多窗口桌宠（pet/chat/menu/shelf/card）+ Rust core。改�
 
 ## Docs-driven 开发
 
-- 以文档为单位开发：新代码/新能力先落对应文档（契约进 docs/、决策进 spec.md、概念进 concepts.md），文档间有冲突先删冲突再实现。
+- 以文档为单位开发：新代码/新能力先落对应文档（契约进 docs/、概念进 concepts.md、技术选型与结构决定进 spec.md），文档间有冲突先删冲突再实现。
 - 讨论中定下的原则与决定，记录进对应的文档。
 
 ## 提交信息

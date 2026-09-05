@@ -2,7 +2,7 @@
 
 English | [中文](hook.zh.md)
 
-> Concept definition: see concepts.md §9/§9b. This document fixes the real hook contract: event layering, marker positioning, startup scan, installation.
+> Concept definition: see concepts.md §5a-1a (Hook). This document fixes the real hook contract: event layering, marker positioning, startup scan, installation.
 > The mock contract (docs/agent-loop.md §Mock Hook Contract) is retained as a debug tool.
 > **Design principle: no technical restrictions, the more open the better** — full capabilities (the agent can switch desktops, the three modes are configurable), conservative defaults, and all choices are left to the user.
 
@@ -12,7 +12,7 @@ English | [中文](hook.zh.md)
 Claude Code 事件 → settings.json "command" hook → ambery-hook.ps1
   → 读 stdin JSON payload → 输出 sessionTitle（定位标记）+ POST /hook（fire-and-forget）
 AmberyBackend → register-on-first-sight → 按事件分层处理
-内容一律走读通道补（sidecar UIA），hook 只当触发信号（docs/sidecar.md）
+内容一律走读通道补（sidecar UIA），hook 只当触发信号（docs/terminal/wt/sidecar.md）
 ```
 
 The hook script is always fire-and-forget (async + short timeout + silent failure) — if the backend is offline it must never block the user's CLI; lost hooks self-heal via register-on-first-sight.
@@ -24,7 +24,7 @@ The hook script is always fire-and-forget (async + short timeout + silent failur
 | `event` | hook_event_name | `session_start` / `user_prompt` / `stop` / `session_end` / `notification` |
 | `session_id` | payload | **Instance identity = hash** (same name, different lifecycle; docs/storage.md) |
 | `cwd` | payload | project = basename |
-| `kind` | carried by the script | `"claude"` (input to the filter per-instance policy, docs/filter.md) |
+| `kind` | carried by the script | `"claude"` (input to the filter per-instance policy, docs/agents/filter.md) |
 | `prompt` | UserPromptSubmit | Full text of user input |
 | `message` | Notification | Notification text |
 | `last_assistant_message` | Stop | Optional reference (content is governed by the read channel) |
@@ -42,7 +42,7 @@ The hook script is always fire-and-forget (async + short timeout + silent failur
 **stop three modes** (`stop_hook_mode`, locally configurable, `no_llm_visible`, hot-reloaded — read fresh on every stop):
 
 - `"queue_only"` (**default B**): stop only injects the hint (a summary of the payload's `last_assistant_message`) into the Queue — the pet decides "silent/curious" from the hint; only when curious does it `fetch_terminal` and read on demand (UIA read happens only when needed).
-- `"auto_read"` (A): when stop arrives, UIA grabs the screen → filter → the normalized result updates the in-memory change-detection baseline; what is injected into the Queue is the evaluation prompt (of the form "finished; Context updated (N chars)") — the normalized full text does not enter Queue/Context (docs/storage.md §filtered_content); the pet reads the full text on demand via `fetch_terminal`. `read_tab` **does not switch when the target tab is already selected** (C# side alreadySelected short-circuit, no 200ms wait); it switches only when not selected (**does not switch back**). `read_active_tab` is the non-invasive read-only variant (no switch, no queueing; for debugging / current-window quick reads); **tab-switch throttling: at most once per global 5 seconds**, and switch-read requests inside the window wait for the window (naturally serialized under the UIA Mutex). The whole read round-trip goes through `spawn_blocking` and does not block tokio workers (docs/sidecar.md §blocking boundary).
+- `"auto_read"` (A): when stop arrives, UIA grabs the screen → filter → the normalized result updates the in-memory change-detection baseline; what is injected into the Queue is the evaluation prompt (of the form "finished; Context updated (N chars)") — the normalized full text does not enter Queue/Context (docs/storage.md §filtered_content); the pet reads the full text on demand via `fetch_terminal`. `read_tab` **does not switch when the target tab is already selected** (C# side alreadySelected short-circuit, no 200ms wait); it switches only when not selected (**does not switch back**). `read_active_tab` is the non-invasive read-only variant (no switch, no queueing; for debugging / current-window quick reads); **tab-switch throttling: at most once per global 5 seconds**, and switch-read requests inside the window wait for the window (naturally serialized under the UIA Mutex). The whole read round-trip goes through `spawn_blocking` and does not block tokio workers (docs/terminal/wt/sidecar.md §blocking boundary).
 - `"message"` (C): stop injects the **full text** of `last_assistant_message` as content directly into the Queue — the agent's report goes straight to the pet (zero UIA; the pet reads what the agent itself said, not the screen). Form: `[report] {name} finished: {full text}`, full, not truncated; when empty it degrades to the hint form ("finished, no report content").
 
 **The agent's VD switching capability** (openness principle): not a separate tool, it is a **required field** of `fetch_terminal` — an interruptive decision must not become a forgotten default; every call faces it explicitly:
@@ -87,11 +87,11 @@ backend startup one-shot: list_windows → list_tabs, using the **claude detecti
 - **three-way reconciliation** (one EventBuffer line reporting truthfully):
   - `N` = number of claude.exe in the Windows process list (including child processes, **a heuristic reference value**, not the session count)
   - `M` = number of claude tabs located by UIA
-  - `K` = **number of cloaked windows** (EnumWindows + `DwmGetWindowAttribute(DWMWA_CLOAKED)`; K>0 means some windows are unreadable from other VDs → prompt to enable WT "show on all desktops", docs/sidecar.md §visibility model)
+  - `K` = **number of cloaked windows** (EnumWindows + `DwmGetWindowAttribute(DWMWA_CLOAKED)`; K>0 means some windows are unreadable from other VDs → prompt to enable WT "show on all desktops", docs/terminal/wt/sidecar.md §visibility model)
 
 Old sessions opened before the hook was installed do not have their identity guessed; they wait for the register-on-first-sight of their next event. The information form is the same as session_start (EventBuffer).
 
-**timer switch**: `timer.interval_ms ≤ 0 = disabled` (docs/timer.md). For the initial phase of real hook integration, disabling is recommended — keep only hook-driven operation to avoid the LLM trigger frequency of full-instance periodic scans.
+**timer switch**: `timer.interval_ms ≤ 0 = disabled` (docs/terminal/timer.md). For the initial phase of real hook integration, disabling is recommended — keep only hook-driven operation to avoid the LLM trigger frequency of full-instance periodic scans.
 
 ## Sidecar Resident (Simplified Semantics)
 
@@ -107,5 +107,5 @@ The app auto-discovers the exe at startup and enables it (path discovery: `AMBER
 
 - PreToolUse / PostToolUse / PreCompact / SubagentStop: not needed at the current granularity.
 - Notification dedup: v1 triggers all; AGENTS.md teaches the pet that silence is the norm; if real-world use finds it noisy, add a time window (config-configurable).
-- opencode hook: different system, deferred (docs/filter.md open question).
+- opencode hook: different system, deferred (docs/agents/filter.md open question).
 - hook-supplied content (transcript parsing) not adopted — the read channel is the single source (privacy surface + dual content forms).

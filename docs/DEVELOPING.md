@@ -58,7 +58,7 @@ cd app && npx tauri build               # the only correct build entry point (se
 cd app/src-tauri && AMBERY_PORT=47601 ./target/release/ambery   # run on a non-default port
 ```
 
-The shell embeds the built frontend and core. Packaging (`.app` bundle) is not active until the release round (docs/sidecar.md).
+The shell embeds the built frontend and core. Packaging (`.app` bundle) is not active until the release round (docs/terminal/wt/sidecar.md).
 
 **The shell build must go through `npx tauri build` — never bare `cargo build`.** The frontend `dist/` is embedded into `tauri-codegen-assets/` by the build script, which does not watch `dist/`; the tauri CLI re-runs the build script by injecting `TAURI_CONFIG` (`cargo:rerun-if-env-changed=TAURI_CONFIG`). A bare `cargo build --release` can reuse a stale build-script output and embed an outdated or empty frontend — the shell then shows a blank pet/UI. `npx tauri build` runs `npm run build` (tsc + vite) first, so it always embeds the current frontend.
 

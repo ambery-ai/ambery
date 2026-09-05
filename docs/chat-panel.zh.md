@@ -12,7 +12,7 @@ Chat 是用户与 pet 对话的产品界面，不是 Context、Queue、流式协
 
 ## 唤出与关闭
 
-- **唤出/关闭**：View 右键 toggle（`chat:toggle`）——concepts §3a「由 View 右键唤出」；面板开着时再右键即关。pet 原地不动（无吸附瞬移，docs/view.md §手势与 Chat 唤出）。
+- **唤出/关闭**：View 右键 toggle（`chat:toggle`）——concepts §2a「由 View 右键唤出」；面板开着时再右键即关。pet 原地不动（无吸附瞬移，docs/view.md §手势与 Chat 唤出）。
 - 面板右上角 × 是同一关闭收口（用户意图关）；× 后再右键重新唤出。
 - 唤出位置：经窗口方位布局引擎 `engine.place` 以固定 `sse` 方位落到 pet 旁（docs/window-positioning.md——自己的定位引擎，非 OS 贴靠）。
 - 面板不是 Component：不走 `call_component`，不进 Component 层，无方位选择逻辑。
@@ -24,8 +24,8 @@ Chat 是用户与 pet 对话的产品界面，不是 Context、Queue、流式协
 
 ## 消息模型（Context 的投影）
 
-- 对话历史从 Context 读取（concepts §3a），面板是 Context 的**视图投影**，不自有数据。
-- Context 四种 role（concepts §10b）中，面板只渲染 `user` 和 `assistant` 的 content；`system`（事件消息）和 `tool`（执行结果）是运行态消息，不污染对话视图（设计决定）。
+- 对话历史从 Context 读取（concepts §2a），面板是 Context 的**视图投影**，不自有数据。
+- Context 四种 role（concepts §4b）中，面板只渲染 `user` 和 `assistant` 的 content；`system`（事件消息）和 `tool`（执行结果）是运行态消息，不污染对话视图（设计决定）。
 - 用户输入 → `bridge.appendUserMessage(text)` 写入 Queue 排队 → 放行后作为 `user` role 消息入 Context → 触发一轮 LLM 处理（触发逻辑见 docs/harness.md）。
 - 面板经 `onContextChanged` 订阅增量刷新。
 

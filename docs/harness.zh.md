@@ -2,19 +2,19 @@
 
 [English](harness.md) | 中文
 
-> 概念定义见 concepts.md §10 及子概念。本文档定数据模型、注入规则、触发模型与 JSONL 存储格式。
+> 概念定义见 [concepts.md](../concepts.md) §4 及子概念。本文档定数据模型、注入规则、触发模型与 JSONL 存储格式。
 
 ## 数据模型
 
 ```rust
-// Queue 输入条目（concepts §10c，输入串行化关口——只装输入）
+// Queue 输入条目（concepts §4c-1，输入串行化关口——只装输入）
 struct QueueInput {
   role: 'system' | 'user',     // hook 内容 = system 输入；用户消息 = user 输入
   content: String,
   ts: i64,
 }
 
-// Context 消息（OpenAI Chat Completions 对齐，concepts §10b——完整消息数组）
+// Context 消息（OpenAI Chat Completions 对齐，concepts §4b——完整消息数组）
 struct ContextMessage {
   role: 'system' | 'user' | 'assistant' | 'tool',
   content: String | null,        // assistant 发起 tool_calls 时 content 可为 null
@@ -23,36 +23,37 @@ struct ContextMessage {
   ts: i64,                       // epoch ms
 }
 
-// Filtered 内容（concepts §8/§11，Filter 后归一全文，agent 实际读到的终端内容）
+// Filtered 内容（终端内容经接入侧过滤归一后的全文，agent 实际读到的来源内容；
+// 概念层无独立 Filter 条目——过滤是接入侧细节）
 // 不持久化——从 terminal-content.jsonl 原文 digest 现算（docs/storage.md §filtered_content 退役）
 struct FilteredContent {
-  instance: string,              // Code CLI 实例名
+  instance: string,              // 被监控会话实例名
   filtered_content: string,      // Filter 后的 Terminal Content 全文
   source: 'hook' | 'timer' | 'fetch_terminal',
   ts: i64,
 }
 
-// Code CLI 实例清单（concepts §9/§13）
+// 被监控会话实例清单（实例身份/生命周期语义见 docs/storage.md §work-agents）
 struct AgentEntry {
-  hash: string,                  // sid8(session_id)；mock/扫描回退见 docs/hook.md §marker 定位
+  hash: string,                  // sid8(session_id)；mock/扫描回退见 docs/agents/claude/hook.md §marker 定位
   name: string, project: string, // display 名 = <project>·<sid8>（即 tab 定位 marker）
-  kind: string | null,           // CLI 种类（Filter 按它选择，docs/filter.md）
+  kind: string | null,           // CLI 种类（接入侧过滤按它选择规则，docs/agents/filter.md）
   tab: TabRef | null,            // tab 定位快照（session_end 的 closed 快照 tab 为 null）
   status: 'idle' | 'processing' | 'unknown' | 'closed',
   first_seen: i64, last_seen: i64,
 }
 ```
 
-## Queue 规则（concepts §10c）
+## Queue 规则（concepts §4c-1）
 
 1. **Queue 只装输入**：hook 内容（system 输入）、user 消息（user 输入）。assistant / tool 输出**不走 Queue**，直接入 Context。
 2. **每条输入带来源字段**：来源 = 触发这次输入的语义原因（`user_chat` / `hook_stop_hint` / `hook_stop_content` / `hook_stop_report` / `hook_user_prompt` / `hook_notification` / `mock_hook` / `timer_scan` / `cron_tick`，完整集合与入队点见 `docs/concrete-insight.md §Queue 中的 System 消息来源`）。来源是驱动 effort 档位、优先级等按来源定行为机制的一等公民；`release_one` 把它传进 `run_trigger`，工具循环内后续调用沿用。
 3. **串行放行 + 双队列**：每条输入放行后，必须等整轮处理完毕（输入写 Context → LLM → tool 执行 → 输出写 Context）才放行下一条——不可并行调用 LLM。输入到来时若正在处理中，在 Queue 中排队等待。Queue 分两队：`high_q` 装 `user_chat`（用户直接问 pet），`normal_q` 装其余全部；放行时 `high_q` 非空先放 `high_q`（FIFO），空则放 `normal_q`（FIFO）——用户直接问 pet 时优先处理，两队列内部各自保持到达顺序。
 4. system prompt **不是** Queue 输入也不是 Context 消息——它是每次 LLM 调用时现拼的请求头（base_prompt + AGENTS.md + 系统表情池；用户表情池按需查询），内容稳定、天然 cache 友好，不落盘（head 快照见 docs/storage.md）。
 5. Hook 触发 → AmberyBackend 向 Queue 注入 `system` 输入（如「config-service 完成（4958 字）。评估是否通知。」）。
-6. **diff 事件化**：实例注册/状态翻转的簿记事件不走 Queue——走 Event Buffer 静默附带（§10e）；LLM 从 Context 中的事件流重建全景，不按轮注入快照。
+6. **diff 事件化**：实例注册/状态翻转的簿记事件不走 Queue——走 Event Buffer 静默附带（§4c-2）；LLM 从 Context 中的事件流重建全景，不按轮注入快照。
 
-## Event Buffer 规则（concepts §10e）
+## Event Buffer 规则（concepts §4c-2）
 
 - 与 Queue 平行的独立输入通道，存取 Component 交互与静默簿记。
 - 每条记录携带两部分载荷：**自然语言**（必填，操作过程描述）和 **结构化状态快照**（可选，仅 todobox 类交互时附带）。
@@ -60,14 +61,14 @@ struct AgentEntry {
 - Queue 放行某条输入时：Buffer 全部条目（自然语言 + 结构化快照）与该输入**合并为一条** `system` message 入 Context，然后清空（附带语义，不产生独立消息）。
 - 永不写 `user` role；原始条目不持久化（合并后的消息落 Context 日志）。
 
-## Context 规则（concepts §10b）
+## Context 规则（concepts §4b）
 
 - Context = 完整消息数组（OpenAI messages 对齐）：Queue 放行写输入，LLM 回复写 assistant，tool 执行写 tool——LLM 请求的上下文源，也是完整对话的持久化存档。
 - 终端内容：Hook 触发 → AmberyBackend 读 Terminal Content → **原文先存 terminal-content.jsonl** → Filter → 归一结果更新内存变化检测基准；放行后注入 Context 的是评估提示（「{name} 完成，Context 已更新（N 字）。评估是否通知。」形态）——归一全文本身不进 Queue/Context。
 - 归一全文**不持久化**：变化检测的 prev（每实例上次归一全文）存内存（重启丢）；「那个 bug 具体怎么回事」类追问与 `fetch_terminal` 回退从 terminal-content.jsonl 原文 digest 现算。
-- Autonomy 状态记录（type=autonomy）每轮一条也写 context.jsonl；装配请求时取最新一条挂请求末端（concepts §4 / docs/storage.md）。
+- Autonomy 状态记录（type=autonomy）每轮一条也写 context.jsonl；装配请求时取最新一条挂请求末端（concepts §1a / docs/storage.md）。
 
-## Compression（concepts §10d，auto-compact）
+## Compression（concepts §4b-1，auto-compact）
 
 - 触发（usage 真值系）：**最近一次 `usage.prompt_tokens` + 其后新增消息的 est 增量 >
   `effective_compression_limit()`**（active profile 的 `context_window − reserve`；
@@ -85,7 +86,7 @@ struct AgentEntry {
 | `context_compression_keep_recent_messages` | 24 | 冷 | 已完成历史 turns 的原始 message 保留目标；从最近已完成的 turns 向前保留至少该数，只能在完整 turn 之间截断；当前正在处理的 turn 始终完整保留，即使超过该数。assistant 的 tool_calls message 与每条 tool result 各算一条；一次上限 10 calls 的完整工具交互为 11 条，24 可保留约两批此类交互及最终文字回复，避免完整 query 真值过早被压缩摇掉。 |
 - **归零**：diff 基准清空，所有已有实例视为刚发现，一次 diff 进一条 system 消息——压缩不丢实例认知。
 
-## Memory（concepts §10f）
+## Memory（concepts §4d）
 
 Memory 是 Harness 管理、Agent 主动维护的**持久化理解 buffer**：它替代 Agent 依赖文件系统记录理解，不是 Context、压缩摘要或终端内容存档。它在跨 turn、压缩与重启后保留；后端、用户与 Agent 都可管理，其中 Agent 通过 `read_memory` / `write_memory` 调整。
 
@@ -96,15 +97,15 @@ Memory 是 Harness 管理、Agent 主动维护的**持久化理解 buffer**：�
 
 #### ⟡ 一致性剖析
 
-Memory Workspace、Cron 与 Card 都是 Harness 管理的跨重启概念：各自从持久载体恢复为运行期投影，受控地被用户、后端或 Agent 的相应入口管理，并可被 observe。它们不属于 Context、Queue 或 Event Buffer，也不能把真相下放给 View 或 LLM 的局部状态。三者的持久化形式可因语义不同而不同——notes / Card 用文件，Cron 用 append-only 计划日志——一致的是所有权、恢复和消费边界，而不是强行使用同一种文件格式。
+Memory Workspace、Cron 与 Card 都是 Harness 管理的跨重启概念：各自从持久载体恢复为运行期投影，受控地被用户、后端或 Agent 的相应入口管理，并可被 observe。它们不属于 Context、Queue 或 Event Buffer，也不能把真相下放给 View 或 LLM 的局部状态。三者的持久化形式可因语义不同而不同——notes / Card 用文件，计划日志用 append-only 日志——一致的是所有权、恢复和消费边界，而不是强行使用同一种文件格式。
 
-## Cron（concepts §10g）
+## Timer（concepts §4e）
 
 Cron 是 Harness 管理的**持久化计划与延时调度**：它记录未来工作，例如每晚发出日报提示；也能支持短暂 sleep 后继续既定行为，例如等待数秒后执行 `set_autonomy`。它跨重启保留，后端、用户与 Agent 都可管理。
 
-Agent 经 `cron_create` / `cron_delete` 调整 Cron，并经 `sleep` 请求短暂等待；三者在底层使用同一套 Harness 调度实现（`CronScheduler`）。任务表示、cron.jsonl 格式、到点行为与三个 tool 的参数/校验/返回见 **docs/cron.md**。
+Agent 经 `cron_create` / `cron_delete` 调整计划任务，并经 `sleep` 请求短暂等待；它们在底层共用 Harness 调度实现（`CronScheduler`）。任务表示、cron.jsonl 格式、到点行为与三个 tool 的参数/校验/返回见 **docs/cron.md**。
 
-## Storage（concepts §13，spec：JSONL）
+## Storage（concepts §8，spec：JSONL）
 
 布局、各文件语义与记录格式见 **docs/storage.md**。要点：
 

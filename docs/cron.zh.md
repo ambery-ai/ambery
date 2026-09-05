@@ -2,16 +2,16 @@
 
 [English](cron.md) | 中文
 
-> 概念定义见 concepts.md §10g。本文档定任务表示、持久化格式、到点行为与
+> 概念定义见 concepts.md §4e（Timer）。本文档定任务表示、持久化格式、到点行为与
 > cron_create / cron_delete / sleep 三个 tool 的调用契约。
 
 ## 原则
 
-> **本文档范围**——本文定义 Cron 的任务模型、cron.jsonl 格式、调度实现与三个 tool 的参数/校验/返回；Cron 的概念定位与所有权见 concepts.md §10g / docs/harness.md §Cron；存储布局见 docs/storage.md §Cron。
+> **本文档范围**——本文定义 Cron 的任务模型、cron.jsonl 格式、调度实现与三个 tool 的参数/校验/返回；Cron 的概念定位与所有权见 concepts.md §4e / docs/harness.md §Timer；存储布局见 docs/storage.md §Timer。
 
 > **设计常量**——sleep 上限与调度轮询粒度是实现常量（本文定义值），不进 Config。
 
-> **不做特殊规则，用语义明确行为**——schedule 二选一显式给出；无 list tool 是既定边界（concepts §10a 只列两个 Cron tool），不发明隐式查询通道。
+> **不做特殊规则，用语义明确行为**——schedule 二选一显式给出；无 list tool 是既定边界（concepts §4a 只列两个计划 tool），不发明隐式查询通道。
 
 ## 任务表示
 
@@ -27,7 +27,7 @@ Cron entry：
 ```
 
 - `schedule` 二选一：`at`（epoch ms 一次性）或 `every_ms`（固定间隔周期，首次到期 = 创建时刻 + every_ms）。cron 表达式不支持（需要 wall-clock 语义时再议）。
-- `message`：到点注入 Queue 的 `system` 输入内容（与 hook 内容同构，concepts §10c）。
+- `message`：到点注入 Queue 的 `system` 输入内容（与 hook 内容同构，concepts §4c-1）。
 - payload 当前只有 message 形态；更复杂的到点动作由 Agent 被 message 唤醒后自行发起（sleep-then-act 场景由 `sleep` tool 表达，不走 Cron payload）。
 
 ## 持久化（cron.jsonl）
@@ -71,7 +71,7 @@ waiters 经独立共享句柄访问（不经过 AmberyBackend 锁）——sleep 
 
 语义边界：
 
-- sleep 期间 Queue 串行点被占用（concepts §10c）——等待是 Agent 既定行为的一部分，时长上限防呆。
+- sleep 期间 Queue 串行点被占用（concepts §4c-1）——等待是 Agent 既定行为的一部分，时长上限防呆。
 - sleep 不持久化：崩溃即丢失，不补发。
 - `ms: 0` = 立即返回（让出当前执行点一次）。
 
@@ -107,4 +107,4 @@ waiters 经独立共享句柄访问（不经过 AmberyBackend 锁）——sleep 
 
 ## 无 list tool（既定边界）
 
-concepts §10a 只列 `cron_create` / `cron_delete`：Agent 经 create 返回的 id 管理自己的计划（可写入 Memory 长期记忆）；用户与后端可直接查看/编辑 cron.jsonl。不为 Agent 发明隐式查询通道。
+concepts §4a 只列 `cron_create` / `cron_delete`：Agent 经 create 返回的 id 管理自己的计划（可写入 Memory 长期记忆）；用户与后端可直接查看/编辑 cron.jsonl。不为 Agent 发明隐式查询通道。

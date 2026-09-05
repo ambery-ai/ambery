@@ -54,5 +54,5 @@ case-runner 以完整 `router()` 启动（`ambery-case serve`，浏览器调试 
 ## 相关文档
 
 - `agent-loop.md` §协议：Tauri IPC + `/hook` 链路
-- `hook.md`：外部 hook 脚本接入
-- `timer.md`：timer 后台任务逻辑
+- `docs/agents/claude/hook.md`：外部 hook 脚本接入
+- `docs/terminal/timer.md`：timer 后台任务逻辑

@@ -2,7 +2,7 @@
 
 [English](hook.md) | 中文
 
-> 概念定义见 concepts.md §9/§9b。本文档定真实 hook 契约：事件分层、marker 定位、启动扫描、安装。
+> 概念定义见 concepts.md §5a-1a（Hook）。本文档定真实 hook 契约：事件分层、marker 定位、启动扫描、安装。
 > mock 契约（docs/agent-loop.md §Mock Hook 契约）保留为 debug 手段。
 > **设计原则：不做技术限制，越开放越好**——能力给足（agent 可切桌面、三模式可配），默认值保守，选择权全在用户。
 
@@ -12,7 +12,7 @@
 Claude Code 事件 → settings.json "command" hook → ambery-hook.ps1
   → 读 stdin JSON payload → 输出 sessionTitle（定位标记）+ POST /hook（fire-and-forget）
 AmberyBackend → register-on-first-sight → 按事件分层处理
-内容一律走读通道补（sidecar UIA），hook 只当触发信号（docs/sidecar.md）
+内容一律走读通道补（sidecar UIA），hook 只当触发信号（docs/terminal/wt/sidecar.md）
 ```
 
 hook 脚本永远 fire-and-forget（async + 短 timeout + 失败静默）——backend 不在线绝不可卡用户的 CLI；丢失的 hook 靠 register-on-first-sight 自愈。
@@ -24,7 +24,7 @@ hook 脚本永远 fire-and-forget（async + 短 timeout + 失败静默）——b
 | `event` | hook_event_name | `session_start` / `user_prompt` / `stop` / `session_end` / `notification` |
 | `session_id` | payload | **实例身份 = hash**（同名不同命，docs/storage.md） |
 | `cwd` | payload | project = basename |
-| `kind` | 脚本捎带 | `"claude"`（filter per-instance 策略的输入，docs/filter.md） |
+| `kind` | 脚本捎带 | `"claude"`（filter per-instance 策略的输入，docs/agents/filter.md） |
 | `prompt` | UserPromptSubmit | 用户输入全文 |
 | `message` | Notification | 通知文本 |
 | `last_assistant_message` | Stop | 可选参考（内容以读通道为准） |
@@ -42,7 +42,7 @@ hook 脚本永远 fire-and-forget（async + 短 timeout + 失败静默）——b
 **stop 三模式**（`stop_hook_mode`，本地可配、`no_llm_visible`、热更新——每次 stop 现读）：
 
 - `"queue_only"`（**默认 B**）：stop 只把 hint（payload 的 `last_assistant_message` 摘要）注入 Queue——宠物凭 hint 判「沉默/好奇」，好奇才 `fetch_terminal` 按需读（UIA 读只在需要时发生）
-- `"auto_read"`（A）：stop 到达即 UIA 抓屏 → filter → 归一结果更新内存变化检测基准，注入 Queue 的是评估提示（「完成，Context 已更新（N 字）」形态）——归一全文不进 Queue/Context（docs/storage.md §filtered_content）；宠物要全文经 `fetch_terminal` 按需读。`read_tab` 在目标 tab **已选中时不切换**（C# 侧 alreadySelected 短路，无 200ms 等待）；未选中才切换（**不切回**）。`read_active_tab` 是非侵入只读变体（不切换、不排队，调试/当前窗口快读用）；**tab 切换限流：全局 5 秒内最多一次**，窗口期内的切换读请求排队等窗口（UIA Mutex 下自然串行）。读往返整体走 `spawn_blocking`，不阻塞 tokio worker（docs/sidecar.md §阻塞边界）
+- `"auto_read"`（A）：stop 到达即 UIA 抓屏 → filter → 归一结果更新内存变化检测基准，注入 Queue 的是评估提示（「完成，Context 已更新（N 字）」形态）——归一全文不进 Queue/Context（docs/storage.md §filtered_content）；宠物要全文经 `fetch_terminal` 按需读。`read_tab` 在目标 tab **已选中时不切换**（C# 侧 alreadySelected 短路，无 200ms 等待）；未选中才切换（**不切回**）。`read_active_tab` 是非侵入只读变体（不切换、不排队，调试/当前窗口快读用）；**tab 切换限流：全局 5 秒内最多一次**，窗口期内的切换读请求排队等窗口（UIA Mutex 下自然串行）。读往返整体走 `spawn_blocking`，不阻塞 tokio worker（docs/terminal/wt/sidecar.md §阻塞边界）
 - `"message"`（C）：stop 把 `last_assistant_message` **全文**作为内容直接注入 Queue——agent 的汇报原文直达宠物（零 UIA，宠物读的是 agents 自己说的，不是屏幕）。形态：`[汇报] {name} 完成：{全文}`，全量不截断；为空时降级 hint 形态（「完成，无汇报内容」）
 
 **agent 的 VD 切换能力**（开放原则）：不是独立 tool，是 `fetch_terminal` 的**必填字段**——打断性决策不能成为被遗忘的默认，每次调用显式面对：
@@ -87,11 +87,11 @@ backend 启动一次性：list_windows → list_tabs，按 **claude 检测规则
 - **三方对账**（一行 EventBuffer 如实报告）：
   - `N` = Windows 进程列表中的 claude.exe 数（含子进程，**启发式参考值**，非会话数）
   - `M` = UIA 已定位的 claude tab 数
-  - `K` = **cloaked 窗口数**（EnumWindows + `DwmGetWindowAttribute(DWMWA_CLOAKED)`；K>0 说明有窗口对其他 VD 不可读 → 提示开启 WT「全桌面显示」，docs/sidecar.md §视野模型）
+  - `K` = **cloaked 窗口数**（EnumWindows + `DwmGetWindowAttribute(DWMWA_CLOAKED)`；K>0 说明有窗口对其他 VD 不可读 → 提示开启 WT「全桌面显示」，docs/terminal/wt/sidecar.md §视野模型）
 
 装 hook 前开的旧会话不猜身份，等它们下一个事件的 register-on-first-sight。信息形态与 session_start 一致（EventBuffer）。
 
-**timer 开关**：`timer.interval_ms ≤ 0 = 禁用`（docs/timer.md）。真实 hook 接入初期建议禁用——只留 hook 驱动，避免全量实例周期性扫描的 LLM 触发频率。
+**timer 开关**：`timer.interval_ms ≤ 0 = 禁用`（docs/terminal/timer.md）。真实 hook 接入初期建议禁用——只留 hook 驱动，避免全量实例周期性扫描的 LLM 触发频率。
 
 ## sidecar 常驻（简化语义）
 
@@ -107,5 +107,5 @@ app 启动自动发现 exe 并启用（路径发现：`AMBERY_SIDECAR` env > 仓
 
 - PreToolUse / PostToolUse / PreCompact / SubagentStop：当前粒度不需要
 - Notification dedup：v1 全触发，AGENTS.md 教宠物沉默是常态；实测嫌吵再加时间窗（config 可配）
-- opencode hook：体系不同，延期（docs/filter.md 开放问题）
+- opencode hook：体系不同，延期（docs/agents/filter.md 开放问题）
 - hook 自带内容（transcript 解析）不采用——读通道唯一（隐私面 + 双内容形态）

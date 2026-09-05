@@ -25,7 +25,7 @@ pet 初始种子 116×40（运行时被 pet-window-size.md 公式重算），cha
 - pet 拖拽走 IPC `window.setPosition()`，同时 emit `"pet:moved"` 事件
 - chat/cards 窗口经 positioning engine 请求位置（pet 持有 engine，`engine:place` / `engine:moved` 协议）
 
-## 内嵌 core（spec.md 架构决定）
+## 内嵌 core（单进程架构决定）
 
 前端与 core 通信走 Tauri 原生 IPC（`#[tauri::command]` + `invoke()` + `app_handle.emit()`）。仅外部 hook 脚本走 HTTP `POST /hook`（进程外不可用 Tauri command），薄 server 绑 127.0.0.1:47600 仅此用途。
 
@@ -50,7 +50,7 @@ macOS / Linux
 当前隔离状态：
 
 - Tauri shell 的 Windows 专属依赖（`winvd` / `windows`）收进 `[target.'cfg(windows)'.dependencies]`；`window.rs` 的 pin/fight-back 与 `menu_window.rs` 的 `SetForegroundWindow` 由 `#[cfg(windows)]` 门控，非 Windows 目标为最小替代（tauri.conf.json 的 `alwaysOnTop` + `set_focus`）。
-- core 的 UIA sidecar 发现（`paths::sidecar_exe`）在非 Windows 目标恒为 `None`——不发现、不启动、不使用；sidecar 客户端是纯 std 进程通信代码，非 Windows 目标上无调用路径（Option 链天然降级，`sidecar_enabled=false`）。C# sidecar 目标为 `net9.0-windows` 且发布形态为 self-contained win-x64，不进入非 Windows 打包（docs/sidecar.md §打包）。
+- core 的 UIA sidecar 发现（`paths::sidecar_exe`）在非 Windows 目标恒为 `None`——不发现、不启动、不使用；sidecar 客户端是纯 std 进程通信代码，非 Windows 目标上无调用路径（Option 链天然降级，`sidecar_enabled=false`）。C# sidecar 目标为 `net9.0-windows` 且发布形态为 self-contained win-x64，不进入非 Windows 打包（docs/terminal/wt/sidecar.md §打包）。
 - 残余验证边界：非 Windows 目标的 `cargo check --target` 需要交叉工具链（`ring` 经 reqwest 引入原生 C 构建），本机不可行；`cfg(not(windows))` 分支为最小 stub，正确性由评审保证，交叉编译验证待 CI。
 
 ## 全局唤起快捷键

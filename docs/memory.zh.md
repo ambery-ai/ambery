@@ -2,11 +2,11 @@
 
 [English](memory.md) | 中文
 
-> 概念定义见 concepts.md §10f。本文档定 Memory Workspace 的目录模型、notes 的 read_memory / write_memory 调用契约，以及 index/AGENTS.md 的生成契约。Card 是同一工作空间中的持久工作产物，但不属于普通 Memory note，也不经这两个 tool 管理；其文件契约见 docs/components.md §Card 文件。
+> 概念定义见 concepts.md §4d（Memory）。本文档定 Memory Workspace 的目录模型、notes 的 read_memory / write_memory 调用契约，以及 index/AGENTS.md 的生成契约。Card 是同一工作空间中的持久工作产物，但不属于普通 Memory note，也不经这两个 tool 管理；其文件契约见 docs/components.md §Card 文件。
 
 ## 原则
 
-> **本文档范围**——本文定义 Memory Workspace 的目录模型、notes 的两个 tool 调用契约与 index/AGENTS.md 的生成规则；Memory 的概念定位、所有权与持久化边界见 concepts.md §10f / docs/harness.md §Memory；存储布局见 docs/storage.md §Memory Workspace。
+> **本文档范围**——本文定义 Memory Workspace 的目录模型、notes 的两个 tool 调用契约与 index/AGENTS.md 的生成规则；Memory 的概念定位、所有权与持久化边界见 concepts.md §4d / docs/harness.md §Memory；存储布局见 docs/storage.md §Memory Workspace。
 
 > **工作空间而非扁平根**——Memory 是持久工作空间；notes 与 cards 按产物语义分目录。扁平化不是原则：只有 notes 当前不再细分，不能阻止其他持久产物拥有自己的目录。
 

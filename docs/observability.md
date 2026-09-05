@@ -60,16 +60,16 @@ impl Harness {
 
 | Field | Disposition | Reason |
 |------|------|------|
-| queue | Observable | Concept §10c |
-| context | Observable | Concept §10b |
-| event_buffer | Observable | Concept §10d |
-| agents | Observable | Concept §9 |
+| queue | Observable | Concept §4c-1 |
+| context | Observable | Concept §4b |
+| event_buffer | Observable | Concept §4c-2 |
+| agents | Observable | Monitored-session registry (storage.md §work-agents; no first-class concept entry yet) |
 | last_usage | Observable | usage ground truth |
 | last_head | skip | Assembly trail (head diff audit), not a concept module |
 | last_usage_msg_len | skip | Base for est delta derivation (derived data, observed via context_est_delta computed on the spot) |
 | last_usage_ts | skip | ts anchor of the usage row (derived data, observed synchronously with last_usage via the usage item) |
-| memory | Observable | §10f persistent understanding buffer; observe gives an index summary (name / description / count), without expanding the body by default |
-| cron | Observable | §10g persistent schedules and delayed dispatch; observe gives the schedule projection (id / schedule / message / next_due), excluding the sleep waiter |
+| memory | Observable | §4d persistent understanding domain; observe gives an index summary (name / description / count), without expanding the body by default |
+| cron | Observable | §4e Timer persistent schedules and delayed dispatch; observe gives the schedule projection (id / schedule / message / next_due), excluding the sleep waiter |
 | cards | Observable | Card registry (components.md §Card File); observe gives a registry projection (id/typ/title/created/user_closed/layout summary), without expanding the component |
 | store | skip | JSONL persistence handle (mechanism, not a concept) |
 | config_dir | skip | Path (mechanism, not a concept) |

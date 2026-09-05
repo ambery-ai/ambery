@@ -74,10 +74,10 @@ TUI 交互界面（`ratatui`）。核心交互：
 
 ### Trajectory 形态（`--trajectory`）
 
-平铺 JSONL 投影为 **turn-centric 轨迹账本**：顶层单位是本系统 LLM 的一次完整处理回合——**turn** = Queue 放行一轮（concepts §10c；`queue.jsonl` 每行一个 turn）。该轮产生的全部内容——context 写入、effect、终端读取、agent 记录、cron 动作——按 ts 归属到最近的 turn，缩进一级渲染其下。
+平铺 JSONL 投影为 **turn-centric 轨迹账本**：顶层单位是本系统 LLM 的一次完整处理回合——**turn** = Queue 放行一轮（concepts §4c-1；`queue.jsonl` 每行一个 turn）。该轮产生的全部内容——context 写入、effect、终端读取、agent 记录、cron 动作——按 ts 归属到最近的 turn，缩进一级渲染其下。
 
 - `queue.jsonl` 每行 = 一个 turn 边界。无 queue 数据时（case 快照常见），`context.jsonl` 的 user message 退化为 turn 边界。
-- **Code CLI 不是本系统 LLM**：被监管的外部实例（concepts §9）只以普通 `◇` 行出现，从不构成层级。
+- **被监管的 agent 实例不是本系统 LLM**：被监管的外部会话只以普通 `◇` 行出现，从不构成层级。
 - `context.jsonl` 的 `session` 行是普通 `·` 行（context 存储的启动分界，每次后端启动一条）——归属到所在 turn，不是容器。
 - 首个 turn 之前的行渲染在 `[pre turn]` 区域下——与 turn 同 glyph、同折叠语义。
 - **折叠**按容器，仅两层（turn / `[pre turn]` > 其行）：`←` / `h` 折叠光标所在容器——容器行本身，或其下任意行（向上折叠到所属容器）；`→` / `l` 展开折叠的容器；已展开的容器行或叶子行则打开详情栏。折叠的容器保留边界行并带 `[+n]` 标记（隐藏数量）。`/` 筛选、Tab / Shift+Tab 切文件、`f` 跟随与普通形态一致。

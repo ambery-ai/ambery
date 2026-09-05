@@ -65,7 +65,7 @@ Config and session data live under your user config directory (created automatic
 - `ambery-case/` — storage snapshot replay and concept-observation runner
 - `app/` — vanilla TypeScript frontend; `app/src-tauri/` Tauri shell
 - `sidecar/` — C# Windows UIA sidecar
-- `docs/` — per-domain design docs; `concepts.md` terminology; `spec.md` architecture decisions
+- `docs/` — per-domain design docs; `concepts.md` terminology; `spec.md` technology choices and structural decisions
 - `dev/` — development records
 
 ## Documentation

@@ -2,16 +2,16 @@
 
 [English](storage.md) | 中文
 
-> 概念定义见 concepts.md §12/§13。本文档定目录布局、各文件语义、记录格式与生命周期。
+> 概念定义见 concepts.md §7/§8。本文档定目录布局、各文件语义、记录格式与生命周期。
 
 ## 布局：两个域
 
 ```
 %USERPROFILE%\.config\ambery\   （AMBERY_CONFIG_DIR 可覆盖，core/paths.rs 解析）
-  config.json              # Config 域：启动配置（concepts §12）
+  config.json              # Config 域：启动配置（concepts §7）
   AGENTS.md                # Config 域：pet 身份提示词——配置性质，非 session 数据
-  storage/                 # Storage 域：世界状态 + 上下文日志（AMBERY_STORAGE_DIR 可覆盖，concepts §13）
-    queue.jsonl            # Queue 输入排队记录（concepts §10c）
+  storage/                 # Storage 域：世界状态 + 上下文日志（AMBERY_STORAGE_DIR 可覆盖，concepts §8）
+    queue.jsonl            # Queue 输入排队记录（concepts §4c-1）
     terminal-content.jsonl # Terminal Content 原文存档（Filter 前）
     context.jsonl          # 统一全保真日志：对话 + Autonomy + 请求头快照 + 归一全文 + 压缩边界
     work-agents.jsonl      # 实例生命周期永久事件日志
@@ -33,7 +33,7 @@ append-only、永不改写；请求上下文只是日志的投影。目标：**O
 
 ## config.json（Config 域）
 
-concepts §12。启动配置：timer 参数、compression 阈值与保留目标、系统/用户表情池、
+concepts §7。启动配置：timer 参数、compression 阈值与保留目标、系统/用户表情池、
 LLM profiles + active 选择器、view_scale、set_autonomy_default_ttl_ms、stop_hook_mode、
 theme/themes、ui_language/harness_language、name、工具调用预算。
 （hook 端口不是 Config 字段：默认 127.0.0.1:47600，`AMBERY_PORT` 显式覆盖——换端口须同步 hook 配置；docs/core-server.md §端口语义。）
@@ -51,7 +51,7 @@ pet 身份提示词，与 base_prompt 拼接进**每轮现拼的请求头**（�
 
 ## terminal-content.jsonl（原文存档，Filter 前）
 
-Terminal Content **原文**（ANSI/spinner 全在，concepts §8 瞬时全量文字）。每次读取写一条：
+终端 **原文**（ANSI/spinner 全在，终端会话的瞬时全量文字——concepts §5a Source 内容）。每次读取写一条：
 
 ```json
 {"instance":"demo-webapp","raw":"…原文…","source":"hook","ts":1784952913010}
@@ -84,7 +84,7 @@ Terminal Content **原文**（ANSI/spinner 全在，concepts §8 瞬时全量文
 - **`message`**：Context 每追加一条（Queue 放行的输入 + LLM 的 assistant/tool 输出）同步落一行——对话全保真，
   assistant 的 tool_calls 与 reasoning_content 一字不落（thinking 模型回放刚需；纯文本回复的思维链同样全保真，
   记录≠回放：回放仅 tool_calls 消息带 reasoning，见 docs/agent-loop.md）。
-- **`autonomy`**：concepts §4 定的每轮一条；装配时取最新。
+- **`autonomy`**：concepts §1a 定的每轮一条；装配时取最新。
 - **`head`**：base_prompt + AGENTS.md + 系统表情池的装配结果**变化才写**——请求头历史也可复原（设计决定）；用户表情池不自动注入请求头，按需经 `edit_config` 查询。
 - **`usage`**：token 计量的**唯一权威源**。每次 LLM 调用（含 tool 循环每轮、Compression 摘要调用）
   写一条；读取语义是**覆盖**——最新一条的 `prompt_tokens` 即「上次请求体全量（head+messages+autonomy）
@@ -115,20 +115,20 @@ Terminal Content **原文**（ANSI/spinner 全在，concepts §8 瞬时全量文
 ```
 
 - 每行 = 一次状态变更后的**完整快照**（自包含，查日志不用找注册行）。
-- 字段（docs/hook.md）：`{hash, name, project, kind, status, tab, first_seen, last_seen}`
-  - `hash` = **sid8(session_id)**——session_id 前 8 位（同名不同命：同项目重开 = 新生命周期；docs/hook.md §marker 定位同源）；mock hook 无 session_id 时回退 `short_hash(name + project + first_seen)`。
+- 字段（docs/agents/claude/hook.md）：`{hash, name, project, kind, status, tab, first_seen, last_seen}`
+  - `hash` = **sid8(session_id)**——session_id 前 8 位（同名不同命：同项目重开 = 新生命周期；docs/agents/claude/hook.md §marker 定位同源）；mock hook 无 session_id 时回退 `short_hash(name + project + first_seen)`。
   - `name` = `<project>·<sid8>`，display 名**同时就是 tab 定位 marker**（一名两用）。
-  - `kind` = CLI 种类（`"claude"`，per-instance filter 策略输入，docs/filter.md）。
+  - `kind` = CLI 种类（`"claude"`，per-instance 接入侧过滤策略输入，docs/agents/filter.md）。
   - `tab` = `{hwnd, index}` 定位结果。**与 status 同等待遇：只是快照的一个字段**——定位成功后的事件快照带上它，「重找」= 再 append 一条新快照，当前值永远由投影（每 hash 最新行）得出；无原地更新。session_end 的 closed 快照 tab 为 null。
   - `first_seen` / `last_seen` = 后端初见/最近事件时刻（backend 只知自己什么时候见的）。
-- Status 信念状态机（concepts §9a）：`idle | processing | unknown | closed`。
+- 实例状态（`idle | processing | unknown | closed`）是**由证据维护的信念**——Ambery 观测不可控进程，永不完备。
   信念只随具体证据移动：hook 事件、终端读、进程检查。`closed` 为终态——退出活跃集——在确证关闭证据下（SessionEnd Hook；或"确证不存在"：reader NotFound / 进程检查查无进程），
-  或因**长期 unknown 退休**（失去联系；确证死亡与失去联系不分开维护）；Timer 扫描是交付证据的观测循环，不做时间推断判死。
+  或因**长期 unknown 退休**（失去联系；确证死亡与失去联系不分开维护）；巡逻扫描是交付证据的观测循环，不做时间推断判死。
   瞬时读失败永不判死。永久日志仍须退休 unknown 实例，否则全景无限累积尸体。
 - **注册表（当前状态）= 日志投影**：replay 按 hash 折叠取最新。
 - 启动归零重同步的全景 = 投影中 `status ≠ closed` 的集合；unknown 条目按「未确认」呈现，不当作活体。
 
-## Context：内存视图，日志在 context.jsonl（concepts §10b）
+## Context：内存视图，日志在 context.jsonl（concepts §4b）
 
 Context（完整消息数组）是 context.jsonl 的**内存投影**（视图重建规则见上节）。运行中 append 双写：
 内存 Context + context.jsonl 的 `message` 行。
@@ -138,7 +138,7 @@ Context（完整消息数组）是 context.jsonl 的**内存投影**（视图重
 - 默认不 resume；历史完整在案，`--resume` 即投影规则的应用（设计决定）。
 - Event Buffer 随放行输入附带合并后的 system 消息落 `message` 行（原始条目不存，暂存区语义，崩溃丢失可接受）。
 
-## Queue：输入排队器，日志 queue.jsonl（concepts §10c）
+## Queue：输入排队器，日志 queue.jsonl（concepts §4c-1）
 
 Queue 装待处理输入（hook 内容、user 消息），串行放行（放行后原文入 Context 的 `message` 行）。
 append-only queue.jsonl 逐条留痕入队输入——它是**排队轨迹**，非对话本体。
@@ -149,7 +149,7 @@ append-only queue.jsonl 逐条留痕入队输入——它是**排队轨迹**，�
 
 ## Memory Workspace（Harness 持久工作空间）
 
-概念与读写边界见 concepts §10f / docs/harness.md。`storage/memory/` 是唯一的 Memory Workspace 根，不要求扁平：
+概念与读写边界见 concepts §4d / docs/harness.md。`storage/memory/` 是唯一的 Memory Workspace 根，不要求扁平：
 
 - `notes/`：Agent 的长期理解；普通 note 是受长度上限约束的 `.md` 文件，当前不再细分目录。`index.md` 自动按表汇总 notes 的名称与每次写入必带的 description。
 - `cards/`：持久 Component / 工作产物；一个 `<id>.card.json` 文件就是一个 Card。文件为完整 JSON，其 Component 内容、Surface 意图与空间布局同位（文件契约见 docs/components.md §Card 文件）。
@@ -161,9 +161,9 @@ notes 可用 `cards/<id>.card.json` 稳定相对路径引用 Card；Card 不是�
 
 Card 文件是当前持续工作产物的真相，完整 JSON 同位保存 Component 内容、Surface 意图与空间布局；它不需要像 `cards.jsonl` 那样依靠最后一行折叠出当前状态。`effect.jsonl` 则只回答“什么动作发生过”：不 replay、不承担 Card 真相，也不能从窗口 opened / closed 事件反推哪些 Card 仍存在。文件即 Card 让工作产物有稳定地址，Memory note 可以引用它，而动作审计仍保持 append-only。
 
-## Cron（Harness 持久化计划与延时调度）
+## Timer（Harness 持久化计划与延时调度）
 
-概念与边界见 concepts §10g / docs/harness.md。`cron.jsonl` 持久化未来计划与延时调度，重启后 replay 折叠恢复；后端、用户和 Agent 都可管理。`cron_create` / `cron_delete` 与 `sleep` 共用其底层调度实现（waiters 不持久化）。append-only 事件行格式（create / fire / delete）与折叠规则见 **docs/cron.md**。
+概念与边界见 concepts §4e / docs/harness.md。`cron.jsonl` 持久化未来计划与延时调度，重启后 replay 折叠恢复；后端、用户和 Agent 都可管理。`cron_create` / `cron_delete` 与 `sleep` 共用其底层调度实现（waiters 不持久化）。append-only 事件行格式（create / fire / delete）与折叠规则见 **docs/cron.md**。
 
 ## effect.jsonl（前后端统一动作流）
 

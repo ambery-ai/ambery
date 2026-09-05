@@ -74,10 +74,10 @@ A row opens and closes the detail pane. `→` / `l` on any row (except the `[pre
 
 ### Trajectory form (`--trajectory`)
 
-Projects the flat JSONL into a **turn-centric trajectory ledger**: the top-level unit is one complete processing round of this system's LLM — a **turn** = one Queue release (concepts §10c; one `queue.jsonl` line per turn). Everything the round produced — context writes, effects, terminal reads, agent records, cron actions — is attributed to the nearest turn by ts and rendered one level indented under it.
+Projects the flat JSONL into a **turn-centric trajectory ledger**: the top-level unit is one complete processing round of this system's LLM — a **turn** = one Queue release (concepts §4c-1; one `queue.jsonl` line per turn). Everything the round produced — context writes, effects, terminal reads, agent records, cron actions — is attributed to the nearest turn by ts and rendered one level indented under it.
 
 - Each `queue.jsonl` line = one turn boundary. When there is no queue data (common in case snapshots), a `context.jsonl` user message degrades into a turn boundary.
-- **Code CLI is not this system's LLM**: supervised external instances (concepts §9) appear only as ordinary `◇` rows, never as hierarchy levels.
+- **Monitored agent instances are not this system's LLM**: supervised external sessions appear only as ordinary `◇` rows, never as hierarchy levels.
 - A `context.jsonl` `session` line is an ordinary `·` row (a context-store startup boundary, one per backend startup) — attributed to its turn, not a container.
 - Rows before the first turn render under a `[pre turn]` region — the same glyph and folding semantics as a turn.
 - **Folding** is per container, two levels only (turn / `[pre turn]` > its rows): `←` / `h` collapses the focused container — on a container row itself, or on any of its rows (folding up to the containing container); `→` / `l` expands a folded container; on an expanded container or a leaf it opens the detail pane. A folded container keeps its boundary row with a `[+n]` marker (hidden count). `/` filters, Tab / Shift+Tab switch files, `f` follows, same as the normal form.

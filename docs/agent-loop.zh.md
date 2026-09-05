@@ -2,7 +2,7 @@
 
 [English](agent-loop.md) | 中文
 
-> 概念定义见 concepts.md §2/§9b/§10a。本文档定 LLM 抽象、Tool Set 协议与 mock hook 契约。
+> 概念定义见 concepts.md §1（pet）/ §4a（Tool Set）。本文档定 LLM 抽象、Tool Set 协议与 mock hook 契约。
 
 
 ## 原则
@@ -35,14 +35,14 @@ struct LlmOutput { content: Option<String>, tool_calls: Vec<ToolCall> }
 
 > **渐进披露，按需查**——Config 多层嵌套，LLM 通过 tool 调用-反馈逐层发现 path 和类型，不依赖外部 Schema 注入。
 
-## Tool Set 协议（concepts §10a）
+## Tool Set 协议（concepts §4a）
 
 九个 function definitions，CLI 风格命名，AmberyBackend 执行后以 `tool` role message 追加 result：
 
 | tool | 参数 | 执行 | result |
 |---|---|---|---|
 | `call_component` | `spec: ComponentSpec`（docs/components.md 协议） | Tauri 事件推送渲染指令给前端；同 id = 创建/原地更新 | `{ok, rendered/updated/closed: id}` |
-| `fetch_terminal` | `{instance, vd_switch}`（vd_switch 必填，docs/hook.md §VD 切换能力） | 经 Terminal Adapter 读 Terminal Content（docs/terminal-adapter.md）；读不到回退 Context 最新记录 | `{instance, content}` |
+| `fetch_terminal` | `{instance, vd_switch}`（vd_switch 必填，docs/agents/claude/hook.md §VD 切换能力） | 经 Terminal Adapter 读 Terminal Content（docs/terminal/terminal-adapter.md）；读不到回退 Context 最新记录 | `{instance, content}` |
 | `set_autonomy` | `{key?, motion?, ttlMs?, once?}` | Tauri 事件推送表情覆盖（语义 docs/autonomy.md） | `{ok}` |
 | `edit_config` | `{action, ...}`（`grep` / `query` / `update`） | 受限 Config 投影中的发现、读取与修改；完整 schema 见 docs/toolset.md | action 对应的结果 |
 | `read_memory` | `{...}` | 读取 Harness 管理的持久化理解 Markdown；`index.md` / Memory `AGENTS.md` 默认只读 | `{ok, ...}` |
@@ -51,14 +51,14 @@ struct LlmOutput { content: Option<String>, tool_calls: Vec<ToolCall> }
 | `cron_delete` | `{...}` | 删除一个持久化计划 | `{ok, ...}` |
 | `sleep` | `{...}` | 经同一 Harness 调度器等待后继续既定工具序列 | `{ok}` |
 
-权限边界：Tool Set 即全部能力，无修改代码文件的 tool（concepts §10a ❌ 项不存在于定义表）。
+权限边界：Tool Set 即全部能力，无修改代码文件的 tool（concepts §4a ❌ 项不存在于定义表）。
 
 ## 一条 Queue 输入的完整 turn（docs/harness.md §触发模型 的执行器）
 
-一个 turn 由 Queue 放行一条输入驱动，串行执行——当前 turn 未完不放行下一条（concepts §10c 不可并行）：
+一个 turn 由 Queue 放行一条输入驱动，串行执行——当前 turn 未完不放行下一条（concepts §4c-1 不可并行）：
 
 1. Queue 放行一条输入（附带 merge Event Buffer → 合并为一条，有则）→ Context 写输入
-2. 现拼 system prompt 请求头（base_prompt + AGENTS.md + 系统表情池，不落 Context；用户表情池按需经 `edit_config` 查询；concepts §12）
+2. 现拼 system prompt 请求头（base_prompt + AGENTS.md + 系统表情池，不落 Context；用户表情池按需经 `edit_config` 查询；concepts §7）
 3. Compression 检查（auto-compact：Context 超阈值 → 专项摘要 + shaking + 归零重 diff）
 4. LLM（请求 = 请求头 + Context 全部消息）→ 有 tool_calls：追加 assistant(tool_calls) + 按声明顺序执行 + 追加对应 tool results → 再调用；无 tool_calls：content 非空才追加 assistant 消息，结束。工具调用预算见下。
 5. 副作用（Effect）经 Tauri 事件广播给前端；本轮完毕，Queue 放行下一条
@@ -76,11 +76,11 @@ struct LlmOutput { content: Option<String>, tool_calls: Vec<ToolCall> }
 
 当本 turn 预算耗尽，已执行与未执行 calls 的 tool results 照常写入 Context；后端随后以空 tools 正常请求一次 LLM，使其基于这些结果生成最终文字回复。该收尾请求不追加特殊 system 记录，也不能再发起 tool call；回复后本 turn 正常结束。
 
-**沉默语义**（设计决定）：LLM 返回空 content 且无 tool_calls = 决定沉默——Context 不追加任何 assistant 消息（「pet 可以醒了、读了、觉得不需要打扰，沉默」concepts §9b）。
+**沉默语义**（设计决定）：LLM 返回空 content 且无 tool_calls = 决定沉默——Context 不追加任何 assistant 消息（「pet 可以醒了、读了、觉得不需要打扰，沉默」——concepts，pet §1）。
 
 ## Mock Hook 契约（HTTP）
 
-> **真实契约见 docs/hook.md**（事件分层 / session_id 身份 / marker 定位 / 启动扫描）。
+> **真实契约见 docs/agents/claude/hook.md**（事件分层 / session_id 身份 / marker 定位 / 启动扫描）。
 > 本节的 mock 契约保留为 **debug 手段**（不装 hook 时手动驱动链路）。
 
 ```
@@ -100,7 +100,7 @@ POST /hook
 
 ## 读通道 MapAdapter（case-runner 剧情面）
 
-与 mock hook 对称的读通道模拟：case-runner 的 `terminal` step 写 MapAdapter 共享 map（`docs/terminal-adapter.md` §实现），Timer 兜底扫描与 `fetch_terminal` 都读它。生产/默认构建不含该注入面。
+与 mock hook 对称的读通道模拟：case-runner 的 `terminal` step 写 MapAdapter 共享 map（`docs/terminal/terminal-adapter.md` §实现），Timer 兜底扫描与 `fetch_terminal` 都读它。生产/默认构建不含该注入面。
 
 ## Tauri IPC 协议（前后端通信）
 

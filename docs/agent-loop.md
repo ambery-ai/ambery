@@ -2,7 +2,7 @@
 
 English | [中文](agent-loop.zh.md)
 
-> Concept definitions: see concepts.md §2/§9b/§10a. This document fixes the LLM abstraction, the Tool Set protocol, and the mock hook contract.
+> Concept definitions: see concepts.md §1 (pet) / §4a (Tool Set). This document fixes the LLM abstraction, the Tool Set protocol, and the mock hook contract.
 
 
 ## Principles
@@ -35,14 +35,14 @@ Implementation and assembly (`LlmBackend::from_config`):
 
 > **Progressive disclosure; query on demand** — Config is deeply nested; the LLM discovers paths and types layer by layer through tool call-feedback, not by relying on injected external Schema.
 
-## Tool Set Protocol (concepts §10a)
+## Tool Set Protocol (concepts §4a)
 
 Nine function definitions, CLI-style names; after execution AmberyBackend appends the result as a `tool` role message:
 
 | tool | parameters | execution | result |
 |---|---|---|---|
 | `call_component` | `spec: ComponentSpec` (docs/components.md protocol) | pushes a render instruction to the frontend via Tauri event; same id = create/update in place | `{ok, rendered/updated/closed: id}` |
-| `fetch_terminal` | `{instance, vd_switch}` (vd_switch required, docs/hook.md §VD switching capability) | reads Terminal Content via the Terminal Adapter (docs/terminal-adapter.md); falls back to the latest Context record when unreadable | `{instance, content}` |
+| `fetch_terminal` | `{instance, vd_switch}` (vd_switch required, docs/agents/claude/hook.md §VD switching capability) | reads Terminal Content via the Terminal Adapter (docs/terminal/terminal-adapter.md); falls back to the latest Context record when unreadable | `{instance, content}` |
 | `set_autonomy` | `{key?, motion?, ttlMs?, once?}` | pushes an expression override via Tauri event (semantics: docs/autonomy.md) | `{ok}` |
 | `edit_config` | `{action, ...}` (`grep` / `query` / `update`) | discovery, reads, and updates within the restricted Config projection; full schema in docs/toolset.md | the result corresponding to the action |
 | `read_memory` | `{...}` | reads Harness-managed persistent understanding Markdown; `index.md` / Memory `AGENTS.md` are read-only by default | `{ok, ...}` |
@@ -51,14 +51,14 @@ Nine function definitions, CLI-style names; after execution AmberyBackend append
 | `cron_delete` | `{...}` | deletes one persistent plan | `{ok, ...}` |
 | `sleep` | `{...}` | waits via the same Harness scheduler, then continues the planned tool sequence | `{ok}` |
 
-Permission boundary: the Tool Set is the entire capability set; there is no tool that modifies code files (the ❌ item in concepts §10a does not exist in the definition table).
+Permission boundary: the Tool Set is the entire capability set; there is no tool that modifies code files (the ❌ item in concepts §4a does not exist in the definition table).
 
 ## Full turn for one Queue input (the executor of docs/harness.md §trigger model)
 
-A turn is driven by Queue releasing one input, executed serially — while the current turn is unfinished, the next input is not released (concepts §10c, no parallelism):
+A turn is driven by Queue releasing one input, executed serially — while the current turn is unfinished, the next input is not released (concepts §4c-1, no parallelism):
 
 1. Queue releases one input (with merge Event Buffer → merged into one, if present) → Context writes the input
-2. Assemble the system prompt request header on the fly (base_prompt + AGENTS.md + system kaomoji pool, not written to Context; user kaomoji pool queried on demand via `edit_config`; concepts §12)
+2. Assemble the system prompt request header on the fly (base_prompt + AGENTS.md + system kaomoji pool, not written to Context; user kaomoji pool queried on demand via `edit_config`; concepts §7)
 3. Compression check (auto-compact: Context over threshold → dedicated summary + shaking + reset and re-diff)
 4. LLM (request = request header + all Context messages) → with tool_calls: append assistant(tool_calls) + execute in declared order + append the corresponding tool results → call again; without tool_calls: append the assistant message only if content is non-empty, then end. Tool-call budget below.
 5. Side effects (Effects) are broadcast to the frontend via Tauri events; the turn ends and Queue releases the next input
@@ -76,11 +76,11 @@ Tool calls are still executed serially in the declared order in the response. Ca
 
 When this turn's budget is exhausted, the tool results of executed and unexecuted calls are written to Context as usual; the backend then makes one normal LLM request with empty tools so that it generates a final text reply based on those results. This closing request appends no special system record and cannot initiate another tool call; after the reply, the turn ends normally.
 
-**Silence semantics** (design decision): the LLM returning empty content and no tool_calls = it decided to be silent — Context appends no assistant message ("pet can wake, read, feel no need to disturb, and be silent" concepts §9b).
+**Silence semantics** (design decision): the LLM returning empty content and no tool_calls = it decided to be silent — Context appends no assistant message ("pet can wake, read, feel no need to disturb, and be silent" — concepts, pet §1).
 
 ## Mock Hook Contract (HTTP)
 
-> **The real contract is docs/hook.md** (event layering / session_id identity / marker positioning / startup scan).
+> **The real contract is docs/agents/claude/hook.md** (event layering / session_id identity / marker positioning / startup scan).
 > The mock contract in this section is retained as a **debug facility** (manually driving the chain without installing a hook).
 
 ```
@@ -100,7 +100,7 @@ Handling:
 
 ## Read-channel MapAdapter (case-runner story surface)
 
-A read-channel simulation symmetric to the mock hook: the case-runner's `terminal` step writes to the MapAdapter shared map (`docs/terminal-adapter.md` §implementation); both the Timer fallback scan and `fetch_terminal` read it. Production/default builds do not include this injection surface.
+A read-channel simulation symmetric to the mock hook: the case-runner's `terminal` step writes to the MapAdapter shared map (`docs/terminal/terminal-adapter.md` §implementation); both the Timer fallback scan and `fetch_terminal` read it. Production/default builds do not include this injection surface.
 
 ## Tauri IPC protocol (frontend–backend communication)
 

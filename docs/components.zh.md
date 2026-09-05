@@ -109,7 +109,7 @@ Card 文件以完整 JSON 持久化：`component` 是 Agent 正常读取与更�
 
 ## 交互事件 → Event Buffer
 
-concepts §5/§10e：用户交互**不写 Context 的 user role，也不经 Queue**，写入 Harness 的 Event Buffer。每条记录携带两部分载荷：
+concepts §3/§4c-2：用户交互**不写 Context 的 user role，也不经 Queue**，写入 Harness 的 Event Buffer。每条记录携带两部分载荷：
 
 - **自然语言**（必填）：操作过程描述
 - **结构化状态快照**（可选）：仅 todobox 类交互时附带，同 card 在单次 flush 内去重合并为一份最终状态

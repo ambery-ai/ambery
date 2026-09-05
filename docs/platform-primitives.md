@@ -19,7 +19,7 @@ pub trait PlatformPrimitives: Send + Sync {
 
 ## Consumers
 
-- **terminal-adapter** (docs/terminal-adapter.md): when the target window is invisible (cloaked) during a read → switch desktop and then read. Switching is an interruptive action and must be gated by explicit consent through fetch_terminal's `vd_switch` (docs/hook.md §VD switching capability); the adapter never switches automatically
+- **terminal-adapter** (docs/terminal/terminal-adapter.md): when the target window is invisible (cloaked) during a read → switch desktop and then read. Switching is an interruptive action and must be gated by explicit consent through fetch_terminal's `vd_switch` (docs/agents/claude/hook.md §VD switching capability); the adapter never switches automatically
 
 ## Implementation
 

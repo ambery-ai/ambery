@@ -109,7 +109,7 @@ The frontend protocol for interaction events: the frontend only reports structur
 
 ## Interaction Events → Event Buffer
 
-concepts §5/§10e: user interactions **do not write the user role in Context, nor go through the Queue**; they are written into the Harness Event Buffer. Each record carries a two-part payload:
+concepts §3/§4c-2: user interactions **do not write the user role in Context, nor go through the Queue**; they are written into the Harness Event Buffer. Each record carries a two-part payload:
 
 - **Natural language** (required): description of the operation process
 - **Structured state snapshot** (optional): attached only for todobox-type interactions; deduplicated and merged into one final state for the same card within a single flush

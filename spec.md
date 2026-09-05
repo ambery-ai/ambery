@@ -18,7 +18,7 @@ English | [中文](spec.zh.md)
 ## Architecture decisions
 
 1. **Single process + single protocol**: the Tauri app is Ambery (embedded ambery-core bound to 127.0.0.1). The frontend always communicates with core via **HTTP + WebSocket loopback** — browser debug mode connects to a standalone core debug binary, Tauri mode connects to the embedded server, and the frontend code is unchanged. Tauri commands/events are not used (reason in the final section of docs/harness.md).
-2. **UIA reading**: keep C# (exp01 verified, no rewrite). Compiled as a standalone console exe and distributed as a Tauri sidecar with the package; Rust calls it via stdio (JSON Lines request/response), such as `read_tab`, `list_windows`, `switch_tab`. **Packaging decision**: self-contained win-x64 (not single-file), zero .NET runtime dependency for users; publish command `dotnet publish -c Release` (RID/self-contained already fixed in sidecar.csproj), Tauri `externalBin` references the publish layout (docs/sidecar.md §Packaging).
+2. **UIA reading**: keep C# (exp01 verified, no rewrite). Compiled as a standalone console exe and distributed as a Tauri sidecar with the package; Rust calls it via stdio (JSON Lines request/response), such as `read_tab`, `list_windows`, `switch_tab`. **Packaging decision**: self-contained win-x64 (not single-file), zero .NET runtime dependency for users; publish command `dotnet publish -c Release` (RID/self-contained already fixed in sidecar.csproj), Tauri `externalBin` references the publish layout (docs/terminal/wt/sidecar.md §Packaging).
 3. **hook path**: use `"type": "command"` + **PowerShell script** forwarding (consistent with the existing ~/.claude/hooks/ ecosystem, zero interpreter dependency), not `"type": "http"`. AmberyBackend's embedded HTTP listener receives the POST.
 4. **LLM calls**: Rust side, OpenAI-compatible Chat Completions endpoint; base_url / key read from Config.
 5. **Storage**: always append-only JSONL; restart replays to restore Queue / Context / instance list. Switch to SQLite later when query needs arise.
@@ -27,7 +27,7 @@ English | [中文](spec.zh.md)
 ## Fixed constraints
 
 - HTTP listener binds only to 127.0.0.1
-- UIA sidecar communication protocol: stdio JSON Lines (docs/sidecar.md)
+- UIA sidecar communication protocol: stdio JSON Lines (docs/terminal/wt/sidecar.md)
 - No Python interpreter dependency (use PowerShell)
 - Frontend framework: vanilla TS (display logic is simple, no framework; browser mode can run vite dev directly and test with Chrome DevTools)
-- **hook payload contract (docs/hook.md)**: command script forwarding, session_id identity, marker location
+- **hook payload contract (docs/agents/claude/hook.md)**: command script forwarding, session_id identity, marker location

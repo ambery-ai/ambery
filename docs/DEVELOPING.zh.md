@@ -58,7 +58,7 @@ cd app && npx tauri build               # 唯一正确的构建入口（见下�
 cd app/src-tauri && AMBERY_PORT=47601 ./target/release/ambery   # 非默认端口运行
 ```
 
-壳内嵌已构建的前端与 core。打包（`.app` bundle）在发布轮前不启用（docs/sidecar.md）。
+壳内嵌已构建的前端与 core。打包（`.app` bundle）在发布轮前不启用（docs/terminal/wt/sidecar.md）。
 
 **壳构建必须走 `npx tauri build`，绝不要裸 `cargo build`。** 前端 `dist/` 由 build script 嵌入 `tauri-codegen-assets/`，而 build script 不监听 `dist/`；tauri CLI 通过注入 `TAURI_CONFIG`（`cargo:rerun-if-env-changed=TAURI_CONFIG`）强制 build script 重跑。裸 `cargo build --release` 可能复用过期的 build script 输出，嵌入旧版或空前端——壳呈现为空白 pet/UI。`npx tauri build` 先跑 `npm run build`（tsc + vite），因此总是嵌入当前前端。
 

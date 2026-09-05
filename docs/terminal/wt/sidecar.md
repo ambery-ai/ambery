@@ -2,7 +2,7 @@
 
 English | [中文](sidecar.zh.md)
 
-> One implementation of terminal-adapter (docs/terminal-adapter.md §Implementation). This document defines the stdio JSONL protocol, command set, and lifecycle of the standalone WtAdapter process. See spec.md for the technology choice (UIA remains C#, called from Rust).
+> One implementation of terminal-adapter (docs/terminal/terminal-adapter.md §Implementation). This document defines the stdio JSONL protocol, command set, and lifecycle of the standalone WtAdapter process. Technology choice: UIA stays in C# (end-to-end verified), called from Rust.
 
 ## Process Model
 
@@ -15,7 +15,7 @@ English | [中文](sidecar.zh.md)
 - **self-contained win-x64, not single-file**: `sidecar.csproj` pins `RuntimeIdentifier=win-x64` / `SelfContained=true` / `PublishSingleFile=false`; the user's machine does not need the .NET 9 Desktop Runtime.
 - Publish command: `dotnet publish sidecar/sidecar.csproj -c Release` → `sidecar/bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe`.
 - Tauri side: `bundle.active` is currently false (enabled in the release round). When Windows packaging is enabled, add `../../sidecar/bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe` to `bundle.externalBin` in `app/src-tauri/tauri.conf.json`; do not keep this configuration resident in non-Windows builds — the Tauri build script resolves externalBin paths according to the current platform.
-- Path discovery priority (`core/src/paths.rs`): `AMBERY_SIDECAR` env > next to the current exe > `sidecar/` next to the current exe > Release publish > Debug. Before real-machine Windows verification, the publish layout has not been tested by the packaging pipeline (flagged in `dev/issues.md`).
+- Path discovery priority (`core/src/paths.rs`): `AMBERY_SIDECAR` env > next to the current exe > `sidecar/` next to the current exe > Release publish > Debug. Before real-machine Windows verification, the publish layout has not been tested by the packaging pipeline.
 
 ## Command Set
 
@@ -42,9 +42,9 @@ Unified error: {"ok":false,"error":"..."}
 ```
 
 - `read_tab` really switches the user's tab (concept §7: 200ms cost) — the semantics of Timer fallback scanning / fetch_terminal is precisely "switch over and read"; `read_active_tab` is reserved for non-invasive scenarios (debugging, quick read of the current window).
-- The response text is the raw UIA grid text (right-padded, spinner included); Filter processes it on the Rust side (docs/filter.md) — sidecar does not filter; its responsibility is single.
+- The response text is the raw UIA grid text (right-padded, spinner included); Filter processes it on the Rust side (docs/agents/filter.md) — sidecar does not filter; its responsibility is single.
 
-## Read Path Wiring (Terminal Adapter, docs/terminal-adapter.md)
+## Read Path Wiring (Terminal Adapter, docs/terminal/terminal-adapter.md)
 
 ```
 fetch_terminal / Timer scan (instance name = Tab name)
@@ -52,11 +52,11 @@ fetch_terminal / Timer scan (instance name = Tab name)
   → read_tab(hwnd, index) → text
 ```
 
-See concepts §9 for the 1:1 relationship between instance ↔ Tab. **hook→Tab location is solved**: sessionTitle marker (the `<project>·<sid8>` prefix invariant, docs/hook.md §marker location); find_tab hits it exactly by marker; the location result is cached in the registry (lazy retry, frozen once found).
+The monitored session (identified by sid8) ↔ Tab is a 1:1 relationship resolved by evidence (concepts §5a-2 Context Slot). **hook→Tab location is solved**: sessionTitle marker (the `<project>·<sid8>` prefix invariant, docs/agents/claude/hook.md §marker location); find_tab hits it exactly by marker; the location result is cached in the registry (lazy retry, frozen once found).
 
 ## Visibility Model
 
-**Optional convenience (not mandatory)**: after Windows Terminal enables "Show this application's windows on all desktops", WT windows/tabs/content on all virtual desktops are fully visible and readable by UIA (measured: 17/17 windows uncloaked; a window that read empty recovered 6 tabs + 5415 characters in full). Without the setting everything still works — hooks from instances on other VDs are still received, and the read path falls back to Context; when full content is needed the agent can use `fetch_terminal` (`vd_switch: true` explicit consent) to switch over and read (docs/hook.md §VD switching capability).
+**Optional convenience (not mandatory)**: after Windows Terminal enables "Show this application's windows on all desktops", WT windows/tabs/content on all virtual desktops are fully visible and readable by UIA (measured: 17/17 windows uncloaked; a window that read empty recovered 6 tabs + 5415 characters in full). Without the setting everything still works — hooks from instances on other VDs are still received, and the read path falls back to Context; when full content is needed the agent can use `fetch_terminal` (`vd_switch: true` explicit consent) to switch over and read (docs/agents/claude/hook.md §VD switching capability).
 
 Mechanism background: windows on other VDs are marked `cloaked=2` by DWM (shell-level invisibility — the visual tree is suspended, but the process/message loop stays alive); EnumWindows can see the handle + title, but **the UIA tree is not materialized (reads empty)**. The "show on all desktops" setting removes cloaking; VD switching removes it temporarily.
 

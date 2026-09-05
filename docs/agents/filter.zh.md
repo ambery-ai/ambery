@@ -2,7 +2,7 @@
 
 [English](filter.md) | 中文
 
-> 概念定义见 concepts.md §11。本文档定策略规则与结构理解数据类型。
+> 概念层无独立 Filter 条目——过滤是接入侧细节。本文档定策略规则与结构理解数据类型。
 > **结构理解**：规则取自 3 个真实 Claude Code 终端的 UIA 样本（UIA 返回渲染后纯文本，无 ANSI 码）。
 
 ## 结构理解数据类型
@@ -48,7 +48,7 @@ pub enum ContentBlock {
 5. **render**：digest → 归一文本——**全量保留，不做任何省略**（设计决定：限量问题不解决；折叠 = 对 LLM 省略内容，同样不做）。原文自带折叠标记（`… +N lines`）如实保留在 body
 6. **detect_change**：作用于 render 文本，行集 Jaccard（≥0.8 Minor / 否则 Substantive）。滚动误报接受（设计决定）
 
-## 策略文件（concepts §11 可替换策略）
+## 策略文件（可替换策略）
 
 ```
 core/src/filter/
@@ -70,11 +70,11 @@ pub trait Filter {
 }
 ```
 
-Filter 唯一按实例的 hook `kind` 选择（docs/hook.md §Payload），经 `by_name` 注册表接入——这是 per-harness 策略的 seam（可插拔缝）。每个 harness 策略是独立模块（claude.rs、opencode.rs、…），**注册即生效**；未注册的 kind = 不受支持，在实例状态更新、读 Terminal Content、Filter 与 Queue 之前直接拒绝——无回退、无半支持。注册表是唯一准入点；通用层永不硬编码某个 harness。
+Filter 唯一按实例的 hook `kind` 选择（docs/agents/claude/hook.md §Payload），经 `by_name` 注册表接入——这是 per-harness 策略的 seam（可插拔缝）。每个 harness 策略是独立模块（claude.rs、opencode.rs、…），**注册即生效**；未注册的 kind = 不受支持，在实例状态更新、读 Terminal Content、Filter 与 Queue 之前直接拒绝——无回退、无半支持。注册表是唯一准入点；通用层永不硬编码某个 harness。
 
 ## 边界
 
-- **Filter ↔ TerminalAdapter** — adapter 读原文（定位+读取）；filter 做结构理解（digest + detect_change）。单向依赖 adapter → filter。adapter 抽象不得 code-cli 专用化：未来终端可能服务 code cli 之外的多用途（见 terminal-adapter.md）。
+- **Filter ↔ TerminalAdapter** — adapter 读原文（定位+读取）；filter 做结构理解（digest + detect_change）。单向依赖 adapter → filter。adapter 抽象不得 code-cli 专用化：未来终端可能服务 code cli 之外的多用途（见 docs/terminal/terminal-adapter.md）。
 - **Filter ↔ hook** — hook 管生命周期状态（register / close / status）；filter 管内容理解。正交，无重叠。
 - **硬编码在 seam 内** — per-harness 规则硬编码在策略文件（claude.rs）里，绝不进通用层（mod.rs）。新增 harness = 新模块 + `by_name` 注册；core 不碰。
 

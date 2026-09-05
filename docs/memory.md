@@ -2,11 +2,11 @@
 
 English | [中文](memory.zh.md)
 
-> See concepts.md §10f for the concept definition. This document defines the directory model of the Memory Workspace, the read_memory / write_memory call contract for notes, and the generation contract for index/AGENTS.md. Card is a persistent work artifact in the same workspace, but it is not an ordinary Memory note and is not managed through these two tools; for its file contract, see docs/components.md §Card File.
+> See concepts.md §4d (Memory) for the concept definition. This document defines the directory model of the Memory Workspace, the read_memory / write_memory call contract for notes, and the generation contract for index/AGENTS.md. Card is a persistent work artifact in the same workspace, but it is not an ordinary Memory note and is not managed through these two tools; for its file contract, see docs/components.md §Card File.
 
 ## Principles
 
-> **Scope of this document** — this document defines the Memory Workspace's directory model, the call contract of the two note tools, and the generation rules for index/AGENTS.md; for the conceptual positioning, ownership, and persistence boundaries of Memory, see concepts.md §10f / docs/harness.md §Memory; for the storage layout, see docs/storage.md §Memory Workspace.
+> **Scope of this document** — this document defines the Memory Workspace's directory model, the call contract of the two note tools, and the generation rules for index/AGENTS.md; for the conceptual positioning, ownership, and persistence boundaries of Memory, see concepts.md §4d / docs/harness.md §Memory; for the storage layout, see docs/storage.md §Memory Workspace.
 
 > **A workspace, not a flat root** — Memory is a persistent workspace; notes and cards are divided into directories by artifact semantics. Flatness is not a principle: only notes are currently not further subdivided, and that must not prevent other persistent artifacts from having their own directories.
 

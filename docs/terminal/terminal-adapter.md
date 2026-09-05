@@ -4,7 +4,7 @@ English | [中文](terminal-adapter.zh.md)
 
 Terminal access abstraction: a layered model — L1 (hook + lookup) → M1 → L2 (comprehensive query pipeline) → M2 → L3 (visible & adjustable) → M3 → agenttool. Multi-terminal compatibility = each terminal provides L1 (transport/lookup); the query strategy is independent as L2.
 
-> See `concepts.md` §14 (Terminal Adapter) for the concept positioning.
+
 
 ## Layered model
 

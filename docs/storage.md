@@ -2,16 +2,16 @@
 
 English | [中文](storage.zh.md)
 
-> See concepts.md §12/§13 for the conceptual definitions. This document defines the directory layout, per-file semantics, record formats, and lifecycle.
+> See concepts.md §7/§8 for the conceptual definitions. This document defines the directory layout, per-file semantics, record formats, and lifecycle.
 
 ## Layout: Two Domains
 
 ```
 %USERPROFILE%\.config\ambery\   (AMBERY_CONFIG_DIR can override; resolved by core/paths.rs)
-  config.json              # Config domain: launch config (concepts §12)
+  config.json              # Config domain: launch config (concepts §7)
   AGENTS.md                # Config domain: pet identity prompt — config in nature, not session data
-  storage/                 # Storage domain: world state + context logs (AMBERY_STORAGE_DIR can override, concepts §13)
-    queue.jsonl            # Queue input queueing records (concepts §10c)
+  storage/                 # Storage domain: world state + context logs (AMBERY_STORAGE_DIR can override, concepts §8)
+    queue.jsonl            # Queue input queueing records (concepts §4c-1)
     terminal-content.jsonl # Terminal Content raw-text archive (before Filter)
     context.jsonl          # unified full-fidelity log: conversation + Autonomy + request head snapshot + normalized full text + Compression boundary
     work-agents.jsonl      # instance lifecycle permanent event log
@@ -30,7 +30,7 @@ English | [中文](storage.zh.md)
 
 ## config.json (Config Domain)
 
-concepts §12. Launch config: timer parameters, Compression thresholds and retention targets, system/user expression pools, LLM profiles + active selector, view_scale, set_autonomy_default_ttl_ms, stop_hook_mode, theme/themes, ui_language/harness_language, name, tool call budget. (The hook port is not a Config field: default 127.0.0.1:47600, `AMBERY_PORT` explicitly overrides it — changing the port requires syncing the hook config; docs/core-server.md §Port semantics.)
+concepts §7. Launch config: timer parameters, Compression thresholds and retention targets, system/user expression pools, LLM profiles + active selector, view_scale, set_autonomy_default_ttl_ms, stop_hook_mode, theme/themes, ui_language/harness_language, name, tool call budget. (The hook port is not a Config field: default 127.0.0.1:47600, `AMBERY_PORT` explicitly overrides it — changing the port requires syncing the hook config; docs/core-server.md §Port semantics.)
 
 - Write: bootstrap writes defaults / the unified Config modification entry writes back. Read: loaded at startup + auto-reload of the external file while running.
 - The key itself lives only in the environment (the provider's `api_key_env`), never in the file. **App-level env layer**: `env` (0600, `KEY=value` lines) is an app-level environment-variable layer that *overrides* the system environment — resolution order is env file → process environment (first hit wins). The env file is the in-app key store (the setup modal writes here); it is not part of `config.json` and never contains the Config domain's data. See docs/llm-setup.md §Key storage model.
@@ -45,7 +45,7 @@ The pet identity prompt, concatenated with base_prompt into the **request head a
 
 ## terminal-content.jsonl (Raw Archive, Before Filter)
 
-Terminal Content **raw text** (ANSI/spinner all included; concepts §8 instantaneous full text). One line is written per read:
+Terminal **raw text** (ANSI/spinner all included; the instantaneous full text of the terminal session, concepts §5a Source content). One line is written per read:
 
 ```json
 {"instance":"demo-webapp","raw":"…raw text…","source":"hook","ts":1784952913010}
@@ -71,7 +71,7 @@ Terminal Content **raw text** (ANSI/spinner all included; concepts §8 instantan
 > **`filtered_content` line type**: the normalized full text is **not persisted** — it can be recomputed by digesting the raw text in terminal-content.jsonl, so persisting it would be redundant. `content` lines in old files are ignored during replay. The prev used for change detection (the last normalized full text per instance) is kept in **memory** (updated after scan; lost on restart: the first scan after restart necessarily reports a change once — an accepted cost); `fetch_terminal` fallback/follow-up is computed on demand from the raw text; observe's `filtered_content` item is likewise computed on demand (docs/case-runner.md §Observability system).
 
 - **`message`**: every Context append (Queue-released input + LLM assistant/tool output) is synchronously written as one line — the conversation is fully faithful, with assistant tool_calls and reasoning_content recorded verbatim (a hard requirement for replaying thinking models; the chain of thought in plain-text replies is also fully faithful; recording ≠ replay: in replay, only tool_calls messages carry reasoning, see docs/agent-loop.md).
-- **`autonomy`**: one per turn as defined in concepts §4; the latest is taken at assembly.
+- **`autonomy`**: one per turn as defined in concepts §1a; the latest is taken at assembly.
 - **`head`**: the assembled result of base_prompt + AGENTS.md + the system expression pool, **written only on change** — request-head history is also reconstructible (design decision); the user expression pool is not automatically injected into the request head, but queried on demand via `edit_config`.
 - **`usage`**: the **single authoritative source** for token accounting. Every LLM call (including each round of the tool loop and Compression summary calls) writes one line; the read semantics is **override** — the latest line's `prompt_tokens` is exactly "the precise token count of the last full request body (head+messages+autonomy)" (opencode is isomorphic: step-level tracing, the latest value represents current context occupancy). The cache breakdown is measured as constantly 0 and is not stored.
 - **`compact_boundary`**: Compression is a marker, not deletion — the in-memory view shakes, files are fully retained, and Compression is auditable (both summary and original text are present).
@@ -96,17 +96,17 @@ Terminal Content **raw text** (ANSI/spinner all included; concepts §8 instantan
 ```
 
 - Each line = a **complete snapshot** after a status change (self-contained; no need to find the registration line when reading the log).
-- Fields (docs/hook.md): `{hash, name, project, kind, status, tab, first_seen, last_seen}`
-  - `hash` = **sid8(session_id)** — the first 8 characters of session_id (same name, different life: reopening the same project = a new lifecycle; same origin as docs/hook.md §marker location); mock hook without session_id falls back to `short_hash(name + project + first_seen)`.
+- Fields (docs/agents/claude/hook.md): `{hash, name, project, kind, status, tab, first_seen, last_seen}`
+  - `hash` = **sid8(session_id)** — the first 8 characters of session_id (same name, different life: reopening the same project = a new lifecycle; same origin as docs/agents/claude/hook.md §marker location); mock hook without session_id falls back to `short_hash(name + project + first_seen)`.
   - `name` = `<project>·<sid8>`; the display name **is also the tab-location marker** (one name, two uses).
-  - `kind` = CLI kind (`"claude"`, input to the per-instance Filter strategy, docs/filter.md).
+  - `kind` = CLI kind (`"claude"`, input to the per-instance access-side filter strategy, docs/agents/filter.md).
   - `tab` = `{hwnd, index}` location result. **Same treatment as status: just one field of the snapshot** — event snapshots after a successful location carry it; "re-finding" = appending another new snapshot; the current value is always derived by projection (the latest line per hash); no in-place updates. The closed snapshot of session_end has tab = null.
   - `first_seen` / `last_seen` = the moment the backend first saw / most recently saw the event (the backend only knows when it saw something).
-- Status belief state machine (concepts §9a): `idle | processing | unknown | closed`. Belief moves only on concrete evidence: a hook event, a terminal read, or a process check. `closed` is terminal — out of the active set — reached on confirmed close evidence (SessionEnd hook; or a positively confirmed "gone": reader NotFound / process check) or by retiring a long-unknown instance (lost track of; the confirmed-dead vs lost distinction is not maintained); the Timer scan is the observation cycle that delivers the evidence, never a time inference to death. A transient read failure is never death. A permanent log must still retire unknown instances, otherwise the panorama accumulates corpses forever.
+- Instance status (`idle | processing | unknown | closed`) is a belief maintained from evidence — Ambery observes processes it does not control, never assuming its lifecycle knowledge is complete. Belief moves only on concrete evidence: a hook event, a terminal read, or a process check. `closed` is terminal — out of the active set — reached on confirmed close evidence (SessionEnd hook; or a positively confirmed "gone": reader NotFound / process check) or by retiring a long-unknown instance (lost track of; the confirmed-dead vs lost distinction is not maintained); the patrol scan is the observation cycle that delivers the evidence, never a time inference to death. A transient read failure is never death. A permanent log must still retire unknown instances, otherwise the panorama accumulates corpses forever.
 - **Registry (current state) = log projection**: replay folds by hash and takes the latest.
 - The panorama after startup zero-resync = the set in the projection where `status ≠ closed`; unknown entries are shown as unconfirmed, not as alive.
 
-## Context: In-Memory View, Log in context.jsonl (concepts §10b)
+## Context: In-Memory View, Log in context.jsonl (concepts §4b)
 
 Context (the complete message array) is the **in-memory projection** of context.jsonl (see the view reconstruction rules above). At runtime, appends are double-written: in-memory Context + the `message` line in context.jsonl.
 
@@ -114,7 +114,7 @@ Context (the complete message array) is the **in-memory projection** of context.
 - No resume by default; history is fully on file, and `--resume` is simply the application of the projection rules (design decision).
 - The Event Buffer writes the merged system message attached to the released input as a `message` line (raw entries are not stored; staging-area semantics; loss on crash is acceptable).
 
-## Queue: Input Queuer, Log queue.jsonl (concepts §10c)
+## Queue: Input Queuer, Log queue.jsonl (concepts §4c-1)
 
 Queue holds pending inputs (hook content, user messages) and releases them serially (after release, the text enters Context's `message` line). The append-only queue.jsonl records each enqueued input line by line — it is the **queueing trajectory**, not the conversation itself.
 
@@ -123,7 +123,7 @@ Queue holds pending inputs (hook content, user messages) and releases them seria
 
 ## Memory Workspace (Harness Persistent Workspace)
 
-See concepts §10f / docs/harness.md for the concept and read/write boundaries. `storage/memory/` is the single Memory Workspace root; flatness is not required:
+See concepts §4d / docs/harness.md for the concept and read/write boundaries. `storage/memory/` is the single Memory Workspace root; flatness is not required:
 
 - `notes/`: the Agent's long-term understanding; an ordinary note is an `.md` file subject to a length cap, and directories are no longer subdivided for now. `index.md` automatically summarizes, in table form, the names of notes and the description that is mandatory on every write.
 - `cards/`: durable Components / work artifacts; one `<id>.card.json` file is one Card. The file is complete JSON, with its Component content, Surface intent, and spatial layout co-located (see docs/components.md §Card file for the file contract).
@@ -135,9 +135,9 @@ Notes may reference Cards by the stable relative path `cards/<id>.card.json`; a 
 
 The Card file is the truth of the current ongoing work artifacts; its complete JSON co-locates Component content, Surface intent, and spatial layout. It does not need to fold from the last line like `cards.jsonl` to derive the current state. `effect.jsonl`, by contrast, only answers "what actions happened": it is not replayed, does not carry Card truth, and cannot infer which Cards still exist from window opened / closed events. File-as-Card gives work artifacts a stable address that Memory notes can reference, while action auditing remains append-only.
 
-## Cron (Harness Persistent Schedule and Delayed Scheduling)
+## Timer (Harness Persistent Schedule and Delayed Scheduling)
 
-See concepts §10g / docs/harness.md for the concept and boundaries. `cron.jsonl` persists future schedules and delayed scheduling, and is restored by replay folding after restart; the backend, the user, and the Agent can all manage it. `cron_create` / `cron_delete` and `sleep` share the same underlying scheduling implementation (waiters are not persisted). See **docs/cron.md** for the append-only event line format (create / fire / delete) and folding rules.
+See concepts §4e / docs/harness.md for the concept and boundaries. `cron.jsonl` persists future schedules and delayed scheduling, and is restored by replay folding after restart; the backend, the user, and the Agent can all manage it. `cron_create` / `cron_delete` and `sleep` share the same underlying scheduling implementation (waiters are not persisted). See **docs/cron.md** for the append-only event line format (create / fire / delete) and folding rules.
 
 ## effect.jsonl (Frontend/Backend Unified Action Stream)
 

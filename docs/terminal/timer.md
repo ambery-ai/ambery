@@ -2,11 +2,11 @@
 
 English | [中文](timer.zh.md)
 
-> See concepts.md §1a for the concept definition. This document defines the scheduling mechanism, the stagger algorithm, and where the scan action applies.
+> Timer concept: concepts.md §4e. The fallback patrol scan is the default entry shape of a Watch Schedule (concepts §5a-4). This document defines the scheduling mechanism, the stagger algorithm, and where the scan action applies.
 
 ## Positioning
 
-hook is the primary channel; Timer is the observation cycle and fallback. When an instance's hook has not fired for a long time, Timer does one catch-up scan — read Terminal Content → Filter → change detection → only inject into the Queue for evaluation when there is substantive change (Example C: "config-service's last hook did not fire, but the Timer fallback scan has already updated its Context"). The scan also delivers read evidence to the instance's belief state (concepts §9a): `Content` refreshes the belief as alive, a confirmed `Gone` is death evidence, `Error` is not an observation — Timer never infers life or death from elapsed time; absence of evidence only moves a belief toward `unknown`.
+hook is the primary channel; Timer is the observation cycle and fallback. When an instance's hook has not fired for a long time, Timer does one catch-up scan — read Terminal Content → Filter → change detection → only inject into the Queue for evaluation when there is substantive change (Example C: "config-service's last hook did not fire, but the fallback scan has already updated its Context"). The scan also delivers read evidence to the instance's status (belief maintained from evidence): `Content` refreshes the belief as alive, a confirmed `Gone` is death evidence, `Error` is not an observation — the scan never infers life or death from elapsed time; absence of evidence only moves a belief toward `unknown`.
 
 **Switch**: `timer.interval_ms ≤ 0 = 禁用` (Config, configurable from panel/CLI). It is recommended to disable it in the early stage of real hook integration — keep only the hook drive and avoid the LLM trigger frequency caused by periodic full-instance scans; use a positive value during mock debugging.
 
@@ -31,13 +31,13 @@ struct TimerWheel {
 }
 ```
 
-- **Stagger**: `due(instance) = now + interval + hash(instance) % stagger`. The deterministic hash (instance name) guarantees the same offset for the same instance each time and naturally spreads different instances apart, avoiding simultaneous scans (concepts §1a "staggered distribution").
+- **Stagger**: `due(instance) = now + interval + hash(instance) % stagger`. The deterministic hash (instance name) guarantees the same offset for the same instance each time and naturally spreads different instances apart, avoiding simultaneous scans .
 - **hook arrives → reset**: `handle_hook` calls `reset(now)` for the triggering instance (recomputes interval + stagger offset) — hook is the primary channel, and instances with recent hooks should not be catch-up scanned.
 - **Due extraction**: `due(now, batch)` returns the due instances (at most batch at a time); once taken, they are rescheduled to `now + interval + stagger`; the rest remain due and are taken on the next tick — the batch cap is also a form of staggering.
 
 ## Scan action (Terminal Adapter read)
 
-The scan read channel = Terminal Adapter (docs/terminal-adapter.md): `locate(instance) → read(tab)` reads the current Terminal Content; None if it cannot be read. For the per-terminal implementations (WtAdapter / MapAdapter / Composite dispatch) and assembly gating (`terminal.adapter_*`), see that document.
+The scan read channel = Terminal Adapter (docs/terminal/terminal-adapter.md): `locate(instance) → read(tab)` reads the current Terminal Content; None if it cannot be read. For the per-terminal implementations (WtAdapter / MapAdapter / Composite dispatch) and assembly gating (`terminal.adapter_*`), see that document.
 
 - case-runner scenario side: the `terminal` step writes the shared map of MapAdapter to **simulate "what the terminal currently displays"**. Symmetric with the mock hook: hook simulates the push channel, the terminal scenario simulates the read channel.
 - The `fetch_terminal` tool reads the same adapter (falls back to the latest Context record when unreadable) — there is only one read channel.

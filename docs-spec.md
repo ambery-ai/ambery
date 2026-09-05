@@ -2,7 +2,7 @@
 
 English | [中文](docs-spec.zh.md)
 
-> This document constrains the responsibility boundaries and content admission of `docs/*.md` and `concepts.md`. It governs only these two; `spec.md` (tech stack) and `reports/` (research) each have their own governance and are outside this document's scope. Before touching any `docs/*.md` or `concepts.md` change, you must read this file first.
+> This document constrains the responsibility boundaries and content admission of `docs/*.md` and `concepts.md`. It governs only these two; `reports/` (research) has its own governance and is outside this document's scope. Before touching any `docs/*.md` or `concepts.md` change, you must read this file first.
 
 ## Responsibility map
 
@@ -14,38 +14,42 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 - `agent-loop.md` — LLM abstraction, Tool Set protocol, and mock hook contract
 - `llm-setup.md` — first-run LLM setup guide (unconfigured default, setup modal, key input, connection test)
 - `autonomy.md` — expression model, default mapping, and override semantics of expression Autonomy
-- `filter.md` — terminal text filtering strategy and structure-understanding data types
-- `debug-agent.md` — DebugAgent pure mock and debug CLI
-- `toolset.md` — parameter schemas of the nine function definitions pet can call
-- `agent-assistance.md` — capability boundary of the Agent work supervision and collaboration assistant
-- `capability-evaluation-project.md` — the system for decomposing capabilities into repeatable evaluation projects
 - `effort.md` — effort thinking budget: domain-layer unified tiers and provider translation
+- `toolset.md` — parameter schemas of the nine function definitions pet can call
+- `cron.md` — Cron task model, persistence format, and the three scheduling tool contracts
+- `memory.md` — Memory Workspace directory model, read_memory / write_memory contracts
+- `streaming.md` — LLM reply streaming incremental push contract
 
 ### Storage and configuration
 
 - `storage.md` — Storage directory layout, file semantics, record format, and lifecycle
 - `config.md` — config.json + AGENTS.md model, migration, reconcile, unified modification pipeline
-- `memory.md` — Memory Workspace directory model, read_memory / write_memory contracts
 
-### Scheduling
+### Access protocol
 
-- `timer.md` — Timer fallback scan scheduling, stagger algorithm, and scan action application points
-- `cron.md` — Cron task model, persistence format, and the three scheduling tool contracts
+- `access-protocol.md` — Ambery Protocol contract: how external software becomes a Source, and how events flow in and out
 
-### Terminal access
+#### Terminal
 
-- `terminal-adapter.md` — terminal access abstraction: locate/read/unlocate interfaces, per-terminal implementations, and config fields
-- `sidecar.md` — WtAdapter process protocol (the independent process of the wt terminal adapter: stdio JSONL, command set, and lifecycle)
+- `docs/terminal/terminal-adapter.md` — terminal access abstraction: locate/read/unlocate interfaces, per-terminal implementations, config fields, and the layered access model (L1–L3 / M1–M3)
+- `docs/terminal/wt/sidecar.md` — WtAdapter process protocol (the independent process of the wt terminal adapter: stdio JSONL, command set, and lifecycle)
+- `docs/terminal/timer.md` — fallback patrol scan scheduling, stagger algorithm, and scan action application points
+
+#### Agent
+
+- `docs/agents/claude/hook.md` — real Claude Code hook contract: event layering, marker location, startup scan, installation
+- `docs/agents/filter.md` — terminal text filtering strategy and structure-understanding data types
+
+#### Host side
+
+- `core-server.md` — embedded thin HTTP server: binds only 127.0.0.1 to carry external hook access
 
 ### Cross-platform
 
-- `platform-primitives.md` — abstraction group of platform-specific capabilities (OS-layer capabilities such as virtual desktop switching): interfaces and per-platform implementations
+- `platform-primitives.md` — Ambery's own platform capability layer (window positioning/focus/desktop handling of its own surfaces): interfaces and per-platform implementations
 
-### Communication and protocols
+### Runtime reporting and errors
 
-- `hook.md` — real Claude Code hook contract: event layering, marker location, startup scan, installation
-- `core-server.md` — embedded thin HTTP server: binds only 127.0.0.1 to carry external hook access
-- `streaming.md` — LLM reply streaming incremental push contract
 - `effect-reporting.md` — Tauri runtime action effect reporting: action layer, channel, kind/payload
 - `errors.md` — error presentation model: errors as notifications, bubble/banner outlets, record–presentation separation
 
@@ -73,10 +77,16 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 
 ### Evaluation tools
 
+- `debug-agent.md` — DebugAgent pure mock and debug CLI
 - `case-runner.md` — Storage snapshot regression and concept observation infrastructure
 - `case-eval-system.md` — case expression evaluation system
 - `observability.md` — observability base: compile-time enforcement that all concept modules are observable
 - `tools.md` — development tool collection: tools/ directory script tools and core standalone bin tools (locate / run-vite / ambery-activity)
+
+### Capabilities and benchmark
+
+- `agent-assistance.md` — capability boundary of the Agent work supervision and collaboration assistant
+- `capability-evaluation-project.md` — the system for decomposing capabilities into repeatable evaluation projects
 
 ### Roadmap
 
@@ -87,7 +97,7 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 Where contract documents live in the repository:
 
 - `docs/` is the single home for contract / mechanism / protocol documents; every such document is registered in the responsibility map above. `packages/*/` holds only `spec.md` pairs (technology choices, dependency boundaries, tradeoffs) and code — never contract documents.
-- Flat layout in `docs/` is the default. A subfolder exists only as a mirror of the package structure: category-level documents live in a category folder, leaf-level documents live in a second-level folder under it. Documents that span categories (umbrella contracts, cross-category contracts) stay at the `docs/` root.
+- Flat layout in `docs/` is the default. A subfolder exists only as a mirror of the package structure: category-level documents live in a category folder, leaf-level documents live in a second-level folder under it. Documents that span categories stay at the `docs/` root.
 - References use the repository-root path form (`docs/terminal/wt/sidecar.md`); within the same folder, bare filenames are allowed.
 
 ## General principles
@@ -96,10 +106,10 @@ The following content is **forbidden** in ordinary `docs/*.md`; each has its own
 
 - **Version info** — docs do not write any version number or version range (e.g. "X belongs before/after 0.1.0"). Version boundaries are defined by unified release planning; a single capability document does not temporarily assign its own version attribution.
 - **Status markers** — docs do not write volatile status (current contract / to-be-landed / undecided, etc.). Superseded historical plans are deleted or marked historical in the original text, not expressed as maintained status fields.
-- **No internal issue references** — docs do not reference internal issue numbers (#N, issue-xxx, issues #N): issue tracking belongs to `dev/issues.md`; docs state only the current state and contracts, and do not use internal issue numbers as evidence or anchors; external upstream references (such as upstream issue / discussion numbers) are allowed.
+- **No internal issue references** — docs do not reference internal issue numbers (#N, issue-xxx, issues #N): docs state only the current state and contracts, and do not use internal issue numbers as evidence or anchors; external upstream references (such as upstream issue / discussion numbers) are allowed.
 - **Research and argumentation process** — belongs in `reports/`; docs record only converged conclusions; the ins and outs of research are not design contracts.
 - **Single-session process reviews** (grill reviews, etc.) — belong in `drafts/`, not design contracts.
-- **To-be-landed / undecided implementation lists** — execution items go to development tickets (the current round of fixes), and future items go to `docs/post-0.1.0.md` (roadmap); do not deposit them in docs pretending to be an implementation basis, and do not spread undecided items publicly in `dev/issues.md`.
+- **To-be-landed / undecided implementation lists** — execution items go to development tickets (the current round of fixes), and future items go to `docs/post-0.1.0.md` (roadmap); do not deposit them in docs pretending to be an implementation basis.
 - **Future capabilities** — new capabilities after 0.1.0 are uniformly written into `docs/post-0.1.0.md`, only as a roadmap, one short statement per item; a separate document is split off when formal design starts.
 
 The above general principles also constrain `concepts.md` (the domain concept document).

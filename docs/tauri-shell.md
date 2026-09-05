@@ -25,7 +25,7 @@ pet initial seed 116×40 (recomputed at runtime by the pet-window-size.md formul
 - pet dragging uses IPC `window.setPosition()` and emits the `"pet:moved"` event
 - chat/Card windows request positions through the positioning engine (pet holds the engine; `engine:place` / `engine:moved` protocol)
 
-## Embedded core (spec.md architecture decision)
+## Embedded core (single-process architecture decision)
 
 Frontend-core communication uses Tauri native IPC (`#[tauri::command]` + `invoke()` + `app_handle.emit()`). Only external hook scripts use HTTP `POST /hook` (Tauri commands are unavailable out-of-process); a thin server bound to 127.0.0.1:47600 serves only this purpose.
 
@@ -50,7 +50,7 @@ Therefore, a non-Windows build is not a "degraded version after the sidecar is m
 Current isolation status:
 
 - The Tauri shell's Windows-specific dependencies (`winvd` / `windows`) are confined to `[target.'cfg(windows)'.dependencies]`; the pin/fight-back in `window.rs` and `menu_window.rs`'s `SetForegroundWindow` are gated by `#[cfg(windows)]`, and non-Windows targets get a minimal substitute (tauri.conf.json `alwaysOnTop` + `set_focus`).
-- core's UIA sidecar discovery (`paths::sidecar_exe`) is always `None` on non-Windows targets — not discovered, not started, not used; the sidecar client is pure std process-communication code with no call path on non-Windows targets (the Option chain degrades naturally, `sidecar_enabled=false`). The C# sidecar targets `net9.0-windows` and is published as self-contained win-x64, so it never enters non-Windows packaging (docs/sidecar.md §packaging).
+- core's UIA sidecar discovery (`paths::sidecar_exe`) is always `None` on non-Windows targets — not discovered, not started, not used; the sidecar client is pure std process-communication code with no call path on non-Windows targets (the Option chain degrades naturally, `sidecar_enabled=false`). The C# sidecar targets `net9.0-windows` and is published as self-contained win-x64, so it never enters non-Windows packaging (docs/terminal/wt/sidecar.md §packaging).
 - Residual verification boundary: `cargo check --target` for non-Windows targets needs a cross toolchain (`ring` pulls in a native C build via reqwest), which is not feasible on this machine; the `cfg(not(windows))` branches are minimal stubs whose correctness is guaranteed by review, with cross-compilation verification pending CI.
 
 ## Global wake hotkey

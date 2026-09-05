@@ -2,7 +2,7 @@
 
 English | [中文](filter.zh.md)
 
-> Concept definition: see concepts.md §11. This document fixes the policy rules and the structure-understanding data types.
+> Concept layer has no separate Filter entry — filtering is access-side detail. This document fixes the policy rules and the structure-understanding data types.
 > **Structure understanding**: the rules are taken from 3 real Claude Code terminal UIA samples (UIA returns rendered plain text, no ANSI codes).
 
 ## Structure Understanding Data Types
@@ -48,7 +48,7 @@ Note: **diff is not a separate block type** — it is the content of the ToolCal
 5. **render**: digest → normalized text — **keep everything, never omit** (design decision: the limited-quantity problem is not solved; folding = omitting content for the LLM, also not done). Source-native fold markers (`… +N lines`) are preserved as-is in body.
 6. **detect_change**: operates on the rendered text, line-set Jaccard (≥0.8 Minor / otherwise Substantive). Scroll false positives are accepted (design decision).
 
-## Policy Files (concepts §11 Replaceable Policies)
+## Policy Files (Replaceable Policies)
 
 ```
 core/src/filter/
@@ -70,11 +70,11 @@ pub trait Filter {
 }
 ```
 
-Filter selects the per-instance hook `kind` (docs/hook.md §Payload) through the `by_name` registry — the seam where per-harness policies plug in. A harness strategy lives in its own module (claude.rs, opencode.rs, …) and takes effect by registration; an unregistered kind is unsupported and rejected directly before the instance state update, Terminal Content read, Filter, and Queue — no fallback, no partial support. The registry is the single admission point; the generic layer never hardcodes a harness.
+Filter selects the per-instance hook `kind` (docs/agents/claude/hook.md §Payload) through the `by_name` registry — the seam where per-harness policies plug in. A harness strategy lives in its own module (claude.rs, opencode.rs, …) and takes effect by registration; an unregistered kind is unsupported and rejected directly before the instance state update, Terminal Content read, Filter, and Queue — no fallback, no partial support. The registry is the single admission point; the generic layer never hardcodes a harness.
 
 ## Boundaries
 
-- **Filter ↔ TerminalAdapter** — the adapter reads raw text (locate + read); filter does structure understanding (digest + detect_change). One-way dependency adapter → filter. The adapter abstraction is not code-cli-specific: future terminals may serve purposes beyond a code CLI (see terminal-adapter.md).
+- **Filter ↔ TerminalAdapter** — the adapter reads raw text (locate + read); filter does structure understanding (digest + detect_change). One-way dependency adapter → filter. The adapter abstraction is not code-cli-specific: future terminals may serve purposes beyond a code CLI (see docs/terminal/terminal-adapter.md).
 - **Filter ↔ hook** — the hook manages lifecycle state (register / close / status); filter manages content understanding. Orthogonal, no overlap.
 - **Hardcoded inside the seam** — per-harness rules are hardcoded in the policy file (claude.rs), never in the generic layer (mod.rs). Adding a harness = new module + register in `by_name`; core untouched.
 

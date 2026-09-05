@@ -8,7 +8,7 @@ Questions, ideas, or bugs? Just open an issue or discussion — no need to ask f
 
 ## Docs-first: follow the docs
 
-The docs are the design source. Before changing behavior, read the corresponding domain doc in `docs/`, and when behavior changes, update the doc along with it (docs and code are committed separately). Terms and architecture: `concepts.md`, `spec.md`. Open questions and regression records: `dev/`.
+The docs are the design source. Before changing behavior, read the corresponding domain doc in `docs/`, and when behavior changes, update the doc along with it (docs and code are committed separately). Terms: `concepts.md`; technology choices and structural decisions: `spec.md`. Open questions and regression records: `dev/`.
 
 ## Repository layout
 

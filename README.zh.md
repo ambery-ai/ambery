@@ -65,7 +65,7 @@ cd app && npm install && npm run dev
 - `ambery-case/` — storage 快照回放与概念观测 runner
 - `app/` — vanilla TypeScript 前端；`app/src-tauri/` 为 Tauri 壳
 - `sidecar/` — C# Windows UIA sidecar
-- `docs/` — 分域设计文档；`concepts.md` 术语；`spec.md` 架构决定
+- `docs/` — 分域设计文档；`concepts.md` 术语；`spec.md` 技术选型与结构决定
 - `dev/` — 开发记录
 
 ## 文档

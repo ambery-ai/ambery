@@ -2,16 +2,16 @@
 
 English | [中文](cron.zh.md)
 
-> Concept definitions are in concepts.md §10g. This document specifies task representation, persistence format, due behavior, and
+> Concept definitions are in concepts.md §4e (Timer). This document specifies task representation, persistence format, due behavior, and
 > the call contracts for the three tools cron_create / cron_delete / sleep.
 
 ## Principles
 
-> **Scope of this document** — this document defines Cron's task model, cron.jsonl format, scheduling implementation, and the parameters/validation/returns of the three tools; for Cron's conceptual positioning and ownership see concepts.md §10g / docs/harness.md §Cron; for storage layout see docs/storage.md §Cron.
+> **Scope of this document** — this document defines Cron's task model, cron.jsonl format, scheduling implementation, and the parameters/validation/returns of the three tools; for Cron's conceptual positioning and ownership see concepts.md §4e / docs/harness.md §Timer; for storage layout see docs/storage.md §Timer.
 
 > **Design constants** — the sleep cap and the scheduling poll granularity are implementation constants (values defined in this document) and do not enter Config.
 
-> **No special rules; use semantics to make behavior explicit** — the schedule is given explicitly as one of two choices; having no list tool is an established boundary (concepts §10a lists only two Cron tools), and no implicit query channel is invented.
+> **No special rules; use semantics to make behavior explicit** — the schedule is given explicitly as one of two choices; having no list tool is an established boundary (concepts §4a lists only two schedule tools), and no implicit query channel is invented.
 
 ## Task Representation
 
@@ -27,7 +27,7 @@ Cron entry:
 ```
 
 - `schedule` is one of two: `at` (one-shot epoch ms) or `every_ms` (fixed interval, first due = creation time + every_ms). Cron expressions are not supported (to be revisited when wall-clock semantics are needed).
-- `message`: the `system` input content injected into the Queue when due (isomorphic with hook content, concepts §10c).
+- `message`: the `system` input content injected into the Queue when due (isomorphic with hook content, concepts §4c-1).
 - The payload currently has only the message form; more complex due-time actions are initiated by the Agent itself after being woken by the message (sleep-then-act scenarios are expressed by the `sleep` tool, not through the Cron payload).
 
 ## Persistence (cron.jsonl)
@@ -71,7 +71,7 @@ Wait through the Harness scheduler and then continue the planned tool sequence: 
 
 Semantic boundaries:
 
-- During sleep the Queue serialization point is occupied (concepts §10c) — waiting is part of the Agent's planned behavior, and the duration cap prevents mistakes.
+- During sleep the Queue serialization point is occupied (concepts §4c-1) — waiting is part of the Agent's planned behavior, and the duration cap prevents mistakes.
 - sleep is not persisted: it is lost on crash and not reissued.
 - `ms: 0` = return immediately (yield the current execution point once).
 
@@ -107,4 +107,4 @@ Create a persisted schedule (the Agent's entry point for adjusting Cron; backend
 
 ## No list tool (established boundary)
 
-concepts §10a lists only `cron_create` / `cron_delete`: the Agent manages its own schedules via the id returned by create (and may write it to Memory long-term memory); users and the backend can directly view/edit cron.jsonl. No implicit query channel is invented for the Agent.
+concepts §4a lists only `cron_create` / `cron_delete`: the Agent manages its own schedules via the id returned by create (and may write it to Memory long-term memory); users and the backend can directly view/edit cron.jsonl. No implicit query channel is invented for the Agent.
