@@ -98,6 +98,7 @@ Where contract documents live in the repository:
 
 - `docs/` is the single home for contract / mechanism / protocol documents; every such document is registered in the responsibility map above. `packages/*/` holds only `spec.md` pairs (technology choices, dependency boundaries, tradeoffs) and code — never contract documents.
 - Flat layout in `docs/` is the default. A subfolder exists only as a mirror of the package structure: category-level documents live in a category folder, leaf-level documents live in a second-level folder under it. Documents that span categories stay at the `docs/` root.
+- A parent contract document does not register the documents under its group: which documents belong to a group is stated once in the responsibility map, not by enumerating them in the parent document's intro.
 - References use the repository-root path form (`docs/terminal/wt/sidecar.md`); within the same folder, bare filenames are allowed.
 
 ## General principles
