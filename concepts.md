@@ -75,7 +75,7 @@ Ambery's outward-facing master contract: the abstraction Ambery makes of externa
 An external entity under observation, as projected into the protocol. A Source occupies a seat in Context via one stable `source_id`: its updates re-enter under the same ID instead of re-introducing themselves — continuity is carried by the ID, and attention is driven by the update stream. A Source has a process basis and a semantic seat, and the two are related but distinct: a host may die while the seat waits for reconnection, and a seat may close while the host lives on.
 
 ##### 5a-1. Source Host — subconcept
-The process or window that carries Sources — a terminal window, a browser, a library app, a player. Enumeration, location, activation, and liveness live at this layer. Different software hosts Sources differently; each host's concrete access shape belongs to that host's contract, not the concept layer.
+The process or window that carries Sources — a terminal window, a browser, a library app, a player. Enumeration, location, activation, and liveness live at this layer. Different software hosts Sources differently; each host's concrete access shape belongs to the access contract, not the concept layer.
 
 ###### 5a-1a. Hook — subconcept
 The entry through which host software proactively pushes "something happened" to Ambery — the shoulder-tap channel of the protocol. Every real host has one: lifecycle events, bookmark changes, tab events are all things the host knows first and pushes out. Claude Code's five lifecycle events are the first instance; each host's hook shape (configuration, script, event set) belongs to that host's contract.
@@ -117,7 +117,7 @@ The user reads a novel in a library app; the app is the **Source Host**, and the
 
 ### Example C: a player with no hook — patrol as a plan entry
 
-A video player is a **Source Host** that offers no **Hook**; its eye can only poll. The agent's **Watch Schedule** therefore holds a patrol entry — check progress every five minutes — and the **Timer** executes it on its tick. This entry exists precisely because the host's hook is silent; a host that pushes needs no patrol. Each scan is one **Turn**: the progress update lands on the film's **Context Slot**; at the scene worth telling, **pet** decides to disturb — **Autonomy** bounces, and a **Card** pops with the time offset.
+A video player is a **Source Host** that offers no **Hook**; the access contract can only poll. The agent's **Watch Schedule** therefore holds a patrol entry — check progress every five minutes — and the **Timer** executes it on its tick. This entry exists precisely because the host's hook is silent; a host that pushes needs no patrol. Each scan is one **Turn**: the progress update lands on the film's **Context Slot**; at the scene worth telling, **pet** decides to disturb — **Autonomy** bounces, and a **Card** pops with the time offset.
 
 ### Example D: compression and digest divide the labor
 
