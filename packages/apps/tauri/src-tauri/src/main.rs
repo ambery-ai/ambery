@@ -517,9 +517,10 @@ fn main() {
         .manage(window::TopmostRegistry::default())
         .setup(|app| {
             let pet = app.get_webview_window("pet").expect("pet window");
-            let chat = app.get_webview_window("chat").expect("chat window");
+            // chat/shelf 句柄当前无人使用：保留取窗只作启动期存在性断言（配置漏定义立即 panic）
+            let _chat = app.get_webview_window("chat").expect("chat window");
             let menu = app.get_webview_window("menu").expect("menu window");
-            let shelf = app.get_webview_window("shelf").expect("shelf window");
+            let _shelf = app.get_webview_window("shelf").expect("shelf window");
 
             // 置顶模式初始应用：chat/shelf 默认 topmost——不再起轮询线程（WindowNotFound 噪音源根除）
             let topmost_cfg = Config::load_or_default(&ambery_core::paths::config_root()).ui.topmost;
