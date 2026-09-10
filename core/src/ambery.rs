@@ -523,7 +523,7 @@ impl<L: Llm> AmberyBackend<L> {
             }
         };
         let msg = pending_msg(path);
-        let mut with_msg = |mut out: Value| {
+        let with_msg = |mut out: Value| {
             if let Some(m) = msg {
                 out["msg"] = json!(m);
             }
@@ -1809,11 +1809,11 @@ impl<L: Llm> AmberyBackend<L> {
                     );
                 }
                 // 校验 type 合法性 + 按 type 校验必填字段
-                let VALID_TYPES: &[&str] = &["text_card", "quick_jump", "git_display", "data_chart", "todobox"];
+                let valid_types: &[&str] = &["text_card", "quick_jump", "git_display", "data_chart", "todobox"];
                 if let Some(typ) = spec.get("type").and_then(Value::as_str) {
-                    if !VALID_TYPES.contains(&typ) {
+                    if !valid_types.contains(&typ) {
                         return (
-                            json!({ "ok": false, "error": crate::i18n::trf(lang, "err.component-type", &[("typ", typ.to_string()), ("valid", VALID_TYPES.join("/"))]) }),
+                            json!({ "ok": false, "error": crate::i18n::trf(lang, "err.component-type", &[("typ", typ.to_string()), ("valid", valid_types.join("/"))]) }),
                             vec![],
                         );
                     }
@@ -2277,18 +2277,6 @@ mod tests {
             title: title.to_string(),
             content: content.map(String::from),
         })
-    }
-
-    /// 测试用 PlatformPrimitives：固定切换结果 + 记录 hwnd
-    struct StubPrimitives {
-        result: bool,
-        pub switched: std::sync::Mutex<Vec<i64>>,
-    }
-    impl crate::terminal::PlatformPrimitives for StubPrimitives {
-        fn switch_vd(&self, hwnd: i64) -> bool {
-            self.switched.lock().unwrap().push(hwnd);
-            self.result
-        }
     }
 
     #[tokio::test]

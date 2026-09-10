@@ -156,7 +156,7 @@ mod tests {
             let mut map = env_map(&f);
             map.insert("AMBERY_A".into(), "10".into());
             map.insert("AMBERY_C".into(), "3".into());
-            write_map(&f, &map);
+            write_map(&f, &map).unwrap();
             let after = env_map(&f);
             assert_eq!(after.get("AMBERY_A").map(String::as_str), Some("10"), "覆盖");
             assert_eq!(after.get("AMBERY_B").map(String::as_str), Some("2"), "保留");
@@ -171,7 +171,7 @@ mod tests {
             write(&f, "AMBERY_A=1\nAMBERY_B=2\n");
             let mut map = env_map(&f);
             map.remove("AMBERY_A");
-            write_map(&f, &map);
+            write_map(&f, &map).unwrap();
             let after = env_map(&f);
             assert!(!after.contains_key("AMBERY_A"));
             assert_eq!(after.get("AMBERY_B").map(String::as_str), Some("2"));
@@ -195,7 +195,7 @@ mod tests {
             write(&f, "AMBERY_A=1\n");
             let mut map = env_map(&f);
             map.insert("AMBERY_B".into(), "2".into());
-            write_map(&f, &map);
+            write_map(&f, &map).unwrap();
             let mode = std::fs::metadata(&f).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "env 文件必须 0600");
         });

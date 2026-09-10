@@ -1,7 +1,7 @@
 //! 用真实采集的 UIA 文本验证 Filter：`cargo run --example filter_check -- <file>...`
 //! （真实样本含工作内容，仅存临时目录，不入库）
 
-use ambery_core::filter::{Change, Filter};
+use ambery_core::filter::Change;
 
 fn main() {
     let f = ambery_core::filter::by_name("claude").expect("claude filter");

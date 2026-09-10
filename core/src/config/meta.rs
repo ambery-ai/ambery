@@ -7,8 +7,9 @@
 
 use serde_json::Value;
 
-/// 节点种类（reconcile 逻辑链的结构知识：object 向下构造 / map 自带 default / 叶子兜底）
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 节点种类（reconcile 逻辑链的结构知识：object 向下构造 / map 自带 default / 叶子兜底）。
+/// 不派生 PartialEq：Map 携带 entry_probe 函数指针（地址不唯一、不可靠），判类一律用 matches!。
+#[derive(Debug, Clone, Copy)]
 pub enum NodeKind {
     Leaf,
     Object,
