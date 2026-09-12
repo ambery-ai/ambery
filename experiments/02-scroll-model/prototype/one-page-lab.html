@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ambery · one-page lab (prototype)</title>
+    <!-- 丢弃式原型：单页长文档形态（页面高度 = 两段内容之和，浏览器原生滚动）。
+         这一个是**新模型（2）**：没有分屏、没有吸附、没有接管、没有内层滚动区；滚动条在窗口右缘。
+         对照的**原状（1）**是同目录的 kitchen-sink.html（段=一屏 + 段内滚 + 跨段接管，段内收尾 0.70s）。
+         访问 http://127.0.0.1:3000/one-page-lab.html -->
+    <style>
+      :root {
+        --bg: #1e1e2e;
+        --panel: #2a2a3c;
+        --text: #cdd6f4;
+        --accent: #89b4fa;
+        --muted: #9399b2;
+        --warn: #f9e2af;
+        --line: rgba(255, 255, 255, 0.16);
+        --fill: rgba(255, 255, 255, 0.16);
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif;
+      }
+      /* 导航条是 fixed，不参与文档高度 */
+      .bar { position: fixed; left: 0; right: 0; top: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 16px; background: color-mix(in srgb, var(--bg) 88%, transparent); border-bottom: 1px solid var(--line); backdrop-filter: blur(4px); }
+      .bar b { margin-right: 6px; }
+      .bar span.tag { color: var(--muted); font-size: 12px; }
+      .bar a { color: var(--text); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 12px; }
+      .readout { position: fixed; left: 50%; transform: translateX(-50%); bottom: 10px; z-index: 3; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; max-width: 94vw; }
+
+      /* ── 版式：文档高度 = 两段内容之和。不设视口高、不设内层滚动区 ── */
+      .tier { padding: 56px 40px 72px; }
+      .tier + .tier { border-top: 1px solid var(--line); }
+      .head { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 18px; }
+      .head .mark { font-family: Consolas, monospace; font-size: 11px; letter-spacing: 0.08em; color: var(--muted); }
+      .head .cap { font-size: 11px; font-weight: 600; }
+      .head .box { display: inline-block; padding: 3px 8px; font-size: 11px; border: 1px solid var(--line); border-radius: 6px; }
+      .head .box.on { border-color: var(--accent); color: var(--accent); background: rgba(137, 180, 250, 0.12); }
+      .head .row { display: inline-flex; align-items: center; gap: 8px; }
+      h2 { font-size: 15px; margin: 22px 0 4px; color: var(--accent); }
+      .note { color: var(--muted); font-size: 12px; max-width: 78ch; margin: 0 0 14px; }
+      .note em { color: var(--warn); font-style: normal; }
+      /* 每一块 = 一个"真实内容块"：按它在产物里的量级给高度，让文档高度接近真实 */
+      .blocks { display: grid; grid-template-columns: 1fr; gap: 18px; max-width: 980px; }
+      .blk { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .blk .hd { height: 14px; width: 46%; background: var(--fill); border-radius: 4px; }
+      .blk i { display: block; height: 10px; border-radius: 3px; background: var(--fill); }
+      .blk i.a { width: 92%; }
+      .blk i.b { width: 78%; }
+      .blk i.c { width: 64%; }
+      .blk .pad { flex: 1; }
+      .tierrule { display: flex; align-items: center; gap: 10px; margin: 34px 0 0; color: var(--muted); font-size: 11px; font-family: Consolas, monospace; }
+      .tierrule::before, .tierrule::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+      .dots { position: fixed; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 3; }
+      .dots a { width: 9px; height: 9px; border-radius: 999px; border: 1px solid var(--accent); display: block; }
+      .dots a.on { background: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <b>新模型 2 · one-page</b>
+      <span class="tag">
+        单页长文档：文档高 = 两段内容之和 · 原生滚动 · 无分屏/吸附/接管 · 滚动条在窗口右缘 ·
+        对照原状 1 = <a href="/kitchen-sink.html">kitchen-sink.html</a>
+      </span>
+    </div>
+    <main id="doc"></main>
+    <nav class="dots" id="dots" aria-label="tiers"></nav>
+    <div class="readout" id="readout"></div>
+
+    <script>
+      const WIDTHS = ["a", "b", "c", "d"];
+      const doc = document.getElementById("doc");
+      const dots = document.getElementById("dots");
+
+      // 每段按它在产物里的量级给几块，块高就是内容量级——文档总高于是接近真实页面
+      const TIERS = [
+        {
+          mark: "kitchen sink",
+          title: "第一段 · 表面",
+          note: "面板按真实窗口尺寸摆放 + 各类型卡片。这一段的长度完全由内容决定：它有多长，页面就跟着多长。",
+          blocks: [
+            { h: 380, label: "tier-2 面板 · chat 320 × 380" },
+            { h: 560, label: "tier-2 面板 · menu 380 × 560" },
+            { h: 320, label: "tier-2 面板 · shelf 240 × 320" },
+            { h: 300, label: "Component / card · 5 类" },
+            { h: 300, label: "Component / card · 续" },
+          ],
+        },
+        {
+          mark: "kitchen sink",
+          title: "第二段 · 规格",
+          note: "token 表（当前取值）· 组件状态矩阵 · 覆盖面。滚到底就是文档末尾，没有「再滚一格才走」这回事。",
+          blocks: [
+            { h: 900, label: "token 表 · 45 个 token 的当前取值" },
+            { h: 420, label: "一级 widget 变体与状态" },
+            { h: 360, label: "二级组件 · 配置行每种字段类型" },
+            { h: 300, label: "二级组件 · provider key 三种状态" },
+            { h: 260, label: "覆盖面" },
+          ],
+        },
+      ];
+
+      const block = (h, label) => {
+        const el = document.createElement("div");
+        el.className = "blk";
+        el.style.height = h + "px";
+        el.innerHTML =
+          '<span class="hd"></span>' +
+          WIDTHS.map((w) => '<i class="' + w + '"></i>').join("") +
+          '<span class="pad"></span><i class="b"></i><i class="c"></i>';
+        const tag = document.createElement("div");
+        tag.style.cssText = "font-family:Consolas,monospace;font-size:11px;color:var(--muted);margin-top:-2px";
+        tag.textContent = "▸ " + label + "（" + h + "px）";
+        el.prepend(tag);
+        return el;
+      };
+
+      const head = (theme, lang) => {
+        const el = document.createElement("div");
+        el.className = "head";
+        el.innerHTML =
+          '<span class="mark">kitchen sink</span>' +
+          '<span class="row"><span class="cap">主题：</span>' +
+          ["dark"].map((t) => '<span class="box' + (t === theme ? " on" : "") + '">' + t + "</span>").join("") +
+          "</span>" +
+          '<span class="row"><span class="cap">语言：</span>' +
+          ["中", "EN"].map((l) => '<span class="box' + ((l === "中") === (lang === "zh") ? " on" : "") + ">" + l + "</span>").join("") +
+          "</span>";
+        return el;
+      };
+
+      const tiers = TIERS.map((tier) => {
+        const el = document.createElement("section");
+        el.className = "tier";
+        el.append(head("dark", "zh"));
+        const h2 = document.createElement("h2");
+        h2.textContent = tier.title;
+        const note = document.createElement("p");
+        note.className = "note";
+        note.innerHTML = tier.note;
+        const blocks = document.createElement("div");
+        blocks.className = "blocks";
+        tier.blocks.forEach((b) => blocks.append(block(b.h, b.label)));
+        const rule = document.createElement("div");
+        rule.className = "tierrule";
+        rule.textContent = "第 " + (TIERS.indexOf(tier) + 1) + " 段到此结束";
+        el.append(h2, note, blocks, rule);
+        return el;
+      });
+      tiers.forEach((t) => doc.append(t));
+
+      // 右缘小点：原生平滑跳段，不接管任何东西
+      tiers.forEach((t) => {
+        const a = document.createElement("a");
+        a.href = "#";
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          window.scrollTo({ top: t.offsetTop, behavior: "smooth" });
+        });
+        dots.appendChild(a);
+      });
+      const dotEls = [...dots.children];
+
+      const readout = document.getElementById("readout");
+      const paint = () => {
+        const top = Math.round(window.scrollY);
+        const viewH = window.innerHeight;
+        const docH = document.documentElement.scrollHeight;
+        const visible = tiers
+          .map((t, i) => {
+            const shown = Math.min(t.offsetTop + t.offsetHeight, top + viewH) - Math.max(t.offsetTop, top);
+            return shown > 0 ? i + 1 + "段:" + Math.round((shown / viewH) * 100) + "%" : null;
+          })
+          .filter(Boolean)
+          .join(" + ");
+        let cur = 0;
+        tiers.forEach((t, i) => {
+          if (t.offsetTop <= top + viewH / 2) cur = i;
+        });
+        dotEls.forEach((d, n) => d.classList.toggle("on", n === cur));
+        readout.textContent =
+          "文档高 " + docH + "（= 两段内容之和）  scrollY " + top + " / " + (docH - viewH) +
+          "  视口里：" + visible +
+          "  接管：无";
+      };
+      addEventListener("scroll", paint, { passive: true });
+      addEventListener("resize", paint);
+      setInterval(paint, 200);
+      paint();
+    </script>
+  </body>
+</html>
