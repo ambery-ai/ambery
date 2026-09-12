@@ -1,0 +1,2 @@
+# Kitchen Sink artifact directory (the application artifact lives in the root .gitignore's dist/)
+dist-kitchen-sink/

@@ -6,12 +6,18 @@ Ambery 是 Tauri 多窗口桌宠（pet/chat/menu/shelf/card）+ Rust core。改�
 
 - 以文档为单位开发：新代码/新能力先落对应文档（契约进 docs/、概念进 concepts.md、技术选型与结构决定进 spec.md），文档间有冲突先删冲突再实现。
 - 讨论中定下的原则与决定，记录进对应的文档。
+- 原型 → 文档 → 正式代码：探索阶段可以先用丢弃式原型把形状试出来（原型标明 prototype，不接真实副作用）；形状定下后把设计落成文档；正式代码最后落地。原型本身不进正式实现。
+
+## 【临时 · 不进正式提交】改动边界
+
+- 不删除任何元素、文件或代码，除非用户明确认可；删除前先列清单征求同意（搬迁可以，但要说明"元素还在、只是换了位置"）。
 
 ## 提交信息
 
 - 精简：subject 一句概括改动即可，不写长 body。
 - 提交信息用英文（开源规范：subject 英文，国际协作与工具链友好）。
 - 这是一个开源的项目，需要避免在项目和提交信息中加入任何敏感信息。
+- 文档与代码分开提交，不混在一起（便于 review 与回滚）。
 
 ## 运行与构建
 
@@ -28,6 +34,7 @@ Ambery 是 Tauri 多窗口桌宠（pet/chat/menu/shelf/card）+ Rust core。改�
 - `cargo run -p ambery-case -- <case.case>` → 行为复现（两段式 .case 回放；`--health` 校验 / `export` 从 storage 造 case）。
 - `cargo run -p ambery-case -- frontend --silent` → 前端行为（headless，嵌 core + vitest）。
 - `cargo run -p ambery-case -- serve --brain-addr <url>` → 端到端链路（配合 LLM 替身 `python3 scripts/debug_brain.py` 与前端 `npm run dev`，浏览器观察）。
+- `npm run kitchen-sink:dev` → 前端渲染层样张页（见 [docs/kitchen-sink.md](docs/kitchen-sink.md)）。
 - tauri CLI（`npx tauri dev` / `build`）→ 壳层（窗口、构建形态）。
 - `tools/locate.ps1` → 定位 Ambery 所有窗口的位置/尺寸/可见性（表格式输出）。
 

@@ -82,6 +82,7 @@
 
 - `debug-agent.md` — DebugAgent 纯 mock 与 debug CLI
 - `case-runner.md` — Storage 快照回归与概念观测基础设施
+- `kitchen-sink.md` — 渲染层验证面：gallery 页面、它渲染什么、有哪些控件、以及同步保证
 - `case-eval-system.md` — case 表达式求值系统
 - `observability.md` — 可观测性基座：编译期强制所有概念模块可观测
 - `tools.md` — 开发工具集合：tools/ 目录脚本工具与 core 独立 bin 工具（locate / run-vite / ambery-activity）

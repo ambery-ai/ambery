@@ -81,6 +81,7 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 
 - `debug-agent.md` — DebugAgent pure mock and debug CLI
 - `case-runner.md` — Storage snapshot regression and concept observation infrastructure
+- `kitchen-sink.md` — rendering-layer verification surface: the gallery page, what it renders, its controls, and its sync guarantees
 - `case-eval-system.md` — case expression evaluation system
 - `observability.md` — observability base: compile-time enforcement that all concept modules are observable
 - `tools.md` — development tool collection: tools/ directory script tools and core standalone bin tools (locate / run-vite / ambery-activity)

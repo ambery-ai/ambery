@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ambery · scroll lab (prototype)</title>
+    <!-- 丢弃式原型，两档对照（都在同一个文件里）：
+         v=1 原状 —— 段=一屏 + 段内滚动 + 跨段接管；段内收尾时间常数 0.70s。
+         v=2 新的 —— 页面高 = 全部段内容高度和（原生滚动条、没有内层滚动区），仍有吸附与接管：
+                      接管时机**动态计算**：每帧算视口内各段占比，视口中心落在哪段就算哪段，
+                      中心越过段边界那一刻接管，把边界滑到视口边缘（落点仍是段边界）。
+         访问 http://127.0.0.1:3000/scroll-lab.html?v=1 或 ?v=2 -->
+    <style>
+      :root {
+        --bg: #1e1e2e;
+        --panel: #2a2a3c;
+        --text: #cdd6f4;
+        --accent: #89b4fa;
+        --muted: #9399b2;
+        --warn: #f9e2af;
+        --line: rgba(255, 255, 255, 0.16);
+        --fill: rgba(255, 255, 255, 0.16);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; }
+      body { counter-reset: seg 0 step-start; }
+      /* 档位切换条放在**底部**（不去挡内容与读数） */
+      .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 8; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 16px; background: var(--bg); border-top: 1px solid var(--line); }
+      .bar b { margin-right: 6px; }
+      .bar span.tag { color: var(--muted); font-size: 12px; }
+      .bar a { color: var(--text); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 12px; }
+      .bar a.on { border-color: var(--accent); color: var(--accent); background: rgba(137, 180, 250, 0.12); }
+      .readout { margin: 0 0 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+      section { position: relative; counter-increment: seg; border-top: 1px solid var(--line); }
+      section::after {
+        content: counter(seg);
+        position: absolute; top: 6px; right: 24px;
+        font-size: 96px; line-height: 1; font-weight: 700;
+        color: color-mix(in srgb, var(--line) 45%, transparent);
+        pointer-events: none; user-select: none;
+      }
+      h2 { font-size: 14px; margin: 0 0 8px; color: var(--accent); }
+      .note { color: var(--muted); font-size: 12px; max-width: 78ch; margin: 0 0 12px; }
+      .note em { color: var(--warn); font-style: normal; }
+      .blocks { display: grid; grid-template-columns: 1fr; gap: 16px; max-width: 900px; margin-top: 12px; }
+      .blk { border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .blk i { display: block; height: 10px; border-radius: 3px; background: var(--fill); }
+      .blk .hd { height: 14px; width: 46%; background: var(--fill); border-radius: 4px; }
+      .blk i.a { width: 92%; }
+      .blk i.b { width: 78%; }
+      .blk i.c { width: 64%; }
+      .blk .pad { flex: 1; }
+      .endline { margin-top: 20px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+      .dots { position: fixed; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 5; }
+      .dots a { width: 9px; height: 9px; border-radius: 999px; border: 1px solid var(--accent); display: block; }
+      .dots a.on { background: var(--accent); }
+
+      /* ── v=1 原状：段=一屏，内容在段内滚 ── */
+      html[data-mode="1"] { height: 100%; }
+      html[data-mode="1"] body { height: 100%; overflow: hidden; }
+      html[data-mode="1"] main { height: calc(100dvh - 40px); overflow: hidden; }
+      html[data-mode="1"] section { height: 100%; display: flex; flex-direction: column; }
+      html[data-mode="1"] .board {
+        flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+        padding: 24px 32px 84px; /* 底部留出切换条的高度 */
+      }
+      html[data-mode="1"] .readout { top: 0; }
+
+      /* ── v=2 新的：文档高 = 内容总高，原生滚动 ── */
+      html[data-mode="2"] .board { padding: 28px 32px 72px; }
+      /* 只有 v2 的读数悬浮：滚动过程中随时能看到动态判定的结果。放在切换条之上。
+         注意别加 pointer-events: none —— 那样 DevTools 的"选择元素"点不中它、也没法右键审查；
+         这个条本身就是调试用的，可选中、可审查才有意义。 */
+      html[data-mode="2"] .readout {
+        position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%);
+        z-index: 9; width: min(1080px, 94vw); margin: 0;
+        background: color-mix(in srgb, var(--panel) 92%, transparent);
+        border: 1px solid var(--accent);
+      }
+      html[data-mode="2"] body { padding-bottom: 108px; } /* 切换条 + 读数各留一条位置 */
+    </style>
+  </head>
+  <body>
+    <div class="bar" id="bar">
+      <b>scroll lab</b>
+      <a href="?v=1" data-key="1">1 原状：段=一屏 + 段内滚</a>
+      <a href="?v=2" data-key="2">2 新的：页面高=内容总高 + 动态接管</a>
+    </div>
+    <div>
+      <div class="readout" id="readout"></div>
+    </div>
+    <main id="scroller"></main>
+    <nav class="dots" id="dots" aria-label="sections"></nav>
+
+    <script>
+      const vNum = new URLSearchParams(location.search).get("v") ?? "1";
+      document.documentElement.dataset.mode = vNum;
+      document.getElementById("bar").querySelectorAll("a[data-key]").forEach((a) => a.classList.toggle("on", a.dataset.key === vNum));
+
+      const scroller = document.getElementById("scroller");
+      const dots = document.getElementById("dots");
+      const readout = document.getElementById("readout");
+
+      /** 内层收尾时间常数；两档共用（v=1 用它决定段内滚动松手后还滑多久） */
+      const INNER_TAU = 0.7;
+      /** 跨段过渡：三次缓出总时长 */
+      const RAMP_SECONDS = 0.5;
+
+      // ── 内容：每段内容都明显比一屏多，两档才有可比性 ──
+      const TITLES = ["第一段 · 表面", "第二段 · 规格", "第三段", "第四段", "第五段", "第六段 · 底"];
+      const WIDTHS = ["a", "b", "c", "d"];
+      const block = (tall) => {
+        const el = document.createElement("div");
+        el.className = "blk";
+        if (tall) el.style.minHeight = "280px";
+        el.innerHTML =
+          '<span class="hd"></span>' +
+          WIDTHS.map((w) => '<i class="' + w + '"></i>').join("") +
+          '<span class="pad"></span><i class="b"></i><i class="c"></i>';
+        return el;
+      };
+
+      const sections = TITLES.map((title) => {
+        const el = document.createElement("section");
+        const board = document.createElement("div");
+        board.className = "board";
+        const h2 = document.createElement("h2");
+        h2.textContent = title;
+        const note = document.createElement("p");
+        note.className = "note";
+        note.innerHTML =
+          vNum === "1"
+            ? "原状：这一段正好一屏，内容在<em>段内</em>滚动；滚到段底再滚一格，才由引擎把整段推走。"
+            : "新的：页面高度由内容决定（这一段就有多高），滚动是原生的；<em>视口中心</em>越过段边界时引擎接管，把边界滑到视口边缘。";
+        const blocks = document.createElement("div");
+        blocks.className = "blocks";
+        for (let n = 0; n < 9; n += 1) blocks.append(block((n + TITLES.indexOf(title)) % 3 === 0));
+        const end = document.createElement("p");
+        end.className = "endline";
+        end.textContent = "—— 这一段的内容到此结束 ——";
+        board.append(h2, note, blocks, end);
+        el.append(board);
+        return el;
+      });
+      sections.forEach((s) => scroller.append(s));
+      const boards = [...scroller.querySelectorAll(".board")];
+
+      // ── 右缘小点 ──
+      sections.forEach((s, i) => {
+        const a = document.createElement("a");
+        a.href = "#";
+        a.setAttribute("aria-label", "第 " + (i + 1) + " 段");
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          if (vNum === "1") glideOuter(i * boardH());
+          else motionB.glideTo(s.offsetTop);
+        });
+        dots.appendChild(a);
+      });
+      const dotEls = [...dots.children];
+
+      const easeOutCubic = (p) => 1 - Math.pow(1 - p, 3);
+      const k = (dt) => 1 - Math.pow(0.001, dt / INNER_TAU);
+      const viewH = () => innerHeight;
+      const boardH = () => scroller.clientHeight;
+      const maxDoc = () => document.documentElement.scrollHeight - viewH();
+
+      // ══════════════ v=1 原状：段=一屏，内容在段内滚 ══════════════
+      const motionA = {
+        inner: 0, targetInner: 0, outer: 0, targetOuter: 0,
+        active: false, ramp: null,
+        sync() {
+          const i = Math.min(boards.length - 1, Math.max(0, Math.round(scroller.scrollTop / boardH())));
+          this.inner = this.targetInner = boards[i].scrollTop;
+          this.outer = this.targetOuter = scroller.scrollTop;
+          this.active = false; this.ramp = null;
+        },
+        pushInner(delta) {
+          if (this.active) return 0;
+          const i = Math.min(boards.length - 1, Math.max(0, Math.round(this.targetOuter / boardH())));
+          const max = Math.max(0, boards[i].scrollHeight - boardH());
+          const before = this.targetInner;
+          this.targetInner = Math.max(0, Math.min(max, this.targetInner + delta));
+          return this.targetInner - before;
+        },
+        glideOuter(to) {
+          const from = scroller.scrollTop;
+          const target = Math.max(0, Math.min(boardH() * (boards.length - 1), to));
+          if (Math.abs(target - from) < 1) return false;
+          this.active = true;
+          this.ramp = { t0: performance.now(), from, to: target };
+          this.targetOuter = target;
+          return true;
+        },
+      };
+      const v1ExitDown = () => {
+        const i = Math.min(boards.length - 1, Math.max(0, Math.round(motionA.targetOuter / boardH())));
+        if (i >= boards.length - 1) return false;
+        if (!motionA.glideOuter((i + 1) * boardH())) return false;
+        motionA.targetInner = 0;
+        return true;
+      };
+      const v1ExitUp = () => {
+        const i = Math.min(boards.length - 1, Math.max(0, Math.round(motionA.targetOuter / boardH())));
+        if (i <= 0) return false;
+        if (!motionA.glideOuter((i - 1) * boardH())) return false;
+        motionA.targetInner = Math.max(0, boards[i - 1].scrollHeight - boardH());
+        return true;
+      };
+      let dirA = 0;
+      scroller.addEventListener("wheel", (e) => {
+        if (vNum !== "1") return;
+        e.preventDefault();
+        if (motionA.active) return;
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? boardH() : 1;
+        const dy = e.deltaY * unit;
+        if (Math.sign(dy) && Math.sign(dy) !== dirA) dirA = Math.sign(dy);
+        const moved = motionA.pushInner(dy * 1.15);
+        if (moved === 0 && Math.abs(dy) > 0.5) {
+          if (dirA > 0 ? v1ExitDown() : v1ExitUp()) return;
+        }
+      }, { passive: false });
+      boards.forEach((board, i) => {
+        board.addEventListener("scroll", () => {
+          if (vNum !== "1" || motionA.active) return;
+          const max = Math.max(0, board.scrollHeight - boardH());
+          if (dirA > 0 && board.scrollTop >= max - 1 && i < boards.length - 1) v1ExitDown();
+          else if (dirA < 0 && board.scrollTop <= 1 && i > 0) v1ExitUp();
+        });
+      });
+
+      // ══════════════ v=2 新的：文档高=内容总高 + 动态计算的触界接管 ══════════════
+      /**
+       * 位移的全部来源只有一条：`doc` 每帧朝 `targetDoc` 做指数收尾；读者滚一格就推 `targetDoc`。
+       * 接管只有一条规则，写在 push() 里：**目标位越过任何一条段边线，就把这一格变成"接管"**——
+       * 位置由过渡曲线走到"边线 ± 一屏"，接管期间读者唯一的权利是**掉头**（掉头即取消）。
+       * 不在"停手"时校正：段中停下是正当的，拽人回边界只会毒化体验。
+       * 边线高度是每帧现算的动态量（段多高、一次滚多远都成立），没有写死的百分比。
+       */
+      /** 段边线（往下读的落点 = 该边线对齐屏底；往上读 = 该边线对齐屏顶） */
+      const edges = () => sections.slice(0, -1).map((s) => s.offsetTop + s.offsetHeight - viewH());
+      /** 当前位置是否就贴在某条段边线上（容差 4px：客户端高度是整数、视口高可能差 1~2px） */
+      const onEdge = (top) => {
+        const e = edges().find((x) => Math.abs(x - top) <= 4);
+        return e === undefined ? null : e;
+      };
+
+      const motionB = {
+        doc: 0, targetDoc: 0,
+        glide: null,      // { t0, from, to }：接管过渡的时间轴
+        snapInfo: null,
+        restSince: 0,     // 落定计时：停了一会儿才复位，避免滚动中途被拽
+        sync() { this.doc = this.targetDoc = window.scrollY; this.glide = null; },
+        /** 读者滚一格：正常推目标位；越过段边线则接管（参照系 = 段号的前后变化，不是位置、不是目标位） */
+        push(delta) {
+          const up = delta < 0;
+          const from = this.targetDoc;
+          const to = Math.max(0, Math.min(maxDoc(), from + delta));
+          const segAt = (top) => {
+            let i = 0;
+            sections.forEach((s, n) => {
+              if (top >= s.offsetTop - 1) i = n;
+            });
+            return i;
+          };
+          if (segAt(from) === segAt(to)) {
+            this.targetDoc = to;
+            return null;
+          }
+          const boundary = up ? sections[segAt(from)].offsetTop : sections[segAt(to)].offsetTop;
+          const landing = Math.max(0, Math.min(maxDoc(), up ? boundary - viewH() : boundary));
+          this.glide = { t0: performance.now(), from: window.scrollY, to: landing };
+          this.targetDoc = landing;
+          this.snapInfo = { why: "越过第 " + (up ? segAt(from) + 1 : segAt(to)) + " 段边线" };
+          return this.snapInfo;
+        },
+        /** 小点跳段：同一套过渡曲线 */
+        glideTo(to) {
+          const target = Math.max(0, Math.min(maxDoc(), to));
+          if (Math.abs(target - window.scrollY) < 1) return;
+          this.glide = { t0: performance.now(), from: window.scrollY, to: target };
+          this.targetDoc = target;
+        },
+      };
+      /** 动态计算：视口内各段各占多少，视口中心在哪一段（只用于读数与小点高亮，不参与控制）。 */
+      const segEdges = () => sections.slice(0, -1).map((s) => s.offsetTop + s.offsetHeight - viewH());
+      /** 跨段判定：视口顶端与底端落在不同的段里 */
+      const straddle = (top) => {
+        const vh = viewH();
+        const segOf = (y) => {
+          let i = 0;
+          sections.forEach((s, n) => {
+            if (y >= s.offsetTop) i = n;
+          });
+          return i;
+        };
+        return segOf(top) !== segOf(top + vh - 1);
+      };
+      /** 最近的段边界（往下读时边界对齐屏底的那个位置） */
+      const nearestEdge = (top) => {
+        const e = segEdges();
+        if (!e.length) return top;
+        return Math.max(0, Math.min(maxDoc(), e.reduce((a, x) => (Math.abs(x - top) < Math.abs(a - top) ? x : a), e[0])));
+      };
+      function viewportShares(top) {
+        const vh = viewH();
+        const rows = sections.map((s, i) => {
+          const shown = Math.min(s.offsetTop + s.offsetHeight, top + vh) - Math.max(s.offsetTop, top);
+          const share = Math.max(0, shown) / (vh || 1);
+          return { i, top: s.offsetTop, bottom: s.offsetTop + s.offsetHeight, shown: Math.max(0, shown), share };
+        });
+        let owner = 0;
+        rows.forEach((r) => {
+          if (r.share >= rows[owner].share) owner = r.i;
+        });
+        const center = top + vh / 2;
+        const centerOwner = rows.find((r) => center >= r.top && center < r.bottom);
+        if (centerOwner) owner = centerOwner.i;
+        return { rows, owner };
+      }
+      /**
+       * 滚轮是唯一的输入。判定只看一件事：**方向有没有变**（不看时间窗）。
+       *   接管中 / 刚落到边线上 → 同方向的输入一律不接（那是同一次手势的残余），
+       *   方向一变立刻解锁——掉头或新的反向手势当场生效。
+       */
+      let dirB = 0;      // 上一次滚动方向
+      window.addEventListener("wheel", (e) => {
+        if (vNum !== "2") return;
+        e.preventDefault();
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? viewH() : 1;
+        const dy = e.deltaY * unit;
+        const nextDir = Math.sign(dy);
+        if (!nextDir) return;
+        const changed = nextDir !== dirB;
+        dirB = nextDir;
+        motionB.lastWheelAt = performance.now();
+        // 停手够久 → 手势已经结束，落地锁自动解除（下一次滚动算新的一次）
+        if (motionB.lockDir !== 0 && motionB.lastWheelAt - motionB.lockAt > 450) motionB.lockDir = 0;
+
+        if (motionB.glide) {
+          // 接管进行中：掉头 → 取消接管、位置交还；同方向 → 不接
+          if (changed) {
+            motionB.glide = null;
+            motionB.doc = motionB.targetDoc = window.scrollY;
+          }
+          return;
+        }
+        motionB.push(dy * 1.15);
+      }, { passive: false });
+      // 触屏/键盘：只记方向（位移交给原生），供读数与调试看
+      window.addEventListener("touchmove", (e) => {
+        if (vNum !== "2" || e.touches.length !== 1) return;
+        void e;
+      }, { passive: true });
+
+      // ══════════════ 共用：帧循环 ══════════════
+      let last = performance.now();
+      const tick = (now) => {
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        const vh = viewH();
+        const segOf = (y) => {
+          let i = 0;
+          sections.forEach((s, n) => {
+            if (y >= s.offsetTop) i = n;
+          });
+          return i;
+        };
+        if (vNum === "1") {
+          const i = Math.min(boards.length - 1, Math.max(0, Math.round(motionA.targetOuter / boardH())));
+          const board = boards[i];
+          if (board && !motionA.active) {
+            if (Math.abs(board.scrollTop - motionA.inner) > 1.5) motionA.inner = motionA.targetInner = board.scrollTop;
+            motionA.inner += (motionA.targetInner - motionA.inner) * k(dt);
+            if (Math.abs(motionA.targetInner - motionA.inner) < 0.4) motionA.inner = motionA.targetInner;
+            const want = Math.round(motionA.inner);
+            if (board.scrollTop !== want) board.scrollTop = want;
+          }
+          if (motionA.ramp) {
+            const p = Math.min(1, (now - motionA.ramp.t0) / (RAMP_SECONDS * 1000));
+            motionA.outer = motionA.ramp.from + (motionA.ramp.to - motionA.ramp.from) * easeOutCubic(p);
+            if (p >= 1) { motionA.outer = motionA.ramp.to; motionA.ramp = null; motionA.active = false; motionA.targetOuter = motionA.outer; }
+          } else if (!motionA.active) {
+            if (Math.abs(scroller.scrollTop - motionA.outer) > 1.5) motionA.outer = motionA.targetOuter = scroller.scrollTop;
+            motionA.outer += (motionA.targetOuter - motionA.outer) * k(dt);
+            if (Math.abs(motionA.targetOuter - motionA.outer) < 0.4) motionA.outer = motionA.targetOuter;
+          }
+          const wantOuter = Math.round(motionA.outer);
+          if (scroller.scrollTop !== wantOuter) scroller.scrollTop = wantOuter;
+        } else {
+          // v=2：整页滚动，但同样有平滑——滚轮推目标位，屏幕位置每帧用同一套收尾去追。
+          // 触屏与键盘的原生滚动不吞掉：一帧内偏差超过 1.5px 就把目标位接回原生位置。
+          if (motionB.glide) {
+            const p = Math.min(1, (now - motionB.glide.t0) / (RAMP_SECONDS * 1000));
+            motionB.doc = motionB.glide.from + (motionB.glide.to - motionB.glide.from) * easeOutCubic(p);
+            if (p >= 1) {
+              motionB.doc = motionB.glide.to;
+              motionB.targetDoc = motionB.doc;
+              motionB.glide = null; // 落到边线：位置由引擎拿着；同方向输入由 push 里的落地锁挡住
+            }
+          } else {
+            if (Math.abs(window.scrollY - motionB.doc) > 1.5) motionB.doc = motionB.targetDoc = window.scrollY;
+            motionB.doc += (motionB.targetDoc - motionB.doc) * k(dt);
+            if (Math.abs(motionB.targetDoc - motionB.doc) < 0.4) motionB.doc = motionB.targetDoc;
+          }
+          const wantDoc = Math.round(motionB.doc);
+          if (window.scrollY !== wantDoc) window.scrollTo(0, wantDoc);
+          // 复位：**每帧判**，方向取自"上一次滚动方向"（不是时间窗、也不是"最近的边界"）。
+          //   往下滚 → 压到下一段起点对齐屏顶；往上滚 → 顶回本段末尾对齐屏底。
+          //   落点由方向唯一决定，两个方向各自收敛，所以不会来回弹。
+          if (!motionB.glide) {
+            const top = Math.round(window.scrollY);
+            const sTop = segOf(top);
+            const sBottom = segOf(top + vh - 1);
+            if (sTop !== sBottom) {
+              const down = dirB >= 0;
+              const landing = down
+                ? Math.min(maxDoc(), sections[sBottom].offsetTop)
+                : Math.max(0, sections[sTop].offsetTop + sections[sTop].offsetHeight - vh);
+              if (Math.abs(landing - top) > 2 && landing !== motionB.lastReset) {
+                motionB.glide = { t0: now, from: window.scrollY, to: landing };
+                motionB.targetDoc = landing;
+                motionB.lastReset = landing;
+                motionB.snapInfo = {
+                  why:
+                    "跨段复位（" +
+                    (down ? "往下 → 压到第 " + (sBottom + 1) + " 段起点" : "往上 → 顶回第 " + (sTop + 1) + " 段末尾") +
+                    "）",
+                };
+              }
+            } else {
+              motionB.lastReset = -1; // 已经不在跨段状态：允许下一次复位
+            }
+          }
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      let raf = requestAnimationFrame(tick);
+
+      // ══════════════ 读数 ══════════════
+      const paint = () => {
+        const top = Math.round(window.scrollY);
+        const vh = viewH();
+        let cur = 0;
+        if (vNum === "1") {
+          cur = Math.min(boards.length - 1, Math.max(0, Math.round(scroller.scrollTop / boardH())));
+          dotEls.forEach((d, n) => d.classList.toggle("on", n === cur));
+          readout.textContent =
+            "v=1 原状  段 " + (cur + 1) + "/" + boards.length +
+            "  段内 " + Math.round(boards[cur].scrollTop) + "/" + Math.round(Math.max(0, boards[cur].scrollHeight - boardH())) +
+            "  引擎=" + (motionA.active ? "接管中" : "听输入") +
+            "  段内收尾 τ=" + INNER_TAU + "s  跨段过渡 " + RAMP_SECONDS + "s";
+          return;
+        }
+        const { rows, owner } = viewportShares(top);
+        cur = owner;
+        dotEls.forEach((d, n) => d.classList.toggle("on", n === cur));
+        const chasing = Math.abs(motionB.targetDoc - motionB.doc) > 1;
+        const glidingNow = () => !!motionB.glide;
+        // 动态量：本段内容底边离视口底边还有多少
+        const curRow = rows[cur];
+        const gapBottom = Math.round(curRow.bottom - (top + vh));
+        const info = motionB.snapInfo;
+        readout.textContent =
+          "v=2 新的  文档高 " + document.documentElement.scrollHeight + " / 视口 " + vh +
+          "  scrollY " + top + " / " + Math.round(maxDoc()) +
+          "  第 " + (owner + 1) + " 段（占比 " + rows.map((r) => Math.round(r.share * 100) + "%").join(" / ") + "）" +
+          "  本段底边距视口底 " + gapBottom + "px" +
+          "  平滑=" + (chasing ? "追赶中" : "已落定") +
+          (glidingNow() ? "  接管中…" : "") +
+          (info ? "  上次接管：" + info.why : "") +
+          "  τ=" + INNER_TAU + "s";
+      };
+      addEventListener("scroll", paint, { passive: true });
+      addEventListener("resize", paint);
+      setInterval(paint, 120);
+
+      if (vNum === "1") motionA.sync(); else motionB.sync();
+      paint();
+
+      // 只读钩子：给探针用
+      window.__lab = {
+        state: () => {
+          if (vNum === "1") {
+            const i = Math.min(boards.length - 1, Math.max(0, Math.round(scroller.scrollTop / boardH())));
+            return {
+              v: "1", mode: "段=一屏", outer: Math.round(scroller.scrollTop), board: i + 1,
+              inner: Math.round(boards[i].scrollTop),
+              crossing: Math.abs(scroller.scrollTop - Math.round(scroller.scrollTop / boardH()) * boardH()) > 1,
+              active: motionA.active, readout: readout.textContent,
+            };
+          }
+          const { rows, owner } = viewportShares(window.scrollY);
+          return {
+            v: "2", mode: "页面高=内容总高", docH: document.documentElement.scrollHeight,
+            scrollY: Math.round(window.scrollY), owner: owner + 1,
+            shares: rows.map((r) => Math.round(r.share * 100)),
+            chasing: Math.abs(motionB.targetDoc - motionB.doc) > 1,
+            gliding: !!motionB.glide, // 真·接管（过渡曲线中），与滚轮尾巴区分开
+            snap: motionB.snapInfo ? motionB.snapInfo.why : null,
+            target: Math.round(motionB.targetDoc), doc: Math.round(motionB.doc),
+            readout: readout.textContent,
+          };
+        },
+        goDoc: (top) => { motionB.glideTo(top); },
+        /** 调试用：直接跑一次 push（等价于一格滚轮），返回接管信息 */
+        push: (delta) => {
+          if (window.__labLog) window.__labLog = [];
+          const hit = motionB.push(delta);
+          return { hit: hit ? hit.why : null, target: Math.round(motionB.targetDoc), glide: !!motionB.glide, log: window.__labLog };
+        },
+        setDoc: (top) => {
+          window.scrollTo(0, top);
+          motionB.sync(); // 摆位即新起点：同步位置并清掉落地锁
+        },
+        setInner: (px) => {
+          const i = Math.min(boards.length - 1, Math.max(0, Math.round(scroller.scrollTop / boardH())));
+          boards[i].scrollTop = px;
+          motionA.inner = motionA.targetInner = px;
+        },
+      };
+    </script>
+  </body>
+</html>
