@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ambery · scroll lab（模块驱动版）</title>
+    <!-- 精简版实验页：**只驱动抽取出来的模块** 同目录的 reading-motion.ts。
+         结构与内容比原版简（少了几块骨架、去掉 v=1 档），但**逻辑不改**：
+         模块是原版 v2 引擎的逐条抽取（落地锁、`lastReset` 闩那些死判定已删，见模块头注）。
+         原版对照：同目录 scroll-lab.html（?v=1 / ?v=2 两档）。
+         跑法见 ../README.md；地址 http://127.0.0.1:3011/prototype/lab-scroll.html -->
+    <style>
+      :root {
+        --bg: #1e1e2e; --panel: #2a2a3c; --text: #cdd6f4; --accent: #89b4fa;
+        --muted: #9399b2; --line: rgba(255, 255, 255, 0.16); --fill: rgba(255, 255, 255, 0.16);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; }
+      body { counter-reset: seg 0 step-start; }
+      .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 8; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; background: var(--bg); border-top: 1px solid var(--line); font-size: 12px; }
+      .bar b { margin-right: 6px; }
+      .bar span { color: var(--muted); }
+      .readout { position: fixed; left: 50%; bottom: 52px; transform: translateX(-50%); z-index: 9; width: min(1080px, 94vw); background: var(--panel); border: 1px solid var(--accent); border-radius: 8px; padding: 6px 10px; font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+      section { position: relative; counter-increment: seg; border-top: 1px solid var(--line); }
+      section::after { content: counter(seg); position: absolute; top: 6px; right: 24px; font-size: 96px; line-height: 1; font-weight: 700; color: color-mix(in srgb, var(--line) 45%, transparent); pointer-events: none; }
+      h2 { font-size: 14px; margin: 0 0 8px; color: var(--accent); }
+      .note { color: var(--muted); font-size: 12px; max-width: 78ch; margin: 0 0 12px; }
+      .board { padding: 28px 32px 72px; }
+      .blocks { display: grid; grid-template-columns: 1fr; gap: 16px; max-width: 900px; margin-top: 12px; }
+      .blk { border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-height: 236px; display: flex; flex-direction: column; gap: 10px; }
+      .blk .hd { height: 14px; width: 46%; background: var(--fill); border-radius: 4px; }
+      .blk i { display: block; height: 10px; border-radius: 3px; background: var(--fill); }
+      .blk i.a { width: 92%; } .blk i.b { width: 78%; } .blk i.c { width: 64%; }
+      .blk .pad { flex: 1; }
+      .endline { margin-top: 20px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+      .dots { position: fixed; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 5; }
+      .dots a { width: 9px; height: 9px; border-radius: 999px; border: 1px solid var(--accent); display: block; }
+      .dots a.on { background: var(--accent); }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <b>scroll lab · 模块驱动</b>
+      <span>算法来自原版 v2（reading-motion.ts）；结构精简，逻辑不改</span>
+    </div>
+    <div class="readout" id="readout"></div>
+    <main id="scroller"></main>
+    <nav class="dots" id="dots" aria-label="sections"></nav>
+
+    <script type="module">
+      import { createMotion } from "./reading-motion.ts";
+
+      const WIDTHS = ["a", "b", "c"];
+      const scroller = document.getElementById("scroller");
+      const dots = document.getElementById("dots");
+      const readout = document.getElementById("readout");
+      const TITLES = ["第一段", "第二段", "第三段", "第四段", "第五段", "第六段 · 底"];
+
+      const sections = TITLES.map((title) => {
+        const el = document.createElement("section");
+        el.style.minHeight = "180vh"; // 与原版同几何
+        const board = document.createElement("div");
+        board.className = "board";
+        const h2 = document.createElement("h2");
+        h2.textContent = title;
+        const note = document.createElement("p");
+        note.className = "note";
+        note.textContent = "段内自由滚；滚到段末再滚一格，由引擎按方向把边界送到视口边缘（0.5s 三次缓出）。";
+        const blocks = document.createElement("div");
+        blocks.className = "blocks";
+        for (let n = 0; n < 7; n += 1) {
+          const blk = document.createElement("div");
+          blk.className = "blk";
+          blk.innerHTML =
+            '<span class="hd"></span>' +
+            WIDTHS.map((w) => '<i class="' + w + '"></i>').join("") +
+            '<span class="pad"></span><i class="b"></i>';
+          blocks.append(blk);
+        }
+        const end = document.createElement("p");
+        end.className = "endline";
+        end.textContent = "—— 这一段的内容到此结束 ——";
+        board.append(h2, note, blocks, end);
+        el.append(board);
+        return el;
+      });
+      sections.forEach((s) => scroller.append(s));
+
+      // 引擎：段元素由这个函数给（内容重挂后返回新数组即可）
+      const motion = createMotion(() => [...scroller.querySelectorAll("section")]);
+
+      sections.forEach((s, i) => {
+        const a = document.createElement("a");
+        a.href = "#";
+        a.setAttribute("aria-label", "第 " + (i + 1) + " 段");
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          motion.glideTo(s.offsetTop); // 与原版小点同一套过渡曲线
+        });
+        dots.append(a);
+      });
+      const dotEls = [...dots.children];
+
+      const paint = () => {
+        const st = motion.state();
+        dotEls.forEach((d, n) => d.classList.toggle("on", n === st.section));
+        readout.textContent =
+          "第 " + (st.section + 1) + " 段" +
+          "  scrollY " + Math.round(window.scrollY) +
+          "  doc " + st.doc + "  target " + st.target +
+          "  glide " + (st.gliding ? "是" : "否") +
+          "  方向 " + motion.direction() +
+          (st.snapInfo ? "  " + st.snapInfo.why : "");
+      };
+
+      motion.start();
+      setInterval(paint, 80);
+      paint();
+
+      // 滚轮交给引擎（原版同样 preventDefault）
+      window.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
+        motion.input(e.deltaY * unit);
+      }, { passive: false });
+
+      window.__motion = motion;
+      window.__probe = () => JSON.stringify({ ...motion.state(), scrollY: Math.round(window.scrollY), dir: motion.direction() });
+    </script>
+  </body>
+</html>

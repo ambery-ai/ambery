@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ambery · motion module harness</title>
+    <!-- 抽取模块的验收台：只驱动同目录的 reading-motion.ts（实验 02 的 v=2 算法），
+         不做任何 UI 判断——用它在浏览器里比对"模块 vs 实验内联实现"的行为。
+         跑法见 ../README.md；地址 http://127.0.0.1:3011/prototype/lab-motion.html -->
+    <style>
+      :root { --line: rgba(255, 255, 255, 0.16); }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: #1e1e2e; color: #cdd6f4; font: 13px/1.6 "Segoe UI", sans-serif; }
+      .bar { position: fixed; inset: 0 0 auto 0; z-index: 3; display: flex; gap: 8px; align-items: center; padding: 6px 12px; background: #1e1e2e; border-bottom: 1px solid var(--line); font-family: Consolas, monospace; font-size: 12px; }
+      .readout { position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 3; background: #2a2a3c; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-family: Consolas, monospace; font-size: 12px; white-space: pre-wrap; }
+      section { padding: 24px 32px; border-top: 1px solid var(--line); }
+      section:first-of-type { border-top: none; }
+      .blk { height: 120px; margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <div class="bar" id="bar">motion module harness</div>
+    <main id="doc"></main>
+    <div class="readout" id="readout"></div>
+
+    <script type="module">
+      import { createMotion } from "./reading-motion.ts";
+
+      const doc = document.getElementById("doc");
+      // 与实验同款几何：6 段 × 180vh
+      for (let i = 0; i < 6; i += 1) {
+        const s = document.createElement("section");
+        s.style.minHeight = "180vh";
+        s.innerHTML = "<h2>第 " + (i + 1) + " 段</h2>" + '<div class="blk"></div>'.repeat(6);
+        doc.append(s);
+      }
+
+      const motion = createMotion(() => [...doc.querySelectorAll("section")]);
+      const readout = document.getElementById("readout");
+      const paint = () => {
+        const st = motion.state();
+        const secs = [...doc.querySelectorAll("section")];
+        readout.textContent =
+          "段 " + (st.section + 1) + "/" + secs.length +
+          "  scrollY " + Math.round(window.scrollY) +
+          "  doc " + st.doc + "  target " + st.target +
+          "  glide " + (st.gliding ? "是" : "否") +
+          "  方向 " + motion.direction();
+      };
+      motion.start();
+      setInterval(paint, 80);
+      paint();
+
+      // 滚轮交给引擎：preventDefault 后由 input() 推目标位
+      window.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
+        motion.input(e.deltaY * unit);
+      }, { passive: false });
+
+      // 探针入口
+      window.__motion = motion;
+      window.__probe = () => JSON.stringify({ ...motion.state(), scrollY: Math.round(window.scrollY), dir: motion.direction() });
+    </script>
+  </body>
+</html>

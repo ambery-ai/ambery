@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ambery · motion equivalence check</title>
+    <!-- 确定性回归：把「抽取模块」和「原版内联引擎」放进同一个假滚动容器，用假 clock / scrollY /
+         scrollTo 步进，逐帧比较两者产生的位移序列。
+
+         甲（参照）是**逐字抄的原版**：experiments/02-scroll-model/prototype/scroll-lab.html 的
+           · motionB           248–284 行
+           · v=2 帧循环主体    390–434 行
+           · wheel 处理        327–349 行
+         只做机械替换（替换清单如下），所以它是**独立参照**——不是"照模块再写一遍"：
+           window.scrollY                              → scY.v
+           window.scrollTo(0, x)                       → scY.v = x
+           performance.now()                           → 帧时钟 t（滚轮发生在帧间，取上一帧时刻，两台同样处理）
+           innerHeight                                 → VIEW_H
+           document.documentElement.scrollHeight - innerHeight → DOC_MAX
+
+         序列覆盖：只向下（回归基准）/ 向下再向上 / 跨段后立刻掉头 / 边界区来回抖 / 向上连滚。
+         跑法见 ../README.md；地址 http://127.0.0.1:3011/prototype/lab-equivalence.html -->
+    <style>
+      body { margin: 0; background: #1e1e2e; color: #cdd6f4; font: 12px/1.6 Consolas, monospace; }
+      pre { padding: 12px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="out">running…</pre>
+    <script type="module">
+      import { createMotion } from "./reading-motion.ts";
+
+      // ── 假滚动容器：段高 1800、视口 900、6 段 → 文档 10800、最大位移 9900 ──
+      const SEG_H = 1800;
+      const VIEW_H = 900;
+      const FRAME_MS = 16.7;
+      const TIERS = Array.from({ length: 6 }, (_, i) => ({ offsetTop: i * SEG_H, offsetHeight: SEG_H }));
+      const DOC_MAX = TIERS.length * SEG_H - VIEW_H;
+
+      // ══════════════ 甲：原版引擎（逐字抄，仅按上表机械替换）══════════════
+      function buildOriginal() {
+        const scY = { v: 0 };
+        let t = 0;
+        const viewH = () => VIEW_H;
+        const maxDoc = () => DOC_MAX;
+        const sections = TIERS;
+
+        let dirB = 0; // 原版 326 行
+        const motionB = {
+          // 原版 248 行起
+          doc: 0,
+          targetDoc: 0,
+          glide: null, // { t0, from, to }：接管过渡的时间轴
+          snapInfo: null,
+          restSince: 0, // 落定计时：停了一会儿才复位，避免滚动中途被拽
+          sync() {
+            this.doc = this.targetDoc = scY.v;
+            this.glide = null;
+          },
+          /** 读者滚一格：正常推目标位；越过段边线则接管（参照系 = 段号的前后变化，不是位置、不是目标位） */
+          push(delta) {
+            const up = delta < 0;
+            const from = this.targetDoc;
+            const to = Math.max(0, Math.min(maxDoc(), from + delta));
+            const segAt = (top) => {
+              let i = 0;
+              sections.forEach((s, n) => {
+                if (top >= s.offsetTop - 1) i = n;
+              });
+              return i;
+            };
+            if (segAt(from) === segAt(to)) {
+              this.targetDoc = to;
+              return null;
+            }
+            const boundary = up ? sections[segAt(from)].offsetTop : sections[segAt(to)].offsetTop;
+            const landing = Math.max(0, Math.min(maxDoc(), up ? boundary - viewH() : boundary));
+            this.glide = { t0: t, from: scY.v, to: landing };
+            this.targetDoc = landing;
+            this.snapInfo = { why: "越过第 " + (up ? segAt(from) + 1 : segAt(to)) + " 段边线" };
+            return this.snapInfo;
+          },
+          /** 小点跳段：同一套过渡曲线 */
+          glideTo(to) {
+            const target = Math.max(0, Math.min(maxDoc(), to));
+            if (Math.abs(target - scY.v) < 1) return;
+            this.glide = { t0: t, from: scY.v, to: target };
+            this.targetDoc = target;
+          },
+        };
+        motionB.sync();
+
+        const easeOutCubic = (p) => 1 - Math.pow(1 - p, 3);
+        const k = (dt) => 1 - Math.pow(0.001, dt / 0.7); // INNER_TAU = 0.7
+        let last = t;
+
+        /** 原版 327–349 行的 wheel 处理 */
+        const input = (dy) => {
+          const nextDir = Math.sign(dy);
+          if (!nextDir) return;
+          const changed = nextDir !== dirB;
+          dirB = nextDir;
+          motionB.lastWheelAt = t;
+          // 停手够久 → 手势已经结束，落地锁自动解除（下一次滚动算新的一次）
+          if (motionB.lockDir !== 0 && motionB.lastWheelAt - motionB.lockAt > 450) motionB.lockDir = 0;
+
+          if (motionB.glide) {
+            if (changed) {
+              motionB.glide = null;
+              motionB.doc = motionB.targetDoc = scY.v;
+            }
+            return;
+          }
+          motionB.push(dy * 1.15);
+        };
+
+        /** 原版 358–360 行 + 390–434 行（v=2 分支） */
+        const step = (now) => {
+          const dt = Math.min(0.05, (now - last) / 1000);
+          last = now;
+          const vh = viewH();
+          const segOf = (y) => {
+            // ← 注意：原版这里是 `y >= s.offsetTop`，**没有 -1**（push 里的 segAt 才有）
+            let i = 0;
+            sections.forEach((s, n) => {
+              if (y >= s.offsetTop) i = n;
+            });
+            return i;
+          };
+          if (motionB.glide) {
+            const p = Math.min(1, (now - motionB.glide.t0) / (0.5 * 1000));
+            motionB.doc = motionB.glide.from + (motionB.glide.to - motionB.glide.from) * easeOutCubic(p);
+            if (p >= 1) {
+              motionB.doc = motionB.glide.to;
+              motionB.targetDoc = motionB.doc;
+              motionB.glide = null;
+            }
+          } else {
+            if (Math.abs(scY.v - motionB.doc) > 1.5) motionB.doc = motionB.targetDoc = scY.v;
+            motionB.doc += (motionB.targetDoc - motionB.doc) * k(dt);
+            if (Math.abs(motionB.targetDoc - motionB.doc) < 0.4) motionB.doc = motionB.targetDoc;
+          }
+          const wantDoc = Math.round(motionB.doc);
+          if (scY.v !== wantDoc) scY.v = wantDoc;
+          if (!motionB.glide) {
+            const top = Math.round(scY.v);
+            const sTop = segOf(top);
+            const sBottom = segOf(top + vh - 1);
+            if (sTop !== sBottom) {
+              const down = dirB >= 0;
+              const landing = down
+                ? Math.min(maxDoc(), sections[sBottom].offsetTop)
+                : Math.max(0, sections[sTop].offsetTop + sections[sTop].offsetHeight - vh);
+              if (Math.abs(landing - top) > 2 && landing !== motionB.lastReset) {
+                motionB.glide = { t0: now, from: scY.v, to: landing };
+                motionB.targetDoc = landing;
+                motionB.lastReset = landing;
+                motionB.snapInfo = {
+                  why:
+                    "跨段复位（" +
+                    (down ? "往下 → 压到第 " + (sBottom + 1) + " 段起点" : "往上 → 顶回第 " + (sTop + 1) + " 段末尾") +
+                    "）",
+                };
+              }
+            } else {
+              motionB.lastReset = -1; // 已经不在跨段状态：允许下一次复位
+            }
+          }
+        };
+
+        return {
+          input,
+          tick: () => {
+            t += FRAME_MS;
+            step(t);
+          },
+          y: () => scY.v,
+          state: () => ({ doc: Math.round(motionB.doc), target: Math.round(motionB.targetDoc), glide: !!motionB.glide, dir: dirB }),
+        };
+      }
+
+      // ══════════════ 乙：抽取模块（同一个假容器）══════════════
+      function buildModule() {
+        const scY = { v: 0 };
+        let t = 0;
+        const motion = createMotion(() => TIERS, {
+          viewH: () => VIEW_H,
+          maxDoc: () => DOC_MAX,
+          scrollY: () => scY.v,
+          scrollTo: (v) => {
+            scY.v = v;
+          },
+          now: () => t,
+        });
+        return {
+          input: (d) => motion.input(d),
+          tick: () => {
+            t += FRAME_MS;
+            motion.step();
+          },
+          y: () => scY.v,
+          state: () => motion.state(),
+        };
+      }
+
+      // ══════════════ 序列 ══════════════
+      const notch = (dir, frames) => ({ wheel: dir * 120, frames });
+      const seqs = [
+        { 名: "1 只向下连滚 14 格（回归基准）", 步: [] },
+        { 名: "2 向下 14 格 → 向上 20 格", 步: [] },
+        { 名: "3 跨段一格后立刻掉头", 步: [] },
+        { 名: "4 边界区 +1/-1 交替抖 8 次", 步: [] },
+        { 名: "5 向下 30 格（深处）→ 向上 24 格", 步: [] },
+      ];
+      for (let n = 0; n < 14; n += 1) seqs[0].步.push(notch(1, 30));
+      for (let n = 0; n < 14; n += 1) seqs[1].步.push(notch(1, 30));
+      for (let n = 0; n < 20; n += 1) seqs[1].步.push(notch(-1, 30));
+      for (let n = 0; n < 6; n += 1) seqs[2].步.push(notch(1, 30));
+      seqs[2].步.push(notch(1, 60)); // 这一格跨段
+      seqs[2].步.push(notch(-1, 90)); // 过渡中掉头
+      for (let n = 0; n < 8; n += 1) {
+        seqs[3].步.push(notch(1, 20));
+        seqs[3].步.push(notch(-1, 20));
+      }
+      for (let n = 0; n < 30; n += 1) seqs[4].步.push(notch(1, 20));
+      for (let n = 0; n < 24; n += 1) seqs[4].步.push(notch(-1, 30));
+
+      const run = (eng, steps) => {
+        const out = [];
+        for (const s of steps) {
+          if (s.wheel !== undefined) eng.input(s.wheel);
+          for (let f = 0; f < (s.frames ?? 0); f += 1) {
+            eng.tick();
+            out.push(eng.y());
+          }
+        }
+        return out;
+      };
+
+      const 报告 = [];
+      let 全通过 = true;
+      for (const seq of seqs) {
+        const 甲 = buildOriginal();
+        const 乙 = buildModule();
+        const A = run(甲, seq.步);
+        const B = run(乙, seq.步);
+        let 逐位不同 = 0;
+        let 超2px = 0;
+        let 首帧 = -1;
+        let 最大偏差 = 0;
+        const 样例 = [];
+        for (let i = 0; i < A.length; i += 1) {
+          const d = Math.abs(A[i] - B[i]);
+          if (d > 0) {
+            逐位不同 += 1;
+            if (首帧 < 0) 首帧 = i;
+          }
+          if (d > 2) 超2px += 1;
+          if (d > 最大偏差) 最大偏差 = d;
+          if (d > 0 && 样例.length < 6) {
+            样例.push({ 帧: i, 段: Math.floor(A[i] / SEG_H) + 1, 原版: A[i], 模块: B[i], 差: A[i] - B[i] });
+          }
+        }
+        const ok = 逐位不同 === 0;
+        if (!ok) 全通过 = false;
+        const 末甲 = 甲.state();
+        const 末乙 = 乙.state();
+        报告.push({
+          序列: seq.名,
+          判定: ok ? "PASS 逐位一致" : "FAIL",
+          帧数: A.length,
+          逐位不同帧: 逐位不同,
+          超2px帧: 超2px,
+          首帧: 首帧,
+          最大偏差: 最大偏差,
+          样例: 样例,
+          末值: { 原版: A[A.length - 1], 模块: B[B.length - 1], 原版态: 末甲, 模块态: 末乙 },
+        });
+      }
+      document.getElementById("out").textContent =
+        JSON.stringify({ 几何: { 段高: SEG_H, 视口: VIEW_H, 最大位移: DOC_MAX }, 总判定: 全通过 ? "PASS" : "FAIL", 报告 }, null, 1);
+      window.__equivalence = { 全通过, 报告 };
+    </script>
+  </body>
+</html>
