@@ -2,11 +2,11 @@
 
 ## 假设
 
-> 样张页的两段内容都比一屏高。能否既让**页面高度 = 全部内容高度**（原生滚动条、不切内部滚动区），又不让读者**停在"半段 + 半段"**的位置上？
+> 页面里两段内容都比一屏高。能否既让**页面高度 = 全部内容高度**（原生滚动条、不切内部滚动区），又不让读者**停在"半段 + 半段"**的位置上？
 
 ## 做法
 
-同一个 dev server 下并列两个形态，逐条对比（`packages/apps/` 里的丢弃式页面，已备份到本目录）：
+本目录自带 dev server，并列两个形态逐条对比：
 
 1. **原状（v=1，段 = 一屏 + 段内滚）**：每段 `height: 100dvh`，内容在段内滚动，滚到段底再滚一格由引擎把整段推走。
 2. **新形态（v=2，页面高 = 内容总高 + 每帧动态复位）**：外层是页面滚动，滚轮只推目标位；每帧算"视口顶端与底端是不是落在同一段里"，**跨段就复位**——方向取自**上一次滚动方向**（往下 → 压到下一段起点对齐屏顶；往上 → 顶回本段末尾对齐屏底）。
@@ -25,7 +25,7 @@
 | v=2：**跨段停点被复位** | ✅ 三个中段停点（1689 / 3943 / 6197）全部复位到最近段边界，差 0 |
 | v=2：跨段处 + 方向往下 | ✅ 压到下一段起点，差 0 |
 | v=2：每段改成正好一屏后 | 跨段只出现在 5/14 格的过渡帧，下一帧即被复位；无停点 |
-| v=2：段顶往上滚 | ⚠️ 落点算错一屏（取证中，见下） |
+| v=2：段顶往上滚 | ✅ 落点 1064（= 本段末贴屏底 = 下一段起点减一屏），差 0 |
 
 ## 结论
 
@@ -47,16 +47,67 @@
 - 用**目标位**算"会不会越过边线" → 一格只有约 90px，永远跨不过整条边线，判定从不触发。
 - 用**时间窗**（停手 N 毫秒后解除）代替方向 → 触控板会把一次手势打碎成很多帧、方向还会抖，时间窗测不准。
 
-未决：v=2 里"段顶往上滚"的落点还差一屏（应按方向取"上一段末尾对齐屏顶"）。这一条修复后再从本目录移植进正式页。
+## 产出物
 
-## 备份文件
+本实验交给下游的东西是**一个 ts**：
 
-| 文件 | 内容 |
+| 产出物 | |
 |---|---|
-| `prototype/scroll-lab.html` | v=1 / v=2 两档并列的实验室（最终采用 v=2 的引擎就在这份里） |
-| `prototype/one-page-lab.html` | 对照：单页长文档（无接管、无复位） |
-| `prototype/verify-v1.js` | 原状回归探针（段内收尾、跨段落点） |
-| `prototype/verify-v2.js` | 新形态逐条验收探针 |
-| `prototype/verify-edge.js` | 跨段停点复位探针 |
+| `prototype/reading-motion.ts` | **221 行**（空行 19 / 注释 43 / 有效代码 159）、**零依赖**（不 import 任何东西） |
 
-跑法：`npm run dev --prefix packages/apps`，然后开 `http://127.0.0.1:3000/scroll-lab.html?v=2`；探针内容是自执行函数，可用 CDP `Runtime.evaluate` 注入，或在控制台里粘贴执行。
+对外只有一个函数 `createMotion(tiers, options)`，加三个常量（`TAU = 0.7`、`RAMP_SECONDS = 0.5`、`easeOutCubic`）和三个类型（`TierSource`、`MotionState`、`MotionOptions`）。它把本实验的内联引擎按两条曲线拆开：
+
+- **滚轮尾巴**：指数收尾，时间常数 `TAU`，系数按真实帧间隔现算（任何刷新率下尾巴等长）；
+- **跨段吸附**：定时 glide，`RAMP_SECONDS` 三次缓出，落点用方向算出来而不是量出来。
+
+**与宿主解耦**是它能被复用的原因：`viewH` / `maxDoc` / `scrollY` / `scrollTo` / `now` 全部可注入，只有缺省时才落到 `window` 与 `document`。同一份代码因此既跑真页面，也能塞进假容器做逐帧回归。
+
+## structure
+
+```
+02-scroll-model/                 ← 一个实验
+├── README.md                    ← 实验设计和结论
+├── package.json                 ← 自带工具链：vite
+├── vite.config.ts               ← 端口 3011 + 编辑器暂存目录忽略
+├── .gitignore                   ← node_modules / .vite
+└── prototype/                   ← 实验页与探针，平铺
+    ├── scroll-lab.html          ← 原版实验室：v=1 / v=2 两档，引擎内联（算法出处）
+    ├── one-page-lab.html        ← 对照：单页长文档（无接管、无复位）
+    ├── reading-motion.ts        ← **产出物**：抽出来的 v=2 引擎
+    ├── lab-scroll.html          ← 精简版实验页，只驱动模块
+    ├── lab-motion.html          ← 最小接管页：给出段元素 / 转发滚轮 / 渲染读数
+    ├── lab-equivalence.html     ← 确定性等价回归：模块 vs 逐字抄的原版引擎
+    ├── probe-compare.js         ← 对照探针：同序列跑两页，比相对段界的偏移
+    ├── probe-motion.js          ← 模块探针：连滚 / 反向 / 掉头 / 第一动延迟
+    └── verify-{v1,v2,edge}.js   ← 原版三支验收探针
+```
+
+- 引擎只有一份：`prototype/reading-motion.ts`；`scroll-lab.html` 里的内联实现是它的出处，逐字保留、不再改动。
+- 三个 `lab-*.html` 是并列的消费者，各自独立驱动模块，互不 import。
+- 探针（`probe-*.js` / `verify-*.js`）是自执行函数，不 import 任何东西，用 CDP 注入页面执行。
+
+## 验证产物表
+
+| 形式 | 产物 | 证明什么 |
+|---|---|---|
+| prototype | `prototype/lab-equivalence.html` | 模块与**逐字抄的原版引擎**放进同一个假容器逐帧比对——5 个序列 3410 帧**逐位一致**（含向上滚、跨段后掉头、边界区抖动） |
+| prototype | `prototype/lab-scroll.html` | 手感载体：真浏览器、真滚轮、真 rAF |
+| prototype | `prototype/probe-motion.js` | 真页面上的行为取样：连滚 / 反向 / 掉头 / 第一动延迟 |
+
+## 最小 takeover
+
+`prototype/lab-motion.html`（66 行）——下游把引擎接起来最少要写的那点代码：
+`createMotion(() => [...document.querySelectorAll("section")])`、`motion.start()`，加一个 `preventDefault` 的滚轮监听转给 `motion.input(deltaY)`。
+
+## 跑法
+
+本目录自带构建配置与依赖，装一次即可：
+
+```sh
+npm install
+npm run dev
+```
+
+然后开 `http://localhost:3011/prototype/scroll-lab.html?v=2`（原版）或 `…/prototype/lab-scroll.html`（模块版）。
+`verify-*.js`、`probe-*.js` 都是自执行函数，可用 CDP `Runtime.evaluate` 注入到对应页面，或在控制台里粘贴执行；
+`lab-equivalence.html` 不用注入——打开就自己跑完并打出 PASS/FAIL。
