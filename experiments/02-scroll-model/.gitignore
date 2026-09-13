@@ -1,0 +1,3 @@
+# this experiment installs its own toolchain (see package.json)
+node_modules/
+.vite/

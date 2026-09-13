@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ambery · scroll lab (prototype)</title>
+    <title>scroll lab (prototype)</title>
     <!-- 丢弃式原型，两档对照（都在同一个文件里）：
          v=1 原状 —— 段=一屏 + 段内滚动 + 跨段接管；段内收尾时间常数 0.70s。
          v=2 新的 —— 页面高 = 全部段内容高度和（原生滚动条、没有内层滚动区），仍有吸附与接管：
                       接管时机**动态计算**：每帧算视口内各段占比，视口中心落在哪段就算哪段，
                       中心越过段边界那一刻接管，把边界滑到视口边缘（落点仍是段边界）。
-         访问 http://127.0.0.1:3000/scroll-lab.html?v=1 或 ?v=2 -->
+         访问 http://127.0.0.1:3011/prototype/scroll-lab.html?v=1 或 ?v=2 -->
     <style>
       :root {
         --bg: #1e1e2e;

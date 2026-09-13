@@ -1,0 +1,12 @@
+{
+  "name": "scroll-model-lab",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
+  },
+  "devDependencies": {
+    "vite": "^8.1.5"
+  }
+}
