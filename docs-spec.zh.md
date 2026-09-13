@@ -85,6 +85,7 @@
 - `case-eval-system.md` — case 表达式求值系统
 - `observability.md` — 可观测性基座：编译期强制所有概念模块可观测
 - `tools.md` — 开发工具集合：tools/ 目录脚本工具与 core 独立 bin 工具（locate / run-vite / ambery-activity）
+- `kitchen-sink.md` — 渲染层验证面：页面、渲染内容、控件与同步保证
 
 ### 能力与 benchmark
 

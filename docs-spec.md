@@ -84,6 +84,7 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 - `case-eval-system.md` — case expression evaluation system
 - `observability.md` — observability base: compile-time enforcement that all concept modules are observable
 - `tools.md` — development tool collection: tools/ directory script tools and core standalone bin tools (locate / run-vite / ambery-activity)
+- `kitchen-sink.md` — the rendering-layer verification surface: the page, what it renders, its controls, and its sync guarantees
 
 ### Capabilities and benchmark
 
