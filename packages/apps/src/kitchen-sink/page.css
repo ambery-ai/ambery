@@ -1,0 +1,26 @@
+/* 样张页专用基线（只在本页生效，不进应用样式表）。
+   应用侧 html/body 是 overflow: hidden + height: 100%——那是透明窗口的语义（窗口不滚动）；
+   浏览器整页看长内容必须放开滚动，否则文档高度永远等于视口高度，超出的内容直接被裁掉。
+   页面底色不在这里定：它来自当前主题（index.css 的 html.browser body）。
+   按 §原则「不自带颜色」，本文件不得出现任何非主题色值。 */
+html.browser,
+html.browser body {
+  overflow: auto;
+}
+
+html.browser body {
+  height: auto;
+  min-height: 100%;
+}
+
+/* 页面地：保持原来的渐变形状（左上打光、向外压暗），
+   但颜色全部由当前主题派生（强调色混进底色）——符合 §原则「不自带颜色」。
+   单一一种，不再可切换（"底"那行控件已删）。 */
+html.browser body {
+  background: radial-gradient(
+    120% 100% at 20% 0%,
+    color-mix(in srgb, var(--ov-accent) 16%, var(--ov-bg)) 0%,
+    var(--ov-bg) 55%,
+    color-mix(in srgb, var(--ov-text-strong) 4%, var(--ov-bg)) 100%
+  );
+}
