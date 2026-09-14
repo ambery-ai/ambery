@@ -26,7 +26,7 @@ one home per fact —— 一个主题只在一份文档完整陈述；他处提�
 
 放置规则：未决工作 → 开发 ticket / `docs/post-0.1.0.md`；调研 → `reports/`；契约 → `docs/`；概念 → `concepts.md`；技术选型、结构决定、取舍 → `spec.md`；入口 → `README.md`。
 
-公开文档集 = 上表全部。`drafts/`、`user-goals.md`、`ideas.md`、`debug-lessons.md`、`mem.md` 不公开，不进入公开仓库。
+公开文档集 = 上表全部。`drafts/`、`ideas.md`、`mem.md`、`frictions.md`、`tickets.md`、`map.md` 不公开，不进入公开仓库。
 
 ## 写作规则
 

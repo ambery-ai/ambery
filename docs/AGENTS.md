@@ -26,7 +26,7 @@ one home per fact — a topic is fully stated in only one document; when mention
 
 Placement rules: undecided work → development tickets / `docs/post-0.1.0.md`; research → `reports/`; contracts → `docs/`; concepts → `concepts.md`; technology choices, structural decisions, tradeoffs → `spec.md`; entry → `README.md`.
 
-The public document set = all rows of the table above. `drafts/`, `user-goals.md`, `ideas.md`, `debug-lessons.md`, and `mem.md` are not public and do not enter the public repo.
+The public document set = all rows of the table above. `drafts/`, `ideas.md`, `mem.md`, `frictions.md`, `tickets.md`, and `map.md` are not public and do not enter the public repo.
 
 ## Writing rules
 
