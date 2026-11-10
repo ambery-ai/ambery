@@ -14,3 +14,4 @@ __pycache__/
 
 # Local agent workspace (private, separate repo)
 .claude/
+.agents/
