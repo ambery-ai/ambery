@@ -58,7 +58,7 @@ All rows of the table above constitute the public document set.
 - Use English for the default documentation file and Simplified Chinese for its `.zh.md` counterpart.
 - Keep both language versions equivalent in meaning and update them together.
 - Write agent instruction files, including `AGENTS.md`, in English only; they are exempt from bilingual pairing.
-- Use English for code identifiers, strings, and domain terms.
+- Use English for code identifiers and domain terms; user-facing messages follow the interface language and are quoted as-is in the docs.
 - Document language and commit-message language are separate conventions.
 
 ## Code-to-document reference rules
