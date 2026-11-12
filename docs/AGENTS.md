@@ -1,7 +1,5 @@
 # AGENTS.md — Documentation standards
 
-English | [中文](AGENTS.zh.md)
-
 > Responsibility boundaries (which document says what) belong to `docs-spec.md`; this file only governs "how to write". Before changing any document, read this file and `docs-spec.md` first.
 
 ## Document structure
@@ -26,7 +24,7 @@ one home per fact — a topic is fully stated in only one document; when mention
 
 Placement rules: undecided work → development tickets / `docs/post-0.1.0.md`; research → `reports/`; contracts → `docs/`; concepts → `concepts.md`; technology choices, structural decisions, tradeoffs → `spec.md`; entry → `README.md`.
 
-The public document set = all rows of the table above. Keep `drafts/`, `ideas.md`, `mem.md`, `frictions.md`, `tickets.md`, and `map.md` local; never commit them.
+All rows of the table above constitute the public document set.
 
 ## Writing rules
 
@@ -57,9 +55,11 @@ The public document set = all rows of the table above. Keep `drafts/`, `ideas.md
 
 ## Language rules
 
-- Language direction = Chinese / English bilingual (the English version is implemented as a follow-up task); currently Chinese-first.
-- No third-language mixing.
-- Code identifiers, strings, and domain terms use English.
+- Use English for the default documentation file and Simplified Chinese for its `.zh.md` counterpart.
+- Keep both language versions equivalent in meaning and update them together.
+- Write agent instruction files, including `AGENTS.md`, in English only; they are exempt from bilingual pairing.
+- Use English for code identifiers, strings, and domain terms.
+- Document language and commit-message language are separate conventions.
 
 ## Code-to-document reference rules
 

@@ -1,41 +1,43 @@
 # AGENTS.md
 
-Ambery 是 Tauri 多窗口桌宠（pet/chat/menu/shelf/card）+ Rust core。改动前先读对应 docs/ 域文档。
+Ambery is a Tauri multi-window desktop pet (pet / chat / menu / shelf / card) plus a Rust core. Read the matching doc under `docs/` before changing anything.
 
-## Docs-driven 开发
+Keep internal material private; exclude it with `.gitignore`.
 
-- 以文档为单位开发：新代码/新能力先落对应文档（契约进 docs/、概念进 concepts.md、技术选型与结构决定进 spec.md），文档间有冲突先删冲突再实现。
-- 讨论中定下的原则与决定，记录进对应的文档。
+## Docs-driven development
 
-## 提交信息
+- Develop document by document: land new code or a new capability in the matching document first (contracts in `docs/`, concepts in `concepts.md`, technology and structural decisions in `spec.md`); when documents conflict, remove the conflict before implementing.
+- Record principles and decisions settled in discussion in the matching document.
 
-- 精简：subject 一句概括改动即可，不写长 body。
-- 提交信息用英文（开源规范：subject 英文，国际协作与工具链友好）。
-- 这是一个开源的项目，需要避免在项目和提交信息中加入任何敏感信息。
+## Commit messages
 
-## 运行与构建
+- Concise: a one-sentence subject is enough; no long body.
+- Write commit messages in English (open-source norm: English subject, friendly to international collaboration and tooling).
+- This is an open-source project: never put sensitive information in the project or in commit messages.
 
-- 壳必须经 tauri CLI：`npx tauri dev`（开发热更，连 vite 3000）或 `npx tauri build`（生产，嵌 dist 出安装包）。
-- 裸 `cargo build` 保持 dev 模式但不带 vite，跑起来"127.0.0.1 拒绝连接"，只做编译检查。
-- CI（push/PR，三平台门禁）：Rust 测试（默认 + case-runner）、前端 tsc/token 守卫/双语配对、frontend vitest、shell cargo check。本地改完至少跑 `cargo test --workspace`。
-- Release：`v*` tag 或 workflow_dispatch 触发 → 三平台 `npx tauri build` 出安装包传 Release。
+## Run and build
+
+- The shell must go through the tauri CLI: `npx tauri dev` (dev with hot reload, connecting vite on 3000) or `npx tauri build` (production, embeds dist and produces an installer).
+- A bare `cargo build` stays in dev mode without vite and fails at runtime with "127.0.0.1 refused to connect"; use it for compile checks only.
+- CI (push/PR, three-platform gate): Rust tests (default + case-runner), frontend tsc / token guard / bilingual pairing, frontend vitest, shell cargo check. Locally, run at least `cargo test --workspace` after changes.
+- Release: a `v*` tag or workflow_dispatch triggers `npx tauri build` on three platforms and uploads the installers to the Release.
 
 ## Debug
 
-手段按覆盖领域：
+Pick the tool by the domain it covers:
 
-- `cargo test --workspace` → core 逻辑（Rust 测试）。
-- `cargo run -p ambery-case -- <case.case>` → 行为复现（两段式 .case 回放；`--health` 校验 / `export` 从 storage 造 case）。
-- `cargo run -p ambery-case -- frontend --silent` → 前端行为（headless，嵌 core + vitest）。
-- `cargo run -p ambery-case -- serve --brain-addr <url>` → 端到端链路（配合 LLM 替身 `python3 scripts/debug_brain.py` 与前端 `npm run dev`，浏览器观察）。
-- tauri CLI（`npx tauri dev` / `build`）→ 壳层（窗口、构建形态）。
-- `tools/locate.ps1` → 定位 Ambery 所有窗口的位置/尺寸/可见性（表格式输出）。
+- `cargo test --workspace` → core logic (Rust tests).
+- `cargo run -p ambery-case -- <case.case>` → behavior reproduction (two-stage .case replay; `--health` validates / `export` builds a case from storage).
+- `cargo run -p ambery-case -- frontend --silent` → frontend behavior (headless, embeds core + vitest).
+- `cargo run -p ambery-case -- serve --brain-addr <url>` → end-to-end path (with the LLM stand-in `python3 scripts/debug_brain.py` and the frontend `npm run dev`, observe in a browser).
+- tauri CLI (`npx tauri dev` / `build`) → shell layer (windows, build form).
+- `tools/locate.ps1` → locate every Ambery window's position / size / visibility (table output).
 
-## 存储 JSONL 输出文件
+## Storage JSONL output files
 
-默认目录 `~/.config/ambery/storage/`（`AMBERY_STORAGE_DIR` 可覆盖），app 运行产物，调试/回放用。各文件契约见 [docs/storage.md](docs/storage.md)（one home per fact）。
+Default directory `~/.config/ambery/storage/` (`AMBERY_STORAGE_DIR` overrides it); these are app runtime artifacts used for debugging and replay. Each file's contract lives in [docs/storage.md](docs/storage.md) (one home per fact).
 
 ## User Goals
 
-- UI 交互禁止浏览器原生弹窗（alert / prompt / confirm）：错误与输入用应用内 UI 元素表达（内联提示 / 内联表单），不用系统对话框。
-- (.gitignore) 注释全用英文。
+- UI interactions must not use native browser dialogs (alert / prompt / confirm): express errors and input through in-app UI elements (inline hints / inline forms), never system dialogs.
+- (.gitignore) Comments are all in English.

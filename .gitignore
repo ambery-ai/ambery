@@ -15,3 +15,12 @@ __pycache__/
 # Local agent workspace (private, separate repo)
 .claude/
 .agents/
+
+# Local-only working files (never committed)
+drafts/
+plans/
+ideas.md
+mem.md
+frictions.md
+tickets.md
+map.md

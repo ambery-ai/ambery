@@ -1,6 +1,6 @@
 // 双语文档配对校验（对齐 DSH i18n 纪律）：
 // 1. 每个 foo.zh.md 必须有对应 foo.md（docs/、根 concepts/spec/docs-spec、README/CONTRIBUTING）；
-// 2. 每个待翻译 foo.md 必须有 foo.zh.md；
+// 2. 每个待翻译 foo.md 必须有 foo.zh.md（agent 指令文件 docs/AGENTS.md 单语英文，豁免）；
 // 3. 配对两侧不得完全相同（同内容 = 未翻译/复制占位）。
 // 退出码非零 = 违规（列出全部问题）。
 
@@ -35,7 +35,7 @@ const rootFiles = [
   "docs-spec.md", "docs-spec.zh.md",
 ];
 const files = walk(join(root, "docs"))
-  .map((p) => p.slice(root.length + 1))
+  .map((p) => p.slice(root.length + 1).split("\\").join("/"))
   .concat(rootFiles.filter((f) => existsSync(join(root, f))));
 const zh = new Set(files.filter((f) => f.endsWith(".zh.md")));
 const en = new Set(files.filter((f) => f.endsWith(".md") && !f.endsWith(".zh.md")));
@@ -44,8 +44,10 @@ for (const f of zh) {
   const pair = f.slice(0, -".zh.md".length) + ".md";
   if (!en.has(pair)) fail(`中文 ${f} 缺英文配对 ${pair}`);
 }
+// 单语文件：agent 指令文件只写英文，不参与配对
+const singleLanguage = new Set(["docs/AGENTS.md"]);
 for (const f of en) {
-  if (f.endsWith(".i18n.md")) continue;
+  if (f.endsWith(".i18n.md") || singleLanguage.has(f)) continue;
   const pair = f.slice(0, -".md".length) + ".zh.md";
   if (!zh.has(pair)) fail(`英文 ${f} 缺中文配对 ${pair}`);
 }
