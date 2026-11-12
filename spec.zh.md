@@ -8,9 +8,10 @@
 
 ```
 ambery/
+├── core/                          本体 crate（ambery-core + bins）
+├── observe-derive/                Observe 宏 proc-macro crate（ambery-observe-derive）
 ├── packages/                      包拆分
-│   ├── core/                      本体 crate（ambery-core + observe-derive + bins）
-│   ├── case-runner/                测试回放引擎（ambery-case）
+│   ├── case-runner/               测试回放引擎（ambery-case）
 │   ├── terminal-lib/              契约 crate
 │   ├── terminals/                 每终端一包
 │   │   ├── wt/                    C# UIA sidecar
@@ -26,11 +27,12 @@ ambery/
 ├── docs/                          契约文档（docs-spec.zh.md）
 ├── experiments/                   一次性原型
 ├── reports/                       调研结论
-├── scripts/  tools/               开发脚本与诊断工具
+├── scripts/                       开发脚本
+├── tools/                         诊断工具
 └── Cargo.toml                     workspace 清单
 ```
 
-- Spec 分布：每个有 crate 的包在自己的目录下带 spec（`packages/case-runner/spec.md`、`packages/terminal-lib/spec.md`、`packages/apps/spec.md`、`packages/terminals/wt|zellij/spec.md`、`packages/agents/claude|opencode/spec.md`）；根文件（本文件）承载结构与本体的技术选型。
+- Spec 分布：`packages/` 下每个有 crate 的包在自己的目录下带 spec（`packages/case-runner/spec.md`、`packages/terminal-lib/spec.md`、`packages/apps/spec.md`、`packages/terminals/wt|zellij/spec.md`、`packages/agents/claude|opencode/spec.md`）；根文件（本文件）承载结构与本体的技术选型。
 - 依赖：`core` → `terminal-lib` 仅此；`terminals/*` 与 `agents/*` → `terminal-lib` 仅此；终端/agent 包之间互不依赖、也不依赖 core；`apps/*` → `core`；`case` → 全部（只读服务）。激活的终端/agent 包的组装发生在二进制/配置层，因此二进制（`apps/*`、`case`、core 自带的 bins）可以为接线额外依赖终端/agent crate。协议（concepts §Ambery Protocol）是跨包共享的契约。
 
 ## 技术选型（本体）

@@ -8,9 +8,10 @@ English | [中文](spec.zh.md)
 
 ```
 ambery/
+├── core/                          host crate (ambery-core + bins)
+├── observe-derive/                Observe macro proc-macro crate (ambery-observe-derive)
 ├── packages/                      package split
-│   ├── core/                      host crate (ambery-core + observe-derive + bins)
-│   ├── case-runner/                test replay engine (ambery-case)
+│   ├── case-runner/               test replay engine (ambery-case)
 │   ├── terminal-lib/              contract crate
 │   ├── terminals/                 one package per terminal
 │   │   ├── wt/                    C# UIA sidecar
@@ -26,11 +27,12 @@ ambery/
 ├── docs/                          contract documents (docs-spec.md)
 ├── experiments/                   throwaway prototypes
 ├── reports/                       research conclusions
-├── scripts/  tools/               development scripts and diagnostics
+├── scripts/                       development scripts
+├── tools/                         diagnostic tools
 └── Cargo.toml                     workspace manifest
 ```
 
-- Specs: each crate-bearing package carries its own spec under its directory (`packages/case-runner/spec.md`, `packages/terminal-lib/spec.md`, `packages/apps/spec.md`, `packages/terminals/wt|zellij/spec.md`, `packages/agents/claude|opencode/spec.md`); the root file (this document) holds the structure and the host technology choices.
+- Specs: each crate-bearing package under `packages/` carries its own spec under its directory (`packages/case-runner/spec.md`, `packages/terminal-lib/spec.md`, `packages/apps/spec.md`, `packages/terminals/wt|zellij/spec.md`, `packages/agents/claude|opencode/spec.md`); the root file (this document) holds the structure and the host technology choices.
 - Dependencies: `core` → `terminal-lib` only; `terminals/*` and `agents/*` → `terminal-lib` only; terminal/agent packages never depend on each other or on core; `apps/*` → `core`; `case` → all (read-only service). Assembly of active terminal/agent packages happens at the binary/config layer, so binaries (`apps/*`, `case`, core's own bins) may additionally depend on terminal/agent crates for wiring. The protocol (concepts §Ambery Protocol) is the contract shared across packages.
 
 ## Technology choices (host)
