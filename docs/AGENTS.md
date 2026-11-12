@@ -1,6 +1,6 @@
 # AGENTS.md — Documentation standards
 
-> Responsibility boundaries (which document says what) belong to `docs-spec.md`; this file only governs "how to write". Before changing any document, read this file and `docs-spec.md` first.
+> Responsibility boundaries (which document says what) belong to [docs-spec.md](../docs-spec.md); this file only governs "how to write". Before changing any document, read this file and [docs-spec.md](../docs-spec.md) first.
 
 ## Document structure
 
@@ -13,16 +13,16 @@ one home per fact — a topic is fully stated in only one document; when mention
 
 | Layer | Responsibility | Not here |
 |---|---|---|
-| `docs-spec.md` | Navigation: responsibility map and admission boundaries for `docs/*.md` and `concepts.md` | Writing rules (→ this file), document body |
+| [docs-spec.md](../docs-spec.md) | Navigation: responsibility map and admission boundaries for `docs/*.md` and [concepts.md](../concepts.md) | Writing rules (→ this file), document body |
 | `docs/*.md` | Contract body: one topic per file (defined by the docs-spec responsibility map) | Other documents' topics (→ link) |
-| `concepts.md` | Concept model: domain terms and layering | Implementation mechanisms (→ `docs/`) |
-| `spec.md` | Technology choices, structural decisions, tradeoffs | Runtime mechanisms (→ `docs/`), concept definitions (→ `concepts.md`) |
+| [concepts.md](../concepts.md) | Concept model: domain terms and layering | Implementation mechanisms (→ `docs/`) |
+| [spec.md](../spec.md) | Technology choices, structural decisions, tradeoffs | Runtime mechanisms (→ `docs/`), concept definitions (→ [concepts.md](../concepts.md)) |
 | `reports/` | Research conclusions: evidence + conclusion | Process records, contract body |
 | Root `README.md` | Project entry: what it is, quickstart, platform matrix | Architecture details (→ `docs/`) |
-| `docs/roadmap.md` | Release ladder: themes and acceptance toward 0.1.0 | Ticket-level planning, contract body |
-| This file | Repo-wide documentation writing standard | Responsibility map (→ `docs-spec.md`) |
+| [roadmap.md](roadmap.md) | Release ladder: themes and acceptance toward 0.1.0 | Ticket-level planning, contract body |
+| This file | Repo-wide documentation writing standard | Responsibility map (→ [docs-spec.md](../docs-spec.md)) |
 
-Placement rules: undecided work → development tickets / `docs/post-0.1.0.md`; research → `reports/`; contracts → `docs/`; concepts → `concepts.md`; technology choices, structural decisions, tradeoffs → `spec.md`; entry → `README.md`.
+Placement rules: undecided work → development tickets / `docs/post-0.1.0.md`; research → `reports/`; contracts → `docs/`; concepts → [concepts.md](../concepts.md); technology choices, structural decisions, tradeoffs → [spec.md](../spec.md); entry → `README.md`.
 
 All rows of the table above constitute the public document set.
 
@@ -50,7 +50,7 @@ All rows of the table above constitute the public document set.
 
 ## Link rules
 
-- Repo references always use relative Markdown path links; bare filenames are forbidden.
+- Reference another document with a Markdown link: the link text is the repository-root path (`docs/terminal/wt/sidecar.md`; [concepts.md](../concepts.md) for a file at the root), the target is the path relative to the current file. Within the same folder the bare filename serves as both text and target.
 - Link targets must exist and anchors must not break; check references when modifying a linked document.
 
 ## Language rules
@@ -64,9 +64,9 @@ All rows of the table above constitute the public document set.
 ## Code-to-document reference rules
 
 - Code files must not contain any document-name references (`docs/*.md`, `concepts`, `spec`, etc.); comments express meaning only.
-- Document navigation is borne by `docs-spec.md`; code bears no links to documents.
+- Document navigation is borne by [docs-spec.md](../docs-spec.md); code bears no links to documents.
 
 ## Mandatory process
 
-- Before changing any document: first read `docs-spec.md` (responsibilities) and this file (standards).
+- Before changing any document: first read [docs-spec.md](../docs-spec.md) (responsibilities) and this file (standards).
 - Commit document changes separately from code changes (atomic commit granularity, for review and rollback).
