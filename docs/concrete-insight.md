@@ -21,7 +21,7 @@ timer_scan          ambery.rs:1449   "[Scan] {name} updated ({len} characters)"
 cron_tick           server.rs:521      cron scheduled due message
 ```
 
-In the Queue, System messages = 8 source categories. There is also one category of User messages (sent directly from the user chat panel, server.rs:199) that does not belong to the System classification but still goes through Queue admission. See `docs/effort.md` for the mapping between sources and effort tiers.
+In the Queue, System messages = 8 source categories. There is also one category of User messages (sent directly from the user chat panel, server.rs:199) that does not belong to the System classification but still goes through Queue admission. See [effort.md](effort.md) for the mapping between sources and effort tiers.
 
 ## Context → LLM API Role Mapping
 

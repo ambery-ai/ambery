@@ -6,7 +6,7 @@ Nine function definitions callable by pet (call_component / fetch_terminal / set
 
 ## Scope of this document
 
-This document defines each tool's parameter schema, return structure, and call semantics; for tool turn budgets and trigger termination policy see `docs/agent-loop.md`.
+This document defines each tool's parameter schema, return structure, and call semantics; for tool turn budgets and trigger termination policy see [agent-loop.md](agent-loop.md).
 
 ## call_component
 
@@ -77,15 +77,15 @@ Overrides Autonomy's expression/movement. Falls back to default after ttlMs.
 
 ## Memory and Cron
 
-The following tools access Harness's Memory / Cron persistence concepts; they do not let the Agent directly read or write arbitrary files or execute arbitrary commands. For the data boundaries of Memory / Cron see `docs/harness.md`.
+The following tools access Harness's Memory / Cron persistence concepts; they do not let the Agent directly read or write arbitrary files or execute arbitrary commands. For the data boundaries of Memory / Cron see [harness.md](harness.md).
 
 | tool | Contract |
 |---|---|
-| `read_memory` | reads the persistent understanding Markdown; name omitted = reads index.md navigation. Full schema in `docs/memory.md` |
-| `write_memory` | creates or fully replaces one fragmented memory; must include a description, subject to the per-file length cap. Full schema in `docs/memory.md` |
-| `cron_create` | creates a Harness persistent plan (schedule: at/every_ms + message). Full schema in `docs/cron.md` |
-| `cron_delete` | deletes a persistent plan (id). Full schema in `docs/cron.md` |
-| `sleep` | delays the tool result via the same Harness scheduler (0–300000ms), then continues the planned tool sequence. Full schema in `docs/cron.md` |
+| `read_memory` | reads the persistent understanding Markdown; name omitted = reads index.md navigation. Full schema in [memory.md](memory.md) |
+| `write_memory` | creates or fully replaces one fragmented memory; must include a description, subject to the per-file length cap. Full schema in [memory.md](memory.md) |
+| `cron_create` | creates a Harness persistent plan (schedule: at/every_ms + message). Full schema in [cron.md](cron.md) |
+| `cron_delete` | deletes a persistent plan (id). Full schema in [cron.md](cron.md) |
+| `sleep` | delays the tool result via the same Harness scheduler (0–300000ms), then continues the planned tool sequence. Full schema in [cron.md](cron.md) |
 
 ## edit_config
 

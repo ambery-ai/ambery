@@ -2,11 +2,11 @@
 
 [English](card-window-size.md) | 中文
 
-> 本文定义 Card 窗口尺寸如何确定：唯一来源、向 Card 文件的投影、触发重算的输入变化，以及从投影到建窗的路径。坐标单位与显示缩放换算归 `docs/window-follow.md`；Card 文件字段清单归 `docs/components.md`；pet 窗口尺寸归 `docs/pet-window-size.md`。
+> 本文定义 Card 窗口尺寸如何确定：唯一来源、向 Card 文件的投影、触发重算的输入变化，以及从投影到建窗的路径。坐标单位与显示缩放换算归 [window-follow.md](window-follow.md)；Card 文件字段清单归 [components.md](components.md)；pet 窗口尺寸归 [pet-window-size.md](pet-window-size.md)。
 
 ## 定义
 
-一个 Card 窗口渲染恰好一张 Card（`docs/multi-window.md`）。它的尺寸是该 OS 窗口的物理尺寸，不是 Card 内容盒的尺寸：Card 的 `min-width` / `max-width` 是窗口内部的样式上限，窗口才是用户看到的那层包裹。
+一个 Card 窗口渲染恰好一张 Card（[multi-window.md](multi-window.md)）。它的尺寸是该 OS 窗口的物理尺寸，不是 Card 内容盒的尺寸：Card 的 `min-width` / `max-width` 是窗口内部的样式上限，窗口才是用户看到的那层包裹。
 
 ## 唯一来源
 
@@ -64,7 +64,7 @@ Card body 的高度上限是一个固定常量——与宽度上限同一个布�
 
 ## 投影
 
-算出的尺寸投影进 Card 文件，供其它组件直接读而不必重跑计算：`_meta.layout.size` 存 `[width, height]`，单位 CSS px；`_meta.layout.layoutVersion` 存决定尺寸的输入标识（布局常量 + 字体标识）——值不等于当前输入标识的投影即过期。字段清单与文件契约归 `docs/components.md` §Card 文件（.card.json）；本文只拥有尺寸字段的语义。
+算出的尺寸投影进 Card 文件，供其它组件直接读而不必重跑计算：`_meta.layout.size` 存 `[width, height]`，单位 CSS px；`_meta.layout.layoutVersion` 存决定尺寸的输入标识（布局常量 + 字体标识）——值不等于当前输入标识的投影即过期。字段清单与文件契约归 [components.md](components.md) §Card 文件（.card.json）；本文只拥有尺寸字段的语义。
 
 Card 文件的唯一写入方是 core；前端产出尺寸，经 Card 写入通路请求落盘。
 
@@ -74,7 +74,7 @@ Card 文件的唯一写入方是 core；前端产出尺寸，经 Card 写入通�
 
 投影里的尺寸以 CSS px 存储，与显示缩放无关：缩放系数不是尺寸计算的输入，也不出现在 `layoutVersion` 里；卡片被挪到缩放不同的显示器上时，投影不变。
 
-转成物理像素只在进入 engine 与 OS 的边界发生一次（`docs/window-follow.md` §坐标单位契约）。物理尺寸按**目标显示器**的缩放系数推导——即窗口被放置的那块屏，而不是 Card 窗口自己启动时的 `devicePixelRatio`——并**向上取整**，因此分数缩放不会给出比内容更小的窗口。放置与尺寸一起计算，并在窗口落到目标屏之后一次应用，物理尺寸从不按窗口起始所在的那块屏推导。
+转成物理像素只在进入 engine 与 OS 的边界发生一次（[window-follow.md](window-follow.md) §坐标单位契约）。物理尺寸按**目标显示器**的缩放系数推导——即窗口被放置的那块屏，而不是 Card 窗口自己启动时的 `devicePixelRatio`——并**向上取整**，因此分数缩放不会给出比内容更小的窗口。放置与尺寸一起计算，并在窗口落到目标屏之后一次应用，物理尺寸从不按窗口起始所在的那块屏推导。
 
 ## 重算触发
 
@@ -91,11 +91,11 @@ Card 文件的唯一写入方是 core；前端产出尺寸，经 Card 写入通�
 
 ## 建窗
 
-Card 窗口按 Card 文件投影里的尺寸创建，尺寸在建窗之前读取。Card 窗口从不自己改尺寸：不调 `setSize`，也不存在 show 之后的测量循环。create / reuse / close 的决策仍归壳（`docs/case-runner.md` §窗口决策上提）；本文只拥有建窗时使用的那个尺寸。
+Card 窗口按 Card 文件投影里的尺寸创建，尺寸在建窗之前读取。Card 窗口从不自己改尺寸：不调 `setSize`，也不存在 show 之后的测量循环。create / reuse / close 的决策仍归壳（[case-runner.md](case-runner.md) §窗口决策上提）；本文只拥有建窗时使用的那个尺寸。
 
 ## 与 pet 尺寸的关系
 
-pet 尺寸是对脸宽、缩放与动作的闭式公式（`docs/pet-window-size.md`）：pet 的内容是固定的，公式就是全部契约。Card 的内容是任意的，所以尺寸由内容算出。两者都是唯一来源，都不从活动窗口量取。
+pet 尺寸是对脸宽、缩放与动作的闭式公式（[pet-window-size.md](pet-window-size.md)）：pet 的内容是固定的，公式就是全部契约。Card 的内容是任意的，所以尺寸由内容算出。两者都是唯一来源，都不从活动窗口量取。
 
 ## 验收
 

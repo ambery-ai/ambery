@@ -6,7 +6,7 @@ Keep internal material private; exclude it with `.gitignore`.
 
 ## Docs-driven development
 
-- Develop document by document: land new code or a new capability in the matching document first (contracts in `docs/`, concepts in `concepts.md`, technology and structural decisions in `spec.md`); when documents conflict, remove the conflict before implementing.
+- Develop document by document: land new code or a new capability in the matching document first (contracts in `docs/`, concepts in [concepts.md](concepts.md), technology and structural decisions in [spec.md](spec.md)); when documents conflict, remove the conflict before implementing.
 - Record principles and decisions settled in discussion in the matching document.
 
 ## Commit messages

@@ -3,11 +3,11 @@
 English | [中文](effect-reporting.zh.md)
 
 > Concept: all **non-readonly Tauri runtime actions** uniformly enter the effect stream (docs/case-runner.md
-> §Tauri runtime actions observable: `(Tauri runtime actions − readonly) ⊆ effects`). Tauri runtime actions cover both the WebView `@tauri-apps/api` and the Rust shell `tauri` API; for the action-stream format and record points see `docs/storage.md` §effect.jsonl. This document defines the runtime action layer, channels, kind/payload, packing rules, and the instrumentation checklist.
+> §Tauri runtime actions observable: `(Tauri runtime actions − readonly) ⊆ effects`). Tauri runtime actions cover both the WebView `@tauri-apps/api` and the Rust shell `tauri` API; for the action-stream format and record points see [storage.md](storage.md) §effect.jsonl. This document defines the runtime action layer, channels, kind/payload, packing rules, and the instrumentation checklist.
 
 ## Principles
 
-> **Scope of this document** — this document defines the runtime action layer, its channels, `kind`/`payload`, the packing rules, and the instrumentation checklist; the action-stream format and record points belong to `docs/storage.md`, and the observability requirement itself to `docs/case-runner.md`.
+> **Scope of this document** — this document defines the runtime action layer, its channels, `kind`/`payload`, the packing rules, and the instrumentation checklist; the action-stream format and record points belong to [storage.md](storage.md), and the observability requirement itself to [case-runner.md](case-runner.md).
 
 > **Every non-readonly action enters, readonly actions never enter** — side-effecting Tauri runtime actions are uniformly reported into the action stream; pure read calls do not enter.
 

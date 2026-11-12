@@ -13,7 +13,7 @@ English | [中文](llm-setup.zh.md)
 
 ## Principles
 
-> **Scope of this document** — this document defines the first-run setup guide: the unconfigured default, the setup modal and its schema-driven rendering, the connection test, and the app-level env layer; error presentation belongs to [errors.md](errors.md), and the Config fields it renders to `docs/config.md`.
+> **Scope of this document** — this document defines the first-run setup guide: the unconfigured default, the setup modal and its schema-driven rendering, the connection test, and the app-level env layer; error presentation belongs to [errors.md](errors.md), and the Config fields it renders to [config.md](config.md).
 
 > **Unconfigured is the honest default** — a fresh install has no LLM configured; the default state must say so.
 

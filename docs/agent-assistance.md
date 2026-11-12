@@ -4,7 +4,7 @@ English | [中文](agent-assistance.zh.md)
 
 ## Principles
 
-> **Scope of this document** — this document defines the end-state work-collaboration capability goals of Agent Assistance; it does not define capability plans, generalization tasks, evaluation projects, coverage, or evolution — see `docs/capability-evaluation-project.md`; nor does it define the Case Runner infrastructure — see `docs/case-runner.md`.
+> **Scope of this document** — this document defines the end-state work-collaboration capability goals of Agent Assistance; it does not define capability plans, generalization tasks, evaluation projects, coverage, or evolution — see [capability-evaluation-project.md](capability-evaluation-project.md); nor does it define the Case Runner infrastructure — see [case-runner.md](case-runner.md).
 
 ## Agent Assistance
 

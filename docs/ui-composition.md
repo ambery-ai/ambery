@@ -2,7 +2,7 @@
 
 English | [中文](ui-composition.zh.md)
 
-> What each Surface is belongs to concepts.md §Surface and `docs/multi-window.md`; window creation, placement and coordinate units to `docs/window-follow.md`; Card size derivation to `docs/card-window-size.md`; theme values to `docs/theme.md`; module layering and data flow to `docs/module-storage-flow.md`.
+> What each Surface is belongs to concepts.md §Surface and [multi-window.md](multi-window.md); window creation, placement and coordinate units to [window-follow.md](window-follow.md); Card size derivation to [card-window-size.md](card-window-size.md); theme values to [theme.md](theme.md); module layering and data flow to [module-storage-flow.md](module-storage-flow.md).
 
 ## Principles
 
@@ -20,8 +20,8 @@ widget tiers       component   atoms, composites and business components
 DOM                rendering   what the user sees
 ```
 
-- A window is a host object. A component never creates, sizes, moves or shows a window; that belongs to the window layer (`docs/module-storage-flow.md`).
-- The window component is the window's frame and mount convention: it renders the frame and exactly one Surface's content. The window's size is the host's decision (`docs/pet-window-size.md`, `docs/card-window-size.md`, `docs/multi-window.md`); the component never asks for a size. A title bar is optional chrome, not a window property — a window that has one wraps its content in `Panel`; pet and the Cards Shelf have none, and a Card's title comes from its content.
+- A window is a host object. A component never creates, sizes, moves or shows a window; that belongs to the window layer ([module-storage-flow.md](module-storage-flow.md)).
+- The window component is the window's frame and mount convention: it renders the frame and exactly one Surface's content. The window's size is the host's decision ([pet-window-size.md](pet-window-size.md), [card-window-size.md](card-window-size.md), [multi-window.md](multi-window.md)); the component never asks for a size. A title bar is optional chrome, not a window property — a window that has one wraps its content in `Panel`; pet and the Cards Shelf have none, and a Card's title comes from its content.
 - One Card component serves every container: the same Card renders inside its own window and inside a container surface.
 
 ## Window assembly
@@ -79,7 +79,7 @@ WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html#chat".into()
 - A tier-1 widget either wraps a tier-0 primitive with this project's variants, or is written here when bits-ui has no counterpart.
 - Dependency is one-way: 2 → 1 → 0; a tier-2 component does not use a tier-0 primitive directly.
 - Variants belong to tier 1. A tier-2 component composes and places; it defines no appearance rule of its own.
-- A widget's height is a declared layout constant, never content-driven (`docs/card-window-size.md` §Content blocks).
+- A widget's height is a declared layout constant, never content-driven ([card-window-size.md](card-window-size.md) §Content blocks).
 - Something becomes a widget when it appears in more than one place or carries a behaviour or accessibility contract; a one-off layout stays inline.
 - `Panel` renders a title bar and a close button; what closing means is the caller's callback — hiding a window, dismissing a Card — not the widget's decision.
 
@@ -94,7 +94,7 @@ WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html#chat".into()
 | motion | Svelte transitions | `transition:`, `animate:flip` |
 | instance override | the caller's `class` | a local adjustment |
 
-Discipline: a utility reads tokens and never a literal value; a variant uses utilities and primitive state; an instance override adjusts and never redefines; the theme layer carries no size (`docs/card-window-size.md` §Recompute triggers). A scroll container wears the theme's scrollbar — a thin bar with the theme's thumb colour (`--ov-scrollbar-thumb`) — because the platform scrollbar does not follow the theme and paints a light track across the dark panels. In a transparent window the panel silhouette is the visible boundary: a layer that fills the window — the modal dim — carries the panel radius (`--ov-panel-radius`), or it paints square corners over the desktop. Text selection follows the chrome/content split: chrome — titles, buttons, labels — is not selectable; content — message bodies, Card text, code — is.
+Discipline: a utility reads tokens and never a literal value; a variant uses utilities and primitive state; an instance override adjusts and never redefines; the theme layer carries no size ([card-window-size.md](card-window-size.md) §Recompute triggers). A scroll container wears the theme's scrollbar — a thin bar with the theme's thumb colour (`--ov-scrollbar-thumb`) — because the platform scrollbar does not follow the theme and paints a light track across the dark panels. In a transparent window the panel silhouette is the visible boundary: a layer that fills the window — the modal dim — carries the panel radius (`--ov-panel-radius`), or it paints square corners over the desktop. Text selection follows the chrome/content split: chrome — titles, buttons, labels — is not selectable; content — message bodies, Card text, code — is.
 
 ## Component principles
 
@@ -102,7 +102,7 @@ A component carries rendering only; the rules below are that principle applied t
 
 - A component does not call IPC, the positioning engine, storage or the Harness; data arrives through props and leaves through callbacks.
 - Inputs are props (data) and snippets (structure); outputs are DOM and events.
-- A component never derives size; size comes from the size model (`docs/card-window-size.md`).
+- A component never derives size; size comes from the size model ([card-window-size.md](card-window-size.md)).
 
 ## Naming and files
 

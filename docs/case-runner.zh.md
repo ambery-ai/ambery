@@ -6,7 +6,7 @@ Storage 快照驱动的回归测试与概念观测工具；兼承接 CLI 决策�
 
 ## 原则
 
-> **本文档范围**——本文只定义 runner 基础设施：运行机制、沙盒隔离、`.case` 格式、step、observe、health、导出与 CLI；不定义 agent 应具备的能力、能力计划或 Case 覆盖策略，见 `docs/capability-evaluation-project.md`。
+> **本文档范围**——本文只定义 runner 基础设施：运行机制、沙盒隔离、`.case` 格式、step、observe、health、导出与 CLI；不定义 agent 应具备的能力、能力计划或 Case 覆盖策略，见 [capability-evaluation-project.md](capability-evaluation-project.md)。
 
 > **快照即真相**——case 的 data 节保留 JSONL 原文，行序/时间戳/字段不丢；细节见 §快照即真相。
 
@@ -211,7 +211,7 @@ steps 是线性序列，每个 step 有类型 + 可选参数。runner 按序执�
 
 ### observe 输出
 
-**可观测体系**：所有概念模块都可观测（覆盖机制见 `docs/observability.md`）；observe 输出两类（值：agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + 现算 filtered_content；路径：context / effects 给文件指针+摘要）；effects 进 CaseObserve（穷尽 match 编译期强制）+ effect.jsonl 全量持久化（含 assistant_delta/done，docs/storage.md §effect.jsonl）；filtered_content 不持久化，从 terminal-content.jsonl 原文 digest 现算。
+**可观测体系**：所有概念模块都可观测（覆盖机制见 [observability.md](observability.md)）；observe 输出两类（值：agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + 现算 filtered_content；路径：context / effects 给文件指针+摘要）；effects 进 CaseObserve（穷尽 match 编译期强制）+ effect.jsonl 全量持久化（含 assistant_delta/done，docs/storage.md §effect.jsonl）；filtered_content 不持久化，从 terminal-content.jsonl 原文 digest 现算。
 
 **Tauri 运行时动作可观测**——`(Tauri runtime actions − readonly) ⊆ effects`：Tauri 运行时动作涵盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API；两侧所有非只读动作统一进 effect 流，只读调用走 observe 直接观测。
 

@@ -99,7 +99,7 @@ Consumers: the fallback timer scan reads **by the already-located tab** (the ins
 
 ## Principles
 
-> **Scope of this document** — this document defines the terminal access abstraction: the layered model, the per-terminal L1 providers, and the L2 query pipeline; the contract surface shared with core belongs to `packages/terminal-lib/spec.md`, and the protocol itself to `docs/access-protocol.md`.
+> **Scope of this document** — this document defines the terminal access abstraction: the layered model, the per-terminal L1 providers, and the L2 query pipeline; the contract surface shared with core belongs to `packages/terminal-lib/spec.md`, and the protocol itself to [docs/access-protocol.md](../access-protocol.md).
 
 > **Plugin-ability (seam)** — each layer boundary is a provider/consumer contract (a seam), so the adapter is pluggable: users add new terminal types and query stages without touching the core.
 

@@ -2,7 +2,7 @@
 
 [English](kitchen-sink.md) | 中文
 
-> 它渲染的组件契约归 `docs/ui-composition.md`；主题取值归 `docs/theme.md`；Component 协议归 `docs/components.md`；行为验证归 `docs/case-runner.md`。
+> 它渲染的组件契约归 [ui-composition.md](ui-composition.md)；主题取值归 [theme.md](theme.md)；Component 协议归 [components.md](components.md)；行为验证归 [case-runner.md](case-runner.md)。
 
 ## 原则
 
@@ -18,7 +18,7 @@
 
 ## 覆盖面：case runner 留白的渲染层
 
-`docs/case-runner.md` §Observation boundary 把渲染层排除在外——DOM 构造、CSS 与尺寸计算都不在它的观测范围内，投影后的 Card 尺寸只作为数据进入 case。kitchen sink 正是留给这一块的面：组件实际画出来的样子、token 表解析后的取值、以及一个表面可能处在的各个状态。
+[case-runner.md](case-runner.md) §Observation boundary 把渲染层排除在外——DOM 构造、CSS 与尺寸计算都不在它的观测范围内，投影后的 Card 尺寸只作为数据进入 case。kitchen sink 正是留给这一块的面：组件实际画出来的样子、token 表解析后的取值、以及一个表面可能处在的各个状态。
 
 这两个面是互补的，不是重叠的。行为——回放、窗口决策、生命周期、信念状态——由 case runner 无头观测；外观——DOM、CSS、token、状态——在这里观测，而且在出货形态里观测。
 

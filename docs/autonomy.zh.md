@@ -6,7 +6,7 @@
 
 ## 本文档范围
 
-本文定义表情状态、默认推导、覆盖语义与表情池解析；Config 的通用 validation 与持久化机制见 `docs/config.md`。
+本文定义表情状态、默认推导、覆盖语义与表情池解析；Config 的通用 validation 与持久化机制见 [config.md](config.md)。
 
 ## 表达式模型
 

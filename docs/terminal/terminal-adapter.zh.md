@@ -99,7 +99,7 @@ pub fn join_instance(terminal: &dyn TerminalAdapter, inst: &str) -> Option<TabRe
 
 ## 原则
 
-> **本文档范围**——本文定义终端访问抽象：分层模型、每终端的 L1 provider 与 L2 查询管线；与 core 共享的契约面归 `packages/terminal-lib/spec.md`，协议本身归 `docs/access-protocol.md`。
+> **本文档范围**——本文定义终端访问抽象：分层模型、每终端的 L1 provider 与 L2 查询管线；与 core 共享的契约面归 `packages/terminal-lib/spec.md`，协议本身归 [docs/access-protocol.md](../access-protocol.md)。
 
 > **可插件化（seam）**——每层边界是 provider/consumer 契约（一个 seam），adapter 可插件化：用户新增终端类型与查询阶段，不碰 core。
 

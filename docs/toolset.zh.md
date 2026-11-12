@@ -6,7 +6,7 @@ pet 可调用的九个 function definitions（call_component / fetch_terminal / 
 
 ## 本文档范围
 
-本文定义每个 tool 的参数 schema、返回结构与调用语义；工具轮次预算和触发终止策略见 `docs/agent-loop.md`。
+本文定义每个 tool 的参数 schema、返回结构与调用语义；工具轮次预算和触发终止策略见 [agent-loop.md](agent-loop.md)。
 
 ## call_component
 
@@ -77,15 +77,15 @@ pet 可调用的九个 function definitions（call_component / fetch_terminal / 
 
 ## Memory 与 Cron
 
-以下 tool 访问 Harness 的 Memory / Cron 持久化概念；它们不是让 Agent 直接读写任意文件或执行任意命令。Memory / Cron 的数据边界见 `docs/harness.md`。
+以下 tool 访问 Harness 的 Memory / Cron 持久化概念；它们不是让 Agent 直接读写任意文件或执行任意命令。Memory / Cron 的数据边界见 [harness.md](harness.md)。
 
 | tool | 契约 |
 |---|---|
-| `read_memory` | 读取持久化理解 Markdown；name 省略 = 读 index.md 导航。完整 schema 见 `docs/memory.md` |
-| `write_memory` | 新建或完整替换一条碎片化记忆；必须附 description，受单文件长度上限约束。完整 schema 见 `docs/memory.md` |
-| `cron_create` | 创建 Harness 持久化计划（schedule: at/every_ms + message）。完整 schema 见 `docs/cron.md` |
-| `cron_delete` | 删除一个持久化计划（id）。完整 schema 见 `docs/cron.md` |
-| `sleep` | 经同一 Harness 调度器延迟 tool result（0–300000ms），等待后继续既定工具序列。完整 schema 见 `docs/cron.md` |
+| `read_memory` | 读取持久化理解 Markdown；name 省略 = 读 index.md 导航。完整 schema 见 [memory.md](memory.md) |
+| `write_memory` | 新建或完整替换一条碎片化记忆；必须附 description，受单文件长度上限约束。完整 schema 见 [memory.md](memory.md) |
+| `cron_create` | 创建 Harness 持久化计划（schedule: at/every_ms + message）。完整 schema 见 [cron.md](cron.md) |
+| `cron_delete` | 删除一个持久化计划（id）。完整 schema 见 [cron.md](cron.md) |
+| `sleep` | 经同一 Harness 调度器延迟 tool result（0–300000ms），等待后继续既定工具序列。完整 schema 见 [cron.md](cron.md) |
 
 ## edit_config
 

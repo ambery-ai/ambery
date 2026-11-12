@@ -6,7 +6,7 @@ English | [中文](autonomy.zh.md)
 
 ## Scope
 
-This document defines expression states, default derivation, override semantics, and kaomoji pool resolution; for general Config validation and persistence mechanisms, see `docs/config.md`.
+This document defines expression states, default derivation, override semantics, and kaomoji pool resolution; for general Config validation and persistence mechanisms, see [config.md](config.md).
 
 ## Expression model
 

@@ -53,6 +53,6 @@ case-runner starts with the full `router()` (`ambery-case serve`, browser debugg
 
 ## Related Documents
 
-- `agent-loop.md` §Protocol: Tauri IPC + `/hook` path
-- `docs/agents/claude/hook.md`: external hook script integration
-- `docs/terminal/timer.md`: timer background task logic
+- [agent-loop.md](agent-loop.md) §Protocol: Tauri IPC + `/hook` path
+- [docs/agents/claude/hook.md](agents/claude/hook.md): external hook script integration
+- [docs/terminal/timer.md](terminal/timer.md): timer background task logic

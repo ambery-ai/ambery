@@ -2,11 +2,11 @@
 
 English | [中文](card-window-size.zh.md)
 
-> This document defines how a Card window's size is determined: its single source, its projection into the Card file, the triggers that recompute it, and the path from projection to window creation. Coordinate units and display-scale conversion belong to `docs/window-follow.md`; the Card file field list belongs to `docs/components.md`; pet window sizing belongs to `docs/pet-window-size.md`.
+> This document defines how a Card window's size is determined: its single source, its projection into the Card file, the triggers that recompute it, and the path from projection to window creation. Coordinate units and display-scale conversion belong to [window-follow.md](window-follow.md); the Card file field list belongs to [components.md](components.md); pet window sizing belongs to [pet-window-size.md](pet-window-size.md).
 
 ## Definition
 
-A Card window renders exactly one Card (`docs/multi-window.md`). Its size is the physical size of that OS window — not the size of the Card's content box: the Card's `min-width` / `max-width` are style caps inside the window, while the window is the box the user sees wrapping the Card.
+A Card window renders exactly one Card ([multi-window.md](multi-window.md)). Its size is the physical size of that OS window — not the size of the Card's content box: the Card's `min-width` / `max-width` are style caps inside the window, while the window is the box the user sees wrapping the Card.
 
 ## Single source
 
@@ -64,7 +64,7 @@ Width is bounded, not derived freely: the Card's width is the widest of its bloc
 
 ## Projection
 
-The computed size is projected into the Card file so that other components read it without running the computation: `_meta.layout.size` holds `[width, height]` in CSS pixels, and `_meta.layout.layoutVersion` holds the identity of the inputs that determine size (layout constants plus font identity) — a projection whose value differs from the current one is stale. The field list and file contract belong to `docs/components.md` §Card File (.card.json); this document owns what the size field means.
+The computed size is projected into the Card file so that other components read it without running the computation: `_meta.layout.size` holds `[width, height]` in CSS pixels, and `_meta.layout.layoutVersion` holds the identity of the inputs that determine size (layout constants plus font identity) — a projection whose value differs from the current one is stale. The field list and file contract belong to [components.md](components.md) §Card File (.card.json); this document owns what the size field means.
 
 Core is the only writer of the Card file; the frontend produces the size and requests the write through the Card write path.
 
@@ -74,7 +74,7 @@ Core is the only writer of the Card file; the frontend produces the size and req
 
 The projected size is stored in CSS pixels and is independent of display scale: the scale factor is not an input to the size computation, never appears in `layoutVersion`, and a Card moved to a display with a different scale factor keeps its projection unchanged.
 
-Conversion to physical pixels happens once, at the boundary into the engine and the OS (`docs/window-follow.md` §Coordinate unit contract). The physical size is derived from the target display's scale factor — the display the Card window is placed on, not the Card window's own initial `devicePixelRatio` — and rounded up, so a fractional scale never yields a window smaller than its content. Placement and sizing are computed together and applied once the window is on its target display, so the physical size is never derived from the display the window happened to start on.
+Conversion to physical pixels happens once, at the boundary into the engine and the OS ([window-follow.md](window-follow.md) §Coordinate unit contract). The physical size is derived from the target display's scale factor — the display the Card window is placed on, not the Card window's own initial `devicePixelRatio` — and rounded up, so a fractional scale never yields a window smaller than its content. Placement and sizing are computed together and applied once the window is on its target display, so the physical size is never derived from the display the window happened to start on.
 
 ## Recompute triggers
 
@@ -91,12 +91,12 @@ Recomputation has a single entry: every trigger above reaches the same function,
 
 ## Window creation
 
-A Card window is created at the size carried by the Card file's projection, read before the window is created. The Card window never resizes itself: it calls no `setSize`, and no post-show measurement loop exists. The create / reuse / close decision stays with the shell (`docs/case-runner.md` §Window decisions lifted up); this document owns only the size the window is created with.
+A Card window is created at the size carried by the Card file's projection, read before the window is created. The Card window never resizes itself: it calls no `setSize`, and no post-show measurement loop exists. The create / reuse / close decision stays with the shell ([case-runner.md](case-runner.md) §Window decisions lifted up); this document owns only the size the window is created with.
 
 ## Relationship to pet sizing
 
-Pet size is a closed formula over face width, scale and motion (`docs/pet-window-size.md`): the pet's content is fixed, so the formula is the whole contract. A Card's content is arbitrary, so its size is computed from that content. Both have a single source, and neither is measured from a live window.
+Pet size is a closed formula over face width, scale and motion ([pet-window-size.md](pet-window-size.md)): the pet's content is fixed, so the formula is the whole contract. A Card's content is arbitrary, so its size is computed from that content. Both have a single source, and neither is measured from a live window.
 
 ## Verification
 
-The size computation is rendering-side logic, so the case-runner does not exercise it: that harness observes frontend logic — the store, the action layer and window wiring (`docs/case-runner.md` §Observation boundary). This contract is verified against real rendering instead: a Card's derived size is compared with the size the same Card occupies when rendered, per type and across the content shapes that stress the block model. The comparison runs in the engine the Card renders in — the line walk's fit tolerance and a few break behaviours are calibrated per engine — so the tolerance is the engine's own rather than one number for every platform.
+The size computation is rendering-side logic, so the case-runner does not exercise it: that harness observes frontend logic — the store, the action layer and window wiring ([case-runner.md](case-runner.md) §Observation boundary). This contract is verified against real rendering instead: a Card's derived size is compared with the size the same Card occupies when rendered, per type and across the content shapes that stress the block model. The comparison runs in the engine the Card renders in — the line walk's fit tolerance and a few break behaviours are calibrated per engine — so the tolerance is the engine's own rather than one number for every platform.

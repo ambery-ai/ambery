@@ -21,7 +21,7 @@ timer_scan          ambery.rs:1449   "[扫描] {name} 更新（{len} 字）"
 cron_tick           server.rs:521      cron 计划到期消息
 ```
 
-Queue 中 System 消息 = 8 类来源。另有一类 User 消息（用户 chat 面板直接发送，server.rs:199）不属 System 分类，但同走 Queue 放行。来源与 effort 档位的映射见 `docs/effort.md`。
+Queue 中 System 消息 = 8 类来源。另有一类 User 消息（用户 chat 面板直接发送，server.rs:199）不属 System 分类，但同走 Queue 放行。来源与 effort 档位的映射见 [effort.md](effort.md)。
 
 ## Context → LLM API 的 role 映射
 

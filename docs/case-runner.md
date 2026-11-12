@@ -6,7 +6,7 @@ Storage snapshot-driven regression testing and concept observation tool; also ho
 
 ## Principles
 
-> **Scope of this document** — this document defines only the runner infrastructure: run mechanism, sandbox isolation, `.case` format, step, observe, health, export, and CLI; it does not define the capabilities an agent should have, capability planning, or Case coverage strategy — see `docs/capability-evaluation-project.md`.
+> **Scope of this document** — this document defines only the runner infrastructure: run mechanism, sandbox isolation, `.case` format, step, observe, health, export, and CLI; it does not define the capabilities an agent should have, capability planning, or Case coverage strategy — see [capability-evaluation-project.md](capability-evaluation-project.md).
 
 > **Snapshot is truth** — the case's data section preserves JSONL raw text; line order/timestamps/fields are not lost; details in §Snapshot is truth.
 
@@ -211,7 +211,7 @@ Read-channel default state: any instance not configured returns `None` (= tab no
 
 ### observe output
 
-**Observability system**: all concept modules are observable (for the coverage mechanism see `docs/observability.md`); observe outputs two kinds (values: agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + computed-on-demand filtered_content; paths: context / effects give file pointer + summary); effects go into CaseObserve (exhaustive match enforced at compile time) + full persistence in effect.jsonl (including assistant_delta/done, docs/storage.md §effect.jsonl); filtered_content is not persisted, computed on demand from the terminal-content.jsonl raw digest.
+**Observability system**: all concept modules are observable (for the coverage mechanism see [observability.md](observability.md)); observe outputs two kinds (values: agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + computed-on-demand filtered_content; paths: context / effects give file pointer + summary); effects go into CaseObserve (exhaustive match enforced at compile time) + full persistence in effect.jsonl (including assistant_delta/done, docs/storage.md §effect.jsonl); filtered_content is not persisted, computed on demand from the terminal-content.jsonl raw digest.
 
 **Tauri runtime actions observable** — `(Tauri runtime actions − readonly) ⊆ effects`: Tauri runtime actions cover WebView's `@tauri-apps/api` and the Rust shell's `tauri` API; all non-readonly actions on both sides uniformly enter the effect stream, and readonly calls are observed directly via observe.
 

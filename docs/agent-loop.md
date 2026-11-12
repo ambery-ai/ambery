@@ -7,7 +7,7 @@ English | [中文](agent-loop.zh.md)
 
 ## Principles
 
-> **Scope of this document** — this document defines the trigger lifecycle, LLM requests, tool-call budgets, and post-exhaustion closing; for Config migration, map reconcile, and descriptor mechanisms, see `docs/config.md`.
+> **Scope of this document** — this document defines the trigger lifecycle, LLM requests, tool-call budgets, and post-exhaustion closing; for Config migration, map reconcile, and descriptor mechanisms, see [config.md](config.md).
 
 > **No code logic that need not exist** — after the budget is exhausted, still use the existing tool result → LLM closing chain: make one final text-reply request normally with empty tools; do not inject an extra terminating system record and do not automatically start a new turn.
 
@@ -101,7 +101,7 @@ Handling:
 
 ## Read-channel MapAdapter (case-runner story surface)
 
-A read-channel simulation symmetric to the mock hook: the case-runner's `terminal` step writes to the MapAdapter shared map (`docs/terminal/terminal-adapter.md` §implementation); both the Timer fallback scan and `fetch_terminal` read it. Production/default builds do not include this injection surface.
+A read-channel simulation symmetric to the mock hook: the case-runner's `terminal` step writes to the MapAdapter shared map ([docs/terminal/terminal-adapter.md](terminal/terminal-adapter.md) §implementation); both the Timer fallback scan and `fetch_terminal` read it. Production/default builds do not include this injection surface.
 
 ## Tauri IPC protocol (frontend–backend communication)
 

@@ -4,7 +4,7 @@
 
 平台特定能力的抽象组（不叫 adapter）：虚拟桌面切换等跨终端、跨组件复用的 OS 层能力。
 
-> 概念定位见 `concepts.md` §Platform Primitives。本文件定接口能力与各平台实现。
+> 概念定位见 [concepts.md](../concepts.md) §Platform Primitives。本文件定接口能力与各平台实现。
 
 ## 能力接口
 

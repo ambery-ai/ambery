@@ -6,7 +6,7 @@ English | [中文](case-eval-system.zh.md)
 
 ## Principles
 
-> **Scope of this document** — this document defines the case evaluation system: reading (observe path-type targets) / store / expressions / variables / parser / type system / checkhealth; for runner infrastructure, see `docs/case-runner.md`.
+> **Scope of this document** — this document defines the case evaluation system: reading (observe path-type targets) / store / expressions / variables / parser / type system / checkhealth; for runner infrastructure, see [case-runner.md](case-runner.md).
 
 > **Introduce a variable system to control execution flow, with a minimal design** — use a variable system to express positions/parameters during execution (offsets for path-type reads, stored values); minimal design: all variables are string, with a built-in last-line variable.
 

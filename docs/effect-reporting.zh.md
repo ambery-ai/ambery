@@ -3,11 +3,11 @@
 [English](effect-reporting.md) | 中文
 
 > 概念：所有**非只读 Tauri 运行时动作**统一进 effect 流（docs/case-runner.md
-> §Tauri 运行时动作可观测：`(Tauri runtime actions − readonly) ⊆ effects`）。Tauri 运行时动作同时覆盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API；动作流格式与记录点见 `docs/storage.md` §effect.jsonl。本文定义运行时动作层、通道、kind/payload、打包规则与埋点清单。
+> §Tauri 运行时动作可观测：`(Tauri runtime actions − readonly) ⊆ effects`）。Tauri 运行时动作同时覆盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API；动作流格式与记录点见 [storage.md](storage.md) §effect.jsonl。本文定义运行时动作层、通道、kind/payload、打包规则与埋点清单。
 
 ## 原则
 
-> **本文档范围**——本文定义运行时动作层、通道、`kind`/`payload`、打包规则与埋点清单；动作流格式与记录点归 `docs/storage.md`，可观测要求本身归 `docs/case-runner.md`。
+> **本文档范围**——本文定义运行时动作层、通道、`kind`/`payload`、打包规则与埋点清单；动作流格式与记录点归 [storage.md](storage.md)，可观测要求本身归 [case-runner.md](case-runner.md)。
 
 > **非只读全进，只读不进**——有副作用的 Tauri 运行时动作统一上报进动作流；纯读取调用不进。
 

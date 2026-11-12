@@ -2,7 +2,7 @@
 
 English | [中文](kitchen-sink.zh.md)
 
-> The component contract it renders belongs to `docs/ui-composition.md`; theme values to `docs/theme.md`; the Component protocol to `docs/components.md`; behaviour verification to `docs/case-runner.md`.
+> The component contract it renders belongs to [ui-composition.md](ui-composition.md); theme values to [theme.md](theme.md); the Component protocol to [components.md](components.md); behaviour verification to [case-runner.md](case-runner.md).
 
 ## Principles
 
@@ -18,7 +18,7 @@ English | [中文](kitchen-sink.zh.md)
 
 ## Coverage: the rendering layer the case runner leaves open
 
-`docs/case-runner.md` §Observation boundary excludes the rendering layer — DOM construction, CSS and the size computation stay outside its observation scope, and a projected Card size enters a case as data only. The kitchen sink is the surface for exactly what stays out: the components as they paint, the token table as it resolves, and the states a surface can take.
+[case-runner.md](case-runner.md) §Observation boundary excludes the rendering layer — DOM construction, CSS and the size computation stay outside its observation scope, and a projected Card size enters a case as data only. The kitchen sink is the surface for exactly what stays out: the components as they paint, the token table as it resolves, and the states a surface can take.
 
 The two surfaces are complementary rather than overlapping. Behaviour — replay, window decisions, lifecycle, the belief state — is observed headlessly by the case runner; appearance — DOM, CSS, tokens, states — is observed here, and in the form that ships.
 

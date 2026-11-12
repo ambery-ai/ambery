@@ -4,7 +4,7 @@
 
 > 概念定义见 concepts.md §Window（宿主的物理容器）。本文档定壳形态。
 >
-> 窗口方案为多窗口（`docs/multi-window.md`）；全屏 `maximized: true` 方案因 WebView2 点击穿透（`WS_EX_TRANSPARENT`）不稳定不采用。
+> 窗口方案为多窗口（[multi-window.md](multi-window.md)）；全屏 `maximized: true` 方案因 WebView2 点击穿透（`WS_EX_TRANSPARENT`）不稳定不采用。
 
 ## 形态：静态小窗口 + 动态卡片窗
 

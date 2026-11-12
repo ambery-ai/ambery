@@ -4,7 +4,7 @@ English | [中文](platform-primitives.zh.md)
 
 An abstraction group for platform-specific capabilities (not called adapter): OS-level capabilities such as virtual desktop switching that are reused across terminals and Components.
 
-> See `concepts.md` §Platform Primitives for the conceptual positioning. This document defines the interface capabilities and the per-platform implementations.
+> See [concepts.md](../concepts.md) §Platform Primitives for the conceptual positioning. This document defines the interface capabilities and the per-platform implementations.
 
 ## Capability Interface
 

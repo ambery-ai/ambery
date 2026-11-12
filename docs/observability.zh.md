@@ -4,11 +4,11 @@
 
 > 概念：所有概念模块可观测，且由**编译期强制**保证覆盖（docs/case-runner.md §可观测体系）。
 > 本文定义机制：trait / derive / 覆盖断言 / skip 声明；observe 输出形态与求值系统见
-> `docs/case-runner.md` / `docs/case-eval-system.md`。
+> [case-runner.md](case-runner.md) / [case-eval-system.md](case-eval-system.md)。
 
 ## 原则
 
-> **本文档范围**——本文定义机制：trait、derive、覆盖断言与 skip 声明；observe 输出形态归 `docs/case-runner.md`，求值系统归 `docs/case-eval-system.md`。
+> **本文档范围**——本文定义机制：trait、derive、覆盖断言与 skip 声明；observe 输出形态归 [case-runner.md](case-runner.md)，求值系统归 [case-eval-system.md](case-eval-system.md)。
 
 > **所有模块可观测，编译期强制**——新增概念模块时必须声明其可观测性，否则编译失败；
 > 覆盖不靠手写抽查（effects 曾因此漏网）。

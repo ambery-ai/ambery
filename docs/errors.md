@@ -6,7 +6,7 @@ English | [中文](errors.zh.md)
 
 ## Principles
 
-> **Scope of this document** — this document defines the error presentation model: the error event's fields, the two outlets (bubble, banner), how an event routes between them, and the emission discipline that keeps the frontend stateless; internal or background failures of a source are not user notifications, the transport that carries events belongs to `docs/access-protocol.md`, and the configuration fields behind a condition to `docs/config.md`.
+> **Scope of this document** — this document defines the error presentation model: the error event's fields, the two outlets (bubble, banner), how an event routes between them, and the emission discipline that keeps the frontend stateless; internal or background failures of a source are not user notifications, the transport that carries events belongs to [access-protocol.md](access-protocol.md), and the configuration fields behind a condition to [config.md](config.md).
 
 > **Errors are intercepted by the backend** — detection and judgment live in core; the frontend renders per contract and never infers or detects errors itself.
 

@@ -6,7 +6,7 @@
 
 ## 原则
 
-> **本文档范围**——本文定义 case 的求值系统：读取（observe 路径类 target）/ store / 表达式 / 变量 / parser / 类型系统 / checkhealth；runner 基础设施见 `docs/case-runner.md`。
+> **本文档范围**——本文定义 case 的求值系统：读取（observe 路径类 target）/ store / 表达式 / 变量 / parser / 类型系统 / checkhealth；runner 基础设施见 [case-runner.md](case-runner.md)。
 
 > **引入变量系统控制执行流，极简设计**——用变量系统表达执行中的位置/参数（路径类读取的偏移、存储的值）；极简设计：变量统一 string、内置末行变量。
 

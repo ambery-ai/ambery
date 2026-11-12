@@ -6,7 +6,7 @@ English | [中文](pet-window-size.zh.md)
 
 ## Principles
 
-> **Scope of this document** — this document defines pet's size, scanning, and positioning contract; for the emoji pool's editing permissions, overall updates, and movement protocol, see `docs/config.md` / `docs/autonomy.md`.
+> **Scope of this document** — this document defines pet's size, scanning, and positioning contract; for the emoji pool's editing permissions, overall updates, and movement protocol, see [config.md](config.md) / [autonomy.md](autonomy.md).
 
 > **Center invariant** — when the window grows or shrinks, the visual center stays pinned at the same point; after `setSize`, the top-left offset is compensated.
 

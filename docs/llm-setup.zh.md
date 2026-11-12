@@ -13,7 +13,7 @@
 
 ## 原则
 
-> **本文档范围**——本文定义首启配置引导：未配置默认态、引导 modal 及其 schema 驱动渲染、连通测试与应用级 env 层；错误呈现归 [errors.md](errors.md)，它渲染的 Config 字段归 `docs/config.md`。
+> **本文档范围**——本文定义首启配置引导：未配置默认态、引导 modal 及其 schema 驱动渲染、连通测试与应用级 env 层；错误呈现归 [errors.md](errors.md)，它渲染的 Config 字段归 [config.md](config.md)。
 
 > **未配置是诚实的默认**——全新安装没有 LLM 配置；默认态必须如实说明。
 

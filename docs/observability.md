@@ -4,11 +4,11 @@ English | [中文](observability.zh.md)
 
 > Concept: every concept module is observable, and coverage is guaranteed by **compile-time enforcement** (docs/case-runner.md §Observability System).
 > This document defines the mechanism: trait / derive / coverage assertions / skip declarations; for the observe output shape and the evaluation system, see
-> `docs/case-runner.md` / `docs/case-eval-system.md`.
+> [case-runner.md](case-runner.md) / [case-eval-system.md](case-eval-system.md).
 
 ## Principles
 
-> **Scope of this document** — this document defines the mechanism: the trait, the derive, coverage assertions and skip declarations; the observe output shape belongs to `docs/case-runner.md` and the evaluation system to `docs/case-eval-system.md`.
+> **Scope of this document** — this document defines the mechanism: the trait, the derive, coverage assertions and skip declarations; the observe output shape belongs to [case-runner.md](case-runner.md) and the evaluation system to [case-eval-system.md](case-eval-system.md).
 
 > **Every module observable, enforced at compile time** — when adding a concept module, its observability must be declared, otherwise compilation fails; coverage does not rely on manual spot checks (effects once slipped through because of this).
 

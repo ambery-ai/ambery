@@ -7,7 +7,7 @@
 
 ## 原则
 
-> **本文档范围**——本文定义触发生命周期、LLM 请求、工具调用预算及耗尽收尾；Config 的 migration、map reconcile 与 descriptor 机制见 `docs/config.md`。
+> **本文档范围**——本文定义触发生命周期、LLM 请求、工具调用预算及耗尽收尾；Config 的 migration、map reconcile 与 descriptor 机制见 [config.md](config.md)。
 
 > **不提供不必要存在的代码逻辑**——预算耗尽后仍沿用既有的 tool result → LLM 收尾链路：以空 tools 正常请求一次最终文字回复；不额外注入终止 system 记录，不自动开启新 turn。
 
@@ -101,7 +101,7 @@ POST /hook
 
 ## 读通道 MapAdapter（case-runner 剧情面）
 
-与 mock hook 对称的读通道模拟：case-runner 的 `terminal` step 写 MapAdapter 共享 map（`docs/terminal/terminal-adapter.md` §实现），Timer 兜底扫描与 `fetch_terminal` 都读它。生产/默认构建不含该注入面。
+与 mock hook 对称的读通道模拟：case-runner 的 `terminal` step 写 MapAdapter 共享 map（[docs/terminal/terminal-adapter.md](terminal/terminal-adapter.md) §实现），Timer 兜底扫描与 `fetch_terminal` 都读它。生产/默认构建不含该注入面。
 
 ## Tauri IPC 协议（前后端通信）
 
