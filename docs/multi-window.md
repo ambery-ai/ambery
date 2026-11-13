@@ -9,7 +9,7 @@ English | [中文](multi-window.zh.md)
 | label | Size | Purpose | When Visible |
 |---|---|---|---|
 | `pet` | 116×40 (initial seed; recomputed at runtime by the docs/pet-window-size.md formula) | pet + kaomoji + drag | Always |
-| `chat` | 320×380 | Chat panel | When invoked (right-click toggle: chat:toggle) |
+| `chat` | 320×380 | Chat Panel | When invoked (right-click toggle: chat:toggle) |
 | `menu` | 380×560 | Settings panel (schema-driven, docs/config.md) | Pops up on tray right-click, hides on focus loss |
 | `shelf` | pet×3 (clamped to 180–480×120–240) | Cards Shelf (transient popup layer for Card management, not a Surface, docs/view.md) | pet middle-click: pops up to the upper right over pet; closes on middle-click / focus loss |
 | `card-<id>` | Projected size (Card file `_meta.layout.size`, docs/card-window-size.md) | Single Card (Component) | When the Card is alive and visible |
