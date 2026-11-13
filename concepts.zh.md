@@ -8,7 +8,7 @@
 Ambery 的人机界面，内置 LLM，住在自己的浮动窗口中——窗内只有颜文字。通过颜文字表达状态，通过 Component 展示信息。用户可与之打字聊天——纯自然语言，无指令。Pet 理解用户意图、分析 Context、决定表达方式与何时值得打扰用户。不修改代码文件，权限边界由 Harness 的 Tool Set 限定。Pet 是 agent；它呈现给用户的那一面是 Pet Surface（见 Surface），同时也是锚点：其余每个 Surface 的布局都以它为原点度量。
 
 #### 1a. Autonomy（自主行为层）
-Pet 的自主行为引擎：面部表情切换与 Pet 窗口的漂浮移动。两路控制——system prompt 定义的默认颜文字映射（不经 LLM），与 Pet 经 `set_autonomy` tool call 的主动覆盖。其状态是表情与动画，以 key 表示（如 `[face: idle, motion: still]`），附加进每轮请求、持久于 Context。
+Pet 的自主行为引擎：面部表情切换与 Pet 窗口的漂浮移动。两路控制——system prompt 定义的默认颜文字映射（不经 LLM），与 Pet 经 tool call 的主动覆盖。其状态是表情与动画，以 face 与 motion 两个取值表示，附加进每轮请求、持久于 Context。
 
 > **Autonomy 是自有引擎**——状态绕过 Queue——且**不读取被监控会话**：key 的切换（Processing → Idle 等）由 AmberyBackend 依据外部输入驱动，Autonomy 只按当前 key 输出对应的表情与动作。
 
@@ -19,10 +19,10 @@ Pet 的自主行为引擎：面部表情切换与 Pet 窗口的漂浮移动。�
 被管理的界面，有自己的显示选择与空间布局。Surface 之下有三个家族：Pet（锚点）、Chat Panel（对话）与 Card（被渲染的信息单元）。锚点是原点；其余每个 Surface 都落在相对它的偏移上。
 
 ##### 2a-1. Chat Panel（聊天面板）
-用户与 Pet 打字聊天的界面。由 Pet 右键唤出，不是 Component。包括输入框和对话历史（从 Context 读取）。用户输入写入 Queue，放行后作为 `user` role 消息入 Context；assistant 回复边生成边流式给用户——显示优化——完整回复最后写入 Context。
+用户与 Pet 打字聊天的界面。由 Pet 右键唤出，不是 Component。包括输入框和对话历史（从 Context 读取）。用户输入写入 Queue，放行后作为 user role 消息入 Context；assistant 回复边生成边流式给用户——显示优化——完整回复最后写入 Context。
 
 ##### 2a-2. Card（卡片）
-Card 是被渲染信息的 Surface 侧身份：一块 Managed Surface（显示 / 隐藏 / 恢复语义统一），Component 的内容在其上变为用户可见。用户在卡上的交互事件（关闭、跳转、勾选等）不写 `user` role、不经 Queue，写 Harness 的 Event Buffer。Card 的持久与状态身份——它的文件、稳定 id、跨重启的生命周期——住在 Component State；两者是一体两面。
+Card 是被渲染信息的 Surface 侧身份：一块 Managed Surface（显示 / 隐藏 / 恢复语义统一），Component 的内容在其上变为用户可见。用户在卡上的交互事件（关闭、跳转、勾选等）不写 user role、不经 Queue，写 Harness 的 Event Buffer。Card 的持久与状态身份——它的文件、稳定 id、跨重启的生命周期——住在 Component State；两者是一体两面。
 
 #### 2b. Menu（设置面板）
 从托盘打开的设置入口：schema 驱动的 Config 编辑器。
@@ -40,7 +40,7 @@ agent 可调用的结构化内容：预定义的前端卡片类型，用于信�
 Pet 运行其上的外部数据与能力层——外在于 Pet，不属于它的脸。它承载 Tool Set 协议（Pet 能做什么的边界），内含五个域：Context（数据面）、Agent Loop（机制面）、Memory（持久理解）、Timer（调度）、Perception（感知）。Pet 的 LLM 说 OpenAI Chat Completions API；数据模型与处理链路归设计文档。
 
 #### 4a. Tool Set（工具集）
-Pet 可调用的 function definitions，CLI 风格命名（完整工具表归设计文档）。Pet 自身不能执行任何操作——它只能 emit `tool_calls`，由 AmberyBackend 执行后将 result 以 `tool` role message 追加回 Context。Tool Set 也是 Pet 的权限边界：❌ 修改代码文件。其中感知类工具（perception tools）是 agent 主动获取外部内容的途径——Tool Set 伸向协议层的手。
+Pet 可调用的 function definitions，CLI 风格命名（完整工具表归设计文档）。Pet 自身不能执行任何操作——它只能 emit tool calls，由 AmberyBackend 执行后将 result 以 tool role message 追加回 Context。Tool Set 也是 Pet 的权限边界：❌ 修改代码文件。其中感知类工具（perception tools）是 agent 主动获取外部内容的途径——Tool Set 伸向协议层的手。
 
 #### 4b. Context（上下文）
 Harness 的数据面：完整消息数组（对标 OpenAI messages），LLM 请求的上下文源，也是完整对话的持久化存档。每条记录带时间戳。Pet 通过 Context 获得被监控会话状态、任务背景等非对话信息。Context 是数据不是机制——驱动与维护它的机制住在 Agent Loop 与 Compression。
@@ -52,7 +52,7 @@ Harness 的数据面：完整消息数组（对标 OpenAI messages），LLM 请�
 Harness 的机制面：把一条放行的输入变成完整一轮的引擎——拼装请求头、调 LLM、按序执行 tool calls、广播副作用、放行下一条。词借自业界（agentic loop）。它的单元与闸门是 Queue、Event Buffer 与 Turn。
 
 ##### 4c-1. Queue（输入队列）
-所有输入的串行闸门，持久化在 Harness 中。外部输入与 user 消息入队；Event Buffer 条目不入队——它在放行时刻附带（见 Event Buffer）。用户提问以优先级高于后台输入排队；每条输入带 `source` 字段。Queue 是系统处理节奏的控制器：每条输入放行后，必须等整个 turn 处理完毕才放行下一条——OpenAI API 绝不并行调用。LLM 的 assistant 回复和 tool 结果不走 Queue，直接入 Context。
+所有输入的串行闸门，持久化在 Harness 中。外部输入与 user 消息入队；Event Buffer 条目不入队——它在放行时刻附带（见 Event Buffer）。用户提问以优先级高于后台输入排队；每条输入带自己的来源。Queue 是系统处理节奏的控制器：每条输入放行后，必须等整个 turn 处理完毕才放行下一条——OpenAI API 绝不并行调用。LLM 的 assistant 回复和 tool 结果不走 Queue，直接入 Context。
 
 ```
 输入1 → Queue → Context → LLM → tool_calls? → 再调 LLM ─→ 输出 → Context ✓
@@ -60,16 +60,16 @@ Harness 的机制面：把一条放行的输入变成完整一轮的引擎——
 ```
 
 ##### 4c-2. Event Buffer（事件缓冲）
-Component 交互事件与静默簿记的独立输入通道，与 Queue 平行：条目积压在 Buffer 自己这里，放行时刻以 `system` 消息附带——从不进 Queue，永不写 `user` role。
+Component 交互事件与静默簿记的独立输入通道，与 Queue 平行：条目积压在 Buffer 自己这里，放行时刻以 system 消息附带——从不进 Queue，永不写 user role。
 
 ##### 4c-3. Turn（轮次）
 由一条输入定义的完整处理单元：从 Queue 放行一条输入开始，到这条输入引发的一切——LLM 响应、tool 调用与结果、最终回复——全部结束为止。一个 turn 属于它的那条输入；工具预算按 turn 计数，Compression 只在完整 turn 之间抖动，sleep 在同一 turn 内延续既定动作。
 
 #### 4d. Memory（记忆）
-Harness 管理的持久理解域：notes/ 存 agent 的长期理解，整个 workspace 跨 turn、跨压缩、跨重启留存。它有两个入口：agent 的主动读写（`read_memory` / `write_memory`）与 Digest 的强制沉淀。Memory 独立于 Context、压缩摘要与来源内容存档——它是理解，不是运行记录或参考数据。后端与用户也可管理它。
+Harness 管理的持久理解域：notes/ 存 agent 的长期理解，整个 workspace 跨 turn、跨压缩、跨重启留存。它有两个入口：agent 经两个 note 工具的主动读写与 Digest 的强制沉淀。Memory 独立于 Context、压缩摘要与来源内容存档——它是理解，不是运行记录或参考数据。后端与用户也可管理它。
 
 #### 4e. Timer（定时器）
-Harness 的调度引擎——一个引擎三种用法：计划任务（经 cron 工具创建与删除）、短暂等待（`sleep`，等完继续既定动作）、补扫（Watch Schedule 的默认条目形态）。cron 工具与 `sleep` 是它的手柄。
+Harness 的调度引擎——一个引擎三种用法：计划任务（经 cron 工具创建与删除）、短暂等待（等完继续既定动作）、补扫（Watch Schedule 的默认条目形态）。计划任务工具与等待工具是它的手柄。
 
 #### 4f. Perception（感知）
 Harness 朝向 Ambery Protocol 的感觉器官。它接收协议层交付的东西——一次 Hook 推送或一次 Watch Schedule 扫描——对每条进来的来源更新流启动 Digest，并把消化结果渲染为循环可用的 agent 可消费内容。Tool Set 里的感知类工具是它在工具侧的手。
@@ -78,7 +78,7 @@ Harness 朝向 Ambery Protocol 的感觉器官。它接收协议层交付的东�
 Ambery 对外的主契约：Ambery 对外部软件做的抽象——一个程序满足什么就能成为 Source、它的宿主如何推送事件、它的更新如何被消化、主动观测如何排程。这是本 package 的主要关切；任何具体软件的内部构造不在范围。传输载体在概念层刻意不定死。
 
 #### 5a. Source（来源）
-被观测的外部实体在协议中的投影。一个 Source 以一个稳定 `source_id` 在 Context 中占有一席：它的更新以同一 ID 反复进入，而不是每次重新自我介绍——连续性由 ID 承载，注意力由更新流驱动。Source 有进程基础，也有语义席位，两者相关而不同：宿主可以死而席位等重连，席位可以关而宿主还活着。
+被观测的外部实体在协议中的投影。一个 Source 以一个稳定 source id 在 Context 中占有一席：它的更新以同一 ID 反复进入，而不是每次重新自我介绍——连续性由 ID 承载，注意力由更新流驱动。Source 有进程基础，也有语义席位，两者相关而不同：宿主可以死而席位等重连，席位可以关而宿主还活着。
 
 ##### 5a-1. Source Host（来源宿主）
 承载 Source 的进程或窗口——终端窗口、浏览器、书库应用、播放器。枚举、定位、激活、存活都在这层。不同软件以不同方式宿住 Source；每个宿主的具体接入形态属于接入协议的契约，不属于概念层。
@@ -87,7 +87,7 @@ Ambery 对外的主契约：Ambery 对外部软件做的抽象——一个程序
 宿主软件主动向 Ambery 推送「发生了什么」的入口——协议的拍肩通道。每个真实的宿主都有一个：生命周期事件、书签变化、tab 事件都是宿主先知道、推出来的东西。Claude Code 的五个生命周期事件是第一个实例；每个宿主的 hook 形态（配置、脚本、事件集）属于该宿主的契约。
 
 ##### 5a-2. Context Slot（上下文席位）
-席位本身：Context 中一个稳定的 `source_id`，更新流是它的进出口。Slot 是协议对主动通知的建模单元——同一个 ID 反复出现，模型才能把一个外部事物当作连续的存在。会话身份、卡 id、页码位置都是同一模式的实例。
+席位本身：Context 中一个稳定的 source id，更新流是它的进出口。Slot 是协议对主动通知的建模单元——同一个 ID 反复出现，模型才能把一个外部事物当作连续的存在。会话身份、卡 id、页码位置都是同一模式的实例。
 
 ##### 5a-3. Digest（消化）
 Source 更新流的强制加工环节。当一个观测动作交付了新内容——Hook 推送或 Watch Schedule 扫描——Perception 启动 Digest；产物有两份：一条 Memory note（理解在压缩抖掉细节之前先落袋）与积累的 per-Source 理解（反哺 Watch Schedule 的调整）。Digest 是强制的，不交给 agent 自行裁量。
@@ -99,7 +99,7 @@ agent 为自己的主动观测撰写的计划集：看哪些 Source、看什么�
 承载运行时的后端进程：接收外部输入、执行 Pet（LLM）发出的 Tool Set 调用、管理持久化。它是 Harness 的机制与 Pet 的循环所骑乘的进程——承载者，不是独立的领域。
 
 ### 7. Config（配置）
-AmberyBackend 和 Pet 的持久化配置（LLM profiles、外观、语言、工具预算等）。运行时加载。Pet 可通过 `edit_config` 在受限 Config 投影中按需查询与修改；system prompt 现拼规则归设计文档。
+AmberyBackend 和 Pet 的持久化配置（LLM profiles、外观、语言、工具预算等）。运行时加载。Pet 可在受限 Config 投影中按需查询与修改；system prompt 现拼规则归设计文档。
 
 ### 8. Storage（持久化存储）
 运行时数据的持久化层。与 Config 同类型（持久化文件），用途不同：Config 存启动配置，Storage 存 session 数据与 Harness 持久化状态（读写）。布局与文件语义归设计文档。跨 AmberyBackend 生命周期保留，重启后恢复完整对话和未来计划。
@@ -120,7 +120,7 @@ Claude Code 跑在终端 pane 里；pane 的窗口是 **Source Host**，会话�
 
 ### Example B: 一本书记住读到哪——读书玩法
 
-用户在书库应用里读小说；应用是 **Source Host**，书占一个 **Context Slot**（`book:<书名>`）——每次翻页都是同一 ID 下的更新。agent 早已写好的一条 **Watch Schedule** 条目在章节间查看这本书；每次交付，**Perception** 启动 **Digest**，消化产物往 **Memory** 存一条短 note（情节位置、用户的批注想法）。几天后用户在 **Chat Panel** 问 Pet：「我读到哪了？」——Pet 从 **Memory** 作答，一页都没重读。
+用户在书库应用里读小说；应用是 **Source Host**，书占一个按书名锚定的 **Context Slot**——每次翻页都是同一 ID 下的更新。agent 早已写好的一条 **Watch Schedule** 条目在章节间查看这本书；每次交付，**Perception** 启动 **Digest**，消化产物往 **Memory** 存一条短 note（情节位置、用户的批注想法）。几天后用户在 **Chat Panel** 问 Pet：「我读到哪了？」——Pet 从 **Memory** 作答，一页都没重读。
 
 ### Example C: 没有 hook 的播放器——巡逻只是计划条目
 
@@ -132,7 +132,7 @@ Claude Code 跑在终端 pane 里；pane 的窗口是 **Source Host**，会话�
 
 ### Example E: 启动——跨重启的状态
 
-**AmberyBackend** 启动，加载 **Config**，从 **Storage** 恢复：**Memory** workspace（notes 与索引）、实例清单、以及每一张 **Card** 文件——内容与 **Component State** 同位，用户做过的显示选择（隐藏的卡、拖过的位置）跨重启留存。壳重建 Pet、**Chat Panel** 与每张可见 **Card** 的 **Window**；**Cards Shelf** 从卡文件重建全景；坏文件被跳过，一张卡坏了不拖垮其余。
+**AmberyBackend** 启动，加载 **Config**，从 **Storage** 恢复：**Memory** workspace（notes 与索引）、实例清单、以及每一张 **Card** 文件——内容与 **Component State** 同位，用户做过的显示选择（隐藏的卡、拖过的位置）跨重启留存。壳重建 Pet、**Chat Panel** 与每张可见 **Card** 的 **Window**——这是 **Platform Primitives** 的活：摆放、尺寸与层序按各自平台实现，从不属于协议。**Cards Shelf** 从卡文件重建全景；坏文件被跳过，一张卡坏了不拖垮其余。用户从托盘打开 **Menu**，看到重启前设好的外观与语言——编辑器由 **Config** schema 生成。
 
 ### Example F: Pet 的一次 session——这个词用在哪
 
@@ -150,7 +150,7 @@ Claude Code 跑在终端 pane 里；pane 的窗口是 **Source Host**，会话�
 | Surface | ✅ | — | ✅ | — | ✅ | ✅ |
 | Chat Panel | ✅ | ✅ | — | ✅ | — | — |
 | Card | ✅ | — | ✅ | — | ✅ | ✅ |
-| Menu | — | — | — | — | — | — |
+| Menu | — | — | — | — | ✅ | — |
 | Cards Shelf | — | — | — | — | ✅ | — |
 | Component | ✅ | — | ✅ | — | — | ✅ |
 | Component State | ✅ | — | — | — | ✅ | — |
@@ -176,4 +176,4 @@ Claude Code 跑在终端 pane 里；pane 的窗口是 **Source Host**，会话�
 | Config | — | — | — | — | ✅ | — |
 | Storage | — | — | — | — | ✅ | — |
 | Session | — | — | — | — | ✅ | ✅ |
-| Platform Primitives | — | — | — | — | — | — |
+| Platform Primitives | — | — | — | — | ✅ | — |
