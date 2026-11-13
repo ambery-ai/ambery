@@ -4,10 +4,13 @@ Ambery is a Tauri multi-window desktop pet (pet / chat / menu / shelf / card) pl
 
 Keep internal material private; exclude it with `.gitignore`.
 
-## Docs-driven development
+## Workflows
 
-- Develop document by document: land new code or a new capability in the matching document first (contracts in `docs/`, concepts in [concepts.md](concepts.md), technology and structural decisions in [spec.md](spec.md)); when documents conflict, remove the conflict before implementing.
-- Record principles and decisions settled in discussion in the matching document.
+Applies to all work in this repository.
+
+1. Land the capability in the matching document first — contracts in `docs/`, concepts in [concepts.md](concepts.md), decisions in [spec.md](spec.md).
+2. No code while two documents disagree; settle the conflict first.
+3. Record the settled principle in the document that owns it.
 
 ## Commit messages
 
