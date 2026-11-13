@@ -37,24 +37,24 @@ ambery/
 
 ## Technology choices (host)
 
-| Layer | Technology | Responsibility |
-|---|---|---|
-| System | Rust (`ambery-core`, single process) | Harness, Agent Loop, Memory, Timer, Perception, persistence, Tool Set execution |
-| Persistence | append-only JSONL files + single-file JSON config | Crash-safe run records; full OpenAI context reconstructable from the log |
+| Choice | Reason |
+|---|---|
+| Rust, one process (`ambery-core`) | one address space keeps the LLM call, tool execution and persistence on a single crash-recoverable log |
+| Append-only JSONL files + single-file JSON config | crash-safe run records; the full OpenAI context is reconstructable from the log |
 
-Tradeoffs:
+## Technology decisions (host)
 
 - **JSONL over SQLite** — logs are sacred, views are ephemeral: append-only files keep every run reconstructable and greppable; SQLite enters only when query needs actually arise.
-- **No local tokenizer** — token budgets follow the API's usage truth (est chars/4 only as fallback), matching what Claude Code / opencode do; a local BPE would drift from the provider's count.
+- **No local tokenizer** — token budgets follow the API's usage truth, matching what Claude Code / opencode do; a local BPE would drift from the provider's count.
 - **LLM calls stay in Rust** — OpenAI-compatible Chat Completions endpoint; base_url / key come from Config; reasoning_content persists per the provider contract (docs/agent-loop.md).
 - **observe-derive is a build-time companion** — the `Observe` macro lives in its own crate only because proc-macros must; it is versioned and released with core.
 
 ## Architecture decisions (host)
 
-1. **Two process families, one protocol**: the host process is the single consumer; external software is reached only through the Ambery Protocol's contract surface (host push = hook; host read = enumerate/read; agent consumption = Tool Set). No back channels.
-2. **Terminal access is consumed through the contract only**: core depends on `ambery-terminal-lib` and never on a terminal package; assembly (which terminal packages are active) happens at the binary/config layer.
-3. **Storage is always append-only**: restart replays to restore state; compression is a marker, not deletion; `context.jsonl.bad` isolates unparseable lines instead of dropping them.
-4. **Config and Storage are two domains**: single-file `config.json` + identity prompt `AGENTS.md` at the config root; run data under `storage/`; paths resolved by `core/paths.rs` (`AMBERY_CONFIG_DIR` / `AMBERY_STORAGE_DIR` override).
+- **One consumer, one protocol**: the host process is the single consumer; external software reaches it only through the Ambery Protocol's contract surface. No back channels.
+- **Terminal access is consumed through the contract only**: core depends on `ambery-terminal-lib` and never on a terminal package; assembly of the active terminal packages happens at the binary/config layer.
+- **Storage is always append-only**: restart replays to restore state; compression is a marker, not deletion; `context.jsonl.bad` isolates unparseable lines instead of dropping them.
+- **Config and storage are separate domains**: single-file `config.json` plus the identity prompt `AGENTS.md` at the config root; run data under `storage/`; paths resolved by `core/paths.rs`.
 
 ## Fixed constraints (host)
 

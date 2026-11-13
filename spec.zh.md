@@ -37,24 +37,24 @@ ambery/
 
 ## 技术选型（本体）
 
-| 层 | 技术 | 职责 |
-|---|---|---|
-| 系统 | Rust（`ambery-core`，单进程） | Harness、Agent Loop、Memory、Timer、Perception、持久化、Tool Set 执行 |
-| 持久化 | append-only JSONL 文件 + 单文件 JSON 配置 | 崩溃安全的运行记录；完整 OpenAI 上下文可从日志复原 |
+| 选型 | 理由 |
+|---|---|
+| Rust，单进程（`ambery-core`） | 单一地址空间让 LLM 调用、工具执行与持久化共用一份崩溃可恢复的日志 |
+| append-only JSONL 文件 + 单文件 JSON 配置 | 崩溃安全的运行记录；完整 OpenAI 上下文可从日志复原 |
 
-取舍：
+## 技术决策（本体）
 
 - **JSONL 而非 SQLite**——日志神圣、视图易逝：append-only 文件让每次运行可复原、可 grep；SQLite 等查询需求真实出现再引入。
-- **不引入本地分词器**——token 预算跟随 API 的 usage 真值（est chars/4 仅作回退），与 Claude Code / opencode 的做法一致；本地 BPE 会与 provider 计数漂移。
+- **不引入本地分词器**——token 预算跟随 API 的 usage 真值，与 Claude Code / opencode 的做法一致；本地 BPE 会与 provider 计数漂移。
 - **LLM 调用留在 Rust**——OpenAI 兼容 Chat Completions 端点；base_url / key 来自 Config；reasoning_content 按 provider 契约持久化（docs/agent-loop.md）。
 - **observe-derive 是构建附属**——`Observe` 宏独立成 crate 仅因 proc-macro 必须如此；它与 core 同版本同发布。
 
 ## 架构决定（本体）
 
-1. **两个进程家族，一个协议**：宿主进程是唯一消费者；外部软件只经 Ambery Protocol 的契约面接触（宿主推送 = hook；宿主读取 = enumerate/read；agent 消费 = Tool Set）。无旁路通道。
-2. **终端接入只经契约消费**：core 依赖 `ambery-terminal-lib`，永不依赖终端包；组装（哪些终端包激活）发生在二进制/配置层。
-3. **存储永远 append-only**：重启靠 replay 恢复状态；压缩是标记不是删除；`context.jsonl.bad` 隔离解析失败行而非丢弃。
-4. **Config 与 Storage 是两个域**：单文件 `config.json` + 身份提示词 `AGENTS.md` 在 config 根；运行数据在 `storage/`；路径由 `core/paths.rs` 解析（`AMBERY_CONFIG_DIR` / `AMBERY_STORAGE_DIR` 可覆盖）。
+- **一个消费者，一个协议**：宿主进程是唯一消费者；外部软件只经 Ambery Protocol 的契约面接触。无旁路通道。
+- **终端接入只经契约消费**：core 依赖 `ambery-terminal-lib`，永不依赖终端包；激活哪些终端包的组装发生在二进制/配置层。
+- **存储永远 append-only**：重启靠 replay 恢复状态；压缩是标记不是删除；`context.jsonl.bad` 隔离解析失败行而非丢弃。
+- **Config 与 Storage 是两个独立域**：单文件 `config.json` + 身份提示词 `AGENTS.md` 在 config 根；运行数据在 `storage/`；路径由 `core/paths.rs` 解析。
 
 ## 固定约束（本体）
 
