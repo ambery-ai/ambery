@@ -26,10 +26,8 @@ tools/            diagnostic tools
 
 ## Commit conventions
 
-- **One thing per commit**: behavior, tests, and docs are committed separately.
-- **English subject line** summarizing the behavior change; body explains why.
+- Commit messages follow the rules in [AGENTS.md](AGENTS.md).
 - Behavior changes come with tests: Rust unit tests in the module, frontend tests in `packages/apps/test/*.test.ts`.
-- No internal project/example names in commits or comments — the repo is public.
 
 ## Code rules
 

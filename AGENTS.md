@@ -14,9 +14,10 @@ Applies to all work in this repository.
 
 ## Commit messages
 
-- Concise: a one-sentence subject is enough; no long body.
+- One thing per commit: behavior, tests and docs land separately.
+- Concise: a one-sentence subject summarizing the behavior change; a body explains why when the subject cannot carry it.
 - Write commit messages in English (open-source norm: English subject, friendly to international collaboration and tooling).
-- This is an open-source project: never put sensitive information in the project or in commit messages.
+- This is an open-source project: no internal project or example names in commits or comments; never put sensitive information in the project or in commit messages.
 
 ## Run and build
 
