@@ -55,8 +55,8 @@ Reads the full text of one memory.
 | Case | Return |
 |---|---|
 | Success | `{"ok": true, "name": "<name>", "content": "<full text>"}` (when reading index, `name` is `"index"`) |
-| Not found | `{"ok": false, "error": "记忆 '<name>' 不存在（先 read_memory() 看 index）"}` |
-| Invalid name | `{"ok": false, "error": "名称 '<name>' 不合法：…"}` |
+| Not found | `{"ok": false, "error": "memory '<name>' does not exist (see the index from read_memory())"}` |
+| Invalid name | `{"ok": false, "error": "invalid name '<name>': …"}` |
 
 ## write_memory
 

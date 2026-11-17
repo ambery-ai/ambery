@@ -25,9 +25,9 @@ Creates / updates / closes Card windows. The same id creates on first use and up
 | Created | `{"ok": true, "rendered": "<spec.id>"}` |
 | Updated | `{"ok": true, "updated": "<spec.id>"}` |
 | Closed | `{"ok": true, "closed": "<spec.id>"}` |
-| Invalid id | `{"ok": false, "error": "spec.id '<id>' 不合法：…"}` |
-| Missing required field | `{"ok": false, "error": "<type> 缺少必填字段：…"}` |
-| Invalid type | `{"ok": false, "error": "未知 Component type：'<type>'"}` |
+| Invalid id | `{"ok": false, "error": "invalid spec.id '<id>': …"}` |
+| Missing required field | `{"ok": false, "error": "<type> missing required fields: …"}` |
+| Invalid type | `{"ok": false, "error": "unknown Component type: '<type>', valid: …"}` |
 
 **effect**: `RenderComponent(spec)` (create/update) — frontend creates/updates an independent Tauri window to render the Card
 
@@ -45,9 +45,9 @@ Reads the current Terminal Content of a specified instance on demand.
 | Case | Return |
 |------|------|
 | Content read | `{"ok": true, "instance": "<inst>", "content": "<full text>"}` |
-| instance empty | `{"ok": false, "error": "instance 必填"}` |
-| vd_switch missing | `{"ok": false, "error": "vd_switch 必填（…）"}` |
-| Unreadable | `{"ok": false, "error": "读不到 <inst>…}"}` |
+| instance empty | `{"ok": false, "error": "instance is required"}` |
+| vd_switch missing | `{"ok": false, "error": "vd_switch is required (…)"}` |
+| Unreadable | `{"ok": false, "error": "cannot read <inst>: …}"}` |
 
 **effect**: no injection — the result is returned directly to Context as a `tool` message (read side effect: raw text archived + in-memory prev updated)
 
@@ -67,9 +67,9 @@ Overrides Autonomy's expression/movement. Falls back to default after ttlMs.
 | Case | Return |
 |------|------|
 | Validation passed | `{"ok": true}` |
-| Invalid key | `{"ok": false, "error": "无效 key：'<v>'"}` |
-| Invalid motion | `{"ok": false, "error": "motion '<v>' 不合法，合法值：still/float/bounce/shake"}` |
-| `once` and `ttlMs` passed together | `{"ok": false, "error": "once 与 ttlMs 不能同时传（…）"}` |
+| Invalid key | `{"ok": false, "error": "invalid key: '<v>'"}` |
+| Invalid motion | `{"ok": false, "error": "invalid motion '<v>', valid: still/float/bounce/shake"}` |
+| `once` and `ttlMs` passed together | `{"ok": false, "error": "once and ttlMs are mutually exclusive (…)"}` |
 
 **effect**: `SetAutonomy { face, motion, ttl_ms }` — Autonomy engine overrides expression/movement
 
@@ -101,10 +101,10 @@ Single Config tool. All behaviors are explicitly distinguished by the required `
 |---|---|
 | `grep` no match | `{"ok": true, "matches": []}` |
 | `query` success | `{"ok": true, "node": {…}, "children": […]}` |
-| `update` success (hot field) | `{"ok": true, "path": "…", "msg": "已生效"}` |
-| `update` success (cold field) | `{"ok": true, "path": "…", "restartRequired": ["…"], "msg": "已保存，重启应用后生效"}` |
+| `update` success (hot field) | `{"ok": true, "path": "…", "msg": "Applied"}` |
+| `update` success (cold field) | `{"ok": true, "path": "…", "restartRequired": ["…"], "msg": "Saved; takes effect after restart"}` |
 | Illegal action / parameter / regex / path | `{"ok": false, "error": "…"}` |
-| query snapshot missing or invalid | `{"ok": false, "error": "缺少已读快照：未读取目标当前值。请先 query"}` |
+| query snapshot missing or invalid | `{"ok": false, "error": "missing read snapshot: the target's current value was not read. query first"}` |
 | Validation failed or read-only degradation | `{"ok": false, "error": "…"}` |
 
 **effect**: `ConfigChanged` on successful update — frontend reloads config

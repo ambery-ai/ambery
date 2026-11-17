@@ -54,4 +54,4 @@ tick (server background task, default 60s (config `timer.tick_ms`; case-runner c
   → Minor / Unchanged: raw archive + prev update, no disturbance (consistent with pet's silence, concepts §pet)
 ```
 
-The injected message is isomorphic to the stop hook (`…，Context 已更新（N 字）。评估是否通知。`) — the notification/silence decision path is identical.
+The injected message is isomorphic to the stop hook (`…; Context updated (N chars). Evaluate whether to notify.`) — the notification/silence decision path is identical.

@@ -194,7 +194,7 @@ steps are a linear sequence; each step has a type + optional parameters. The run
 | `trigger` | — | drain_queue: release all pending inputs → LLM/effects |
 | `user` | `{text, ts?}` | user message enqueued (enqueue user role) → drain_queue releases |
 | `tool_call` | `[name, args_json]` | directly execute a tool call, bypassing the LLM: execute_tool → result + effects; does not write tool protocol messages; cannot verify multi-response tool interaction |
-| `store` | `{"<name>": {"type":"expr\|var\|int\|str", "value":"<字符串>"}}` | set user variables: value is evaluated by the corresponding parser → to_string → stored as string (see [case-eval-system.md](case-eval-system.md)) |
+| `store` | `{"<name>": {"type":"expr\|var\|int\|str", "value":"<string>"}}` | set user variables: value is evaluated by the corresponding parser → to_string → stored as string (see [case-eval-system.md](case-eval-system.md)) |
 | `observe` | `[{"target":"agents"}, {"target":"context","lines":"[$tail-50,$tail]"}]` | record the current snapshot of concept structures (unified object list; path-type targets may carry lines reads, see [case-eval-system.md](case-eval-system.md)) |
 
 Read-channel default state: any instance not configured returns `None` (= tab no longer exists). Zombie-type cases need no

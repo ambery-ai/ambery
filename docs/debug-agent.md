@@ -33,5 +33,5 @@ the decision-source logic is built into the script, and case-runner connects to 
 python scripts/debug_brain.py --port 47777   # start the HTTP server (--port optional, default 47777)
 ```
 
-Built-in minimal threshold decision source: if the request content contains the completion notice pattern `完成，Context 已更新（N 字）` and N ≥ 80, it replies with the notify tool;
+Built-in minimal threshold decision source: if the request content contains the completion notice pattern `finished; Context updated (N chars)` and N ≥ 80, it replies with the notify tool;
 otherwise it stays silent. Implemented as an OpenAI-compatible response, case-runner calls it through the common OpenAiClient path.
