@@ -2,19 +2,11 @@
 
 English | [中文](kitchen-sink.zh.md)
 
-> The component contract it renders belongs to [ui-composition.md](ui-composition.md); theme values to [theme.md](theme.md); the Component protocol to [components.md](components.md); behaviour verification to [case-runner.md](case-runner.md).
-
-## Principles
-
-> **Scope of this document** — this document defines the rendering-layer verification surface: the page, what it renders, its controls, and the guarantees that keep it in sync with the product. It does not define the component contract, the theme value fields, or the Component protocol.
-
-> **Observation does not act** — the surface wires no application action: no IPC, no window management, no storage write, no drag. A page that can change state is a second entry point, not a verification surface.
-
-> **No colour of its own** — the page introduces no colour: every surface it paints comes from the theme in use, and the theme selection is the only colour input. A value that is not a theme token is a defect, not a detail.
-
-> **Everything is laid out flat** — no option may hide behind a control: no dropdown, no menu, no state revealed only on hover. Every choice shows all of its alternatives at once, and every operation takes effect in one click. Nothing floats either: nothing hovers above the content — no pinned bar, no floating layer, no overlay; everything sits in the flow.
-
-> **The surface holds no copy** — everything it shows is production code and live data: the components are the product's own components, Cards render through the Component renderer, token values are read from the document root, and the lists it enumerates come from the product's own registries.
+> - **Scope of this document** — this document defines the rendering-layer verification surface: the page, what it renders, its controls, and the guarantees that keep it in sync with the product. It does not define the component contract, the theme value fields, or the Component protocol. The component contract it renders belongs to [ui-composition.md](ui-composition.md); theme values to [theme.md](theme.md); the Component protocol to [components.md](components.md); behaviour verification to [case-runner.md](case-runner.md).
+> - **Observation does not act** — the surface wires no application action: no IPC, no window management, no storage write, no drag. A page that can change state is a second entry point, not a verification surface.
+> - **No colour of its own** — the page introduces no colour: every surface it paints comes from the theme in use, and the theme selection is the only colour input. A value that is not a theme token is a defect, not a detail.
+> - **Everything is laid out flat** — no option may hide behind a control: no dropdown, no menu, no state revealed only on hover. Every choice shows all of its alternatives at once, and every operation takes effect in one click. Nothing floats either: nothing hovers above the content — no pinned bar, no floating layer, no overlay; everything sits in the flow.
+> - **The surface holds no copy** — everything it shows is production code and live data: the components are the product's own components, Cards render through the Component renderer, token values are read from the document root, and the lists it enumerates come from the product's own registries.
 
 ## Coverage: the rendering layer the case runner leaves open
 

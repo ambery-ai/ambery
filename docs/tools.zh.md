@@ -2,6 +2,8 @@
 
 [English](tools.md) | 中文
 
+> - **本文档范围**——本文定义开发工具——`tools/` 目录下的脚本工具与 core 的独立 bin 工具——各自做什么、如何调用。产品行为归各设计文档。
+
 开发工具统一定义：`tools/` 目录下的脚本工具 + core 的独立 bin 工具。
 
 ## 工具清单
@@ -15,11 +17,11 @@
 
 ## ambery-activity — storage 活动查看器
 
-读取 Storage 目录下 JSONL 文件（docs/storage.md），TUI 交互查看内部消息流。用于开发/调试时观察系统实际写下的内容。
+读取 Storage 目录下 JSONL 文件（[docs/storage.zh.md](storage.zh.md)），TUI 交互查看内部消息流。用于开发/调试时观察系统实际写下的内容。
 
 ### 数据源
 
-按 storage 布局（docs/storage.md）读取：
+按 storage 布局（[docs/storage.zh.md](storage.zh.md)）读取：
 
 - `queue.jsonl` — Queue 输入排队记录（每行一个 turn 边界）
 - `context.jsonl` — Context 消息（message / autonomy / head / session / 压缩边界）

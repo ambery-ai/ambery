@@ -2,25 +2,14 @@
 
 [English](pet-window-size.md) | 中文
 
-> 本文档定 pet 窗口的尺寸公式与原则。
-
-## 原则
-
-> **本文档范围**——本文定义 pet 的尺寸、扫描与定位契约；表情池的编辑权限、整体更新与移动协议见 [config.md](config.md) / [autonomy.md](autonomy.md)。
-
-> **中心不变**——窗口扩大缩小，视觉中心钉在同一点，`setSize` 后补偿左上角偏移。
-
-> **纯函数**——窗口尺寸 = f(baseline, scale, face, motion)，输入计算不读当前 OS 窗口大小。
-
-> **障碍区固定**——按所有 face/motion 的最坏情况预留，不随状态抖动，card/chat 布局稳定。
-
-> **单向独立**——上下左右四个方向各自取最大值，不绑定成单一的 H 和 W。
-
-> **测量只测 face**——`getBoundingClientRect()` 只测 `#face` 当前渲染宽度，不测 `#view`（避免窗口约束闭环）；`#face` 必须 `flex-shrink: 0` 防止被容器压缩。
-
-> **中心不离屏**——仅在拖拽结束时校验 pet 中心必须落在某个显示器可用工作区内；若越界，拉回最近工作区的最近点。尺寸变化始终保持中心不变，不参与此边界修正。
-
-> **动画不改中心**——motion 的 CSS `transform` 仅在预留的窗口空间内暂时位移；动画首尾帧必回到基准位置，因此不改变 `petCenter`。拖拽、附属窗口跟随、障碍区定位与边界校验始终使用同一个基准中心。
+> - **本文档范围**——本文定义 pet 的尺寸公式、扫描与定位契约；表情池的编辑权限、整体更新与移动协议见 [config.zh.md](config.zh.md) / [autonomy.zh.md](autonomy.zh.md)。
+> - **中心不变**——窗口扩大缩小，视觉中心钉在同一点，`setSize` 后补偿左上角偏移。
+> - **纯函数**——窗口尺寸 = f(baseline, scale, face, motion)，输入计算不读当前 OS 窗口大小。
+> - **障碍区固定**——按所有 face/motion 的最坏情况预留，不随状态抖动，card/chat 布局稳定。
+> - **单向独立**——上下左右四个方向各自取最大值，不绑定成单一的 H 和 W。
+> - **测量只测 face**——`getBoundingClientRect()` 只测 `#face` 当前渲染宽度，不测 `#view`（避免窗口约束闭环）；`#face` 必须 `flex-shrink: 0` 防止被容器压缩。
+> - **中心不离屏**——仅在拖拽结束时校验 pet 中心必须落在某个显示器可用工作区内；若越界，拉回最近工作区的最近点。尺寸变化始终保持中心不变，不参与此边界修正。
+> - **动画不改中心**——motion 的 CSS `transform` 仅在预留的窗口空间内暂时位移；动画首尾帧必回到基准位置，因此不改变 `petCenter`。拖拽、附属窗口跟随、障碍区定位与边界校验始终使用同一个基准中心。
 
 ## CSS ↔ JS 一致性契约
 
@@ -98,7 +87,7 @@ h = contextH + motionTop + motionBottom
 ```
 
 - `faceWidth` = `#face.getBoundingClientRect().width`（CSS 像素）
-- `scale` = `viewScale`（热更新；见 docs/view.md Config 字段）
+- `scale` = `viewScale`（热更新；见 [docs/view.zh.md](view.zh.md) Config 字段）
 - `motion{Left,Right,Top,Bottom}` = 当前 motion 的 `overflow[方向]`
 
 **与 CSS 的对应关系**：

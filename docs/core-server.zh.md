@@ -2,6 +2,8 @@
 
 [English](core-server.md) | 中文
 
+> - **本文档范围**——本文定义 Tauri 进程内的薄 HTTP server：端口语义、回环威胁模型、职责、承载的路由、前端通信与 debug 模式完整 router。hook 收口的契约本身归 [access-protocol.zh.md](access-protocol.zh.md)。
+
 Tauri 进程内薄 HTTP server，默认绑 `127.0.0.1:47600`，只承载外部 hook 收口。
 
 ## 端口语义
@@ -45,7 +47,7 @@ Tauri 原生 IPC（不经过 47600）：
 
 ## debug 模式完整 router
 
-case-runner 以完整 `router()` 启动（`ambery-case serve`，浏览器调试 RemoteBridge 消费，docs/case-runner.md §CLI）：`/state` `/context` `/queue/user` `/events` `/config` `/config/schema` `/effect` `/ws`，另有：
+case-runner 以完整 `router()` 启动（`ambery-case serve`，浏览器调试 RemoteBridge 消费，[docs/case-runner.zh.md](case-runner.zh.md) §CLI）：`/state` `/context` `/queue/user` `/events` `/config` `/config/schema` `/effect` `/ws`，另有：
 
 - `GET /cards`、`POST /cards/layout`、`POST /cards/user_closed`——与 Tauri command `list_cards` / `update_card_layout` / `set_card_user_closed` 同一 core 逻辑（双运输层共享），供 RemoteBridge 消费（TS 子进程 / 浏览器调试）
 - `POST /debug/effect`（`case-runner` feature，release 默认构建不含）——向 effect 下行总线注入任意 effect 消息，headless 测试确定性驱动 render/close/config 事件，不经 LLM
@@ -53,6 +55,6 @@ case-runner 以完整 `router()` 启动（`ambery-case serve`，浏览器调试 
 
 ## 相关文档
 
-- [agent-loop.md](agent-loop.md) §协议：Tauri IPC + `/hook` 链路
-- [docs/agents/claude/hook.md](agents/claude/hook.md)：外部 hook 脚本接入
-- [docs/terminal/timer.md](terminal/timer.md)：timer 后台任务逻辑
+- [agent-loop.zh.md](agent-loop.zh.md) §协议：Tauri IPC + `/hook` 链路
+- [docs/agents/claude/hook.zh.md](agents/claude/hook.zh.md)：外部 hook 脚本接入
+- [docs/terminal/timer.zh.md](terminal/timer.zh.md)：timer 后台任务逻辑

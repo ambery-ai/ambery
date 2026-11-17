@@ -1,6 +1,6 @@
 # AGENTS.md — Documentation standards
 
-> Responsibility boundaries (which document says what) belong to [docs-spec.md](../docs-spec.md); this file only governs "how to write". Before changing any document, read this file and [docs-spec.md](../docs-spec.md) first.
+> - **Scope of this document** — responsibility boundaries (which document says what) belong to [docs-spec.md](../docs-spec.md); this file only governs "how to write" — read both before changing any document.
 
 ## Document structure
 

@@ -2,7 +2,7 @@
 
 English | [中文](chat-panel.zh.md)
 
-> Concept definitions are in concepts.md §Chat Panel. This document specifies invocation/dismissal, layout, and message rendering rules.
+> - **Scope of this document** — Concept definitions are in [concepts.md](../concepts.md) §Chat Panel. This document specifies invocation/dismissal, layout, and message rendering rules.
 
 ## Product Principles
 
@@ -12,21 +12,21 @@ Therefore, new messages, streaming increments, Context refreshes, window size ch
 
 ## Invocation and Dismissal
 
-- **Invoke/Dismiss**: right-click toggle on the View (`chat:toggle`) — concepts §Chat Panel "invoked via View right-click"; when the panel is open, right-clicking again closes it. The pet stays in place (no snapping teleport; docs/view.md §Gestures and Chat invocation).
+- **Invoke/Dismiss**: right-click toggle on the View (`chat:toggle`) — concepts §Chat Panel "invoked via View right-click"; when the panel is open, right-clicking again closes it. The pet stays in place (no snapping teleport; [docs/view.md](view.md) §Gestures and Chat invocation).
 - The × in the top-right corner is the same close action (user intent to close); after ×, right-clicking again re-invokes.
-- Invocation position: placed beside the pet with the fixed `sse` direction by the window placement engine `engine.place` (docs/window-positioning.md — our own positioning engine, not OS snapping).
+- Invocation position: placed beside the pet with the fixed `sse` direction by the window placement engine `engine.place` ([docs/window-positioning.md](window-positioning.md) — our own positioning engine, not OS snapping).
 - The panel is not a Component: it does not go through `call_component`, does not enter the Component layer, and has no direction-selection logic.
 
 ## Layout
 
-- The panel expands attached to the pet with the fixed `sse` direction via `engine.place` (docs/window-positioning.md).
-- Size 320×380. No clamping (docs/window-follow.md §Off-screen and overlap: not covering the person > fully visible; partially off-screen is accepted).
+- The panel expands attached to the pet with the fixed `sse` direction via `engine.place` ([docs/window-positioning.md](window-positioning.md)).
+- Size 320×380. No clamping ([docs/window-follow.md](window-follow.md) §Off-screen and overlap: not covering the person > fully visible; partially off-screen is accepted).
 
 ## Message Model (Projection of Context)
 
 - Conversation history is read from Context (concepts §Chat Panel); the panel is a **view projection** of Context and holds no data of its own.
 - Of the four Context roles (concepts §Context), the panel renders only the content of `user` and `assistant`; `system` (event messages) and `tool` (execution results) are runtime messages and do not pollute the conversation view (design decision).
-- User input → `bridge.appendUserMessage(text)` writes into the Queue for admission → after admission it enters Context as a `user` role message → triggers one round of LLM processing (see docs/harness.md for trigger logic).
+- User input → `bridge.appendUserMessage(text)` writes into the Queue for admission → after admission it enters Context as a `user` role message → triggers one round of LLM processing (see [docs/harness.md](harness.md) for trigger logic).
 - The panel subscribes to incremental refreshes via `onContextChanged`.
 
 ## Scrolling and New Messages

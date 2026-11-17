@@ -2,100 +2,102 @@
 
 English | [中文](module-storage-flow.zh.md)
 
+> - **Scope of this document** — this document presents the code-module layering, the processing flow with storage files appearing only on the arrows, and the presentation layer / effect, in two views of the same picture, ASCII and Mermaid. The storage-centric variant is [processing-flow.md](processing-flow.md).
+
 Code module layering + processing flow (storage files appear only on arrows) + presentation layer / effect. Two versions of the same view: ASCII and Mermaid.
 
 ## ASCII
 
 ```
-══════════════════════ 代码模块分层 ══════════════════════
+══════════════════════ module layers ══════════════════════
 
-  表现层    前端窗口：pet / chat / card-* / menu（Tauri，非 headless）
-            ├─ store（状态层）：core 拥有的可读状态的收敛面
-            ├─ 动作层（action layer）：写动作 + effect 上报
-            ├─ 窗口层（window layer）：OS 窗口的尺寸 / 位置 / 显示（adapter + 壳）
-            └─ 渲染层（rendering layer）：DOM 构建 + CSS + 尺寸推导（每类型由注册表提供 sizeModel）
+  Presentation  frontend windows: pet / chat / card-* / menu (Tauri, not headless)
+                ├─ store (state layer): the convergence surface of core-owned readable state
+                ├─ action layer: write actions + effect reporting
+                ├─ window layer: OS window size / position / visibility (adapter + shell)
+                └─ rendering layer: DOM building + CSS + size derivation (each type's sizeModel comes from the registry)
   ─────────────────────────────────────────────────────────
-  编排层    AmberyBackend（ambery.rs）
-            handle_hook │ handle_timer_scan │ run_trigger │ execute_tool │ drain_queue
+  Orchestration AmberyBackend (ambery.rs)
+                handle_hook │ handle_timer_scan │ run_trigger │ execute_tool │ drain_queue
   ─────────────────────────────────────────────────────────
-  能力层    Filter（filter.rs）│ LLM（llm.rs）│ Timer（timer.rs）
-            Lifecycle（lifecycle.rs）│ Memory（memory.rs）│ Cron（cron.rs）│ Config（config/）
+  Capability    Filter (filter.rs) │ LLM (llm.rs) │ Timer (timer.rs)
+                Lifecycle (lifecycle.rs) │ Memory (memory.rs) │ Cron (cron.rs) │ Config (config/)
   ─────────────────────────────────────────────────────────
-  数据层    Harness：Queue（queue.rs）│ Context（context.rs）│ EventBuffer（event_buffer.rs）│ agents
+  Data          Harness: Queue (queue.rs) │ Context (context.rs) │ EventBuffer (event_buffer.rs) │ agents
   ─────────────────────────────────────────────────────────
-  读通道    terminal 包（wt sidecar / zellij CLI）/ MapAdapter（case-runner）（外部输入）
+  Read channel  terminal package (wt sidecar / zellij CLI) / MapAdapter (case-runner) (external input)
   ─────────────────────────────────────────────────────────
-  存储层    JsonlStore（storage.rs）读写 storage/*；ConfigStore 读写 config.json
+  Storage       JsonlStore (storage.rs) reads and writes storage/*; ConfigStore reads and writes config.json
 
-══════════════════════ 处理流（storage 文件名只在箭头上）══════════════════════
+══════════════════════ processing flow (storage file names appear only on the arrows) ══════════════════════
 
-  外部 Hook / User 输入
+  External hook / user input
         │
         ▼
   ┌────────────┐
-  │  读通道     │  读 Terminal Content
+  │ Read chan. │  read Terminal Content
   │ sidecar/   │
   └─────┬──────┘
         │ raw
         │
-        ├────────[terminal-content.jsonl]────────▶  原文全档
-        │        （fetch_terminal 回退/追问从此现算 digest）
+        ├────────[terminal-content.jsonl]────────▶  raw archive
+        │        (fetch_terminal fallback / follow-up computes the digest on demand)
         ▼
-  ┌────────────┐   digest → 归一全文（现算，不持久）
-  │  能力层     │
-  │  Filter    │───▶ 变化检测（prev 内存）──▶ 有变化 → 提示消息
+  ┌────────────┐   digest → normalized full text (computed on demand, not persisted)
+  │ Capability │
+  │  Filter    │───▶ change detection (in-memory prev)──▶ changed → notification message
   └────────────┘
         │
         ▼
-  ┌────────────┐  入队             ┌────────────┐
-  │  数据层     │─[queue.jsonl]──▶  │  数据层     │  放行
+  ┌────────────┐  enqueue          ┌────────────┐
+  │    Data    │─[queue.jsonl]──▶  │    Data    │  release
   │  Queue     │                   │  Context   │
   └────────────┘                   └─────┬──────┘
-                                         │ 追加消息
+                                         │ append message
                                          ▼
-                                  ┌────────────┐
-                                  │  能力层     │
-                                  │  LLM       │─[context.jsonl]──▶（装配 head/autonomy/usage）
-                                  └────────────┘
+                                   ┌────────────┐
+                                   │ Capability │
+                                   │  LLM       │─[context.jsonl]──▶ (assemble head/autonomy/usage)
+                                   └────────────┘
                                          │ tool_calls
                                          ▼
-                                  ┌────────────┐
-                                  │  编排层     │  execute_tool
-                                  │ Ambery-  │
-                                  └──┬─────┬───┘
-                                     │     │
-                           result    │     │  effect
-                             │       │     │
-                             ▼       │     ├────[effect.jsonl]────▶ 动作流全档
-                       [context.jsonl] │     │   （后端副作用 + 非只读 Tauri 运行时动作）
-                     （tool message）   │     ▼
-                                       │  ┌────────────┐
-                                       │  │  表现层     │
-                                       │  │ pet/chat/  │
-                                       │  │ card/menu  │
-                                       │  └────────────┘
-                                       │  （RenderComponent/CloseComponent/
-                                       │   SetAutonomy/ConfigChanged/
-                                       │   AssistantDelta）
-                                       ▼
-                                 （回 LLM 循环 → 最终回复）
+                                   ┌────────────┐
+                                   │  Backend   │  execute_tool
+                                   │ Ambery-    │
+                                   └──┬─────┬───┘
+                                      │     │
+                            result    │     │  effect
+                             │        │     │
+                             ▼        │     ├────[effect.jsonl]────▶ action stream archive
+                      [context.jsonl] │     │  (backend side effects + non-readonly Tauri runtime actions)
+                      (tool message)  │     ▼
+                                      │  ┌────────────┐
+                                      │  │    View    │
+                                      │  │ pet/chat/  │
+                                      │  │ card/menu  │
+                                      │  └────────────┘
+                                      │  (RenderComponent/CloseComponent/
+                                      │   SetAutonomy/ConfigChanged/
+                                      │   AssistantDelta)
+                                      ▼
+                                 (back to the LLM loop → final reply)
 
-  ── 其余模块 ↔ storage 的箭头 ──
-  [编排层 agents]  ──[work-agents.jsonl]──▶  投影（实例生命周期）
-  [能力层 Memory]  ──[memory/notes/* + memory/cards/*]────────▶  持久化理解
-  [能力层 Cron]    ──[cron.jsonl]──────────▶  计划/延时
-  [配置层 Config]  ──[config.json]──────────▶  装配
+  ── arrows for the remaining modules ↔ storage ──
+  [orchestration agents] ──[work-agents.jsonl]──▶  projection (instance lifecycle)
+  [capability Memory]    ──[memory/notes/* + memory/cards/*]────────▶  persisted understanding
+  [capability Cron]      ──[cron.jsonl]──────────▶  schedule / delay
+  [config Config]        ──[config.json]──────────▶  assembly
 ```
 
 ## Mermaid
 
 ```mermaid
 flowchart TD
-    subgraph L5[读通道]
-        RD["sidecar / MapAdapter（case-runner）"]
+    subgraph L5[Read channel]
+        RD["sidecar / MapAdapter (case-runner)"]
     end
 
-    subgraph L3[能力层]
+    subgraph L3[Capability]
         FILTER["Filter"]
         LLM["LLM"]
         MEM["Memory"]
@@ -103,24 +105,24 @@ flowchart TD
         CFG["Config"]
     end
 
-    subgraph L4[数据层]
+    subgraph L4[Data]
         QUEUE["Queue"]
         CTX["Context"]
         AGENTS["agents"]
     end
 
-    subgraph L2[编排层]
+    subgraph L2[Orchestration]
         OB["AmberyBackend"]
     end
 
-    subgraph L1[表现层]
+    subgraph L1[Presentation]
         FE["pet / chat / card / menu"]
     end
 
     RD -->|"raw"| TC["terminal-content.jsonl"]
     TC --> OB
     RD --> FILTER
-    FILTER -->|"归一全文（现算）<br/>+ prev 内存变化检测"| OB
+    FILTER -->|"normalized full text (computed on demand)<br/>+ in-memory prev change detection"| OB
 
     OB --> QUEUE
     QUEUE -->|"queue.jsonl"| CTX
@@ -128,8 +130,8 @@ flowchart TD
     LLM -->|"tool_calls"| OB
     OB -->|"result → context.jsonl"| CTX
     OB -->|"effect → effect.jsonl"| EF["effect.jsonl"]
-    OB -->|"effect 下发"| FE
-    FE -->|"非只读 Tauri 运行时动作 → effect.jsonl"| EF
+    OB -->|"effect dispatch"| FE
+    FE -->|"non-readonly Tauri runtime action → effect.jsonl"| EF
 
     AGENTS -->|"work-agents.jsonl"| OB
     MEM -->|"memory/notes/* + memory/cards/*"| OB

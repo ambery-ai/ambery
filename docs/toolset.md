@@ -2,23 +2,21 @@
 
 English | [中文](toolset.zh.md)
 
+> - **Scope of this document** — this document defines each tool's parameter schema, return structure, and call semantics; for tool turn budgets and trigger termination policy see [agent-loop.md](agent-loop.md).
+
 Nine function definitions callable by pet (call_component / fetch_terminal / set_autonomy / edit_config / read_memory / write_memory / cron_create / cron_delete / sleep). The validation rules define legality and error returns at backend execution time.
-
-## Scope of this document
-
-This document defines each tool's parameter schema, return structure, and call semantics; for tool turn budgets and trigger termination policy see [agent-loop.md](agent-loop.md).
 
 ## call_component
 
-Creates / updates / closes Card windows. The same id creates on first use and updates in place afterwards. The tool schema declares each type's `content` shape via an `anyOf` generated from the type registry (docs/components.md §Type registry).
+Creates / updates / closes Card windows. The same id creates on first use and updates in place afterwards. The tool schema declares each type's `content` shape via an `anyOf` generated from the type registry ([docs/components.md](components.md) §Type registry).
 
 | Parameter | Type | Required | Validation |
 |------|------|------|------|
 | `spec.id` | string | ✓ | `[A-Za-z0-9_\-/.]+`, not empty. No spaces, Chinese characters, or special characters |
-| `spec.type` | string | ✓ | a registered Component type (docs/components.md §Type registry) |
+| `spec.type` | string | ✓ | a registered Component type ([docs/components.md](components.md) §Type registry) |
 | `spec.direction` | string | | `auto` / `n` / `ne` / `e` / `se` / `s` / `sw` / `w` / `nw` |
 | `spec.action` | string | | `close` closes the Card; `content` is then ignored |
-| `spec.content` | object | ✓ | shape owned by `spec.type`; `text_card.content.text` is a markdown subset (docs/components.md §Rendering) |
+| `spec.content` | object | ✓ | shape owned by `spec.type`; `text_card.content.text` is a markdown subset ([docs/components.md](components.md) §Rendering) |
 
 **return**
 
@@ -46,7 +44,7 @@ Reads the current Terminal Content of a specified instance on demand.
 
 | Case | Return |
 |------|------|
-| Content read | `{"ok": true, "instance": "<inst>", "content": "<全文>"}` |
+| Content read | `{"ok": true, "instance": "<inst>", "content": "<full text>"}` |
 | instance empty | `{"ok": false, "error": "instance 必填"}` |
 | vd_switch missing | `{"ok": false, "error": "vd_switch 必填（…）"}` |
 | Unreadable | `{"ok": false, "error": "读不到 <inst>…}"}` |
@@ -81,7 +79,7 @@ The following tools access Harness's Memory / Cron persistence concepts; they do
 
 | tool | Contract |
 |---|---|
-| `read_memory` | reads the persistent understanding Markdown; name omitted = reads index.md navigation. Full schema in [memory.md](memory.md) |
+| `read_memory` | reads the persistent understanding Markdown; name omitted = reads `storage/memory/index.md` navigation. Full schema in [memory.md](memory.md) |
 | `write_memory` | creates or fully replaces one fragmented memory; must include a description, subject to the per-file length cap. Full schema in [memory.md](memory.md) |
 | `cron_create` | creates a Harness persistent plan (schedule: at/every_ms + message). Full schema in [cron.md](cron.md) |
 | `cron_delete` | deletes a persistent plan (id). Full schema in [cron.md](cron.md) |
@@ -89,7 +87,7 @@ The following tools access Harness's Memory / Cron persistence concepts; they do
 
 ## edit_config
 
-Single Config tool. All behaviors are explicitly distinguished by the required `action`; mode is never switched via missing parameters, empty values, or failed writes. For Config projection, visible paths, `query` snapshots, and the unified write pipeline see docs/config.md.
+Single Config tool. All behaviors are explicitly distinguished by the required `action`; mode is never switched via missing parameters, empty values, or failed writes. For Config projection, visible paths, `query` snapshots, and the unified write pipeline see [docs/config.md](config.md).
 
 | action | Parameters | Semantics |
 |---|---|---|

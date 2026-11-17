@@ -2,7 +2,7 @@
 
 English | [中文](glossary.zh.md)
 
-Fixed translations for the bilingual document pairs. When translating between Chinese and English, keep these terms stable; do not invent new translations per document.
+> - **Scope of this document** — fixed translations for the bilingual document pairs; when translating between Chinese and English, keep these terms stable and do not invent new translations per document.
 
 | Chinese | English | Notes |
 |---|---|---|

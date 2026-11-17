@@ -2,11 +2,7 @@
 
 English | [中文](autonomy.zh.md)
 
-> Concept definition: see concepts.md §Autonomy. This document fixes the expression model, the default mapping table, and override semantics.
-
-## Scope
-
-This document defines expression states, default derivation, override semantics, and kaomoji pool resolution; for general Config validation and persistence mechanisms, see [config.md](config.md).
+> - **Scope of this document** — concept definition: see [concepts.md](../concepts.md) §Autonomy. This document defines expression states, the expression model, default derivation, override semantics, and kaomoji pool resolution; for general Config validation and persistence mechanisms, see [config.md](config.md).
 
 ## Expression model
 
@@ -33,7 +29,7 @@ pet's external appearance = `Expression { face: string, motion: Motion }`, `Moti
    | any instance Processing | `processing` | `(ˇωˇ」∠)_` | float |
    | otherwise (all Idle / no instances) | `idle` | `(´ω`)` | still |
 
-   The mapping table is stored in Config's two pools `kaomoji.system` and `kaomoji.user`; it is uniquely resolved by key in the union of the two pools. `idle` / `processing` / `notify` must exist in the union; both the system default derivation and `set_autonomy(key)` resolve against it. Both pools can be managed by the agent via `query(view=object) → update(完整 map)`; by default do not modify the system pool, and it is the source for size scanning. Cross-pool validation is in docs/config.md. The state keys match the concepts §Autonomy examples: Processing → `(ˇωˇ」∠)_` + slow floating, notification → `✧*｡٩(ˊᗜˋ*)و✧*｡` + bouncing.
+   The mapping table is stored in Config's two pools `kaomoji.system` and `kaomoji.user`; it is uniquely resolved by key in the union of the two pools. `idle` / `processing` / `notify` must exist in the union; both the system default derivation and `set_autonomy(key)` resolve against it. Both pools can be managed by the agent via `query(view=object) → update(full map)`; by default do not modify the system pool, and it is the source for size scanning. Cross-pool validation is in [docs/config.md](config.md). The state keys match the concepts §Autonomy examples: Processing → `(ˇωˇ」∠)_` + slow floating, notification → `✧*｡٩(ˊᗜˋ*)و✧*｡` + bouncing.
 
 2. **pet-initiated override**: the `set_autonomy` tool call.
 
@@ -55,4 +51,4 @@ set_autonomy(key?: string, motion?: Motion, ttlMs?: number, once?: boolean)
 
 Autonomy is its own engine, independent of AmberyBackend. The state format `[face: key, motion: key]`, about 6-7 tokens, is appended to the end of each request. It persists in Context (one record per turn), not in Queue.
 
-Note: the LLM perceives Code CLI instance state changes through Context diff events (see docs/harness.md); the two have different data sources and are mutually independent — do not confuse them.
+Note: the LLM perceives Code CLI instance state changes through Context diff events (see [docs/harness.md](harness.md)); the two have different data sources and are mutually independent — do not confuse them.

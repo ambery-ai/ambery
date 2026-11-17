@@ -2,6 +2,8 @@
 
 English | [中文](core-server.zh.md)
 
+> - **Scope of this document** — this document defines the thin in-process HTTP server inside the Tauri process: port semantics, the loopback threat model, its responsibilities, the routes it carries, frontend communication, and the debug-mode full router. The hook intake contract itself belongs to [access-protocol.md](access-protocol.md).
+
 A thin in-process HTTP server inside the Tauri process, bound by default to `127.0.0.1:47600`, carrying only the external hook intake.
 
 ## Port Semantics
@@ -45,7 +47,7 @@ Tauri native IPC (not through 47600):
 
 ## Debug Mode Full Router
 
-case-runner starts with the full `router()` (`ambery-case serve`, browser debugging consumed by RemoteBridge, docs/case-runner.md §CLI): `/state` `/context` `/queue/user` `/events` `/config` `/config/schema` `/effect` `/ws`, plus:
+case-runner starts with the full `router()` (`ambery-case serve`, browser debugging consumed by RemoteBridge, [docs/case-runner.md](case-runner.md) §CLI): `/state` `/context` `/queue/user` `/events` `/config` `/config/schema` `/effect` `/ws`, plus:
 
 - `GET /cards`, `POST /cards/layout`, `POST /cards/user_closed` — the same core logic as Tauri commands `list_cards` / `update_card_layout` / `set_card_user_closed` (shared across the dual transports), consumed by RemoteBridge (TS subprocess / browser debugging)
 - `POST /debug/effect` (`case-runner` feature; not included in release default builds) — injects arbitrary effect messages into the effect downlink bus, deterministically driving render/close/config events in headless tests, without going through the LLM

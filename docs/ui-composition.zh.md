@@ -2,13 +2,8 @@
 
 [English](ui-composition.md) | 中文
 
-> 每个 Surface 是什么归 concepts.md §Surface 与 [multi-window.md](multi-window.md)；窗口创建、摆放与坐标单位归 [window-follow.md](window-follow.md)；Card 尺寸推导归 [card-window-size.md](card-window-size.md)；主题取值归 [theme.md](theme.md)；模块分层与数据流归 [module-storage-flow.md](module-storage-flow.md)。
-
-## 原则
-
-> **本文范围**——本文定义 UI 代码如何分层与组合：Window 组件、widget 各层、样式组合，以及组件遵循的规则；它不定义 Surface 是什么、窗口如何创建与摆放、Card 尺寸如何推导、有哪些主题取值。
-
-> **组件只承担渲染**——数据逻辑不进组件，复杂逻辑抽成纯模块或纯函数，组件只消费其结果。落到 UI 代码上的含义见 §组件原则。
+> - **本文档范围**——本文定义 UI 代码如何分层与组合：Window 组件、widget 各层、样式组合，以及组件遵循的规则；它不定义 Surface 是什么、窗口如何创建与摆放、Card 尺寸如何推导、有哪些主题取值。每个 Surface 是什么归 [concepts.zh.md](../concepts.zh.md) §Surface 与 [multi-window.zh.md](multi-window.zh.md)；窗口创建、摆放与坐标单位归 [window-follow.zh.md](window-follow.zh.md)；Card 尺寸推导归 [card-window-size.zh.md](card-window-size.zh.md)；主题取值归 [theme.zh.md](theme.zh.md)；模块分层与数据流归 [module-storage-flow.zh.md](module-storage-flow.zh.md)。
+> - **组件只承担渲染**——数据逻辑不进组件，复杂逻辑抽成纯模块或纯函数，组件只消费其结果。落到 UI 代码上的含义见 §组件原则。
 
 ## 分层
 
@@ -20,7 +15,7 @@ widget 各层        component   原子件、复合件与业务件
 DOM                rendering   用户看到的东西
 ```
 
-- 窗口是宿主对象。组件从不创建、定尺寸、移动或显示窗口；那是窗口层的事（[module-storage-flow.md](module-storage-flow.md)）。
+- 窗口是宿主对象。组件从不创建、定尺寸、移动或显示窗口；那是窗口层的事（[module-storage-flow.zh.md](module-storage-flow.zh.md)）。
 - Window 组件是窗口的外观与挂载约定：渲染外框、渲染恰好一个 Surface 的内容。窗口尺寸由宿主决定（`docs/pet-window-size.zh.md`、`docs/card-window-size.zh.md`、`docs/multi-window.zh.md`）；组件从不请求尺寸。标题栏是可选 chrome，不是窗口属性——有标题栏的窗口用 `Panel` 包住内容；pet 与 Cards Shelf 都没有，Card 的标题来自它的内容。
 - 同一张 Card 只有一个组件：无论渲染在自己的窗口里，还是渲染在容器 Surface 里。
 
@@ -79,7 +74,7 @@ WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html#chat".into()
 - 第 1 层 widget 要么给第 0 层原语套本项目的变体，要么在 bits-ui 没有对应物时自写。
 - 依赖单向：2 → 1 → 0；第 2 层不得直接用第 0 层原语。
 - 变体属于第 1 层。第 2 层只组合与摆放，不定义自己的外观规则。
-- widget 的高度是声明的布局常量，绝不由内容撑开（[card-window-size.md](card-window-size.md) §内容块）。
+- widget 的高度是声明的布局常量，绝不由内容撑开（[card-window-size.zh.md](card-window-size.zh.md) §内容块）。
 - 出现于两处以上、或带有行为/无障碍契约的东西才做成 widget；一次性布局内联。
 - `Panel` 渲染标题栏与关闭按钮；关闭意味着什么由调用方回调决定——隐藏窗口、dismiss 卡片——不是 widget 的决定。
 
@@ -94,7 +89,7 @@ WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html#chat".into()
 | 动效 | Svelte transition | `transition:`、`animate:flip` |
 | 实例覆盖 | 调用方传入的 `class` | 局部调整 |
 
-纪律：工具类只读 token，绝不写字面值；变体只用工具类与原语状态；实例覆盖只调整、不重定义；主题层不携带尺寸（[card-window-size.md](card-window-size.md) §重算触发）。滚动容器戴主题的滚动条——细条 + 主题的滑块色（`--ov-scrollbar-thumb`）——因为平台滚动条不跟主题，会在暗色面板上画出一条浅色轨道。透明窗口里面板轮廓就是可见边界：铺满窗口的层——模态遮罩——要带面板圆角（`--ov-panel-radius`），否则它会在桌面上画出方角。文本选中遵循 chrome 与内容的划分：chrome——标题、按钮、标签——不可选；内容——消息正文、Card 正文、代码——可选。
+纪律：工具类只读 token，绝不写字面值；变体只用工具类与原语状态；实例覆盖只调整、不重定义；主题层不携带尺寸（[card-window-size.zh.md](card-window-size.zh.md) §重算触发）。滚动容器戴主题的滚动条——细条 + 主题的滑块色（`--ov-scrollbar-thumb`）——因为平台滚动条不跟主题，会在暗色面板上画出一条浅色轨道。透明窗口里面板轮廓就是可见边界：铺满窗口的层——模态遮罩——要带面板圆角（`--ov-panel-radius`），否则它会在桌面上画出方角。文本选中遵循 chrome 与内容的划分：chrome——标题、按钮、标签——不可选；内容——消息正文、Card 正文、代码——可选。
 
 ## 组件原则
 
@@ -102,7 +97,7 @@ WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html#chat".into()
 
 - 组件不调 IPC、定位引擎、存储或 Harness；数据经 props 进来，经回调出去。
 - 输入是 props（数据）与 snippet（结构）；输出是 DOM 与事件。
-- 组件绝不推导尺寸；尺寸来自尺寸模型（[card-window-size.md](card-window-size.md)）。
+- 组件绝不推导尺寸；尺寸来自尺寸模型（[card-window-size.zh.md](card-window-size.zh.md)）。
 
 ## 命名与文件
 

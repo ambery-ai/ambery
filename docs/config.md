@@ -2,7 +2,21 @@
 
 English | [中文](config.zh.md)
 
-The Config domain (concepts §Config, alongside the Storage domain) consists of `config.json` and `AGENTS.md`; the on-disk directory is determined by `config_root()` in `core/src/paths.rs`.
+> - **Scope of this document** — this document only explains Config's general mechanisms: persistence, version/migration, default, null, validation, reflection, access projection, and the unified modification pipeline; business behavior triggered by concrete fields and tool alternation flows are defined in their respective behavior documents.
+> - **Current structure and field semantics colocated** — a Config field is the declaration source for type, description, default, migration metadata, and consumer access metadata.
+> - **Version range determines migration** — explicit `Default / Rename / Func / RenameWithFunc` handles historical intervals that deviate from same-path preservation; only a miss is the unique, explicit implicit `Current`.
+> - **Parent-child rules de-conflict by version** — parent and child may each have metadata; only intersecting explicit source-version ranges are rejected, avoiding execution-order and coverage guessing.
+> - **Failures default locally** — any migration or validation failure only defaults the sick node, reports item by item, and continues; one child problem must not take down the entire Config.
+> - **null has no second semantic** — an object's `key:null` is equivalent to missing; use an explicit enum when a third state is needed.
+> - **Objects construct downward, leaves and maps carry their own default** — a static object's default shape comes from its children; map defaults do not merge dynamic keys back just because the map already exists.
+> - **No special rules; use semantics to make behavior explicit** — `edit_config` behavior is fully expressed by the schema's `action` branches; do not silently switch semantics via missing parameters, null values, or failed writes.
+> - **Progressive disclosure, query as needed** — the LLM first greps to locate, then queries to read the exact current structure and value, and finally updates; walk the hierarchy as needed rather than guessing paths or injecting the complete schema.
+> - **Prefer modifiable, restrict exceptions** — Config allows agent modification by default; mark `no_llm_visible` only when (1) it has major impact on the agent, or (2) it is irreversible and easy to break.
+> - **Access projection does not change truth** — `no_llm_visible` only restricts the read/write projection of the LLM tool; it does not change local Config, persistence, or local management capabilities.
+> - **Report truthfully** — hot application takes effect immediately; restart requirements, migration fallback, unknown-path removal, and response-size rejections must all be explicitly returned and auditable.
+> - **Single lock, single truth** — all Config entry points and external auto-load are serialized through the same lock; only a complete old state or a complete new state is observable; no entry-point-private drafts are kept, eliminating visible state forks and read/write races.
+
+The Config domain (concepts §Config, alongside the Storage domain) consists of `config.json` and the identity prompt `AGENTS.md`; the on-disk directory is determined by `config_root()` in `core/src/paths.rs`.
 
 ## Core Model
 
@@ -37,7 +51,7 @@ config_root/                   # Windows: %USERPROFILE%\.config\ambery\
   storage/                     # Storage domain, see docs/storage.md
 ```
 
-The API key itself exists only in the environment (the app-level env file or process environment — see docs/llm-setup.md §Key storage model); config only stores the variable name; keys are never written to config.json.
+The API key itself exists only in the environment (the app-level env file or process environment — see [docs/llm-setup.md](llm-setup.md) §Key storage model); config only stores the variable name; keys are never written to config.json.
 
 ### LLM Group
 
@@ -45,7 +59,7 @@ The provider profile fields `base_url`, `model`, `api_key_env`, `temperature`, `
 
 **Default preset `api_key_env` values follow the `AMBERY_<NAME>_API_KEY` convention** (`AMBERY_DEEPSEEK_API_KEY` / `AMBERY_MOONSHOT_API_KEY` / `AMBERY_ZHIPU_API_KEY` / `AMBERY_OPENAI_API_KEY`; ollama has none — local endpoint, no key). `api_key_env` is editable per provider (a private provider may point at its own variable).
 
-**`llm.active` has an explicit unconfigured value** as a legal option alongside `debug` and the provider keys (dynamic enum: `["unconfigured", "debug", ...provider keys]`). It is the default of a fresh install: the runtime treats it as "no LLM" (docs/llm-setup.md §Backend changes).
+**`llm.active` has an explicit unconfigured value** as a legal option alongside `debug` and the provider keys (dynamic enum: `["unconfigured", "debug", ...provider keys]`). It is the default of a fresh install: the runtime treats it as "no LLM" ([docs/llm-setup.md](llm-setup.md) §Backend changes).
 
 The LLM tool cannot access the `llm` subtree (see [Reflection and consumer projections](#reflection-and-consumer-projections)); this does not change the local runtime semantics above.
 
@@ -107,9 +121,9 @@ enum TopmostMode { Aggressive, Topmost, Off }
 | `ui.topmost.chat` | `topmost` | the window's `alwaysOnTop` property |
 | `ui.topmost.shelf` | `topmost` | same |
 | `ui.topmost.card` | `topmost` | same |
-| `ui.font` | `"Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif` | the Card font family list; the family that resolves must be a named family — a generic family may render but does not serve as a size authority (docs/card-window-size.md §Font identity) |
+| `ui.font` | `"Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif` | the Card font family list; the family that resolves must be a named family — a generic family may render but does not serve as a size authority ([docs/card-window-size.md](card-window-size.md) §Font identity) |
 
-A change to a `topmost` value applies to the running windows; a change to `ui.font` invalidates every Card size projection (docs/card-window-size.md §Recompute triggers). The window-level mechanism is owned by docs/tauri-shell.md §Module split (`window.rs`).
+A change to a `topmost` value applies to the running windows; a change to `ui.font` invalidates every Card size projection ([docs/card-window-size.md](card-window-size.md) §Recompute triggers). The window-level mechanism is owned by [docs/tauri-shell.md](tauri-shell.md) §Module split (`window.rs`).
 
 ## Field Metadata
 
@@ -352,7 +366,7 @@ The tool description gives a one-line Chinese purpose for each **LLM-visible top
 - `set_autonomy_default_ttl_ms`: Autonomy default duration;
 - `timer`: Timer scheduling subtree;
 - `view_scale`, `badge_style`, `badge_side`: View appearance;
-- `theme`, `themes`: current theme name and theme token table (docs/theme.md).
+- `theme`, `themes`: current theme name and theme token table ([docs/theme.md](theme.md)).
 
 The recommended steps keep only one sentence: **when the path is unknown, `grep` first, then `query`; prefer `view=children`, and use `view=object` only when necessary for an already-located small object.**
 
@@ -430,31 +444,3 @@ Pending restart state equals the saved config value being different from the cur
 ### Startup Load
 
 Loading has no single update target, so all validators run; all errors are aggregated once by full path lexicographic order and written to the load report, but startup is not blocked. Each erroneous node is defaulted per the established failure semantics, and startup then proceeds with the repaired Config.
-
-## Principles
-
-> **Scope of this document** — this document only explains Config's general mechanisms: persistence, version/migration, default, null, validation, reflection, access projection, and the unified modification pipeline; business behavior triggered by concrete fields and tool alternation flows are defined in their respective behavior documents.
-
-> **Current structure and field semantics colocated** — a Config field is the declaration source for type, description, default, migration metadata, and consumer access metadata.
-
-> **Version range determines migration** — explicit `Default / Rename / Func / RenameWithFunc` handles historical intervals that deviate from same-path preservation; only a miss is the unique, explicit implicit `Current`.
-
-> **Parent-child rules de-conflict by version** — parent and child may each have metadata; only intersecting explicit source-version ranges are rejected, avoiding execution-order and coverage guessing.
-
-> **Failures default locally** — any migration or validation failure only defaults the sick node, reports item by item, and continues; one child problem must not take down the entire Config.
-
-> **null has no second semantic** — an object's `key:null` is equivalent to missing; use an explicit enum when a third state is needed.
-
-> **Objects construct downward, leaves and maps carry their own default** — a static object's default shape comes from its children; map defaults do not merge dynamic keys back just because the map already exists.
-
-> **No special rules; use semantics to make behavior explicit** — `edit_config` behavior is fully expressed by the schema's `action` branches; do not silently switch semantics via missing parameters, null values, or failed writes.
-
-> **Progressive disclosure, query as needed** — the LLM first greps to locate, then queries to read the exact current structure and value, and finally updates; walk the hierarchy as needed rather than guessing paths or injecting the complete schema.
-
-> **Prefer modifiable, restrict exceptions** — Config allows agent modification by default; mark `no_llm_visible` only when (1) it has major impact on the agent, or (2) it is irreversible and easy to break.
-
-> **Access projection does not change truth** — `no_llm_visible` only restricts the read/write projection of the LLM tool; it does not change local Config, persistence, or local management capabilities.
-
-> **Report truthfully** — hot application takes effect immediately; restart requirements, migration fallback, unknown-path removal, and response-size rejections must all be explicitly returned and auditable.
-
-> **Single lock, single truth** — all Config entry points and external auto-load are serialized through the same lock; only a complete old state or a complete new state is observable; no entry-point-private drafts are kept, eliminating visible state forks and read/write races.

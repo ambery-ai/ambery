@@ -2,7 +2,7 @@
 
 English | [中文](access-protocol.zh.md)
 
-> Concept definitions: see concepts.md §Ambery Protocol and its subconcepts. This document defines pet's outward-facing roles and event contract — how external software becomes a Source, how events flow in and out, and how actions are graded. Its implementation documents are registered in the docs-spec responsibility map; this document does not enumerate them.
+> - **Scope of this document** — concept definitions: see [concepts.md](../concepts.md) §Ambery Protocol and its subconcepts. This document defines pet's outward-facing roles and event contract — how external software becomes a Source, how events flow in and out, and how actions are graded. Its implementation documents are registered in the docs-spec responsibility map; this document does not enumerate them.
 
 ## Positioning
 

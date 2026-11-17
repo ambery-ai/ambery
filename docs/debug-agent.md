@@ -2,7 +2,7 @@
 
 English | [中文](debug-agent.zh.md)
 
-> This document defines the debug rules.
+> - **Scope of this document** — This document defines the debug rules.
 
 ## Positioning (Design Decision)
 
@@ -27,10 +27,10 @@ so it keeps the silent fallback (honest degradation: it no longer pretends to ju
 
 A local OpenAI-compatible `/chat/completions` HTTP server, and a minimal example of an "LLM replacement":
 the decision-source logic is built into the script, and case-runner connects to it as the LLM in debug mode via `--brain-addr`
-(docs/case-runner.md §Use cases).
+([docs/case-runner.md](case-runner.md) §Use cases).
 
 ```bash
-python scripts/debug_brain.py --port 47777   # 起 HTTP 服务（--port 可选，默认 47777）
+python scripts/debug_brain.py --port 47777   # start the HTTP server (--port optional, default 47777)
 ```
 
 Built-in minimal threshold decision source: if the request content contains the completion notice pattern `完成，Context 已更新（N 字）` and N ≥ 80, it replies with the notify tool;

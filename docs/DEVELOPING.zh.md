@@ -2,6 +2,8 @@
 
 [English](DEVELOPING.md) | 中文
 
+> - **本文档范围**——本文定义开发 ambery 时如何构建、运行、观测与调试。产品行为归 `docs/` 下的各设计文档。
+
 开发 ambery 时如何构建、运行、观测与调试。除注明外均在仓库根目录执行。
 
 ## 构建与测试
@@ -36,7 +38,7 @@ cargo run -p ambery-core --bin ambery-activity -- \
   --dir ~/.config/ambery/storage --trajectory --follow
 ```
 
-这是标准开发命令：轨迹账本（session / turn / event；docs/tools.md）随 `--follow` tail 新写入的记录。storage 位于配置根（默认 `~/.config/ambery/storage`，`AMBERY_STORAGE_DIR` 可覆盖）；浏览快照时显式传 `--dir`。
+这是标准开发命令：轨迹账本（session / turn / event；[docs/tools.zh.md](tools.zh.md)）随 `--follow` tail 新写入的记录。storage 位于配置根（默认 `~/.config/ambery/storage`，`AMBERY_STORAGE_DIR` 可覆盖）；浏览快照时显式传 `--dir`。
 
 ## 模拟 hook
 
@@ -49,7 +51,7 @@ curl -X POST http://127.0.0.1:47600/hook -H 'Content-Type: application/json' \
   -d '{"event":"user_prompt","session_id":"dev-1","cwd":"/tmp","kind":"claude","prompt":"hello"}'
 ```
 
-`kind` 必须是过滤器名（`claude` / `opencode`）。经 `GET /state`、`GET /context`、WS 流与 storage 文件（docs/storage.md）观察 effect。
+`kind` 必须是过滤器名（`claude` / `opencode`）。经 `GET /state`、`GET /context`、WS 流与 storage 文件（[docs/storage.zh.md](storage.zh.md)）观察 effect。
 
 ## Tauri 壳
 
@@ -59,7 +61,7 @@ cd packages/apps && npm run tauri:build:no-sidecar   # 同一包体，但不带 
 cd packages/apps/tauri/src-tauri && AMBERY_PORT=47601 ./target/release/ambery   # 非默认端口运行
 ```
 
-壳内嵌已构建的前端与 core。bundle 目标与 Windows sidecar 依赖是按平台配置的（docs/tauri-shell.md §打包配置；docs/terminal/wt/sidecar.md §打包）。
+壳内嵌已构建的前端与 core。bundle 目标与 Windows sidecar 依赖是按平台配置的（[docs/tauri-shell.zh.md](tauri-shell.zh.md) §打包配置；[docs/terminal/wt/sidecar.zh.md](terminal/wt/sidecar.zh.md) §打包）。
 
 **壳构建必须走 `npx tauri build`，绝不要裸 `cargo build`。** 前端 `dist/` 由 build script 嵌入 `tauri-codegen-assets/`，而 build script 不监听 `dist/`；tauri CLI 通过注入 `TAURI_CONFIG`（`cargo:rerun-if-env-changed=TAURI_CONFIG`）强制 build script 重跑。裸 `cargo build --release` 可能复用过期的 build script 输出，嵌入旧版或空前端——壳呈现为空白 pet/UI。`npx tauri build` 先跑 `npm run build`（tsc + vite），因此总是嵌入当前前端。
 

@@ -2,6 +2,8 @@
 
 English | [中文](roadmap.zh.md)
 
+> - **Scope of this document** — this document defines the release ladder toward 0.1.0: the theme each alpha carries and the acceptance that closes it. Day-to-day planning stays in development tickets, and capabilities beyond 0.1.0 belong to [post-0.1.0.md](post-0.1.0.md).
+
 The release ladder toward 0.1.0: from the first packaged snapshot on, each alpha carries one theme and closes when its acceptance holds. Day-to-day planning stays in development tickets, not here; capabilities beyond 0.1.0 live in [post-0.1.0.md](post-0.1.0.md).
 
 ## Themes

@@ -2,17 +2,10 @@
 
 English | [中文](errors.zh.md)
 
-> This document defines ambery's error presentation model — errors as notifications. It does not define the current implementation, protocol, or configuration structure.
-
-## Principles
-
-> **Scope of this document** — this document defines the error presentation model: the error event's fields, the two outlets (bubble, banner), how an event routes between them, and the emission discipline that keeps the frontend stateless; internal or background failures of a source are not user notifications, the transport that carries events belongs to [access-protocol.md](access-protocol.md), and the configuration fields behind a condition to [config.md](config.md).
-
-> **Errors are intercepted by the backend** — detection and judgment live in core; the frontend renders per contract and never infers or detects errors itself.
-
-> **The frontend routes by retention, never by source** — the source is not part of the contract; adding a source changes backend emission only.
-
-> **No dedup state in the frontend** — to avoid redundant complexity: repeat suppression is the backend's emission discipline (emit only at state-change points), not a frontend feature; the frontend keeps no tracking state, it renders events and dismisses.
+> - **Scope of this document** — this document defines the error presentation model — errors as notifications: the error event's fields, the two outlets (bubble, banner), how an event routes between them, and the emission discipline that keeps the frontend stateless; it does not define the current implementation, protocol, or configuration structure. Internal or background failures of a source are not user notifications, the transport that carries events belongs to [access-protocol.md](access-protocol.md), and the configuration fields behind a condition to [config.md](config.md).
+> - **Errors are intercepted by the backend** — detection and judgment live in core; the frontend renders per contract and never infers or detects errors itself.
+> - **The frontend routes by retention, never by source** — the source is not part of the contract; adding a source changes backend emission only.
+> - **No dedup state in the frontend** — to avoid redundant complexity: repeat suppression is the backend's emission discipline (emit only at state-change points), not a frontend feature; the frontend keeps no tracking state, it renders events and dismisses.
 
 ## Model
 

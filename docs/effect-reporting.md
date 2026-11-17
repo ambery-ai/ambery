@@ -2,37 +2,27 @@
 
 English | [中文](effect-reporting.zh.md)
 
-> Concept: all **non-readonly Tauri runtime actions** uniformly enter the effect stream (docs/case-runner.md
-> §Tauri runtime actions observable: `(Tauri runtime actions − readonly) ⊆ effects`). Tauri runtime actions cover both the WebView `@tauri-apps/api` and the Rust shell `tauri` API; for the action-stream format and record points see [storage.md](storage.md) §effect.jsonl. This document defines the runtime action layer, channels, kind/payload, packing rules, and the instrumentation checklist.
-
-## Principles
-
-> **Scope of this document** — this document defines the runtime action layer, its channels, `kind`/`payload`, the packing rules, and the instrumentation checklist; the action-stream format and record points belong to [storage.md](storage.md), and the observability requirement itself to [case-runner.md](case-runner.md).
-
-> **Every non-readonly action enters, readonly actions never enter** — side-effecting Tauri runtime actions are uniformly reported into the action stream; pure read calls do not enter.
-
-> **One action, one record** — each non-readonly Tauri runtime action has its own effect; when one call causes several actions, record each separately, and do not merge them under a coarse call name.
-
-> **High-frequency packing** — high-frequency actions of the same kind are debounced and merged by target into one record; the concrete list and window parameters are in the contract below.
-
-> **Simulated environments do not enter** — the principle covers only real runtime calls; DOM simulation operations in the debug environment (browser) are not reported.
-
-> **Actions and traces share one exit** — all non-readonly Tauri runtime actions may only be executed through the semantic runtime action layer; that layer writes the corresponding effect after the action succeeds, and a failed call does not write an "it happened" effect.
+> - **Scope of this document** — this document defines the runtime action layer, its channels, `kind`/`payload`, the packing rules, and the instrumentation checklist; the action-stream format and record points belong to [storage.md](storage.md) §effect.jsonl, and the observability requirement itself to [case-runner.md](case-runner.md).
+> - **Every non-readonly action enters, readonly actions never enter** — side-effecting Tauri runtime actions are uniformly reported into the action stream; pure read calls do not enter.
+> - **One action, one record** — each non-readonly Tauri runtime action has its own effect; when one call causes several actions, record each separately, and do not merge them under a coarse call name.
+> - **High-frequency packing** — high-frequency actions of the same kind are debounced and merged by target into one record; the concrete list and window parameters are in the contract below.
+> - **Simulated environments do not enter** — the principle covers only real runtime calls; DOM simulation operations in the debug environment (browser) are not reported.
+> - **Actions and traces share one exit** — all non-readonly Tauri runtime actions may only be executed through the semantic runtime action layer; that layer writes the corresponding effect after the action succeeds, and a failed call does not write an "it happened" effect.
 
 ## Runtime Action Layer
 
-The only exit for non-readonly Tauri runtime actions is the same-named action layer on both sides:
+The coverage guarantee is `(Tauri runtime actions − readonly) ⊆ effects`: every non-readonly Tauri runtime action leaves exactly one effect record. The only exit for such actions is the same-named action layer on both sides:
 
 ```text
-packages/apps/src/tauri_runtime_actions.ts       ← WebView `@tauri-apps/api` 的写动作
+packages/apps/src/tauri_runtime_actions.ts       ← write actions of the WebView `@tauri-apps/api`
 packages/apps/tauri/src-tauri/src/tauri_runtime_actions.rs
-                                        ← Rust 壳 `tauri` API 的写动作
+                                        ← write actions of the Rust shell `tauri` API
 ```
 
 They share the **action vocabulary and kind/payload contract**, not cross-language code. Business entry points only orchestrate semantic actions; they do not call Tauri write APIs directly and do not hand-assemble effect kind/payload:
 
 ```text
-业务入口
+business entry points
   → hide_window("pet")              → window_hidden {window:"pet"}
   → show_window("chat")             → window_visible {window:"chat"}
   → close_window("card-x")          → window_closed {window:"card-x"}
@@ -43,16 +33,16 @@ They share the **action vocabulary and kind/payload contract**, not cross-langua
 The action layer records only after executing the real Tauri API:
 
 ```text
-运行时动作
-  ├─ 成功 → 恰好一条对应 effect（高频打包例外见下）
-  └─ 失败 → 返回/处理原错误；不写“动作已发生”的 effect
+runtime action
+  ├─ success → exactly one corresponding effect (high-frequency packing is the exception below)
+  └─ failure → return/handle the original error; write no "it happened" effect
 ```
 
 When one business call triggers multiple runtime actions, forward and record them one by one. For example, hiding pet, hiding chat, sending `cards:hide` and `pet:hidden` are four actions and must not be merged into one `toggle` effect. Read-only calls are not part of the action layer: `getByLabel`, `outerPosition`, `currentMonitor`, `listen`, etc. may be used directly at the call site.
 
 The Tauri write operations in `window-adapter.ts` are the window part of the WebView action layer (absorbed into the same-named action layer; no second layer is stacked on top of it).
 
-#### ⟡ Consistency Analysis
+### ⟡ Consistency Analysis
 
 The WebView `@tauri-apps/api` and the Rust shell `tauri` API are two implementation faces of the same kind of Tauri runtime action; kind, payload, or `origin` must not split just because the code lives in different places. Both sides share the action vocabulary through the same-named semantic action layer: record the corresponding effect after success; on failure do not manufacture "it happened" evidence; compound entry points forward per action and must not substitute a coarse `toggle` effect for several window and event actions. What the action layer unifies is non-readonly actions and their traces; pure reads may still be called directly, avoiding extra wrappers for side-effect-free queries.
 
@@ -75,10 +65,10 @@ Tauri runtime actions fall into two classes, with different channels:
 | user_message | append_user (endpoint-recorded) | {text} | low |
 | interaction | push_event (endpoint-recorded) | {desc, card_id?} | low |
 | config_update | set_config (endpoint-recorded; the LLM edit_config path remains config_changed/backend) | {path} | low |
-| card_layout | update_card_layout (endpoint-recorded; Card layout write-back, docs/components.md §Card file) | {id, manual} | low |
+| card_layout | update_card_layout (endpoint-recorded; Card layout write-back, [docs/components.md](components.md) §Card file) | {id, manual} | low |
 | card_visibility | set_card_user_closed (endpoint-recorded; Cards Shelf show/hide toggle writes the display choice) | {id, user_closed} | low |
 | expression_changed | Autonomy expression/motion actually changed (explicit override/fallback/derived semantics; unchanged is not recorded; window_resized does not infer it sideways) | {face, motion, source: set_autonomy\|revert\|derive} | low |
-| window_opened | Rust shell `ensure_card_window` create branch (window decision hoisted, docs/case-runner.md) | {window} | low |
+| window_opened | Rust shell `ensure_card_window` create branch (window decision hoisted, [docs/case-runner.md](case-runner.md)) | {window} | low |
 | window_closed | Rust shell `close_card_window` (agent close / shelf dismiss / user × — three paths converge) | {window} | low |
 | window_resized | WebView / Rust shell `setSize` / setOffset | {window, w?, h?, top?, left?, count?} | packed |
 | window_moved | WebView / Rust shell `setPosition` | {window, x, y, count?} | packed |
@@ -86,7 +76,7 @@ Tauri runtime actions fall into two classes, with different channels:
 | window_visible | WebView / Rust shell `show` | {window} | low |
 | window_focused | WebView `setFocus` / Rust shell focus equivalent action (the second action inside showWindow; menu foreground focus grab) | {window} | low |
 | window_hidden | WebView / Rust shell `hide` | {window} | low |
-| theme_export | `export_theme` (endpoint-recorded; theme export file side effect, docs/theme.md) | {name} | low |
+| theme_export | `export_theme` (endpoint-recorded; theme export file side effect, [docs/theme.md](theme.md)) | {name} | low |
 | event_emit | WebView / Rust shell `emit` / `emitTo` | {event, target?, count?} | packed |
 
 Packing: key = kind + distinguishing key (window name / event name); after a 250ms quiet period flush one record; the payload keeps
@@ -111,4 +101,4 @@ The same runtime action is recorded exactly once, at the place where it is actua
 - **No replay for effect.jsonl**: the action stream is an observation log and is not restored at startup (consistent with the other trace files;
   effect lines do not enter memory).
 - **No effect section in case data**: a case starts its story from an empty effect.jsonl; runtime records are produced by steps
-  (backend) — frontend reporting belongs to the real runtime environment and is unreachable under headless (case-runner.md §boundary isolation).
+  (backend) — frontend reporting belongs to the real runtime environment and is unreachable under headless ([case-runner.md](case-runner.md) §boundary isolation).

@@ -2,7 +2,7 @@
 
 [English](effort.md) | 中文
 
-> 跨模型 thinking / reasoning 预算的行业调研见 `reports/llm-reasoning-effort-cross-model.md`。
+> - **本文档范围**——本文定义 effort 概念：思考预算是什么、level 从哪里来、关键词如何匹配；跨模型 thinking / reasoning 预算的行业调研见 `reports/llm-reasoning-effort-cross-model.md`。
 
 ## 定义
 
@@ -28,7 +28,7 @@ effort: low | medium | high | None
 
 ## 档位来源：Queue 消息来源（不是 provider）
 
-effort 由**触发这次 LLM 调用的 Queue 消息来源**决定。provider 只翻译、不决定档位。来源字段是 Queue 输入的一等公民，完整集合见 `docs/concrete-insight.md §Queue 中的 System 消息来源`。
+effort 由**触发这次 LLM 调用的 Queue 消息来源**决定。provider 只翻译、不决定档位。来源字段是 Queue 输入的一等公民，完整集合见 [docs/concrete-insight.zh.md](concrete-insight.zh.md) §Queue 中的 System 消息来源。
 
 ### 当前映射（配置可覆盖，默认 medium）
 
@@ -44,7 +44,7 @@ effort 由**触发这次 LLM 调用的 Queue 消息来源**决定。provider 只
 
 ### 实现落点
 
-`QueueInput` 的来源字段与双队列放行机制见 `docs/harness.md §Queue 规则`。effort 侧只需在 `run_trigger` 的 LLM 调用点按来源解析档位：`user_chat` → low、`hook_stop_content` → high、其余 → medium。工具循环内后续调用沿用本次触发的来源与 effort。
+`QueueInput` 的来源字段与双队列放行机制见 [docs/harness.zh.md](harness.zh.md) §Queue 规则。effort 侧只需在 `run_trigger` 的 LLM 调用点按来源解析档位：`user_chat` → low、`hook_stop_content` → high、其余 → medium。工具循环内后续调用沿用本次触发的来源与 effort。
 
 ## 匹配关键词
 

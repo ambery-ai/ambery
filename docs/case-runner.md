@@ -2,25 +2,16 @@
 
 English | [中文](case-runner.zh.md)
 
-Storage snapshot-driven regression testing and concept observation tool; also hosts the CLI decision source (docs/debug-agent.md) and the full router (docs/core-server.md).
+> - **Scope of this document** — this document defines only the runner infrastructure: run mechanism, sandbox isolation, `.case` format, step, observe, health, export, and CLI; it does not define the capabilities an agent should have, capability planning, or Case coverage strategy.
+> - **Snapshot is truth** — the case's data section preserves JSONL raw text; line order/timestamps/fields are not lost; details in §Snapshot is truth.
+> - **Boundary isolation** — one-shot sandbox (production is never written) + headless (never starts a real OS UI); details in §Boundary isolation.
+> - **Frontend headless observation** — the case-runner runs headless: it embeds core like the Tauri shell does, and one TS test process per simulated window connects via RemoteBridge; the consistency analysis against the Tauri shape and the mock window layer are in §Frontend headless observation.
+> - **LLM modes** — two equal modes (debug / real), declared explicitly in the case header; no implicit default; details in §LLM modes.
+> - **All behavior observable** — every module is observable (concepts §Observability system, owned by [docs/observability.md](observability.md)), observe output and effects land in the observe stream, and non-readonly Tauri runtime actions enter the effect stream; details in §Observability system.
+> - **case privacy boundary** — a case never carries sensitive information (apikey / project names, etc.); details in §case privacy.
+> - **Test infrastructure stays out of production builds** — the replay engine and the DebugAgent mock sit behind optional ambery-core features; release builds of core contain neither.
 
-## Principles
-
-> **Scope of this document** — this document defines only the runner infrastructure: run mechanism, sandbox isolation, `.case` format, step, observe, health, export, and CLI; it does not define the capabilities an agent should have, capability planning, or Case coverage strategy.
-
-> **Snapshot is truth** — the case's data section preserves JSONL raw text; line order/timestamps/fields are not lost; details in §Snapshot is truth.
-
-> **Boundary isolation** — one-shot sandbox (production is never written) + headless (never starts a real OS UI); details in §Boundary isolation.
-
-> **Frontend headless observation** — the case-runner runs headless: it embeds core like the Tauri shell does, and one TS test process per simulated window connects via RemoteBridge; the consistency analysis against the Tauri shape and the mock window layer are in §Frontend headless observation.
-
-> **LLM modes** — two equal modes (debug / real), declared explicitly in the case header; no implicit default; details in §LLM modes.
-
-> **All behavior observable** — every module is observable (concepts §Observability system, owned by docs/observability.md), observe output and effects land in the observe stream, and non-readonly Tauri runtime actions enter the effect stream; details in §Observability system.
-
-> **case privacy boundary** — a case never carries sensitive information (apikey / project names, etc.); details in §case privacy.
-
-> **Test infrastructure stays out of production builds** — the replay engine and the DebugAgent mock sit behind optional ambery-core features; release builds of core contain neither.
+Storage snapshot-driven regression testing and concept observation tool; also hosts the CLI decision source ([docs/debug-agent.md](debug-agent.md)) and the full router ([docs/core-server.md](core-server.md)).
 
 ## Philosophy
 
@@ -73,12 +64,12 @@ The `ambery-case frontend` subcommand embeds core and spawns node + vitest + jsd
 The shape integrated into observation (§Shell analogy):
 
 ```
-headless 前端 case =
-  case-runner（`ambery-case frontend`：内嵌 core，拉起 vitest 子进程）
-  + 真实前端模块（vitest + jsdom）：store / RemoteBridge / pet 浏览器分支 / ChatPanel / ComponentManager
-  + RemoteBridge（createBridge 无 __TAURI_INTERNALS__ 时自动选中，HTTP+WS 连内嵌 core）
-  + shim.ts：端口接线 + core 就绪等待 + 沙盒 effect.jsonl 读取 + MockWindow 注册表（不拦截 Tauri API）
-  断言面：DOM 状态 + store 投影 + 沙盒 effect.jsonl（/debug/effect 注入驱动，不落 jsonl）
+headless frontend case =
+  case-runner (`ambery-case frontend`: embeds core, spawns a vitest child process)
+  + real frontend modules (vitest + jsdom): store / RemoteBridge / pet browser branch / ChatPanel / ComponentManager
+  + RemoteBridge (auto-selected by createBridge when __TAURI_INTERNALS__ is absent; connects to the embedded core over HTTP+WS)
+  + shim.ts: port wiring + core-ready wait + sandbox effect.jsonl reads + MockWindow registry (does not intercept Tauri APIs)
+  assertion surface: DOM state + store projection + sandbox effect.jsonl (driven by /debug/effect injection, not written to jsonl)
 ```
 
 A webview must be attached to a real window; Tauri/wry has no headless webview (see wry discussion #373).
@@ -133,7 +124,7 @@ after it, sections are divided by marker lines, and data lines belong to the cur
 {"__section":"=== queue ==="}
 ```
 
-#### ⟡ Consistency analysis
+### ⟡ Consistency analysis
 
 The case's JSON header only describes the scenario and steps; the Storage snapshot must enter the container as raw payload in its real format, rather than escaping Markdown and other non-JSONL files into JSON strings. JSONL and Markdown belong to their own raw areas and boundary rules, so the format can simultaneously keep manual minimization, readable diffs, and file-level replay. If a case is to verify a persistent concept, it should be able to carry its minimal snapshot; export uses inclusion bool plus category filters to control scope, so that "observable" does not become carrying all private data by default.
 
@@ -175,7 +166,7 @@ JSONL sections preserve raw text; every section may be empty — an empty sectio
 | `memory` | memory/ | **filtered by default**; `--keep-memory` + `--memory <name,...>`; only selected normal memories and explicitly selected `AGENTS` enter the snapshot; `index.md` is rebuilt in the sandbox |
 | `cron` | cron.jsonl | **filtered by default**; `--keep-cron` + `--cron-ids <id,...>`; each selected id keeps the complete lifecycle event chain |
 
-The memory section is a Markdown raw area (§Consistency analysis: JSONL and Markdown belong to their own raw areas and boundary rules): each file starts with a `{"__file":"<path>"}` marker line (valid JSONL, the same marker philosophy as `__section`), and the lines until the next marker are that file's raw text — blank lines preserved, zero escaping. Path whitelist: `AGENTS.md` or `notes/<name>.md` (reserved names cannot be note paths); `index.md` does not enter a case (the sandbox rebuilds it from selected normal memories), and `cards/` does not go through this section (contract defined separately). Raw lines must not begin with `{"__` at line start — colliding with section/file marker syntax would silently truncate the file; parse rejects it outright. cards/ does not go through this section (for the Card file contract, see docs/components.md §Card file; a case carries no card snapshots).
+The memory section is a Markdown raw area (§Consistency analysis: JSONL and Markdown belong to their own raw areas and boundary rules): each file starts with a `{"__file":"<path>"}` marker line (valid JSONL, the same marker philosophy as `__section`), and the lines until the next marker are that file's raw text — blank lines preserved, zero escaping. Path whitelist, relative to the Memory root: `AGENTS.md` or `notes/<name>.md` (reserved names cannot be note paths); `index.md` does not enter a case (the sandbox rebuilds it from selected normal memories), and `cards/` does not go through this section (contract defined separately). Raw lines must not begin with `{"__` at line start — colliding with section/file marker syntax would silently truncate the file; parse rejects it outright. cards/ does not go through this section (for the Card file contract, see [docs/components.md](components.md) §Card file; a case carries no card snapshots).
 
 ### case privacy
 
@@ -184,7 +175,7 @@ A case is a shareable/archivable scenario snapshot; privacy details:
 - **LLM mode recorded in meta**: `llm_mode` (debug / real) is in the case header meta; the case carries no provider config / keys
 - **no_case_visible**: sensitive fields such as `llm.providers.*` (including base_url / api_key_env) are forbidden in a case (write/override validation rejects them) — a case never carries an apikey
 - **work_agents filtered by default**: contains the project name `project·sid8` (exposes project structure); not exported by default; exists only when explicitly declared
-- **Memory filtered by default**: long-term understanding may contain cross-project facts and collaboration preferences; requires the double explicit selection `--keep-memory` + `--memory <name,...>`. Normal memories are selected by name; Memory `AGENTS.md` keeps raw text only when `AGENTS` is explicitly written; the derived `index.md` is not exported and is rebuilt in the sandbox from selected normal memories
+- **Memory filtered by default**: long-term understanding may contain cross-project facts and collaboration preferences; requires the double explicit selection `--keep-memory` + `--memory <name,...>`. Normal memories are selected by name; `AGENTS.md` keeps raw text only when `AGENTS` is explicitly written; the derived `index.md` is not exported and is rebuilt in the sandbox from selected normal memories
 - **Cron filtered by default**: plan messages may contain work content; requires the double explicit selection `--keep-cron` + `--cron-ids <id,...>`. Selected plans keep the complete create / fire / delete lifecycle events; the causal chain must not be truncated by time windows
 - **context / queue kept**: real conversation/input snapshots ("snapshot is truth"), shared with trusted parties
 - docs/examples do not show real provider names (privacy)
@@ -203,15 +194,15 @@ steps are a linear sequence; each step has a type + optional parameters. The run
 | `trigger` | — | drain_queue: release all pending inputs → LLM/effects |
 | `user` | `{text, ts?}` | user message enqueued (enqueue user role) → drain_queue releases |
 | `tool_call` | `[name, args_json]` | directly execute a tool call, bypassing the LLM: execute_tool → result + effects; does not write tool protocol messages; cannot verify multi-response tool interaction |
-| `store` | `{"<name>": {"type":"expr\|var\|int\|str", "value":"<字符串>"}}` | set user variables: value is evaluated by the corresponding parser → to_string → stored as string (see case-eval-system.md) |
-| `observe` | `[{"target":"agents"}, {"target":"context","lines":"[$tail-50,$tail]"}]` | record the current snapshot of concept structures (unified object list; path-type targets may carry lines reads, see case-eval-system.md) |
+| `store` | `{"<name>": {"type":"expr\|var\|int\|str", "value":"<字符串>"}}` | set user variables: value is evaluated by the corresponding parser → to_string → stored as string (see [case-eval-system.md](case-eval-system.md)) |
+| `observe` | `[{"target":"agents"}, {"target":"context","lines":"[$tail-50,$tail]"}]` | record the current snapshot of concept structures (unified object list; path-type targets may carry lines reads, see [case-eval-system.md](case-eval-system.md)) |
 
 Read-channel default state: any instance not configured returns `None` (= tab no longer exists). Zombie-type cases need no
 `terminal` step — by default all are dead, and timer_scan goes straight to the closed judgment.
 
 ### observe output
 
-**Observability system**: all concept modules are observable (for the coverage mechanism see [observability.md](observability.md)); observe outputs two kinds (values: agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + computed-on-demand filtered_content; paths: context / effects give file pointer + summary); effects go into CaseObserve (exhaustive match enforced at compile time) + full persistence in effect.jsonl (including assistant_delta/done, docs/storage.md §effect.jsonl); filtered_content is not persisted, computed on demand from the terminal-content.jsonl raw digest.
+**Observability system**: all concept modules are observable (for the coverage mechanism see [observability.md](observability.md)); observe outputs two kinds (values: agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + computed-on-demand filtered_content; paths: context / effects give file pointer + summary); effects go into CaseObserve (exhaustive match enforced at compile time) + full persistence in effect.jsonl (including assistant_delta/done, [docs/storage.md](storage.md) §effect.jsonl); filtered_content is not persisted, computed on demand from the terminal-content.jsonl raw digest.
 
 **Tauri runtime actions observable** — `(Tauri runtime actions − readonly) ⊆ effects`: Tauri runtime actions cover WebView's `@tauri-apps/api` and the Rust shell's `tauri` API; all non-readonly actions on both sides uniformly enter the effect stream, and readonly calls are observed directly via observe.
 
@@ -265,7 +256,7 @@ Construct cases from real storage files; reduce volume through fine-grained filt
 ### Pipeline
 
 ```
-实时 storage → 过滤 → 最小化 → JSON 输出 → 手修 meta/notes → case health → 就绪
+live storage → filter → minimize → JSON output → hand-repair meta/notes → case health → ready
 ```
 
 ### Filter parameters
@@ -305,16 +296,16 @@ steps. After manual repair → immediately run case health validation.
 ### Example
 
 ```bash
-# 从当前 storage 导出场景（--keep-agents 显式保留 work_agents；默认隐私过滤）
+# export a scenario from live storage (--keep-agents explicitly keeps work_agents; privacy filtering is on by default)
 ambery-case export --case-id closed-stale-cache \
   --instances timer-probe,full-body-check \
   --keep-last 1 --keep-agents --trim-context
 
-# 预览行数
+# preview the line counts
 ambery-case export --case-id closed-stale-cache --instances timer-probe --dry-run
 # → work_agents: 2 行, context: 45 行（已 trim）, queue: 8 行（dry-run 预览，未生成 case）
 
-# 验证 case 合法性
+# validate the case
 ambery-case cases/closed-stale-cache.case --health
 # → PASS
 ```
@@ -335,41 +326,41 @@ Mandatory after manual repair; verifies whether the case is valid under the curr
    - Context: each line has type / ts / content (message type must have role)
    - Queue: each line has role / ts
 4. **observe executable**: `observe()` returns snapshots of all concept structures without error
-5. **pre-parse preflight** (case-eval-system.md §checkhealth, static, not executed): all expressions (observe lines / store values) try_parse syntax-valid; variable references valid (`$tail` predefined, user variables stored before use); store types valid (expr/var/int/str); types storable (Output implements DirectToString); observe targets valid (observable modules)
+5. **pre-parse preflight** ([case-eval-system.md](case-eval-system.md) §checkhealth, static, not executed): all expressions (observe lines / store values) try_parse syntax-valid; variable references valid (`$tail` predefined, user variables stored before use); store types valid (expr/var/int/str); types storable (Output implements DirectToString); observe targets valid (observable modules)
 
 ### Exit codes
 
 ```
-0 = PASS（所有检查通过）
-1 = FAIL（检查失败，打印具体失败行）
-2 = USAGE（参数错误）
+0 = PASS (all checks pass)
+1 = FAIL (a check failed; the failing line is printed)
+2 = USAGE (bad arguments)
 ```
 
 ## CLI
 
 ```
-ambery-case <case>                    # 执行所有 steps，observe 输出到 stdout
-ambery-case <case> --step-num 2       # 仅执行到第 N 步（含 observe）
-ambery-case <case> --health           # 验证 case 合法性
-ambery-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主（浏览器调试 RemoteBridge；docs/core-server.md）
-ambery-case frontend [--brain-addr <url> | --silent] # 前端 headless 模式：内嵌 core + 拉起 vitest 子进程（§壳类比）
+ambery-case <case>                    # run all steps, observe output to stdout
+ambery-case <case> --step-num 2       # run up to step N (including observe)
+ambery-case <case> --health           # validate the case
+ambery-case serve [--brain-addr <url> | --silent]    # full router host (browser debugging RemoteBridge; docs/core-server.md)
+ambery-case frontend [--brain-addr <url> | --silent] # frontend headless mode: embed core + spawn a vitest child process (§Frontend headless observation)
 ambery-case export [--storage DIR] [--instances a,b] [--window 30m] \
               [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] \
               [--keep-memory --memory name-a,AGENTS] [--keep-cron --cron-ids id-a,id-b] \
-              [--dedup] [--dry-run] [--case-id ID]   # 从实时 storage 导出 case（stdout）
+              [--dedup] [--dry-run] [--case-id ID]   # export a case from live storage (stdout)
 ```
 
 `serve` / `frontend` share the `core::host` assembly skeleton (Config/Harness/LLM/Terminal Adapter → AppState → full router); default port 47600, `AMBERY_PORT` overrides (frontend defaults to bind 0 to pick a free port and avoid production). With llm `active=debug`, both must be given either `--brain-addr` or `--silent` explicitly (same as the debug decision-source rule in §LLM modes).
 
 ## Use case: debug_brain.py as LLM (debug mode)
 
-debug_brain.py is a local OpenAI-compatible HTTP server (docs/debug-agent.md); to use it as the LLM, start it manually first, then point the case-runner at it in debug mode:
+debug_brain.py is a local OpenAI-compatible HTTP server ([docs/debug-agent.md](debug-agent.md)); to use it as the LLM, start it manually first, then point the case-runner at it in debug mode:
 
 ```bash
-# 终端 1：起 brain（打印监听端口；--port 可选，默认 47777）
+# terminal 1: start the brain (prints the listening port; --port optional, default 47777)
 python scripts/debug_brain.py --port 47777
 
-# 终端 2：case-runner debug 模式，--brain-addr 连它
+# terminal 2: case-runner in debug mode, connect with --brain-addr
 ambery-case <case> --brain-addr http://127.0.0.1:47777
 ```
 
@@ -379,11 +370,11 @@ ambery-case <case> --brain-addr http://127.0.0.1:47777
 ## Build
 
 ```bash
-# workspace 根（推荐）
-cargo run -p ambery-case -- packages/case-runner/cases/closed-stale-cache.case          # 执行所有 steps
-cargo run -p ambery-case -- packages/case-runner/cases/closed-stale-cache.case --health # case 合法性校验
+# workspace root (recommended)
+cargo run -p ambery-case -- packages/case-runner/cases/closed-stale-cache.case          # run all steps
+cargo run -p ambery-case -- packages/case-runner/cases/closed-stale-cache.case --health # validate the case
 
-# crate 内亦可（workspace 感知）
+# also works inside the crate (workspace-aware)
 cd packages/case-runner
 cargo build
 cargo run -- cases/closed-stale-cache.case

@@ -2,8 +2,7 @@
 
 English | [中文](window-follow.zh.md)
 
-> For the layout algorithm (optimal direction), see docs/window-positioning.md. This document defines **coordinate system selection,
-> responsibility layering, and follow/restore state semantics** — how the windows should move when pet moves, is dragged, or is hidden.
+> - **Scope of this document** — For the layout algorithm (optimal direction), see [docs/window-positioning.md](window-positioning.md). This document defines **coordinate system selection, responsibility layering, and follow/restore state semantics** — how the windows should move when pet moves, is dragged, or is hidden.
 
 ## Coordinate system: pet-relative
 
@@ -35,7 +34,7 @@ Inside the engine, **pet is fixed at (0,0)**; all windows store only the "offset
 tray group-hide (system hide, same as above). The latter two share the restore path: pet returns → broadcast the new center →
 each window checks its own userClosed to decide whether to show.
 
-#### ⟡ Consistency analysis
+### ⟡ Consistency analysis
 
 pet, Chat and Card are uniformly Managed Surfaces (unified show / hide / restore semantics); pet's layout is absolute — its own screen position — and it is the origin the others' offsets are measured from. The persistent truth of a Managed Surface falls into only four groups: identity, content, Surface intent (lifecycle and display choice), and spatial layout (direction and auto / manual offset); OS window handles, creating / closing, and temporary system hiding are all runtime and do not enter Surface. The positioning occupied region is not an implicit side effect of `hide()`; it is computed on demand from persistent intent: user hide releases the occupied region but keeps layout memory, temporary system hide keeps the occupied region, and dismiss ends the Surface and forgets its layout. Window kinds must be distinguished only by content source and lifecycle policy; they must not each invent their own hide / close / placement semantics. Cards Shelf is not a Managed Surface: it is a pet-anchored transient management popup (same class as Menu — closes on focus loss, closes with the pet-drag group hide, does not enter the engine occupied region, has no persistent spatial layout or display choice), and its persistent truth is not in a window but in the `.card.json` collection it manages.
 

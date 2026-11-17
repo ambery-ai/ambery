@@ -2,7 +2,7 @@
 
 [English](access-protocol.md) | 中文
 
-> 概念定义见 concepts.md §Ambery Protocol 及其子概念。本文档定义 pet 对外的角色与事件契约——外部软件如何成为 Source、事件如何进出、动作如何分级。实现文档由 docs-spec 责任地图登记，本文档不逐一列举。
+> - **本文档范围**——概念定义见 [concepts.zh.md](../concepts.zh.md) §Ambery Protocol 及其子概念。本文档定义 pet 对外的角色与事件契约——外部软件如何成为 Source、事件如何进出、动作如何分级。实现文档由 docs-spec 责任地图登记，本文档不逐一列举。
 
 ## 定位
 

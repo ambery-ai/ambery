@@ -2,21 +2,23 @@
 
 [English](multi-window.md) | 中文
 
-> 窗口方案为多窗口（docs/tauri-shell.md §形态）：pet / chat / menu / shelf 静态小窗口 + 每卡一个动态 `card-<id>` 窗，均为独立 OS 窗口。
+> - **本文档范围**——本文定义多窗口方案：窗口集合如何构成、窗口之间如何传数据与保持同步、如何创建与排序、以及窗口形态；pet 的尺寸公式归 [pet-window-size.zh.md](pet-window-size.zh.md)。
+
+窗口方案为多窗口（[docs/tauri-shell.zh.md](tauri-shell.zh.md) §形态）：pet / chat / menu / shelf 静态小窗口 + 每卡一个动态 `card-<id>` 窗，均为独立 OS 窗口。
 
 ## 窗口划分
 
 | label | 尺寸 | 用途 | 何时可见 |
 |---|---|---|---|
-| `pet` | 116×40（初始种子；运行时被 docs/pet-window-size.md 公式重算） | pet + 颜文字 + 拖拽 | 始终 |
+| `pet` | 116×40（初始种子；运行时被 [docs/pet-window-size.zh.md](pet-window-size.zh.md) 公式重算） | pet + 颜文字 + 拖拽 | 始终 |
 | `chat` | 320×380 | 聊天面板 | 唤出时（右键 toggle：chat:toggle） |
-| `menu` | 380×560 | 设置面板（schema 驱动，docs/config.md） | 托盘右键弹出，失焦隐藏 |
-| `shelf` | pet×3（钳制 180–480×120–240） | Cards Shelf（Card 管理瞬时弹出层，非 Surface，docs/view.md） | pet 中键：遮挡 pet 向右上弹出，中键/失焦即关 |
-| `card-<id>` | 投影尺寸（Card 文件 `_meta.layout.size`，docs/card-window-size.md） | 单张卡片（Component） | 卡片存活且可见时 |
+| `menu` | 380×560 | 设置面板（schema 驱动，[docs/config.zh.md](config.zh.md)） | 托盘右键弹出，失焦隐藏 |
+| `shelf` | pet×3（钳制 180–480×120–240） | Cards Shelf（Card 管理瞬时弹出层，非 Surface，[docs/view.zh.md](view.zh.md)） | pet 中键：遮挡 pet 向右上弹出，中键/失焦即关 |
+| `card-<id>` | 投影尺寸（Card 文件 `_meta.layout.size`，[docs/card-window-size.zh.md](card-window-size.zh.md)） | 单张卡片（Component） | 卡片存活且可见时 |
 
-静态窗口（pet/chat/menu）都是 `transparent: true` + `decorations: false` + `alwaysOnTop: true` 的小窗口（不在中间铺全屏透明层），所以不会有挡住桌面点击的问题。`card-<id>` 由 pet 经 `ensure_card_window` 创建（Rust 权威注册表决策，docs/case-runner.md §窗口决策上提）——每 id 一个独立窗口，同 id 原地更新（持续管理协议，docs/components.md）。
+静态窗口（pet/chat/menu）都是 `transparent: true` + `decorations: false` + `alwaysOnTop: true` 的小窗口（不在中间铺全屏透明层），所以不会有挡住桌面点击的问题。`card-<id>` 由 pet 经 `ensure_card_window` 创建（Rust 权威注册表决策，[docs/case-runner.zh.md](case-runner.zh.md) §窗口决策上提）——每 id 一个独立窗口，同 id 原地更新（持续管理协议，[docs/components.zh.md](components.zh.md)）。
 
-透明窗口 chrome 规则（样式层在 `packages/apps/src/styles/`——`index.css` 放窗口与组件规则、`tokens.css` 放 token 表，顶部注释为单源）：填充型面板（chat/shelf/menu）`box-sizing: border-box` + 100% 填满窗口，border 内绘于自身盒内、天然落在窗口边界内；card 的盒含自身 border，窗口按投影尺寸创建（docs/card-window-size.md）；pet 由窗口尺寸公式 +BORDER_PX 补偿（docs/pet-window-size.md）。
+透明窗口 chrome 规则（样式层在 `packages/apps/src/styles/`——`index.css` 放窗口与组件规则、`tokens.css` 放 token 表，顶部注释为单源）：填充型面板（chat/shelf/menu）`box-sizing: border-box` + 100% 填满窗口，border 内绘于自身盒内、天然落在窗口边界内；card 的盒含自身 border，窗口按投影尺寸创建（[docs/card-window-size.zh.md](card-window-size.zh.md)）；pet 由窗口尺寸公式 +BORDER_PX 补偿（[docs/pet-window-size.zh.md](pet-window-size.zh.md)）。
 
 ## 数据通道
 
@@ -24,7 +26,7 @@
 
 | 窗口 | 订阅 | 发送 |
 |---|---|---|
-| `pet` | `effect`（render_component / close_component / set_autonomy / config / top_state）、`shelf:visibility` / `shelf:dismiss`、`engine:place` / `engine:moved` / `engine:remove` / `engine:release` | `list_cards`、`update_card_layout`（Card 持久化，docs/components.md §Card 文件）、`ensure_card_window` / `close_card_window`（窗口决策，docs/case-runner.md §窗口决策上提）、`shelf:toggle`（中键） |
+| `pet` | `effect`（render_component / close_component / set_autonomy / config / top_state）、`shelf:visibility` / `shelf:dismiss`、`engine:place` / `engine:moved` / `engine:remove` / `engine:release` | `list_cards`、`update_card_layout`（Card 持久化，[docs/components.zh.md](components.zh.md) §Card 文件）、`ensure_card_window` / `close_card_window`（窗口决策，[docs/case-runner.zh.md](case-runner.zh.md) §窗口决策上提）、`shelf:toggle`（中键） |
 | `card-<id>` | `card:spec`（pet 转发）、`cards:hide` / `cards:show` | `pushEvent`、`engine:moved`（拖拽回写）、`close_card_window`（× / OS 关闭收口） |
 | `chat` | `chat:toggle` / `chat:hide` / `chat:show`、`effect`（context_changed） | `appendUserMessage` |
 | `menu` | `effect`（config） | `get_config_schema` / `set_config` / `toggle_pet` / `quit_app` / `export_theme` / `import_theme` |
@@ -34,13 +36,13 @@
 
 ## 位置同步与卡片定位
 
-定位语义以 docs/window-follow.md 为准：pet 持有 positioning engine（pet 相对坐标系），chat/cards 经 `engine:place` 请求位置、拖拽结束经 `engine:moved` 回写偏移；pet 拖拽/托盘恢复时 engine 现算各窗口位置并广播（`chat:show` / `cards:show` 携带坐标）。Card 的手动偏移跨重启持久化在 `.card.json`（启动时 `seedManual` 接棒）。
+定位语义以 [docs/window-follow.zh.md](window-follow.zh.md) 为准：pet 持有 positioning engine（pet 相对坐标系），chat/cards 经 `engine:place` 请求位置、拖拽结束经 `engine:moved` 回写偏移；pet 拖拽/托盘恢复时 engine 现算各窗口位置并广播（`chat:show` / `cards:show` 携带坐标）。Card 的手动偏移跨重启持久化在 `.card.json`（启动时 `seedManual` 接棒）。
 
 ## 窗口创建与生命周期
 
 - 静态窗口在 `tauri.conf.json` 中都定义为 `visible: false`；Rust `setup` 中创建并 pin
 - pet 窗口立即 `show()`；chat 由前端事件驱动显隐；menu 托盘右键弹出、失焦自动隐藏
-- `card-<id>` 生命周期：创建/复用由 Rust `ensure_card_window` 权威注册表决策（card 窗不订阅全局 render 流、只收 `card:spec` 定向事件）；close action、用户 × 与 shelf dismiss 统一收口 `close_card_window`（destroy + 删 `.card.json`）；启动时 pet 经 `list_cards` 拉取存活卡片重建可见窗口（docs/components.md §Card 文件）
+- `card-<id>` 生命周期：创建/复用由 Rust `ensure_card_window` 权威注册表决策（card 窗不订阅全局 render 流、只收 `card:spec` 定向事件）；close action、用户 × 与 shelf dismiss 统一收口 `close_card_window`（destroy + 删 `.card.json`）；启动时 pet 经 `list_cards` 拉取存活卡片重建可见窗口（[docs/components.zh.md](components.zh.md) §Card 文件）
 - pet 的 CloseRequested → hide 到托盘；pet 显隐由设置面板按钮（`toggle_pet`）控制，连带 chat/cards 系统隐藏
 
 ## 窗口 Z-Order

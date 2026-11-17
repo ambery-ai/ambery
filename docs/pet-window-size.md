@@ -2,25 +2,14 @@
 
 English | [中文](pet-window-size.zh.md)
 
-> This document defines the size formula and principles of the pet window.
-
-## Principles
-
-> **Scope of this document** — this document defines pet's size, scanning, and positioning contract; for the emoji pool's editing permissions, overall updates, and movement protocol, see [config.md](config.md) / [autonomy.md](autonomy.md).
-
-> **Center invariant** — when the window grows or shrinks, the visual center stays pinned at the same point; after `setSize`, the top-left offset is compensated.
-
-> **Pure function** — window size = f(baseline, scale, face, motion); the computation does not read the current OS window size.
-
-> **Fixed obstacle area** — reserved by the worst case across all face/motion, so it does not jitter with state and Card/chat layout stays stable.
-
-> **Independent per direction** — the four directions top/bottom/left/right each take their own maximum, not bound into a single H and W.
-
-> **Measure only face** — `getBoundingClientRect()` measures only the current rendered width of `#face`, not `#view` (avoiding a window-constraint feedback loop); `#face` must be `flex-shrink: 0` to prevent the container from compressing it.
-
-> **Center stays on screen** — only at drag end is it verified that the pet center falls within some monitor's available work area; if out of bounds, it is pulled back to the nearest point of the nearest work area. Size changes always keep the center unchanged and do not participate in this boundary correction.
-
-> **Animation does not move the center** — the motion CSS `transform` only displaces temporarily within the reserved window space; the first and last animation frames always return to the base position, so `petCenter` does not change. Dragging, attached-window following, obstacle-area positioning, and boundary validation always use the same base center.
+> - **Scope of this document** — this document defines pet's size formula, scanning, and positioning contract; for the emoji pool's editing permissions, overall updates, and movement protocol, see [config.md](config.md) / [autonomy.md](autonomy.md).
+> - **Center invariant** — when the window grows or shrinks, the visual center stays pinned at the same point; after `setSize`, the top-left offset is compensated.
+> - **Pure function** — window size = f(baseline, scale, face, motion); the computation does not read the current OS window size.
+> - **Fixed obstacle area** — reserved by the worst case across all face/motion, so it does not jitter with state and Card/chat layout stays stable.
+> - **Independent per direction** — the four directions top/bottom/left/right each take their own maximum, not bound into a single H and W.
+> - **Measure only face** — `getBoundingClientRect()` measures only the current rendered width of `#face`, not `#view` (avoiding a window-constraint feedback loop); `#face` must be `flex-shrink: 0` to prevent the container from compressing it.
+> - **Center stays on screen** — only at drag end is it verified that the pet center falls within some monitor's available work area; if out of bounds, it is pulled back to the nearest point of the nearest work area. Size changes always keep the center unchanged and do not participate in this boundary correction.
+> - **Animation does not move the center** — the motion CSS `transform` only displaces temporarily within the reserved window space; the first and last animation frames always return to the base position, so `petCenter` does not change. Dragging, attached-window following, obstacle-area positioning, and boundary validation always use the same base center.
 
 ## CSS ↔ JS Consistency Contract
 
@@ -30,9 +19,9 @@ The JS formula must be equivalent to the CSS layout. The following CSS values ar
 #view {
   --view-scale: 1;
   position: fixed;
-  min-width: calc(72px * var(--view-scale));      /* ← JS: minFaceW 基底 */
-  height: calc(40px * var(--view-scale));          /* ← JS: baselineH 基底 */
-  padding: 0 calc(22px * var(--view-scale));       /* ← JS: padLeft/Right 基底 */
+  min-width: calc(72px * var(--view-scale));      /* ← JS: minFaceW base */
+  height: calc(40px * var(--view-scale));          /* ← JS: baselineH base */
+  padding: 0 calc(22px * var(--view-scale));       /* ← JS: padLeft/Right base */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -40,9 +29,9 @@ The JS formula must be equivalent to the CSS layout. The following CSS values ar
 
 #face {
   font-size: calc(25px * var(--view-scale));
-  line-height: 1;                                  /* ← JS: height 由 line-height=1 保证 */
+  line-height: 1;                                  /* ← JS: height guaranteed by line-height=1 */
   white-space: nowrap;
-  flex-shrink: 0;                                  /* 必须：禁止被容器压缩，确保测量为自然宽度 */
+  flex-shrink: 0;                                  /* required: never compressed by the container, so measurement yields natural width */
   pointer-events: none;
 }
 ```
@@ -67,8 +56,8 @@ Each motion definition carries its own four-direction overflow; the engine scans
 type MotionDef = {
   motion: Motion;
   overflow: { top: number; bottom: number; left: number; right: number };
-  durationMs?: number; // 一次动作时的 TTL；必须与 CSS animation-duration 一致
-  // ↑ overflow 必须与 CSS @keyframes 的 translateX/Y 极值一致
+  durationMs?: number; // TTL for a single action; must match the CSS animation-duration
+  // ↑ overflow must match the translateX/Y extremes in the CSS @keyframes
 };
 
 const MOTIONS: MotionDef[] = [
@@ -78,7 +67,7 @@ const MOTIONS: MotionDef[] = [
   { motion: "shake",  overflow: { top:  0, bottom:  0, left:  6, right:  6 }, durationMs:  400 }, // ← CSS: translateX(±6px), 0.4s
 ];
 
-// 四向各自的最大值（跑一遍 MOTIONS 即得）
+// per-direction maximum (obtained by running MOTIONS once)
 const ANIM_TOP    = Math.max(...MOTIONS.map(m => m.overflow.top));
 const ANIM_BOTTOM = Math.max(...MOTIONS.map(m => m.overflow.bottom));
 const ANIM_LEFT   = Math.max(...MOTIONS.map(m => m.overflow.left));
@@ -98,7 +87,7 @@ h = contextH + motionTop + motionBottom
 ```
 
 - `faceWidth` = `#face.getBoundingClientRect().width` (CSS pixels)
-- `scale` = `viewScale` (hot-updated; see the Config field in docs/view.md)
+- `scale` = `viewScale` (hot-updated; see the Config field in [docs/view.md](view.md))
 - `motion{Left,Right,Top,Bottom}` = the current motion's `overflow[direction]`
 
 **Correspondence with CSS**:
@@ -126,20 +115,20 @@ obstacleH = baselineH × scale + ANIM_TOP + ANIM_BOTTOM
 ## Dependency Layers
 
 ```
-Layer 0: 设计基底（baselineH / minFaceW / padLR）
+Layer 0: design base (baselineH / minFaceW / padLR)
     ↓
-Layer 1: 测量层 faceWidth = measure(#face)     ← flex-shrink:0 保证自然宽度
+Layer 1: measurement layer faceWidth = measure(#face)  ← flex-shrink:0 keeps natural width
     ↓
-Layer 2: Scale 层（× viewScale）
+Layer 2: scale layer (× viewScale)
     ↓
-Layer 3: Motion 溢出层（+ 当前 motion 四向值，取自 MotionDef）
+Layer 3: motion overflow layer (+ the current motion's four direction values, from MotionDef)
     ↓
-Layer 4: 窗口尺寸（纯函数，四向各自独立）
+Layer 4: window size (pure function, the four directions are independent)
     ↓
-Layer 5: 中心锚定（先算新 center = old center，再反推新左上角）
+Layer 5: center anchoring (new center = old center first, then derive the new top-left)
     ↓
-Layer 6: 障碍区 = Layer4 在所有 face × motion 笛卡尔积上的 max
-         ANIM_* 由 MotionDef 扫描得出，不硬编码
+Layer 6: obstacle area = max of Layer4 over the Cartesian product of all face × motion
+         ANIM_* is derived by scanning MotionDef, never hard-coded
 ```
 
 One-way dependencies, no feedback loops.

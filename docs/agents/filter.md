@@ -2,8 +2,8 @@
 
 English | [中文](filter.zh.md)
 
-> Concept layer has no separate Filter entry — filtering is access-side detail. This document fixes the policy rules and the structure-understanding data types.
-> **Structure understanding**: the rules are taken from 3 real Claude Code terminal UIA samples (UIA returns rendered plain text, no ANSI codes).
+> - **Scope of this document** — Concept layer has no separate Filter entry — filtering is access-side detail. This document fixes the policy rules and the structure-understanding data types.
+> - **Structure understanding** — the rules are taken from 3 real Claude Code terminal UIA samples (UIA returns rendered plain text, no ANSI codes).
 
 ## Structure Understanding Data Types
 
@@ -15,22 +15,22 @@ pub struct TerminalDigest {
 }
 
 pub enum ContentBlock {
-    /// 用户输入（❯ 头，可跨折行）
+    /// user input (❯ head, may span wrapped lines)
     UserPrompt { text: String },
-    /// 助手正文（● 头，续行缩进无 glyph，可跨多行）
+    /// assistant body text (● head, continuation lines are indented with no glyph, may span several lines)
     AssistantText { text: String },
-    /// tool 调用：● Tool(args) 头 + ⎿ 结果 + 展开体全文 + 原文自带折叠标记
+    /// tool call: ● Tool(args) head + ⎿ result + full expanded body + source-native fold markers
     ToolCall {
-        head: String,               // ● Write(path) 整头行
-        result: Option<String>,     // ⎿ 后的结果摘要（可能没有）
-        body: String,               // 展开体全文（diff/编号内容行）——不做任何省略
-        truncated: bool,            // 原文自带折叠尾（… +N lines，源已丢信息，仅标记）
+        head: String,               // the whole ● Write(path) head line
+        result: Option<String>,     // result summary after ⎿ (may be absent)
+        body: String,               // full expanded body (diff / numbered content lines) — never omitted
+        truncated: bool,            // source-native fold tail (… +N lines; the source already lost information, marked only)
     },
-    /// 会话压缩摘要（※ recap: 头，多行）
+    /// session compaction summary (※ recap: head, multiple lines)
     Recap { text: String },
-    /// 无 ● 头的系统注入行（⎿ 3 skills available）
+    /// system injection lines without a ● head (⎿ 3 skills available)
     SystemInject { text: String },
-    /// 未能归类但非噪声（兜底，不丢信息）
+    /// neither a known block nor noise (fallback, loses no information)
     Info { text: String },
 }
 ```
@@ -52,29 +52,29 @@ Note: **diff is not a separate block type** — it is the content of the ToolCal
 
 ```
 core/src/filter/
-  mod.rs      # trait + TerminalDigest/ContentBlock + render + detect_change 默认实现 + by_name
-  claude.rs   # Claude Code 规则
-  opencode.rs # OpenCode 策略（glyph 表；未注册不生效）
+  mod.rs      # trait + TerminalDigest/ContentBlock + render + detect_change default impl + by_name
+  claude.rs   # Claude Code rules
+  opencode.rs # OpenCode policy (glyph table; unregistered = no effect)
 ```
 
 trait:
 
 ```rust
 pub trait Filter {
-    /// 去噪 + 归一文本（策略必须实现）
+    /// denoise + normalize text (a policy must implement this)
     fn apply(&self, raw: &str) -> String;
-    /// 去噪 + 折行合并 + 块切分 + 填 TerminalDigest（默认实现 = apply + 整篇 Info）
+    /// denoise + join wrapped lines + split blocks + fill TerminalDigest (default impl = apply + whole-text Info)
     fn digest(&self, raw: &str) -> TerminalDigest;
-    /// 变化检测（作用于 render 文本，默认实现可共享）
+    /// change detection (operates on render text; the default impl is shareable)
     fn detect_change(&self, prev: &str, next: &str) -> Change;
 }
 ```
 
-Filter selects the per-instance hook `kind` (docs/agents/claude/hook.md §Payload) through the `by_name` registry — the seam where per-harness policies plug in. A harness strategy lives in its own module (claude.rs, opencode.rs, …) and takes effect by registration; an unregistered kind is unsupported and rejected directly before the instance state update, Terminal Content read, Filter, and Queue — no fallback, no partial support. The registry is the single admission point; the generic layer never hardcodes a harness.
+Filter selects the per-instance hook `kind` ([docs/agents/claude/hook.md](claude/hook.md) §Payload) through the `by_name` registry — the seam where per-harness policies plug in. A harness strategy lives in its own module (claude.rs, opencode.rs, …) and takes effect by registration; an unregistered kind is unsupported and rejected directly before the instance state update, Terminal Content read, Filter, and Queue — no fallback, no partial support. The registry is the single admission point; the generic layer never hardcodes a harness.
 
 ## Boundaries
 
-- **Filter ↔ TerminalAdapter** — the adapter reads raw text (locate + read); filter does structure understanding (digest + detect_change). One-way dependency adapter → filter. The adapter abstraction is not code-cli-specific: future terminals may serve purposes beyond a code CLI (see docs/terminal/terminal-adapter.md).
+- **Filter ↔ TerminalAdapter** — the adapter reads raw text (locate + read); filter does structure understanding (digest + detect_change). One-way dependency adapter → filter. The adapter abstraction is not code-cli-specific: future terminals may serve purposes beyond a code CLI (see [docs/terminal/terminal-adapter.md](../terminal/terminal-adapter.md)).
 - **Filter ↔ hook** — the hook manages lifecycle state (register / close / status); filter manages content understanding. Orthogonal, no overlap.
 - **Hardcoded inside the seam** — per-harness rules are hardcoded in the policy file (claude.rs), never in the generic layer (mod.rs). Adding a harness = new module + register in `by_name`; core untouched.
 
@@ -104,7 +104,7 @@ The three content entries are unified as `digest() → render()`:
 | Timer scan | Raw archive → digest → render → detect_change → inject into Queue only if Substantive |
 | `fetch_terminal` tool | Raw archive → digest → render (full) returned to the LLM |
 
-The digest itself is not persisted (rebuildable from the raw text; the view is volatile, docs/storage.md philosophy); Context stores the rendered text, log format unchanged.
+The digest itself is not persisted (rebuildable from the raw text; the view is volatile, [docs/storage.md](../storage.md) philosophy); Context stores the rendered text, log format unchanged.
 
 ## Test Fixtures
 

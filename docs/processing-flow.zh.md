@@ -2,6 +2,8 @@
 
 [English](processing-flow.md) | 中文
 
+> - **本文档范围**——本文以 ASCII 与 Mermaid 两版呈现同一视图：主处理流程（Storage 布局与每步写什么）。模块分层版本见 [module-storage-flow.zh.md](module-storage-flow.zh.md)。
+
 主处理流程（storage 布局 + 每步写什么日志）。同一视图的 ASCII 与 Mermaid 两版。
 
 ## ASCII
@@ -12,7 +14,7 @@
   Config 域                              Storage 域
   %CONFIG_DIR%/                          %STORAGE_DIR%/
   config.json      启动配置              queue.jsonl             Queue 排队轨迹
-  AGENTS.md        身份提示词            terminal-content.jsonl  终端原文（Filter 前）
+  config/AGENTS.md 身份提示词            terminal-content.jsonl  终端原文（Filter 前）
                                         context.jsonl           统一全保真日志
                                         work-agents.jsonl       实例生命周期
                                         effect.jsonl            前后端统一动作流

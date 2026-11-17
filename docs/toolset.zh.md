@@ -2,23 +2,21 @@
 
 [English](toolset.md) | 中文
 
+> - **本文档范围**——本文定义每个 tool 的参数 schema、返回结构与调用语义；工具轮次预算和触发终止策略见 [agent-loop.zh.md](agent-loop.zh.md)。
+
 pet 可调用的九个 function definitions（call_component / fetch_terminal / set_autonomy / edit_config / read_memory / write_memory / cron_create / cron_delete / sleep）。校验规则定义后端执行时的合法性与错误返回。
-
-## 本文档范围
-
-本文定义每个 tool 的参数 schema、返回结构与调用语义；工具轮次预算和触发终止策略见 [agent-loop.md](agent-loop.md)。
 
 ## call_component
 
-创建/更新/关闭卡片窗口。同一 id 首次创建、后续原地更新。Tool schema 以注册表生成的 `anyOf` 声明每种类型的 `content` 形状（docs/components.md §类型注册表）。
+创建/更新/关闭卡片窗口。同一 id 首次创建、后续原地更新。Tool schema 以注册表生成的 `anyOf` 声明每种类型的 `content` 形状（[docs/components.zh.md](components.zh.md) §类型注册表）。
 
 | 参数 | 类型 | 必填 | 校验 |
 |------|------|------|------|
 | `spec.id` | string | ✓ | `[A-Za-z0-9_\-/.]+`，不为空。不含空格、中文、特殊字符 |
-| `spec.type` | string | ✓ | 已注册的 Component 类型（docs/components.md §类型注册表） |
+| `spec.type` | string | ✓ | 已注册的 Component 类型（[docs/components.zh.md](components.zh.md) §类型注册表） |
 | `spec.direction` | string | | `auto` / `n` / `ne` / `e` / `se` / `s` / `sw` / `w` / `nw` |
 | `spec.action` | string | | `close` 关闭卡片，此时忽略 `content` |
-| `spec.content` | object | ✓ | 形状由 `spec.type` 拥有；`text_card.content.text` 是 markdown 子集（docs/components.md §渲染） |
+| `spec.content` | object | ✓ | 形状由 `spec.type` 拥有；`text_card.content.text` 是 markdown 子集（[docs/components.zh.md](components.zh.md) §渲染） |
 
 **return**
 
@@ -77,19 +75,19 @@ pet 可调用的九个 function definitions（call_component / fetch_terminal / 
 
 ## Memory 与 Cron
 
-以下 tool 访问 Harness 的 Memory / Cron 持久化概念；它们不是让 Agent 直接读写任意文件或执行任意命令。Memory / Cron 的数据边界见 [harness.md](harness.md)。
+以下 tool 访问 Harness 的 Memory / Cron 持久化概念；它们不是让 Agent 直接读写任意文件或执行任意命令。Memory / Cron 的数据边界见 [harness.zh.md](harness.zh.md)。
 
 | tool | 契约 |
 |---|---|
-| `read_memory` | 读取持久化理解 Markdown；name 省略 = 读 index.md 导航。完整 schema 见 [memory.md](memory.md) |
-| `write_memory` | 新建或完整替换一条碎片化记忆；必须附 description，受单文件长度上限约束。完整 schema 见 [memory.md](memory.md) |
-| `cron_create` | 创建 Harness 持久化计划（schedule: at/every_ms + message）。完整 schema 见 [cron.md](cron.md) |
-| `cron_delete` | 删除一个持久化计划（id）。完整 schema 见 [cron.md](cron.md) |
-| `sleep` | 经同一 Harness 调度器延迟 tool result（0–300000ms），等待后继续既定工具序列。完整 schema 见 [cron.md](cron.md) |
+| `read_memory` | 读取持久化理解 Markdown；name 省略 = 读 `storage/memory/index.md` 导航。完整 schema 见 [memory.zh.md](memory.zh.md) |
+| `write_memory` | 新建或完整替换一条碎片化记忆；必须附 description，受单文件长度上限约束。完整 schema 见 [memory.zh.md](memory.zh.md) |
+| `cron_create` | 创建 Harness 持久化计划（schedule: at/every_ms + message）。完整 schema 见 [cron.zh.md](cron.zh.md) |
+| `cron_delete` | 删除一个持久化计划（id）。完整 schema 见 [cron.zh.md](cron.zh.md) |
+| `sleep` | 经同一 Harness 调度器延迟 tool result（0–300000ms），等待后继续既定工具序列。完整 schema 见 [cron.zh.md](cron.zh.md) |
 
 ## edit_config
 
-单一 Config 工具。所有行为由必填 `action` 显式区分；不以缺参、空值或失败写入切换模式。Config 投影、可见路径、`query` 快照与统一写入管道见 docs/config.md。
+单一 Config 工具。所有行为由必填 `action` 显式区分；不以缺参、空值或失败写入切换模式。Config 投影、可见路径、`query` 快照与统一写入管道见 [docs/config.zh.md](config.zh.md)。
 
 | action | 参数 | 语义 |
 |---|---|---|

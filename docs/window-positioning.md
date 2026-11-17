@@ -2,6 +2,8 @@
 
 English | [中文](window-positioning.zh.md)
 
+> - **Scope of this document** — this document defines the engine that picks the optimal direction for every non-pet window: the coordinate system and modeling, the monotonicity that makes the minimum unique, edge decomposition, the ternary search, the engine interface, and the algorithm flow. Window sizing belongs to [pet-window-size.md](pet-window-size.md) and follow/restore behavior to [window-follow.md](window-follow.md).
+
 ## Overview
 
 The engine computes the unique optimal direction relative to pet for all non-pet windows (ChatPanel, Component Cards). Core principles:
@@ -24,7 +26,7 @@ The engine accepts a preferred direction (one of the 16 directions, see below) a
 | `B` | new window center (to be found) |
 | `m⃗` | unit vector of the preferred direction |
 | `θ` | `∠(m⃗, AB⃗)`, the angle between the two vectors, range `[0, π]` |
-| `|AB|` | Euclidean distance from pet center to new window center |
+| `AB` distance | Euclidean distance from pet center to new window center |
 
 ### Value function
 
@@ -159,7 +161,7 @@ enum Direction {
 
 ### ChatPanel default
 
-ChatPanel's preferred direction is fixed to **`sse`** (docs/chat-panel.md §Layout; 0 = top, clockwise). The layout is slightly offset to match visual habit.
+ChatPanel's preferred direction is fixed to **`sse`** ([docs/chat-panel.md](chat-panel.md) §Layout; 0 = top, clockwise). The layout is slightly offset to match visual habit.
 
 ### gap configuration
 

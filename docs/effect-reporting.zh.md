@@ -2,26 +2,16 @@
 
 [English](effect-reporting.md) | 中文
 
-> 概念：所有**非只读 Tauri 运行时动作**统一进 effect 流（docs/case-runner.md
-> §Tauri 运行时动作可观测：`(Tauri runtime actions − readonly) ⊆ effects`）。Tauri 运行时动作同时覆盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API；动作流格式与记录点见 [storage.md](storage.md) §effect.jsonl。本文定义运行时动作层、通道、kind/payload、打包规则与埋点清单。
-
-## 原则
-
-> **本文档范围**——本文定义运行时动作层、通道、`kind`/`payload`、打包规则与埋点清单；动作流格式与记录点归 [storage.md](storage.md)，可观测要求本身归 [case-runner.md](case-runner.md)。
-
-> **非只读全进，只读不进**——有副作用的 Tauri 运行时动作统一上报进动作流；纯读取调用不进。
-
-> **一动作一记录**——每个非只读 Tauri 运行时动作各有一条 effect；一次调用发生多个动作时分别记录，不能以笼统的调用名合并。
-
-> **高频打包**——高频同类动作按目标去抖合并为一条记录；具体清单与窗口参数在正文契约。
-
-> **模拟环境不进**——原则只覆盖真实运行时调用；调试环境（浏览器）的 DOM 模拟操作不上报。
-
-> **动作与留痕同出口**——所有非只读 Tauri 运行时动作只能经语义化运行时动作层执行；该层在动作成功后写对应 effect，调用失败不写“已发生”的 effect。
+> - **本文档范围**——本文定义运行时动作层、通道、`kind`/`payload`、打包规则与埋点清单；动作流格式与记录点归 [storage.zh.md](storage.zh.md) §effect.jsonl，可观测要求本身归 [case-runner.zh.md](case-runner.zh.md)。
+> - **非只读全进，只读不进**——有副作用的 Tauri 运行时动作统一上报进动作流；纯读取调用不进。
+> - **一动作一记录**——每个非只读 Tauri 运行时动作各有一条 effect；一次调用发生多个动作时分别记录，不能以笼统的调用名合并。
+> - **高频打包**——高频同类动作按目标去抖合并为一条记录；具体清单与窗口参数在正文契约。
+> - **模拟环境不进**——原则只覆盖真实运行时调用；调试环境（浏览器）的 DOM 模拟操作不上报。
+> - **动作与留痕同出口**——所有非只读 Tauri 运行时动作只能经语义化运行时动作层执行；该层在动作成功后写对应 effect，调用失败不写“已发生”的 effect。
 
 ## 运行时动作层
 
-非只读 Tauri runtime action 的唯一出口是同名的两侧动作层：
+覆盖保证是 `(Tauri runtime actions − readonly) ⊆ effects`：每个非只读 Tauri runtime action 恰好留下一条 effect 记录。这类动作的唯一出口是同名的两侧动作层：
 
 ```text
 packages/apps/src/tauri_runtime_actions.ts       ← WebView `@tauri-apps/api` 的写动作
@@ -52,7 +42,7 @@ packages/apps/tauri/src-tauri/src/tauri_runtime_actions.rs
 
 `window-adapter.ts` 的 Tauri 写操作即 WebView 动作层的窗口部分（收编于同名动作层，不在其外叠加第二层）。
 
-#### ⟡ 一致性剖析
+### ⟡ 一致性剖析
 
 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API 是同一类 Tauri runtime action 的两个实现面，不应因代码位置不同而分裂 kind、payload 或 `origin`。两侧经同名语义化动作层共享动作词表：成功后记录对应 effect，失败不制造“已发生”的证据；复合入口逐动作转发，不能以 `toggle` 等笼统 effect 代替多个窗口与事件动作。动作层统一的是非只读动作与留痕，纯读取仍可直接调用，避免为无副作用查询制造多余包装。
 
@@ -75,10 +65,10 @@ Tauri 运行时动作分两类，通道不同：
 | user_message | append_user（端点记录） | {text} | 低 |
 | interaction | push_event（端点记录） | {desc, card_id?} | 低 |
 | config_update | set_config（端点记录；LLM edit_config 路径仍是 config_changed/backend） | {path} | 低 |
-| card_layout | update_card_layout（端点记录；Card 布局回写，docs/components.md §Card 文件） | {id, manual} | 低 |
+| card_layout | update_card_layout（端点记录；Card 布局回写，[docs/components.zh.md](components.zh.md) §Card 文件） | {id, manual} | 低 |
 | card_visibility | set_card_user_closed（端点记录；Cards Shelf 显隐切换写显示选择） | {id, user_closed} | 低 |
 | expression_changed | Autonomy 表情/动作实际变化（覆盖/回落/推导语义显式；未变不记，window_resized 不侧击推断） | {face, motion, source: set_autonomy\|revert\|derive} | 低 |
-| window_opened | Rust 壳 `ensure_card_window` create 分支（窗口决策上提，docs/case-runner.md） | {window} | 低 |
+| window_opened | Rust 壳 `ensure_card_window` create 分支（窗口决策上提，[docs/case-runner.zh.md](case-runner.zh.md)） | {window} | 低 |
 | window_closed | Rust 壳 `close_card_window`（agent close / shelf dismiss / 用户 × 三路径收口） | {window} | 低 |
 | window_resized | WebView / Rust 壳 `setSize` / setOffset | {window, w?, h?, top?, left?, count?} | 打包 |
 | window_moved | WebView / Rust 壳 `setPosition` | {window, x, y, count?} | 打包 |
@@ -86,7 +76,7 @@ Tauri 运行时动作分两类，通道不同：
 | window_visible | WebView / Rust 壳 `show` | {window} | 低 |
 | window_focused | WebView `setFocus` / Rust 壳聚焦等价动作（showWindow 内的第二动作；menu 前台抢焦） | {window} | 低 |
 | window_hidden | WebView / Rust 壳 `hide` | {window} | 低 |
-| theme_export | `export_theme`（端点记录；主题导出文件副作用，docs/theme.md） | {name} | 低 |
+| theme_export | `export_theme`（端点记录；主题导出文件副作用，[docs/theme.zh.md](theme.zh.md)） | {name} | 低 |
 | event_emit | WebView / Rust 壳 `emit` / `emitTo` | {event, target?, count?} | 打包 |
 
 打包：key = kind + 区分键（window 名 / event 名），250ms 静默期后 flush 一条，payload 保留
@@ -111,4 +101,4 @@ Tauri 运行时动作分两类，通道不同：
 - **不为 effect.jsonl 加 replay**：动作流是观测日志，启动不复原（与其他留痕文件一致，
   effect 行不进内存）。
 - **不在 case 数据节加 effect 节**：case 从空 effect.jsonl 起跑剧情，运行期记录由 steps 产生
-  （后端）——前端上报属真实运行环境，headless 下不可达（case-runner.md §边界隔离）。
+  （后端）——前端上报属真实运行环境，headless 下不可达（[case-runner.zh.md](case-runner.zh.md) §边界隔离）。

@@ -2,21 +2,23 @@
 
 English | [中文](multi-window.zh.md)
 
-> The window scheme is multi-window (docs/tauri-shell.md §Window Form): pet / chat / menu / shelf static small windows + one dynamic `card-<id>` window per Card, all as independent OS windows.
+> - **Scope of this document** — this document defines the multi-window scheme: how the window set is composed, how the windows pass data and stay in sync, how they are created and z-ordered, and what form they take; pet's size formula belongs to [pet-window-size.md](pet-window-size.md).
+
+The window scheme is multi-window ([docs/tauri-shell.md](tauri-shell.md) §Window Form): pet / chat / menu / shelf static small windows + one dynamic `card-<id>` window per Card, all as independent OS windows.
 
 ## Window Breakdown
 
 | label | Size | Purpose | When Visible |
 |---|---|---|---|
-| `pet` | 116×40 (initial seed; recomputed at runtime by the docs/pet-window-size.md formula) | pet + kaomoji + drag | Always |
+| `pet` | 116×40 (initial seed; recomputed at runtime by the [docs/pet-window-size.md](pet-window-size.md) formula) | pet + kaomoji + drag | Always |
 | `chat` | 320×380 | Chat Panel | When invoked (right-click toggle: chat:toggle) |
-| `menu` | 380×560 | Settings panel (schema-driven, docs/config.md) | Pops up on tray right-click, hides on focus loss |
-| `shelf` | pet×3 (clamped to 180–480×120–240) | Cards Shelf (transient popup layer for Card management, not a Surface, docs/view.md) | pet middle-click: pops up to the upper right over pet; closes on middle-click / focus loss |
-| `card-<id>` | Projected size (Card file `_meta.layout.size`, docs/card-window-size.md) | Single Card (Component) | When the Card is alive and visible |
+| `menu` | 380×560 | Settings panel (schema-driven, [docs/config.md](config.md)) | Pops up on tray right-click, hides on focus loss |
+| `shelf` | pet×3 (clamped to 180–480×120–240) | Cards Shelf (transient popup layer for Card management, not a Surface, [docs/view.md](view.md)) | pet middle-click: pops up to the upper right over pet; closes on middle-click / focus loss |
+| `card-<id>` | Projected size (Card file `_meta.layout.size`, [docs/card-window-size.md](card-window-size.md)) | Single Card (Component) | When the Card is alive and visible |
 
-Static windows (pet/chat/menu) are all small windows with `transparent: true` + `decorations: false` + `alwaysOnTop: true` (no full-screen transparent layer spread across the middle), so there is no problem of blocking desktop clicks. `card-<id>` is created by pet via `ensure_card_window` (authoritative Rust registry decision, docs/case-runner.md §Window Decision Hoisted) — one independent window per id, updated in place for the same id (continuous management protocol, docs/components.md).
+Static windows (pet/chat/menu) are all small windows with `transparent: true` + `decorations: false` + `alwaysOnTop: true` (no full-screen transparent layer spread across the middle), so there is no problem of blocking desktop clicks. `card-<id>` is created by pet via `ensure_card_window` (authoritative Rust registry decision, [docs/case-runner.md](case-runner.md) §Window Decision Hoisted) — one independent window per id, updated in place for the same id (continuous management protocol, [docs/components.md](components.md)).
 
-Transparent-window chrome rules (the style layer is `packages/apps/src/styles/` — `index.css` for window and component rules, `tokens.css` for the token table, whose header comment is the single source): filled panels (chat/shelf/menu) use `box-sizing: border-box` + 100% to fill the window, and the border is drawn inside the box itself, so it naturally falls within the window bounds; a Card's box includes its own border, and the window is created at the projected size (docs/card-window-size.md); pet is compensated by the window-size formula + BORDER_PX (docs/pet-window-size.md).
+Transparent-window chrome rules (the style layer is `packages/apps/src/styles/` — `index.css` for window and component rules, `tokens.css` for the token table, whose header comment is the single source): filled panels (chat/shelf/menu) use `box-sizing: border-box` + 100% to fill the window, and the border is drawn inside the box itself, so it naturally falls within the window bounds; a Card's box includes its own border, and the window is created at the projected size ([docs/card-window-size.md](card-window-size.md)); pet is compensated by the window-size formula + BORDER_PX ([docs/pet-window-size.md](pet-window-size.md)).
 
 ## Data Channels
 
@@ -24,7 +26,7 @@ Each window connects to ambery-core independently (Tauri IPC; effect events are 
 
 | Window | Subscribes | Sends |
 |---|---|---|
-| `pet` | `effect` (render_component / close_component / set_autonomy / config / top_state), `shelf:visibility` / `shelf:dismiss`, `engine:place` / `engine:moved` / `engine:remove` / `engine:release` | `list_cards`, `update_card_layout` (Card persistence, docs/components.md §Card File), `ensure_card_window` / `close_card_window` (window decisions, docs/case-runner.md §Window Decision Hoisted), `shelf:toggle` (middle-click) |
+| `pet` | `effect` (render_component / close_component / set_autonomy / config / top_state), `shelf:visibility` / `shelf:dismiss`, `engine:place` / `engine:moved` / `engine:remove` / `engine:release` | `list_cards`, `update_card_layout` (Card persistence, [docs/components.md](components.md) §Card File), `ensure_card_window` / `close_card_window` (window decisions, [docs/case-runner.md](case-runner.md) §Window Decision Hoisted), `shelf:toggle` (middle-click) |
 | `card-<id>` | `card:spec` (forwarded by pet), `cards:hide` / `cards:show` | `pushEvent`, `engine:moved` (drag write-back), `close_card_window` (× / OS close funnel) |
 | `chat` | `chat:toggle` / `chat:hide` / `chat:show`, `effect` (context_changed) | `appendUserMessage` |
 | `menu` | `effect` (config) | `get_config_schema` / `set_config` / `toggle_pet` / `quit_app` / `export_theme` / `import_theme` |
@@ -34,13 +36,13 @@ Each window subscribes only to the messages it cares about, independently of the
 
 ## Position Sync and Card Placement
 
-Positioning semantics follow docs/window-follow.md: pet owns the positioning engine (pet-relative coordinate system); chat/cards request positions via `engine:place`, and after dragging ends, offsets are written back via `engine:moved`; when pet is dragged or restored from the tray, the engine computes each window's position on the spot and broadcasts it (`chat:show` / `cards:show` carry coordinates). A Card's manual offset is persisted across restarts in `.card.json` (`seedManual` takes over at startup).
+Positioning semantics follow [docs/window-follow.md](window-follow.md): pet owns the positioning engine (pet-relative coordinate system); chat/cards request positions via `engine:place`, and after dragging ends, offsets are written back via `engine:moved`; when pet is dragged or restored from the tray, the engine computes each window's position on the spot and broadcasts it (`chat:show` / `cards:show` carry coordinates). A Card's manual offset is persisted across restarts in `.card.json` (`seedManual` takes over at startup).
 
 ## Window Creation and Lifecycle
 
 - Static windows are all defined with `visible: false` in `tauri.conf.json`; they are created and pinned in Rust `setup`.
 - The pet window immediately `show()`s; chat is shown/hidden by frontend events; menu pops up on tray right-click and auto-hides on focus loss.
-- `card-<id>` lifecycle: creation/reuse is decided by the authoritative Rust `ensure_card_window` registry (Card windows do not subscribe to the global render stream; they receive only the targeted `card:spec` event); close action, user ×, and shelf dismiss are all funneled into `close_card_window` (destroy + delete `.card.json`); at startup, pet pulls live Cards via `list_cards` and rebuilds visible windows (docs/components.md §Card File).
+- `card-<id>` lifecycle: creation/reuse is decided by the authoritative Rust `ensure_card_window` registry (Card windows do not subscribe to the global render stream; they receive only the targeted `card:spec` event); close action, user ×, and shelf dismiss are all funneled into `close_card_window` (destroy + delete `.card.json`); at startup, pet pulls live Cards via `list_cards` and rebuilds visible windows ([docs/components.md](components.md) §Card File).
 - pet's CloseRequested → hide to tray; pet visibility is controlled by the settings-panel button (`toggle_pet`), and chat/cards are hidden together with it.
 
 ## Window Z-Order

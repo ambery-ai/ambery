@@ -2,7 +2,7 @@
 
 [English](debug-agent.md) | 中文
 
-> 本文档定义 debug 规则。
+> - **本文档范围**——本文档定义 debug 规则。
 
 ## 定位（设计决定）
 
@@ -27,7 +27,7 @@ Debug 变体时按 debug 模式参数换成 HTTP brain 或沉默。Tauri 内嵌 
 
 本地 OpenAI 兼容 `/chat/completions` HTTP 服务器，是「LLM 替换」的最小示例：
 决策源逻辑内置在脚本里，case-runner 以 debug 模式 `--brain-addr` 连它当 LLM 用
-（docs/case-runner.md §用例）。
+（[docs/case-runner.zh.md](case-runner.zh.md) §用例）。
 
 ```bash
 python scripts/debug_brain.py --port 47777   # 起 HTTP 服务（--port 可选，默认 47777）

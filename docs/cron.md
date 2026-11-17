@@ -2,16 +2,9 @@
 
 English | [中文](cron.zh.md)
 
-> Concept definitions are in concepts.md §Timer. This document specifies task representation, persistence format, due behavior, and
-> the call contracts for the three tools cron_create / cron_delete / sleep.
-
-## Principles
-
-> **Scope of this document** — this document defines Cron's task model, cron.jsonl format, scheduling implementation, and the parameters/validation/returns of the three tools; for Cron's conceptual positioning and ownership see concepts.md §Timer / docs/harness.md §Timer; for storage layout see docs/storage.md §Timer.
-
-> **Design constants** — the sleep cap and the scheduling poll granularity are implementation constants (values defined in this document) and do not enter Config.
-
-> **No special rules; use semantics to make behavior explicit** — the schedule is given explicitly as one of two choices; having no list tool is an established boundary (concepts §Tool Set lists only two schedule tools), and no implicit query channel is invented.
+> - **Scope of this document** — this document defines Cron's task model and persistence format, the scheduling implementation including due behavior, and the parameters/validation/returns and call contracts of the three tools; for Cron's conceptual positioning and ownership see [concepts.md](../concepts.md) §Timer / [docs/harness.md](harness.md) §Timer; for storage layout see [docs/storage.md](storage.md) §Timer.
+> - **Design constants** — the sleep cap and the scheduling poll granularity are implementation constants (values defined in this document) and do not enter Config.
+> - **No special rules; use semantics to make behavior explicit** — the schedule is given explicitly as one of two choices; having no list tool is an established boundary (concepts §Tool Set lists only two schedule tools), and no implicit query channel is invented.
 
 ## Task Representation
 

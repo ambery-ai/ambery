@@ -2,7 +2,7 @@
 
 English | [中文](effort.zh.md)
 
-> For the cross-model thinking / reasoning budget industry survey, see `reports/llm-reasoning-effort-cross-model.md`.
+> - **Scope of this document** — this document defines the effort concept: what the thinking budget is, where the level comes from, and how keywords match; the cross-model thinking / reasoning budget industry survey is in `reports/llm-reasoning-effort-cross-model.md`.
 
 ## Definition
 
@@ -12,7 +12,7 @@ The domain layer has only unified semantic levels; each provider adapter transla
 
 ```text
 effort: low | medium | high | None
-                          └─ None = 不设置，用该 provider 端点默认
+                          └─ None = unset, fall back to that provider endpoint's default
 ```
 
 | Endpoint | wire parameter | low | medium | high |
@@ -28,7 +28,7 @@ effort: low | medium | high | None
 
 ## Level Source: Queue Message Source (Not the Provider)
 
-effort is decided by **the Queue message source that triggered this LLM call**. The provider only translates; it does not decide the level. The source field is a first-class citizen of Queue input; for the complete set, see `docs/concrete-insight.md §Queue 中的 System 消息来源`.
+effort is decided by **the Queue message source that triggered this LLM call**. The provider only translates; it does not decide the level. The source field is a first-class citizen of Queue input; for the complete set, see [docs/concrete-insight.md](concrete-insight.md) §System Message Sources in the Queue.
 
 ### Current Mapping (Config Can Override, Default medium)
 
@@ -44,7 +44,7 @@ The config presets three direct values; any source not explicitly listed always 
 
 ### Implementation Point
 
-For the `QueueInput` source field and the dual-queue release mechanism, see `docs/harness.md §Queue 规则`. On the effort side, at the LLM call site in `run_trigger` resolve the level by source: `user_chat` → low, `hook_stop_content` → high, others → medium. Subsequent calls within the tool loop reuse the source and effort of this trigger.
+For the `QueueInput` source field and the dual-queue release mechanism, see [docs/harness.md](harness.md) §Queue Rules. On the effort side, at the LLM call site in `run_trigger` resolve the level by source: `user_chat` → low, `hook_stop_content` → high, others → medium. Subsequent calls within the tool loop reuse the source and effort of this trigger.
 
 ## Matching Keywords
 

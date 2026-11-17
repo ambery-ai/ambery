@@ -2,8 +2,8 @@
 
 [English](filter.md) | 中文
 
-> 概念层无独立 Filter 条目——过滤是接入侧细节。本文档定策略规则与结构理解数据类型。
-> **结构理解**：规则取自 3 个真实 Claude Code 终端的 UIA 样本（UIA 返回渲染后纯文本，无 ANSI 码）。
+> - **本文档范围**——概念层无独立 Filter 条目——过滤是接入侧细节。本文档定策略规则与结构理解数据类型。
+> - **结构理解**——规则取自 3 个真实 Claude Code 终端的 UIA 样本（UIA 返回渲染后纯文本，无 ANSI 码）。
 
 ## 结构理解数据类型
 
@@ -70,11 +70,11 @@ pub trait Filter {
 }
 ```
 
-Filter 唯一按实例的 hook `kind` 选择（docs/agents/claude/hook.md §Payload），经 `by_name` 注册表接入——这是 per-harness 策略的 seam（可插拔缝）。每个 harness 策略是独立模块（claude.rs、opencode.rs、…），**注册即生效**；未注册的 kind = 不受支持，在实例状态更新、读 Terminal Content、Filter 与 Queue 之前直接拒绝——无回退、无半支持。注册表是唯一准入点；通用层永不硬编码某个 harness。
+Filter 唯一按实例的 hook `kind` 选择（[docs/agents/claude/hook.zh.md](claude/hook.zh.md) §Payload），经 `by_name` 注册表接入——这是 per-harness 策略的 seam（可插拔缝）。每个 harness 策略是独立模块（claude.rs、opencode.rs、…），**注册即生效**；未注册的 kind = 不受支持，在实例状态更新、读 Terminal Content、Filter 与 Queue 之前直接拒绝——无回退、无半支持。注册表是唯一准入点；通用层永不硬编码某个 harness。
 
 ## 边界
 
-- **Filter ↔ TerminalAdapter** — adapter 读原文（定位+读取）；filter 做结构理解（digest + detect_change）。单向依赖 adapter → filter。adapter 抽象不得 code-cli 专用化：未来终端可能服务 code cli 之外的多用途（见 docs/terminal/terminal-adapter.md）。
+- **Filter ↔ TerminalAdapter** — adapter 读原文（定位+读取）；filter 做结构理解（digest + detect_change）。单向依赖 adapter → filter。adapter 抽象不得 code-cli 专用化：未来终端可能服务 code cli 之外的多用途（见 [docs/terminal/terminal-adapter.zh.md](../terminal/terminal-adapter.zh.md)）。
 - **Filter ↔ hook** — hook 管生命周期状态（register / close / status）；filter 管内容理解。正交，无重叠。
 - **硬编码在 seam 内** — per-harness 规则硬编码在策略文件（claude.rs）里，绝不进通用层（mod.rs）。新增 harness = 新模块 + `by_name` 注册；core 不碰。
 
@@ -104,7 +104,7 @@ Filter 唯一按实例的 hook `kind` 选择（docs/agents/claude/hook.md §Payl
 | Timer 扫描 | 原文存档 → digest → render → detect_change → Substantive 才注入 Queue |
 | `fetch_terminal` tool | 原文存档 → digest → render（全量）返回 LLM |
 
-digest 本体不落盘（可从原文重建，视图易失，docs/storage.md 哲学）；Context 存 render 文本，日志格式不变。
+digest 本体不落盘（可从原文重建，视图易失，[docs/storage.zh.md](../storage.zh.md) 哲学）；Context 存 render 文本，日志格式不变。
 
 ## 测试夹具
 

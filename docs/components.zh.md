@@ -2,7 +2,7 @@
 
 [English](components.md) | 中文
 
-> 概念定义见 concepts.md §Component。本文档定调用协议、生命周期事件、方位几何、渲染与交互事件格式。
+> - **本文档范围**——概念定义见 [concepts.zh.md](../concepts.zh.md) §Component。本文档定调用协议、生命周期事件、方位几何、渲染与交互事件格式。
 
 ## 调用协议（call_component）
 
@@ -51,12 +51,12 @@ type ComponentContent = {
 | `contentSchema` | 该类型 `content` 的 JSON Schema 片段；工具 schema 的 `anyOf` 由这些片段生成 |
 | `validate(content)` | 结构校验与它的错误文案 |
 | `render(content)` | 该类型的 Card body |
-| `sizeModel(content)` | 该类型如何贡献 Card 窗口尺寸：块配方、固定尺寸、或 cap + 滚动（docs/card-window-size.md） |
+| `sizeModel(content)` | 该类型如何贡献 Card 窗口尺寸：块配方、固定尺寸、或 cap + 滚动（[docs/card-window-size.zh.md](card-window-size.zh.md)） |
 | `label` / 图标 | Cards Shelf 的一行 |
 
 新增类型 = 新增一条注册项。调用协议、spec 顶层形状与 Card 文件形状都不变。`sizeModel` 必填——缺了它窗口尺寸就无法推导，尺寸契约不允许。
 
-#### ⟡ 一致性剖析
+### ⟡ 一致性剖析
 
 Component、Card、Surface 与 OS Window 不是同一层概念：Component 是 Agent 可调用的结构化内容；Card 是该内容作为持续工作产物的持久对象；Surface 是用户可见、可隐藏、可恢复的逻辑界面；OS Window 是宿主的物理容器，Surface 与瞬时弹出层都投影进它。把四者分开，Card 才能跨重启存在而 window 句柄不必持久化，effect 也只审计动作而不反推当前 Card。Chat 与 Card 统一为 Managed Surface（显示 / 隐藏 / 恢复语义统一，进 engine 占区），pet 自身也是 Managed Surface 兼锚点——其余 Surface 的偏移以它为原点度量，它的可见性统辖整组。Cards Shelf 也不是 Surface——它是 pet 锚定的瞬时管理弹出层（同 Menu 一类：失焦即关、不进 engine 占区、无持久状态），其真相在被管理的 `.card.json` 集合。
 
@@ -86,7 +86,7 @@ Card 文件以完整 JSON 持久化：`component` 是 Agent 正常读取与更�
   - `layout.direction`：spec.direction（`auto`/省略 = null；每次更新跟随 spec）。
   - `layout.offset`：相对 pet 中心的偏移（用户拖拽结束经 `update_card_layout` IPC 回写；自动布局 = null）。
   - `layout.manual`：用户亲手拖过 = true（place 保持偏移不重算）。
-  - `layout.size`：投影的 Card 窗口尺寸 `[width, height]`，单位 CSS px，由尺寸计算产出；没有任何用户动作编辑它（docs/card-window-size.md）。
+  - `layout.size`：投影的 Card 窗口尺寸 `[width, height]`，单位 CSS px，由尺寸计算产出；没有任何用户动作编辑它（[docs/card-window-size.zh.md](card-window-size.zh.md)）。
   - `layout.layoutVersion`：决定 `layout.size` 的输入标识（布局常量 + 字体标识）；与当前输入不一致即投影过期。
 - dismiss（agent close / 用户 ×）：结束 Surface——删文件、出注册表、忘记布局。
 - id 即文件相对路径，也是窗口名后缀：字符限 `A-Z a-z 0-9 _ - /`——因为 id 会拼成 `card-<id>` 当 Tauri 窗口标签，而 Tauri 拒收 `.`；可含 `/`（嵌套子目录），禁空段与 `..` 段（tool 校验拒绝）。
@@ -103,7 +103,7 @@ Card 文件以完整 JSON 持久化：`component` 是 Agent 正常读取与更�
 | `closed_by_agent` | agent | `card closed: {type}「{title}」({id}), {start} / {end}, → 存活 N`（一行） |
 | `user_action` | 用户交互 | `用户{勾选了/取消勾选了/新增了} {type} 条目「{text}」`（逐条过程） |
 
-交互事件的前端协议：前端只上报结构化事实（action/cardId/字段），自然语言文本由 core 按 Harness 语言经 lifecycle 单源现写（docs/i18n.md §Harness 内部语言）；本表为 zh 语义样例。
+交互事件的前端协议：前端只上报结构化事实（action/cardId/字段），自然语言文本由 core 按 Harness 语言经 lifecycle 单源现写（[docs/i18n.zh.md](i18n.zh.md) §Harness 内部语言）；本表为 zh 语义样例。
 
 - agent 更新 card 不产事件（tool result 已有完整 spec）。
 - `start` / `end` 格式：`YYMMDD-HH:MM`。
@@ -113,8 +113,8 @@ Card 文件以完整 JSON 持久化：`component` 是 Agent 正常读取与更�
 
 - 锚点 = View 中心。卡片按 direction 向量偏移：`锚点 ± (View 半径 + 12px 间距 + 卡片半尺寸)`。
 - 斜方位（如 top-right）= 两轴分别偏移。
-- 出屏处理（docs/window-follow.md §出屏与重叠）：不压人 > 完全可见；完全失踪（与所在屏零相交）才沿 16 方位环换向重试。
-- 已弹出卡片经 engine 以 pet 相对偏移跟随 View 移动（docs/window-follow.md；用户拖拽可改偏移基准）。
+- 出屏处理（[docs/window-follow.zh.md](window-follow.zh.md) §出屏与重叠）：不压人 > 完全可见；完全失踪（与所在屏零相交）才沿 16 方位环换向重试。
+- 已弹出卡片经 engine 以 pet 相对偏移跟随 View 移动（[docs/window-follow.zh.md](window-follow.zh.md)；用户拖拽可改偏移基准）。
 
 ## 渲染
 

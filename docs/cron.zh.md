@@ -2,16 +2,9 @@
 
 [English](cron.md) | 中文
 
-> 概念定义见 concepts.md §Timer。本文档定任务表示、持久化格式、到点行为与
-> cron_create / cron_delete / sleep 三个 tool 的调用契约。
-
-## 原则
-
-> **本文档范围**——本文定义 Cron 的任务模型、cron.jsonl 格式、调度实现与三个 tool 的参数/校验/返回；Cron 的概念定位与所有权见 concepts.md §Timer / docs/harness.md §Timer；存储布局见 docs/storage.md §Timer。
-
-> **设计常量**——sleep 上限与调度轮询粒度是实现常量（本文定义值），不进 Config。
-
-> **不做特殊规则，用语义明确行为**——schedule 二选一显式给出；无 list tool 是既定边界（concepts §Tool Set 只列两个计划 tool），不发明隐式查询通道。
+> - **本文档范围**——本文定义 Cron 的任务模型与持久化格式、含到点行为的调度实现，以及三个 tool 的参数/校验/返回与调用契约；Cron 的概念定位与所有权见 [concepts.zh.md](../concepts.zh.md) §Timer / [docs/harness.zh.md](harness.zh.md) §Timer；存储布局见 [docs/storage.zh.md](storage.zh.md) §Timer。
+> - **设计常量**——sleep 上限与调度轮询粒度是实现常量（本文定义值），不进 Config。
+> - **不做特殊规则，用语义明确行为**——schedule 二选一显式给出；无 list tool 是既定边界（concepts §Tool Set 只列两个计划 tool），不发明隐式查询通道。
 
 ## 任务表示
 

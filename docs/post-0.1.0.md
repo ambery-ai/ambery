@@ -2,7 +2,7 @@
 
 English | [中文](post-0.1.0.zh.md)
 
-> This document only records directions after `0.1.0`; it does not define the current implementation, protocol, permission flow, asset format, rendering interface, or configuration structure. The release ladder toward `0.1.0` is [roadmap.md](roadmap.md).
+> - **Scope of this document** — This document only records directions after `0.1.0`; it does not define the current implementation, protocol, permission flow, asset format, rendering interface, or configuration structure. The release ladder toward `0.1.0` is [roadmap.md](roadmap.md).
 
 ## Global Wake-up Hotkey (Explicitly Cut)
 
@@ -22,7 +22,7 @@ The user manually shifts the effort of the current `user_chat` (temporarily rais
 
 ## LLM Connection Health Check
 
-A periodic background re-test of the configured endpoint, surfacing degradation before a round fails. It extends the one-shot connection test in the setup guide (docs/llm-setup.md). A formal design must independently determine: the interval, the presentation channel, and the boundary against the error path.
+A periodic background re-test of the configured endpoint, surfacing degradation before a round fails. It extends the one-shot connection test in the setup guide ([docs/llm-setup.md](llm-setup.md)). A formal design must independently determine: the interval, the presentation channel, and the boundary against the error path.
 
 ## OS Keychain Integration
 
@@ -38,7 +38,7 @@ A formal design must independently determine: failure semantics of batch update 
 
 ## Jump to the Target Instance's Desktop
 
-The user-visible "jump": from a Card/notification, switch with one click to the virtual desktop where the target Code CLI instance resides. It consumes Platform Primitives' `switch_vd` (docs/platform-primitives.md); a formal design must independently determine the jump entry (quick_jump event chain or an independent gesture), target location (Terminal Adapter locate), and switch-confirmation semantics.
+The user-visible "jump": from a Card/notification, switch with one click to the virtual desktop where the target Code CLI instance resides. It consumes Platform Primitives' `switch_vd` ([docs/platform-primitives.md](platform-primitives.md)); a formal design must independently determine the jump entry (quick_jump event chain or an independent gesture), target location (Terminal Adapter locate), and switch-confirmation semantics.
 
 ## v2 Prune Mode (Summary Replacement)
 

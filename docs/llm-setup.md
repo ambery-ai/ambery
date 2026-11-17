@@ -2,7 +2,12 @@
 
 English | [中文](llm-setup.zh.md)
 
-> This document defines the first-run LLM setup guide: the unconfigured default state, the setup modal (rendered like the settings panel — a reflection of Config schema nodes), and the connection test capability. Error presentation follows [errors.md](errors.md).
+> - **Scope of this document** — this document defines the first-run LLM setup guide: the unconfigured default state, the setup modal (rendered like the settings panel — a reflection of Config schema nodes), the connection test capability, and the app-level env layer; error presentation follows [errors.md](errors.md), and the Config fields the modal renders belong to [config.md](config.md).
+> - **Unconfigured is the honest default** — a fresh install has no LLM configured; the default state must say so.
+> - **The setup modal is a reflection** — it renders schema nodes, not custom UI, using the same rendering as the settings panel. One rendering, no hand-written form.
+> - **The menu is unchanged** — the setup guide does not live inside the menu and does not alter menu behavior; it is a modal reached from Chat.
+> - **Failures are never silent** — when an action fails (an LLM call, a key write), the user sees it; the setup flow never hides a failure.
+> - **Key stays out of config** — `config.json` stores only the environment-variable *name* (`api_key_env`); the key itself lives in the app-level env layer or the process environment. The setup modal can *enter* a key: writing it to the env file. `config.json` never contains a key value.
 
 ## Concepts
 
@@ -10,21 +15,6 @@ English | [中文](llm-setup.zh.md)
 - **Setup modal** — a modal shown from Chat when unconfigured. It renders Config schema nodes the same way the settings panel (menu) does — the same `config_nodes` projection and mechanical rendering (`get_config_schema` → nodes → controls). It is not a hand-written form; fields appear and disappear with the schema. The menu itself is unchanged: an unconfigured state does not alter any menu behavior.
 - **Connection test** — a backend capability (new) that builds the active provider once and makes one `complete` call, returning success or the concrete failure reason.
 - **App-level env layer** — the key store for provider credentials. `~/.config/ambery/env` (0600) holds `KEY=value` lines; the app reads env *file first, then process environment* (the file overrides the system). Keys never live in `config.json`.
-
-## Principles
-
-> **Scope of this document** — this document defines the first-run setup guide: the unconfigured default, the setup modal and its schema-driven rendering, the connection test, and the app-level env layer; error presentation belongs to [errors.md](errors.md), and the Config fields it renders to [config.md](config.md).
-
-> **Unconfigured is the honest default** — a fresh install has no LLM configured; the default state must say so.
-
-> **The setup modal is a reflection** — it renders schema nodes, not custom UI, using the same rendering as the settings panel. One rendering, no hand-written form.
-
-> **The menu is unchanged** — the setup guide does not live inside the menu and does not alter menu behavior; it is a modal reached from Chat.
-
-> **Failures are never silent** — when an action fails (an LLM call, a key write), the user sees it; the setup flow never hides a failure.
-
-> **Key stays out of config** — `config.json` stores only the environment-variable *name* (`api_key_env`); the key itself lives in the app-level env layer or the process environment. The setup modal can *enter* a key: writing it to the env file. `config.json` never contains a key value.
-
 ## Key storage model (app-level env layer)
 
 The env file `~/.config/ambery/env` is an **app-level environment-variable layer**:

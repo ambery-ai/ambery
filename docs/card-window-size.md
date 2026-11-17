@@ -2,7 +2,7 @@
 
 English | [中文](card-window-size.zh.md)
 
-> This document defines how a Card window's size is determined: its single source, its projection into the Card file, the triggers that recompute it, and the path from projection to window creation. Coordinate units and display-scale conversion belong to [window-follow.md](window-follow.md); the Card file field list belongs to [components.md](components.md); pet window sizing belongs to [pet-window-size.md](pet-window-size.md).
+> - **Scope of this document** — This document defines how a Card window's size is determined: its single source, its projection into the Card file, the triggers that recompute it, and the path from projection to window creation. Coordinate units and display-scale conversion belong to [window-follow.md](window-follow.md); the Card file field list belongs to [components.md](components.md); pet window sizing belongs to [pet-window-size.md](pet-window-size.md).
 
 ## Definition
 
@@ -20,7 +20,7 @@ Rendering consumes the size and never produces it. There is exactly one producer
 
 | Input | Home |
 |---|---|
-| Card content | the Card file's `component` (docs/components.md §Card File (.card.json)) |
+| Card content | the Card file's `component` ([docs/components.md](components.md) §Card File (.card.json)) |
 | Font identity | the Config font dimension (`ui.font`) — the resolved font family the user chose |
 | Layout constants | the rendering contract: the Card's font size, weight, letter spacing, line height, padding, chrome and width bounds as declared by the Card styles and the component builder |
 
@@ -31,7 +31,7 @@ Rendering consumes the size and never produces it. There is exactly one producer
 The Card font is a user choice, so the size computation assumes no font stack. Two constraints follow:
 
 - **The font must be named.** A generic family (`sans-serif`, `system-ui`, `-apple-system`, `ui-sans-serif`) resolves to a different face per platform and per OS version, so a size computed with one is not reproducible even on a single machine. Such a family may render a Card, but it does not serve as a size authority.
-- **The font must be loaded before measuring.** Canvas measurement silently substitutes a fallback face for a font that is not loaded, which would produce a size that does not match what is rendered. The computation therefore waits until the font is available, and a font that cannot be loaded is surfaced through the error channel (docs/errors.md) instead of being measured as a fallback.
+- **The font must be loaded before measuring.** Canvas measurement silently substitutes a fallback face for a font that is not loaded, which would produce a size that does not match what is rendered. The computation therefore waits until the font is available, and a font that cannot be loaded is surfaced through the error channel ([docs/errors.md](errors.md)) instead of being measured as a fallback.
 
 | Font class | Size authority | Reproducible across machines |
 |---|---|---|
@@ -39,7 +39,7 @@ The Card font is a user choice, so the size computation assumes no font stack. T
 | Named system font present on the platform | yes | no — the same Card can size differently on another platform |
 | Remote font, generic family, or a user-provided file that fails to load | no | no |
 
-The measured metrics belong to the resolved face, not to the family list: the list is resolved before measuring and the first family present wins. A list whose leading family is absent silently measures with the next one, so one configuration can yield two different sizes on two machines (docs/concrete-insight.md §Card Size Derivation).
+The measured metrics belong to the resolved face, not to the family list: the list is resolved before measuring and the first family present wins. A list whose leading family is absent silently measures with the next one, so one configuration can yield two different sizes on two machines ([docs/concrete-insight.md](concrete-insight.md) §Card Size Derivation).
 
 Cross-machine reproducibility is a property, not a per-Card warning: a Card rendered in a font the app does not bundle can size differently on another machine, and that is expected. The settings surface where the font is chosen states this once; individual Cards do not warn.
 

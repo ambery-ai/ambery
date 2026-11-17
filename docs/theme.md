@@ -2,6 +2,8 @@
 
 English | [中文](theme.zh.md)
 
+> - **Scope of this document** — this document defines what a theme is, its application scope, the export and sharing format, and Config access; the theme's field list and naming are converged from the actual UI needs and are not prescribed here, and the token table they land on lives in `packages/apps/src/styles/tokens.css`.
+
 ## Definition
 
 A theme is a complete visual scheme: a color table as its main body, plus common style modifications that change together with the visual. A theme is not a single color switch, not scattered CSS overrides, and not a partial skin of some Component.
@@ -9,13 +11,13 @@ A theme is a complete visual scheme: a color table as its main body, plus common
 Config provides formal facilities for themes:
 
 ```text
-theme   当前使用的主题名
-themes  主题名 → 主题 value 的 Map
+theme   the name of the theme in use
+themes  Map of theme name → theme value
 ```
 
 Each theme value expresses the theme's color table and common style modifications. The concrete field list, naming, and validation rules should be converged from the actual visual needs of the current UI; this document does not prescribe them. The converged physical landing point is the `packages/apps/src/styles/tokens.css` `:root` `--ov-*` token table — theme value fields correspond one-to-one with that table, and applying a theme overwrites that table.
 
-## Scope
+## Application scope
 
 A theme is the single visual choice for the entire app. The user's intent when switching `theme` is for the whole app to use this visual scheme immediately:
 
@@ -28,10 +30,10 @@ A theme is the single visual choice for the entire app. The user's intent when s
 Themes can be exported as shareable standalone files. The export payload must carry the **Config version** at generation time, so the importer can interpret the theme according to the declared config generation instead of guessing field meanings.
 
 ```text
-主题导出文件（config_root/themes/<name>.theme.json）
+exported theme file (config_root/themes/<name>.theme.json)
 ├─ config_version
 ├─ name
-└─ value（一个完整主题 value：token 覆写表）
+└─ value (one complete theme value: the token override table)
 ```
 
 Import must go through a compatibility layer: first transform the theme into a form the current version understands according to the Config version declared by the exported file, then validate and write it into the local `themes` Map. Normal local updates still keep atomic rejection; a failed import does not change the currently active theme or the existing theme table, and gives the user a clear reason.

@@ -2,7 +2,7 @@
 
 English | [中文](view.zh.md)
 
-> See concepts.md §Surface for the concept definition. This document defines the physical implementation and interaction details; tradeoffs not specified in concepts are recorded here.
+> - **Scope of this document** — See [concepts.md](../concepts.md) §Surface for the concept definition. This document defines the physical implementation and interaction details; tradeoffs not specified in concepts are recorded here.
 
 ## Config fields
 
@@ -20,7 +20,7 @@ The pet name is a stable identity value in formal Config (field `name`). All UI 
 - After initialization, the name is independent of UI / Harness language: switching any language later never auto-renames.
 - The name is not marked `no_llm_visible`. Both the local user and the LLM can explicitly read and modify it through their existing Config entries; LLM modification remains constrained by the existing query → update, validation, persistence, and audit pipeline. Validation: non-empty, ≤ 64 characters.
 - There is no "reset the default name according to the current Harness language" operation; language switching is not a rename operation.
-- Harness identity copy reads the current name via the `{name}` placeholder: the built-in default in `base_prompt` and the identity line of the default AGENTS.md carry the `{name}` placeholder, which is replaced with the current `name` when assembling the request header (the built-in base_prompt text is upgraded to the placeholder version at load time; user-modified text is kept as-is). On the UI side the chat title and placeholder read the current `name`.
+- Harness identity copy reads the current name via the `{name}` placeholder: the built-in default in `base_prompt` and the identity line of the default `config/AGENTS.md` carry the `{name}` placeholder, which is replaced with the current `name` when assembling the request header (the built-in base_prompt text is upgraded to the placeholder version at load time; user-modified text is kept as-is). On the UI side the chat title and placeholder read the current `name`.
 
 ## Form
 
@@ -33,7 +33,7 @@ The two modes share the same gesture and event set; the difference is only in th
 
 pet has **no snap state** (edge snapping is OS-style raw docking and conflicts with this app's own window-placement engine):
 
-- **Right-click** = summon/close Chat (dispatches `chat:toggle`; for the Chat Panel see docs/chat-panel.md). pet stays in place — no teleport, and the floating animation is unaffected.
+- **Right-click** = summon/close Chat (dispatches `chat:toggle`; for the Chat Panel see [docs/chat-panel.md](chat-panel.md)). pet stays in place — no teleport, and the floating animation is unaffected.
 - **Left-click drag** is always available (no lock state).
 
 ## Dragging
@@ -43,7 +43,7 @@ pet has **no snap state** (edge snapping is OS-style raw docking and conflicts w
 
 ## Component anchoring
 
-Components are anchored to the View center and pop up offset in the specified direction (the direction is specified by pet via `call_component`). When the View moves, already-popped Components follow at the relative pet offset (docs/window-follow.md: engine occupied area + layout memory; the `auto` direction is computed on the spot by the engine from the remaining screen space). For direction geometry details see docs/components.md.
+Components are anchored to the View center and pop up offset in the specified direction (the direction is specified by pet via `call_component`). When the View moves, already-popped Components follow at the relative pet offset ([docs/window-follow.md](window-follow.md): engine occupied area + layout memory; the `auto` direction is computed on the spot by the engine from the remaining screen space). For direction geometry details see [docs/components.md](components.md).
 
 ## Surface entry (pet gestures)
 
@@ -63,7 +63,7 @@ Shelf does not participate in Card layout: it does not enter the engine occupied
 - **Close**: middle-click / close on blur (600ms arming delay) / pet drag or tray closes it as collateral; no title bar and no ×
 - Shelf itself has no userClosed state — under transient semantics, closing leaves no visibility or layout trace
 
-#### ⟡ Consistency analysis
+### ⟡ Consistency analysis
 
 pet is a Surface and the anchor through which users enter the others: left-click drag expresses spatial position, right-click enters Chat, middle-click enters Cards Shelf. Chat is the Surface for conversation content, Card is the Surface for persistent work artifacts; both share display, hide, and restore semantics (engine occupied area, persistent spatial layout, and following). Neither Cards Shelf nor Menu is a Surface — they are transient popovers anchored to pet / shell (close on blur, do not enter the engine occupied area, no layout memory or persistent visibility): Menu is the settings entry, Cards Shelf is the Card management entry, and their truths live in Config and `.card.json` respectively, not in the popover itself.
 

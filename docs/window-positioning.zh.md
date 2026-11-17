@@ -2,6 +2,8 @@
 
 [English](window-positioning.md) | 中文
 
+> - **本文档范围**——本文定义为非 pet 窗口选取最优方向的引擎：坐标系与建模、使最小值唯一的单调性、边分解、三分搜索、引擎接口与算法流程。窗口尺寸归 [pet-window-size.zh.md](pet-window-size.zh.md)，跟随/恢复行为归 [window-follow.zh.md](window-follow.zh.md)。
+
 ## 概述
 
 引擎为所有非 pet 窗口（ChatPanel、Component 卡片）计算相对于 pet 的唯一最优方位。核心原则：
@@ -24,7 +26,7 @@
 | `B` | 新窗口中心（待求） |
 | `m⃗` | preferred 方向的单位向量 |
 | `θ` | `∠(m⃗, AB⃗)`，两向量夹角，取值 `[0, π]` |
-| `|AB|` | pet 中心到新窗口中心的欧氏距离 |
+| `AB` 距离 | pet 中心到新窗口中心的欧氏距离 |
 
 ### 价值函数
 
@@ -159,7 +161,7 @@ enum Direction {
 
 ### ChatPanel 默认
 
-ChatPanel 的 preferred 方向固定 **`sse`**（docs/chat-panel.md §布局；0 = 顶，顺时针）。layout 略偏移以匹配视觉习惯。
+ChatPanel 的 preferred 方向固定 **`sse`**（[docs/chat-panel.zh.md](chat-panel.zh.md) §布局；0 = 顶，顺时针）。layout 略偏移以匹配视觉习惯。
 
 ### gap 配置
 

@@ -2,13 +2,13 @@
 
 English | [中文](timer.zh.md)
 
-> Timer concept: concepts.md §Timer. The fallback patrol scan is the default entry shape of a Watch Schedule (concepts §Watch Schedule). This document defines the scheduling mechanism, the stagger algorithm, and where the scan action applies.
+> - **Scope of this document** — Timer concept: [concepts.md](../../concepts.md) §Timer. The fallback patrol scan is the default entry shape of a Watch Schedule (concepts §Watch Schedule). This document defines the scheduling mechanism, the stagger algorithm, and where the scan action applies.
 
 ## Positioning
 
 hook is the primary channel; Timer is the observation cycle and fallback. When an instance's hook has not fired for a long time, Timer does one catch-up scan — read Terminal Content → Filter → change detection → only inject into the Queue for evaluation when there is substantive change (Example C: "config-service's last hook did not fire, but the fallback scan has already updated its Context"). The scan also delivers read evidence to the instance's status (belief maintained from evidence): `Content` refreshes the belief as alive, a confirmed `Gone` is death evidence, `Error` is not an observation — the scan never infers life or death from elapsed time; absence of evidence only moves a belief toward `unknown`.
 
-**Switch**: `timer.interval_ms ≤ 0 = 禁用` (Config, configurable from panel/CLI). It is recommended to disable it in the early stage of real hook integration — keep only the hook drive and avoid the LLM trigger frequency caused by periodic full-instance scans; use a positive value during mock debugging.
+**Switch**: `timer.interval_ms ≤ 0` disables it (Config, configurable from panel/CLI). It is recommended to disable it in the early stage of real hook integration — keep only the hook drive and avoid the LLM trigger frequency caused by periodic full-instance scans; use a positive value during mock debugging.
 
 ## Config fields
 
@@ -25,9 +25,9 @@ All cold fields: take effect after app restart; visible to and modifiable by the
 
 ```rust
 struct TimerWheel {
-    interval_ms: i64,               // 兜底扫描间隔（Config，默认 5 分钟）
-    stagger_ms: i64,                // 错峰窗口（Config，默认 30s）
-    next_due: HashMap<String, i64>, // instance → 下次到期时间
+    interval_ms: i64,               // fallback scan interval (Config, default 5 minutes)
+    stagger_ms: i64,                // stagger window (Config, default 30s)
+    next_due: HashMap<String, i64>, // instance → next due time
 }
 ```
 
@@ -37,7 +37,7 @@ struct TimerWheel {
 
 ## Scan action (Terminal Adapter read)
 
-The scan read channel = Terminal Adapter (docs/terminal/terminal-adapter.md): `locate(instance) → read(tab)` reads the current Terminal Content; None if it cannot be read. For the per-terminal implementations (WtAdapter / MapAdapter / Composite dispatch) and assembly gating (`terminal.adapter_*`), see that document.
+The scan read channel = Terminal Adapter ([docs/terminal/terminal-adapter.md](terminal-adapter.md)): `locate(instance) → read(tab)` reads the current Terminal Content; None if it cannot be read. For the per-terminal implementations (WtAdapter / MapAdapter / Composite dispatch) and assembly gating (`terminal.adapter_*`), see that document.
 
 - case-runner scenario side: the `terminal` step writes the shared map of MapAdapter to **simulate "what the terminal currently displays"**. Symmetric with the mock hook: hook simulates the push channel, the terminal scenario simulates the read channel.
 - The `fetch_terminal` tool reads the same adapter (falls back to the latest Context record when unreadable) — there is only one read channel.

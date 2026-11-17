@@ -2,7 +2,7 @@
 
 [English](sidecar.md) | 中文
 
-> terminal-adapter 的一个实现（docs/terminal/terminal-adapter.md §实现）。本文档定 WtAdapter 独立进程的 stdio JSONL 协议、命令集与生命周期。技术选型：UIA 保留 C#（已端到端验证），Rust 调用。
+> - **本文档范围**——terminal-adapter 的一个实现（[docs/terminal/terminal-adapter.zh.md](../terminal-adapter.zh.md) §实现）。本文档定 WtAdapter 独立进程的 stdio JSONL 协议、命令集与生命周期。技术选型：UIA 保留 C#（已端到端验证），Rust 调用。
 
 ## 进程模型
 
@@ -14,7 +14,7 @@
 
 - **self-contained win-x64，非单文件**：`sidecar.csproj` 固化 `RuntimeIdentifier=win-x64` / `SelfContained=true` / `PublishSingleFile=false`；用户机器无需 .NET 9 Desktop Runtime。
 - 发布命令：`dotnet publish sidecar/sidecar.csproj -c Release` → `sidecar/bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe`。
-- **随壳打包**：Windows 包把 sidecar 声明为 `externalBin`，因此产物必须落在 `packages/apps/tauri/src-tauri/` 下的 `binaries/ambery-uia-sidecar-x86_64-pc-windows-msvc.exe`（Tauri 会给声明的名字补上目标三元组）。该文件是构建输入、从不提交：发布流水线 publish 后拷入，再执行 `npx tauri build --bundles nsis`；本地 Windows 构建则手动拷入。声明放在 Windows 平台配置里，非 Windows 包不解析任何外部二进制；没有 .NET 工具链的机器改用 no-sidecar 覆盖构建同一包体（docs/tauri-shell.md §打包配置）。
+- **随壳打包**：Windows 包把 sidecar 声明为 `externalBin`，因此产物必须落在 `packages/apps/tauri/src-tauri/` 下的 `binaries/ambery-uia-sidecar-x86_64-pc-windows-msvc.exe`（Tauri 会给声明的名字补上目标三元组）。该文件是构建输入、从不提交：发布流水线 publish 后拷入，再执行 `npx tauri build --bundles nsis`；本地 Windows 构建则手动拷入。声明放在 Windows 平台配置里，非 Windows 包不解析任何外部二进制；没有 .NET 工具链的机器改用 no-sidecar 覆盖构建同一包体（[docs/tauri-shell.zh.md](../../tauri-shell.zh.md) §打包配置）。
 - 路径发现优先级（`core/src/paths.rs`）：`AMBERY_SIDECAR` env > 当前 exe 旁 > 当前 exe 旁 `sidecar/` > Release publish > Debug。
 
 ## 命令集
@@ -42,9 +42,9 @@
 ```
 
 - `read_tab` 会真实切换用户的标签页（200ms 成本）——Timer 兜底扫描/fetch_terminal 的语义就是「切过去读」；`read_active_tab` 留给非侵入场景（调试、当前窗口快读）。
-- 响应 text 是 UIA 网格原文（右填充、含 spinner），Filter 在 Rust 侧处理（docs/agents/filter.md）——sidecar 不过滤，职责单一。
+- 响应 text 是 UIA 网格原文（右填充、含 spinner），Filter 在 Rust 侧处理（[docs/agents/filter.zh.md](../../agents/filter.zh.md)）——sidecar 不过滤，职责单一。
 
-## 读通道接线（Terminal Adapter，docs/terminal/terminal-adapter.md）
+## 读通道接线（Terminal Adapter，[docs/terminal/terminal-adapter.zh.md](../terminal-adapter.zh.md)）
 
 ```
 fetch_terminal / Timer scan（instance 名 = Tab 名）
@@ -52,11 +52,11 @@ fetch_terminal / Timer scan（instance 名 = Tab 名）
   → read_tab(hwnd, index) → text
 ```
 
-被监控会话（以 sid8 标识）↔ Tab 的 1:1 关系由证据解析（concepts §Context Slot）。**Hook→Tab 定位已解决**：sessionTitle marker（`<project>·<sid8>` 前缀不变量，docs/agents/claude/hook.md §marker 定位），find_tab 按 marker 精确命中；定位结果缓存进注册表（惰性重试，找到即冻结）。
+被监控会话（以 sid8 标识）↔ Tab 的 1:1 关系由证据解析（concepts §Context Slot）。**Hook→Tab 定位已解决**：sessionTitle marker（`<project>·<sid8>` 前缀不变量，[docs/agents/claude/hook.zh.md](../../agents/claude/hook.zh.md) §marker 定位），find_tab 按 marker 精确命中；定位结果缓存进注册表（惰性重试，找到即冻结）。
 
 ## 视野模型
 
-**可选便利（不强制）**：Windows Terminal 开启「在所有桌面上显示此应用的窗口」后，全部虚拟桌面的 WT 窗口/tab/内容对 UIA 全量可见可读（实测：17/17 窗口 uncloak，读空的窗口恢复 6 tab + 5415 字符全量）。未开启也照常工作——其他 VD 的实例 hook 照收，读通道回退 Context；需要全量时 agent 可用 `fetch_terminal`（`vd_switch: true` 显式同意）切过去读（docs/agents/claude/hook.md §VD 切换能力）。
+**可选便利（不强制）**：Windows Terminal 开启「在所有桌面上显示此应用的窗口」后，全部虚拟桌面的 WT 窗口/tab/内容对 UIA 全量可见可读（实测：17/17 窗口 uncloak，读空的窗口恢复 6 tab + 5415 字符全量）。未开启也照常工作——其他 VD 的实例 hook 照收，读通道回退 Context；需要全量时 agent 可用 `fetch_terminal`（`vd_switch: true` 显式同意）切过去读（[docs/agents/claude/hook.zh.md](../../agents/claude/hook.zh.md) §VD 切换能力）。
 
 机制背景：其他 VD 的窗口被 DWM 打 `cloaked=2`（壳层隐身——挂起视觉树，进程/消息循环不死），EnumWindows 能见句柄+标题但 **UIA 树不实体化（读空）**；「全桌面显示」设置解除 cloaking，VD 切换使其临时解除。
 

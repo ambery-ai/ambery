@@ -2,7 +2,7 @@
 
 [English](post-0.1.0.md) | 中文
 
-> 本文档仅登记 `0.1.0` 之后的方向，不定义当前实现、协议、权限流程、素材格式、渲染接口或配置结构。通向 `0.1.0` 的发布阶梯见 [roadmap.zh.md](roadmap.zh.md)。
+> - **本文档范围**——本文档仅登记 `0.1.0` 之后的方向，不定义当前实现、协议、权限流程、素材格式、渲染接口或配置结构。通向 `0.1.0` 的发布阶梯见 [roadmap.zh.md](roadmap.zh.md)。
 
 ## 全局唤起快捷键（明确 cut）
 
@@ -22,7 +22,7 @@
 
 ## LLM 连通健康检查
 
-后台周期性复测已配置的端点，在一轮真实失败前暴露降级。它是配置引导里一次性连通测试的延伸（docs/llm-setup.md）。正式设计时需要独立确定：复测间隔、呈现通道，以及与错误路径的边界。
+后台周期性复测已配置的端点，在一轮真实失败前暴露降级。它是配置引导里一次性连通测试的延伸（[docs/llm-setup.zh.md](llm-setup.zh.md)）。正式设计时需要独立确定：复测间隔、呈现通道，以及与错误路径的边界。
 
 ## OS 钥匙串集成
 
@@ -38,7 +38,7 @@ key 存储从 0600 env 文件迁到 OS 钥匙串（macOS Keychain / Windows Cred
 
 ## 跳转到目标实例所在桌面
 
-用户可见的「跳转」：从卡片/通知一键切到目标 Code CLI 实例所在的虚拟桌面。它消费 Platform Primitives 的 `switch_vd`（docs/platform-primitives.md）；正式设计时需要独立确定跳转入口（quick_jump 事件链还是独立手势）、目标定位（Terminal Adapter locate）与切换确认语义。
+用户可见的「跳转」：从卡片/通知一键切到目标 Code CLI 实例所在的虚拟桌面。它消费 Platform Primitives 的 `switch_vd`（[docs/platform-primitives.zh.md](platform-primitives.zh.md)）；正式设计时需要独立确定跳转入口（quick_jump 事件链还是独立手势）、目标定位（Terminal Adapter locate）与切换确认语义。
 
 ## v2 Prune 模式（摘要替换）
 

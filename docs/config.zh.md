@@ -2,7 +2,21 @@
 
 [English](config.md) | 中文
 
-Config 域（concepts §Config，与 Storage 域并列）由 `config.json` 与 `AGENTS.md` 组成，落盘目录由 `core/src/paths.rs` 的 `config_root()` 决定。
+> - **本文档范围**——本文只解释 Config 的通用机制：持久化、版本/迁移、default、null、validation、反射、访问投影与统一修改管道；由具体字段触发的业务行为和工具交替流程，分别在其行为文档中定义。
+> - **当前结构与字段语义共位**——Config 字段是类型、说明、default、迁移 metadata 与消费者访问 metadata 的声明源。
+> - **版本范围决定迁移**——显式 `Default / Rename / Func / RenameWithFunc` 处理偏离同路径保留的历史区间；未命中才是唯一、明确的隐式 `Current`。
+> - **父子规则按版本去冲突**——父子可各有 metadata；只有显式 source-version range 相交才拒绝，避免函数执行顺序与覆盖猜测。
+> - **失败局部 default 化**——任何 migration 或校验失败只 default 化病灶节点、逐项上报并继续；不让一个 child 病灶带倒整个 Config。
+> - **null 没有第二语义**——object 的 `key:null` 等价于缺失；需要三态时用显式 enum。
+> - **object 向下构造，叶子与 map 自带 default**——静态 object 的默认形态来自 child；map default 不因已存在 map 而合并动态 key。
+> - **不做特殊规则，用语义明确行为**——`edit_config` 的行为完全由 schema 的 `action` 分支表达；不以缺参、空值或失败写入偷偷切换语义。
+> - **渐进披露，按需查**——LLM 先 grep 定位，再 query 读取确切当前结构和值，最后 update；按需要走层级，而不是猜 path 或注入完整 schema。
+> - **可改优先，限制例外**——Config 默认允许 agent 修改；仅在（1）对 agent 有重大影响，或（2）不可逆且容易改坏时，标记 `no_llm_visible` 限制其访问。
+> - **访问投影不改真值**——`no_llm_visible` 只限制 LLM tool 的读写投影，不改变本地 Config、持久化或本地管理能力。
+> - **如实回报**——热应用立即生效；需要重启、迁移回退、未知 path 剔除和响应体积拒绝都必须明确返回并可审计。
+> - **单锁单真相**——所有 Config 入口与外部自动载入经同一把锁串行处理，只可观察完整旧状态或完整新状态；不保留入口私有草稿，消灭可见状态分叉与读写竞态。
+
+Config 域（concepts §Config，与 Storage 域并列）由 `config.json` 与身份提示词 `AGENTS.md` 组成，落盘目录由 `core/src/paths.rs` 的 `config_root()` 决定。
 
 ## 核心模型
 
@@ -37,7 +51,7 @@ config_root/                   # Windows: %USERPROFILE%\.config\ambery\
   storage/                     # Storage 域，见 docs/storage.md
 ```
 
-API key 本体只在环境中（应用级 env 文件或进程环境——见 docs/llm-setup.md §key 存储模型），config 仅保存变量名；key 永不写入 config.json。
+API key 本体只在环境中（应用级 env 文件或进程环境——见 [docs/llm-setup.zh.md](llm-setup.zh.md) §key 存储模型），config 仅保存变量名；key 永不写入 config.json。
 
 ### LLM 组
 
@@ -45,7 +59,7 @@ provider profile 的 `base_url`、`model`、`api_key_env`、`temperature`、`con
 
 **默认预设 `api_key_env` 值遵循 `AMBERY_<NAME>_API_KEY` 约定**（`AMBERY_DEEPSEEK_API_KEY` / `AMBERY_MOONSHOT_API_KEY` / `AMBERY_ZHIPU_API_KEY` / `AMBERY_OPENAI_API_KEY`；ollama 无——本地端点，无需 key）。`api_key_env` 按 provider 可编辑（私有 provider 可指向自己的变量）。
 
-**`llm.active` 有显式未配置值**，与 `debug`、provider keys 并列的合法选项（动态 enum：`["unconfigured", "debug", ...provider keys]`）。它是全新安装的默认值：运行时将其视为"无 LLM"（docs/llm-setup.md §后端变更）。
+**`llm.active` 有显式未配置值**，与 `debug`、provider keys 并列的合法选项（动态 enum：`["unconfigured", "debug", ...provider keys]`）。它是全新安装的默认值：运行时将其视为"无 LLM"（[docs/llm-setup.zh.md](llm-setup.zh.md) §后端变更）。
 
 LLM tool 不可访问 `llm` 子树（见 [反射与消费者投影](#反射与消费者投影)），不改变上述本地运行时语义。
 
@@ -107,9 +121,9 @@ enum TopmostMode { Aggressive, Topmost, Off }
 | `ui.topmost.chat` | `topmost` | 仅窗口的 `alwaysOnTop` 属性 |
 | `ui.topmost.shelf` | `topmost` | 同上 |
 | `ui.topmost.card` | `topmost` | 同上 |
-| `ui.font` | `"Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif` | Card 的字体族列表；实际解析到的必须是命名字体——泛型族可以渲染，但不作尺寸权威（docs/card-window-size.zh.md §字体标识） |
+| `ui.font` | `"Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif` | Card 的字体族列表；实际解析到的必须是命名字体——泛型族可以渲染，但不作尺寸权威（[docs/card-window-size.zh.md](card-window-size.zh.md) §字体标识） |
 
-`topmost` 取值变化作用于运行中的窗口；`ui.font` 变化让全部 Card 尺寸投影失效（docs/card-window-size.zh.md §重算触发）。窗口层机制归 docs/tauri-shell.zh.md §模块拆分（`window.rs`）。
+`topmost` 取值变化作用于运行中的窗口；`ui.font` 变化让全部 Card 尺寸投影失效（[docs/card-window-size.zh.md](card-window-size.zh.md) §重算触发）。窗口层机制归 [docs/tauri-shell.zh.md](tauri-shell.zh.md) §模块拆分（`window.rs`）。
 
 ## 字段 metadata
 
@@ -352,7 +366,7 @@ LLM 只有一个 `edit_config` tool。行为由必填 `action` 分支表达，�
 - `set_autonomy_default_ttl_ms`：Autonomy 默认持续时间；
 - `timer`：Timer 调度子树；
 - `view_scale`、`badge_style`、`badge_side`：View 外观；
-- `theme`、`themes`：当前主题名与主题 token 表（docs/theme.md）。
+- `theme`、`themes`：当前主题名与主题 token 表（[docs/theme.zh.md](theme.zh.md)）。
 
 推荐步骤只保留一句：**路径未知先 `grep`，再 `query`；优先 `view=children`，必要时才对已定位的小 object 使用 `view=object`。**
 
@@ -430,31 +444,3 @@ Server API：`GET /config/schema` 返回节点列表、`readOnly` 与 version；
 ### 启动载入
 
 加载没有单一 update target，因此运行全部 validators；所有错误按完整 path 字典序一次性汇总、写入加载报告，但不阻断启动。每个错误节点按既定失败语义 default 化，随后以修复后的 Config 启动。
-
-## 原则
-
-> **本文档范围**——本文只解释 Config 的通用机制：持久化、版本/迁移、default、null、validation、反射、访问投影与统一修改管道；由具体字段触发的业务行为和工具交替流程，分别在其行为文档中定义。
-
-> **当前结构与字段语义共位**——Config 字段是类型、说明、default、迁移 metadata 与消费者访问 metadata 的声明源。
-
-> **版本范围决定迁移**——显式 `Default / Rename / Func / RenameWithFunc` 处理偏离同路径保留的历史区间；未命中才是唯一、明确的隐式 `Current`。
-
-> **父子规则按版本去冲突**——父子可各有 metadata；只有显式 source-version range 相交才拒绝，避免函数执行顺序与覆盖猜测。
-
-> **失败局部 default 化**——任何 migration 或校验失败只 default 化病灶节点、逐项上报并继续；不让一个 child 病灶带倒整个 Config。
-
-> **null 没有第二语义**——object 的 `key:null` 等价于缺失；需要三态时用显式 enum。
-
-> **object 向下构造，叶子与 map 自带 default**——静态 object 的默认形态来自 child；map default 不因已存在 map 而合并动态 key。
-
-> **不做特殊规则，用语义明确行为**——`edit_config` 的行为完全由 schema 的 `action` 分支表达；不以缺参、空值或失败写入偷偷切换语义。
-
-> **渐进披露，按需查**——LLM 先 grep 定位，再 query 读取确切当前结构和值，最后 update；按需要走层级，而不是猜 path 或注入完整 schema。
-
-> **可改优先，限制例外**——Config 默认允许 agent 修改；仅在（1）对 agent 有重大影响，或（2）不可逆且容易改坏时，标记 `no_llm_visible` 限制其访问。
-
-> **访问投影不改真值**——`no_llm_visible` 只限制 LLM tool 的读写投影，不改变本地 Config、持久化或本地管理能力。
-
-> **如实回报**——热应用立即生效；需要重启、迁移回退、未知 path 剔除和响应体积拒绝都必须明确返回并可审计。
-
-> **单锁单真相**——所有 Config 入口与外部自动载入经同一把锁串行处理，只可观察完整旧状态或完整新状态；不保留入口私有草稿，消灭可见状态分叉与读写竞态。

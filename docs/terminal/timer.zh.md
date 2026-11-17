@@ -2,7 +2,7 @@
 
 [English](timer.md) | 中文
 
-> Timer 概念：concepts.md §Timer。兜底巡逻扫描是 Watch Schedule（concepts §Watch Schedule）的默认条目形态。本文档定调度机制、错峰算法与扫描动作的应用点。
+> - **本文档范围**——Timer 概念：[concepts.zh.md](../../concepts.zh.md) §Timer。兜底巡逻扫描是 Watch Schedule（concepts §Watch Schedule）的默认条目形态。本文档定调度机制、错峰算法与扫描动作的应用点。
 
 ## 定位
 
@@ -37,7 +37,7 @@ struct TimerWheel {
 
 ## 扫描动作（Terminal Adapter 读取）
 
-扫描读通道 = Terminal Adapter（docs/terminal/terminal-adapter.md）：`locate(instance) → read(tab)` 读到当前 Terminal Content；读不到返回 None。各终端实现（WtAdapter / MapAdapter / Composite 分发）与装配门控（`terminal.adapter_*`）见该文档。
+扫描读通道 = Terminal Adapter（[docs/terminal/terminal-adapter.zh.md](terminal-adapter.zh.md)）：`locate(instance) → read(tab)` 读到当前 Terminal Content；读不到返回 None。各终端实现（WtAdapter / MapAdapter / Composite 分发）与装配门控（`terminal.adapter_*`）见该文档。
 
 - case-runner 剧情面：`terminal` step 写 MapAdapter 的共享 map，**模拟「终端当前显示什么」**。与 mock hook 对称：hook 模拟推通道，terminal 剧情模拟读通道。
 - `fetch_terminal` tool 读同一 adapter（读不到回退 Context 最新记录）——读通道只有一处。

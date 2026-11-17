@@ -4,7 +4,7 @@
 
 平台特定能力的抽象组（不叫 adapter）：虚拟桌面切换等跨终端、跨组件复用的 OS 层能力。
 
-> 概念定位见 [concepts.md](../concepts.md) §Platform Primitives。本文件定接口能力与各平台实现。
+> - **本文档范围**——概念定位见 [concepts.zh.md](../concepts.zh.md) §Platform Primitives。本文件定接口能力与各平台实现。
 
 ## 能力接口
 
@@ -19,7 +19,7 @@ pub trait PlatformPrimitives: Send + Sync {
 
 ## 消费者
 
-- **terminal-adapter**（docs/terminal/terminal-adapter.md）：读取时目标窗口不可见（cloaked）→ 切桌面后读。切换是打断性动作，须经 fetch_terminal 的 `vd_switch` 显式同意门控（docs/agents/claude/hook.md §VD 切换能力），adapter 不自动切
+- **terminal-adapter**（[docs/terminal/terminal-adapter.zh.md](terminal/terminal-adapter.zh.md)）：读取时目标窗口不可见（cloaked）→ 切桌面后读。切换是打断性动作，须经 fetch_terminal 的 `vd_switch` 显式同意门控（[docs/agents/claude/hook.zh.md](agents/claude/hook.zh.md) §VD 切换能力），adapter 不自动切
 
 ## 实现
 

@@ -2,7 +2,7 @@
 
 English | [中文](components.zh.md)
 
-> Concept definitions are in concepts.md §Component. This document specifies the call protocol, lifecycle events, direction geometry, rendering, and interaction event format.
+> - **Scope of this document** — Concept definitions are in [concepts.md](../concepts.md) §Component. This document specifies the call protocol, lifecycle events, direction geometry, rendering, and interaction event format.
 
 ## Call Protocol (call_component)
 
@@ -51,12 +51,12 @@ A Component type is a registry entry, not a branch in the tool schema or in core
 | `contentSchema` | the JSON Schema fragment for this type's `content`; the tool schema's `anyOf` is generated from these fragments |
 | `validate(content)` | structural validation and its error message |
 | `render(content)` | the Card body for this type |
-| `sizeModel(content)` | how the type contributes to the Card window size: a block recipe, a fixed size, or a cap with scrolling (docs/card-window-size.md) |
+| `sizeModel(content)` | how the type contributes to the Card window size: a block recipe, a fixed size, or a cap with scrolling ([docs/card-window-size.md](card-window-size.md)) |
 | `label` / icon | the Cards Shelf row |
 
 Adding a type means adding one entry. The call protocol, the top-level spec shape and the Card file shape do not change. `sizeModel` is mandatory — a type without one leaves the window size underivable, which the size contract forbids.
 
-#### ⟡ Consistency Analysis
+### ⟡ Consistency Analysis
 
 Component, Card, Surface, and OS Window are not concepts on the same layer: Component is structured content that the Agent can call; Card is the persistent object of that content as an ongoing work product; Surface is a logical interface that is visible, hideable, and restorable to the user; OS Window is the host's physical container, into which a Surface and a transient popup are both projected. Separating the four allows a Card to exist across restarts while window handles need not be persisted, and effects only audit actions without deriving the current Card from them. Chat and Cards are unified as Managed Surfaces (show/hide/restore semantics unified; they enter the engine's occupied area), and pet itself is a Managed Surface and the anchor — the origin the other Surfaces' offsets are measured from, with its visibility governing the group. The Cards Shelf is also not a Surface — it is a transient management popup anchored to the pet (same category as Menu: closes on focus loss, does not enter the engine's occupied area, has no persistent state); its source of truth is the managed `.card.json` collection.
 
@@ -86,7 +86,7 @@ One Card = one complete JSON file at `memory/cards/<id>.card.json` — content (
   - `layout.direction`: spec.direction (`auto`/omitted = null; follows the spec on each update).
   - `layout.offset`: offset relative to the pet center (written back at the end of a user drag via the `update_card_layout` IPC; automatic layout = null).
   - `layout.manual`: the user has dragged it by hand = true (place keeps the offset without recomputing).
-  - `layout.size`: projected Card window size `[width, height]` in CSS pixels, produced by the size computation; no user action edits it (docs/card-window-size.md).
+  - `layout.size`: projected Card window size `[width, height]` in CSS pixels, produced by the size computation; no user action edits it ([docs/card-window-size.md](card-window-size.md)).
   - `layout.layoutVersion`: identity of the inputs that determine `layout.size` (layout constants + font identity); a value that differs from the current inputs marks the projection stale.
 - dismiss (agent close / user ×): ends the Surface — delete the file, leave the registry, forget the layout.
 - id is the file-relative path and the window-label suffix: its characters are limited to `A-Z a-z 0-9 _ - /`, because the id becomes `card-<id>` as a Tauri window label and Tauri rejects `.`; it may contain `/` (nested subdirectories), and empty or `..` segments are forbidden (tool validation rejects them).
@@ -103,7 +103,7 @@ Every card produces natural-language events during its lifecycle. Regardless of 
 | `closed_by_agent` | agent | `card closed: {type} "{title}" ({id}), {start} / {end}, → alive N` (one line) |
 | `user_action` | user interaction | `User{checked/unchecked/added} {type} item "{text}"` (per-item process) |
 
-The frontend protocol for interaction events: the frontend only reports structured facts (action/cardId/field); the natural-language text is written on the fly by core in the Harness language through the lifecycle single source (docs/i18n.md §Harness internal language); this table is a Chinese semantic sample.
+The frontend protocol for interaction events: the frontend only reports structured facts (action/cardId/field); the natural-language text is written on the fly by core in the Harness language through the lifecycle single source ([docs/i18n.md](i18n.md) §Harness internal language); this table is a Chinese semantic sample.
 
 - Agent updates to a card produce no event (the tool result already carries the complete spec).
 - `start` / `end` format: `YYMMDD-HH:MM`.
@@ -113,8 +113,8 @@ The frontend protocol for interaction events: the frontend only reports structur
 
 - Anchor = View center. Cards offset along the direction vector: `anchor ± (View radius + 12px gap + half card size)`.
 - Diagonal directions (e.g. top-right) offset each axis separately.
-- Off-screen handling (docs/window-follow.md §Off-screen and overlap): not covering the person > fully visible; only when completely missing (zero intersection with its screen) does it retry by rotating around the 16-direction ring.
-- Popped cards follow View movement via the engine using pet-relative offsets (docs/window-follow.md; user dragging can change the offset basis).
+- Off-screen handling ([docs/window-follow.md](window-follow.md) §Off-screen and overlap): not covering the person > fully visible; only when completely missing (zero intersection with its screen) does it retry by rotating around the 16-direction ring.
+- Popped cards follow View movement via the engine using pet-relative offsets ([docs/window-follow.md](window-follow.md); user dragging can change the offset basis).
 
 ## Rendering
 

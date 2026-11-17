@@ -2,6 +2,8 @@
 
 English | [中文](DEVELOPING.zh.md)
 
+> - **Scope of this document** — this document defines how to build, run, observe, and debug ambery during development. Product behavior belongs to the design documents under `docs/`.
+
 How to build, run, observe, and debug ambery while developing. All commands run from the repository root unless noted.
 
 ## Build and test
@@ -36,7 +38,7 @@ cargo run -p ambery-core --bin ambery-activity -- \
   --dir ~/.config/ambery/storage --trajectory --follow
 ```
 
-This is the standard development command: the trajectory ledger (session / turn / event; docs/tools.md) tails newly written records (`--follow`). Storage lives under the config root (default `~/.config/ambery/storage`, overridable by `AMBERY_STORAGE_DIR`); pass `--dir` explicitly to browse a snapshot.
+This is the standard development command: the trajectory ledger (session / turn / event; [docs/tools.md](tools.md)) tails newly written records (`--follow`). Storage lives under the config root (default `~/.config/ambery/storage`, overridable by `AMBERY_STORAGE_DIR`); pass `--dir` explicitly to browse a snapshot.
 
 ## Simulate hooks
 
@@ -49,7 +51,7 @@ curl -X POST http://127.0.0.1:47600/hook -H 'Content-Type: application/json' \
   -d '{"event":"user_prompt","session_id":"dev-1","cwd":"/tmp","kind":"claude","prompt":"hello"}'
 ```
 
-`kind` must be a filter name (`claude` / `opencode`). Observe effects via `GET /state`, `GET /context`, the WS stream, and the storage files (docs/storage.md).
+`kind` must be a filter name (`claude` / `opencode`). Observe effects via `GET /state`, `GET /context`, the WS stream, and the storage files ([docs/storage.md](storage.md)).
 
 ## Tauri shell
 
@@ -59,7 +61,7 @@ cd packages/apps && npm run tauri:build:no-sidecar   # same bundle, without the 
 cd packages/apps/tauri/src-tauri && AMBERY_PORT=47601 ./target/release/ambery   # run on a non-default port
 ```
 
-The shell embeds the built frontend and core. Bundle targets and the Windows sidecar requirement are per-platform configuration (docs/tauri-shell.md §Bundle configuration; docs/terminal/wt/sidecar.md §Packaging).
+The shell embeds the built frontend and core. Bundle targets and the Windows sidecar requirement are per-platform configuration ([docs/tauri-shell.md](tauri-shell.md) §Bundle configuration; [docs/terminal/wt/sidecar.md](terminal/wt/sidecar.md) §Packaging).
 
 **The shell build must go through `npx tauri build` — never bare `cargo build`.** The frontend `dist/` is embedded into `tauri-codegen-assets/` by the build script, which does not watch `dist/`; the tauri CLI re-runs the build script by injecting `TAURI_CONFIG` (`cargo:rerun-if-env-changed=TAURI_CONFIG`). A bare `cargo build --release` can reuse a stale build-script output and embed an outdated or empty frontend — the shell then shows a blank pet/UI. `npx tauri build` runs `npm run build` (tsc + vite) first, so it always embeds the current frontend.
 

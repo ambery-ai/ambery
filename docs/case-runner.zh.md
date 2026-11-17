@@ -2,25 +2,16 @@
 
 [English](case-runner.md) | 中文
 
-Storage 快照驱动的回归测试与概念观测工具；兼承接 CLI 决策源（docs/debug-agent.md）与完整 router（docs/core-server.md）。
+> - **本文档范围**——本文只定义 runner 基础设施：运行机制、沙盒隔离、`.case` 格式、step、observe、health、导出与 CLI；不定义 agent 应具备的能力、能力计划或 Case 覆盖策略。
+> - **快照即真相**——case 的 data 节保留 JSONL 原文，行序/时间戳/字段不丢；细节见 §快照即真相。
+> - **边界隔离**——一次性沙盒（生产永不写）+ headless（不启动真实 OS 界面）；细节见 §边界隔离。
+> - **前端 headless 观测**——case-runner 以 headless 运行：与 Tauri 壳同款地内嵌 core，每个被模拟的窗口由一个 TS 测试进程经 RemoteBridge 接入；与 Tauri 形态的一致性分析和 mock 窗口层见 §前端 headless 观测。
+> - **LLM 模式**——两种平级（debug / real），case 头部显式声明，无隐含默认；细节见 §LLM 模式。
+> - **一切行为可观测**——所有模块可观测（concepts §可观测体系，归属 [docs/observability.zh.md](observability.zh.md)），observe 输出与 effects 落入 observe 流，非只读 Tauri 运行时动作进 effect 流；细节见 §可观测体系。
+> - **case 隐私边界**——case 绝不携带敏感信息（apikey / 项目名等）；细节见 §case 隐私。
+> - **测试基建不进生产构建**——回放引擎与 DebugAgent mock 位于 ambery-core 的可选 feature 之后；core 的 release 构建两者皆不含。
 
-## 原则
-
-> **本文档范围**——本文只定义 runner 基础设施：运行机制、沙盒隔离、`.case` 格式、step、observe、health、导出与 CLI；不定义 agent 应具备的能力、能力计划或 Case 覆盖策略。
-
-> **快照即真相**——case 的 data 节保留 JSONL 原文，行序/时间戳/字段不丢；细节见 §快照即真相。
-
-> **边界隔离**——一次性沙盒（生产永不写）+ headless（不启动真实 OS 界面）；细节见 §边界隔离。
-
-> **前端 headless 观测**——case-runner 以 headless 运行：与 Tauri 壳同款地内嵌 core，每个被模拟的窗口由一个 TS 测试进程经 RemoteBridge 接入；与 Tauri 形态的一致性分析和 mock 窗口层见 §前端 headless 观测。
-
-> **LLM 模式**——两种平级（debug / real），case 头部显式声明，无隐含默认；细节见 §LLM 模式。
-
-> **一切行为可观测**——所有模块可观测（concepts §可观测体系，归属 docs/observability.md），observe 输出与 effects 落入 observe 流，非只读 Tauri 运行时动作进 effect 流；细节见 §可观测体系。
-
-> **case 隐私边界**——case 绝不携带敏感信息（apikey / 项目名等）；细节见 §case 隐私。
-
-> **测试基建不进生产构建**——回放引擎与 DebugAgent mock 位于 ambery-core 的可选 feature 之后；core 的 release 构建两者皆不含。
+Storage 快照驱动的回归测试与概念观测工具；兼承接 CLI 决策源（[docs/debug-agent.zh.md](debug-agent.zh.md)）与完整 router（[docs/core-server.zh.md](core-server.zh.md)）。
 
 ## 哲学
 
@@ -70,7 +61,7 @@ case-runner 的观测范围覆盖前端 TS 能力：headless JS runtime 跑真�
 
 `ambery-case frontend` 子命令内嵌 core，拉起 node + vitest + jsdom 子进程（沙盒 storage/config；bind 0 取空闲端口避让生产 47600）；真实前端模块经 RemoteBridge 连内嵌 core，`shim.ts` 提供 mock 窗口层；`frontend-case.test.ts` 首套，覆盖 store 基线与回读、Queue 放行回读、同 id 不重复/不复活（DOM 层）、统一关闭、windowed 不订全局流。
 
-接入观测的形态（§壳类比）：
+接入观测的形态（§前端 headless 观测）：
 
 ```
 headless 前端 case =
@@ -133,7 +124,7 @@ core 的 release 构建两者皆不含——生产二进制永不携带回放引
 {"__section":"=== queue ==="}
 ```
 
-#### ⟡ 一致性剖析
+### ⟡ 一致性剖析
 
 Case 的 JSON 头只描述场景与步骤；Storage 快照必须按其真实格式作为原始载荷进入容器，而不是把 Markdown 等非 JSONL 文件转义塞入 JSON 字符串。JSONL 与 Markdown 分属各自原始区和边界规则，才能同时保持手工最小化、可读 diff 与文件级 replay。Case 若要验证某个持久概念，就应能够携带它的最小快照；导出以 inclusion bool 加类别过滤控制范围，避免“可观察”变成默认携带全部私人数据。
 
@@ -175,7 +166,7 @@ JSONL 节保留原文；每节均可为空——空节保留 marker，「刻意�
 | `memory` | memory/ | **默认过滤**；`--keep-memory` + `--memory <name,...>`；仅选择的普通记忆与显式选择的 `AGENTS` 进入快照，`index.md` 在沙盒重建 |
 | `cron` | cron.jsonl | **默认过滤**；`--keep-cron` + `--cron-ids <id,...>`；每个选中 id 保留完整生命周期事件链 |
 
-memory 节是 Markdown 原文区（§一致性剖析：JSONL 与 Markdown 分属各自原始区和边界规则）：每个文件以 `{"__file":"<path>"}` 标记行开头（合法 JSONL，与 `__section` 同款标记哲学），其后到下一标记的行为该文件原文——空行保留、零转义。path 白名单：`AGENTS.md` 或 `notes/<name>.md`（保留名不可作 note 路径）；`index.md` 不进 case（沙盒按已选普通记忆重建），`cards/` 不经此节（契约另定）。原文行不得以 `{"__` 行首开头——与节/文件标记语法撞车会静默断文件，parse 直接拒绝。cards/ 不经此节（Card 文件契约见 docs/components.md §Card 文件；case 不携带卡片快照）。
+memory 节是 Markdown 原文区（§一致性剖析：JSONL 与 Markdown 分属各自原始区和边界规则）：每个文件以 `{"__file":"<path>"}` 标记行开头（合法 JSONL，与 `__section` 同款标记哲学），其后到下一标记的行为该文件原文——空行保留、零转义。path 白名单（相对 Memory 根）：`AGENTS.md` 或 `notes/<name>.md`（保留名不可作 note 路径）；`index.md` 不进 case（沙盒按已选普通记忆重建），`cards/` 不经此节（契约另定）。原文行不得以 `{"__` 行首开头——与节/文件标记语法撞车会静默断文件，parse 直接拒绝。cards/ 不经此节（Card 文件契约见 [docs/components.zh.md](components.zh.md) §Card 文件；case 不携带卡片快照）。
 
 ### case 隐私
 
@@ -184,7 +175,7 @@ case 是可共享/归档的场景快照，隐私细节：
 - **LLM 模式记 meta**：`llm_mode`（debug / real）在 case 头部 meta，case 不携带 provider 配置 / key
 - **no_case_visible**：`llm.providers.*` 等敏感字段（含 base_url / api_key_env）在 case 里禁止出现（落盘/覆盖校验拒绝）——case 绝不携带 apikey
 - **work_agents 默认过滤**：含项目名 `project·sid8`（暴露项目结构），默认不导出；只有显式声明才存在
-- **Memory 默认过滤**：长期理解可能含跨项目事实与协作偏好；必须 `--keep-memory` + `--memory <name,...>` 双重显式选择。普通记忆按 name 选；Memory `AGENTS.md` 只有显式写 `AGENTS` 才保留原文；派生的 `index.md` 不导出，在沙盒按已选普通记忆重建
+- **Memory 默认过滤**：长期理解可能含跨项目事实与协作偏好；必须 `--keep-memory` + `--memory <name,...>` 双重显式选择。普通记忆按 name 选；`AGENTS.md` 只有显式写 `AGENTS` 才保留原文；派生的 `index.md` 不导出，在沙盒按已选普通记忆重建
 - **Cron 默认过滤**：计划 message 可能含工作内容；必须 `--keep-cron` + `--cron-ids <id,...>` 双重显式选择。选中计划保留 create / fire / delete 完整生命周期事件，不能按时间窗裁断因果链
 - **context / queue 保留**：真实对话/输入快照（"快照即真相"），共享给信任方
 - 文档/示例不出现真实 provider 名（隐私）
@@ -203,15 +194,15 @@ steps 是线性序列，每个 step 有类型 + 可选参数。runner 按序执�
 | `trigger` | — | drain_queue：放行全部待放行输入 → LLM/effects |
 | `user` | `{text, ts?}` | 用户消息入队（enqueue user role）→ drain_queue 放行 |
 | `tool_call` | `[name, args_json]` | 绕过 LLM 直接执行 tool call：execute_tool → result + effects；不写 tool 协议消息，不能验证多 response 工具交互 |
-| `store` | `{"<name>": {"type":"expr\|var\|int\|str", "value":"<字符串>"}}` | 设用户变量：value 经对应 parser 求值 → to_string → 存 string（见 case-eval-system.md） |
-| `observe` | `[{"target":"agents"}, {"target":"context","lines":"[$tail-50,$tail]"}]` | 记录概念结构当前快照（统一对象列表；路径类 target 可带 lines 读取，见 case-eval-system.md） |
+| `store` | `{"<name>": {"type":"expr\|var\|int\|str", "value":"<字符串>"}}` | 设用户变量：value 经对应 parser 求值 → to_string → 存 string（见 [case-eval-system.zh.md](case-eval-system.zh.md)） |
+| `observe` | `[{"target":"agents"}, {"target":"context","lines":"[$tail-50,$tail]"}]` | 记录概念结构当前快照（统一对象列表；路径类 target 可带 lines 读取，见 [case-eval-system.zh.md](case-eval-system.zh.md)） |
 
 读通道默认状态：未设定的实例一律返回 `None`（= tab 不复存在）。僵尸类 case 不需要
 任何 `terminal` step——默认全消亡，timer_scan 直接走 closed 判定。
 
 ### observe 输出
 
-**可观测体系**：所有概念模块都可观测（覆盖机制见 [observability.md](observability.md)）；observe 输出两类（值：agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + 现算 filtered_content；路径：context / effects 给文件指针+摘要）；effects 进 CaseObserve（穷尽 match 编译期强制）+ effect.jsonl 全量持久化（含 assistant_delta/done，docs/storage.md §effect.jsonl）；filtered_content 不持久化，从 terminal-content.jsonl 原文 digest 现算。
+**可观测体系**：所有概念模块都可观测（覆盖机制见 [observability.zh.md](observability.zh.md)）；observe 输出两类（值：agents / queue / event_buffer / usage / answer / panorama / memory / cron / cards + 现算 filtered_content；路径：context / effects 给文件指针+摘要）；effects 进 CaseObserve（穷尽 match 编译期强制）+ effect.jsonl 全量持久化（含 assistant_delta/done，[docs/storage.zh.md](storage.zh.md) §effect.jsonl）；filtered_content 不持久化，从 terminal-content.jsonl 原文 digest 现算。
 
 **Tauri 运行时动作可观测**——`(Tauri runtime actions − readonly) ⊆ effects`：Tauri 运行时动作涵盖 WebView 的 `@tauri-apps/api` 与 Rust 壳的 `tauri` API；两侧所有非只读动作统一进 effect 流，只读调用走 observe 直接观测。
 
@@ -335,7 +326,7 @@ ambery-case cases/closed-stale-cache.case --health
    - Context：每行有 type / ts / content（message 型必有 role）
    - Queue：每行有 role / ts
 4. **observe 可执行**：`observe()` 返回所有概念结构快照无 error
-5. **pre-parse 预检**（case-eval-system.md §checkhealth，静态不执行）：所有表达式（observe 的 lines / store 的 value）try_parse 语法合法；变量引用有效（`$tail` 预定义、用户变量使用前已 store）；store 类型合法（expr/var/int/str）；类型可落（Output 实现 DirectToString）；observe target 合法（可观测模块）
+5. **pre-parse 预检**（[case-eval-system.zh.md](case-eval-system.zh.md) §checkhealth，静态不执行）：所有表达式（observe 的 lines / store 的 value）try_parse 语法合法；变量引用有效（`$tail` 预定义、用户变量使用前已 store）；store 类型合法（expr/var/int/str）；类型可落（Output 实现 DirectToString）；observe target 合法（可观测模块）
 
 ### 退出码
 
@@ -352,7 +343,7 @@ ambery-case <case>                    # 执行所有 steps，observe 输出到 s
 ambery-case <case> --step-num 2       # 仅执行到第 N 步（含 observe）
 ambery-case <case> --health           # 验证 case 合法性
 ambery-case serve [--brain-addr <url> | --silent]    # 完整 router 宿主（浏览器调试 RemoteBridge；docs/core-server.md）
-ambery-case frontend [--brain-addr <url> | --silent] # 前端 headless 模式：内嵌 core + 拉起 vitest 子进程（§壳类比）
+ambery-case frontend [--brain-addr <url> | --silent] # 前端 headless 模式：内嵌 core + 拉起 vitest 子进程（§前端 headless 观测）
 ambery-case export [--storage DIR] [--instances a,b] [--window 30m] \
               [--before TS] [--after TS] [--keep-last N] [--keep-agents] [--trim-context] \
               [--keep-memory --memory name-a,AGENTS] [--keep-cron --cron-ids id-a,id-b] \
@@ -363,7 +354,7 @@ ambery-case export [--storage DIR] [--instances a,b] [--window 30m] \
 
 ## 用例：debug_brain.py 当 LLM（debug 模式）
 
-debug_brain.py 是本地 OpenAI 兼容 HTTP 服务器（docs/debug-agent.md），当 LLM 用需先手动起它，再让 case-runner 以 debug 模式连：
+debug_brain.py 是本地 OpenAI 兼容 HTTP 服务器（[docs/debug-agent.zh.md](debug-agent.zh.md)），当 LLM 用需先手动起它，再让 case-runner 以 debug 模式连：
 
 ```bash
 # 终端 1：起 brain（打印监听端口；--port 可选，默认 47777）

@@ -2,6 +2,8 @@
 
 [English](module-storage-flow.md) | 中文
 
+> - **本文档范围**——本文以 ASCII 与 Mermaid 两版呈现同一视图：代码模块分层、处理流（storage 文件只出现在箭头上）与表现层/effect。以 storage 为中心的版本见 [processing-flow.zh.md](processing-flow.zh.md)。
+
 代码模块分层 + 处理流（storage 文件只在箭头上）+ 表现层/effect。同一视图的 ASCII 与 Mermaid 两版。
 
 ## ASCII

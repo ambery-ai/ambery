@@ -4,7 +4,7 @@ English | [中文](platform-primitives.zh.md)
 
 An abstraction group for platform-specific capabilities (not called adapter): OS-level capabilities such as virtual desktop switching that are reused across terminals and Components.
 
-> See [concepts.md](../concepts.md) §Platform Primitives for the conceptual positioning. This document defines the interface capabilities and the per-platform implementations.
+> - **Scope of this document** — See [concepts.md](../concepts.md) §Platform Primitives for the conceptual positioning. This document defines the interface capabilities and the per-platform implementations.
 
 ## Capability Interface
 
@@ -19,7 +19,7 @@ pub trait PlatformPrimitives: Send + Sync {
 
 ## Consumers
 
-- **terminal-adapter** (docs/terminal/terminal-adapter.md): when the target window is invisible (cloaked) during a read → switch desktop and then read. Switching is an interruptive action and must be gated by explicit consent through fetch_terminal's `vd_switch` (docs/agents/claude/hook.md §VD switching capability); the adapter never switches automatically
+- **terminal-adapter** ([docs/terminal/terminal-adapter.md](terminal/terminal-adapter.md)): when the target window is invisible (cloaked) during a read → switch desktop and then read. Switching is an interruptive action and must be gated by explicit consent through fetch_terminal's `vd_switch` ([docs/agents/claude/hook.md](agents/claude/hook.md) §VD switching capability); the adapter never switches automatically
 
 ## Implementation
 

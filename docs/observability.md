@@ -2,19 +2,10 @@
 
 English | [中文](observability.zh.md)
 
-> Concept: every concept module is observable, and coverage is guaranteed by **compile-time enforcement** (docs/case-runner.md §Observability System).
-> This document defines the mechanism: trait / derive / coverage assertions / skip declarations; for the observe output shape and the evaluation system, see
-> [case-runner.md](case-runner.md) / [case-eval-system.md](case-eval-system.md).
-
-## Principles
-
-> **Scope of this document** — this document defines the mechanism: the trait, the derive, coverage assertions and skip declarations; the observe output shape belongs to [case-runner.md](case-runner.md) and the evaluation system to [case-eval-system.md](case-eval-system.md).
-
-> **Every module observable, enforced at compile time** — when adding a concept module, its observability must be declared, otherwise compilation fails; coverage does not rely on manual spot checks (effects once slipped through because of this).
-
-> **Wholly mounted in an optional compilation unit** — the observability mechanism is enabled only under the observation build configuration; production builds are unaffected.
-
-> **Minimal mechanism** — the derive mechanism only performs coverage assertions and does not generate assembly; assembly involving derived items remains hand-written (derived items do not map one-to-one to modules, so generating them would distort).
+> - **Scope of this document** — this document defines the mechanism: the trait, the derive, coverage assertions and skip declarations; the observe output shape belongs to [case-runner.md](case-runner.md) and the evaluation system to [case-eval-system.md](case-eval-system.md).
+> - **Every module observable, enforced at compile time** — when adding a concept module, its observability must be declared, otherwise compilation fails; coverage does not rely on manual spot checks (effects once slipped through because of this).
+> - **Wholly mounted in an optional compilation unit** — the observability mechanism is enabled only under the observation build configuration; production builds are unaffected.
+> - **Minimal mechanism** — the derive mechanism only performs coverage assertions and does not generate assembly; assembly involving derived items remains hand-written (derived items do not map one-to-one to modules, so generating them would distort).
 
 ## Problem
 
@@ -25,9 +16,9 @@ English | [中文](observability.zh.md)
 ### trait Observable (Module Projection)
 
 ```rust
-/// 可观测模块（core/src/observe.rs，cfg case-runner）
+/// observable module (core/src/observe.rs, cfg case-runner)
 pub trait Observable {
-    /// 快照投影类型（值语义，observe step 直接消费）
+    /// snapshot projection type (value semantics; the observe step consumes it directly)
     type Snapshot;
     fn observe(&self) -> Self::Snapshot;
 }
@@ -35,7 +26,7 @@ pub trait Observable {
 
 Each concept module implements its own projection: Queue → `Vec<QueueInput>`, Context → `Vec<MessageSnapshot>`, EventBuffer → `Vec<String>`, `Vec<AgentEntry>` → `Vec<AgentSnapshot>`, `Option<Usage>` → `Option<Usage>`, Memory → `Vec<MemoryNoteSnapshot>`, CronScheduler → `Vec<CronSnapshot>`.
 
-> filtered_content **does not go through Observable** — the normalized full text has no module field (not persisted; computed on the spot by digesting the terminal-content.jsonl original text, docs/storage.md §filtered_content),
+> filtered_content **does not go through Observable** — the normalized full text has no module field (not persisted; computed on the spot by digesting the terminal-content.jsonl original text, [docs/storage.md](storage.md) §filtered_content),
 > and it belongs with panorama / answer / est_delta as derived items hand-assembled by case.rs.
 
 ### derive Observe (Aggregate Coverage Assertion)
@@ -46,7 +37,7 @@ Applies to **Harness** (the aggregate, not a module) and generates a coverage-as
 impl Harness {
     fn __observe_coverage(&self) {
         fn require<T: ::ambery_core::observe::Observable>(_: &T) {}
-        require(&self.queue);      // 每个非 skip 字段一行
+        require(&self.queue);      // one line per non-skipped field
         require(&self.context);
         // ...
     }
@@ -65,14 +56,14 @@ impl Harness {
 | queue | Observable | Concept §Queue |
 | context | Observable | Concept §Context |
 | event_buffer | Observable | Concept §Event Buffer |
-| agents | Observable | Monitored-session registry (storage.md §work-agents; no first-class concept entry yet) |
+| agents | Observable | Monitored-session registry ([storage.md](storage.md) §work-agents; no first-class concept entry yet) |
 | last_usage | Observable | usage ground truth |
 | last_head | skip | Assembly trail (head diff audit), not a concept module |
 | last_usage_msg_len | skip | Base for est delta derivation (derived data, observed via context_est_delta computed on the spot) |
 | last_usage_ts | skip | ts anchor of the usage row (derived data, observed synchronously with last_usage via the usage item) |
 | memory | Observable | §Memory persistent understanding domain; observe gives an index summary (name / description / count), without expanding the body by default |
 | cron | Observable | §Timer persistent schedules and delayed dispatch; observe gives the schedule projection (id / schedule / message / next_due), excluding the sleep waiter |
-| cards | Observable | Card registry (components.md §Card File); observe gives a registry projection (id/typ/title/created/user_closed/layout summary), without expanding the component |
+| cards | Observable | Card registry ([components.md](components.md) §Card File); observe gives a registry projection (id/typ/title/created/user_closed/layout summary), without expanding the component |
 | store | skip | JSONL persistence handle (mechanism, not a concept) |
 | config_dir | skip | Path (mechanism, not a concept) |
 
@@ -88,5 +79,5 @@ impl Harness {
 
 - **Do not generate CaseObserve assembly**: panorama (derived from agents) / answer (derived from context) / context_est_delta (derived from usage landing points) do not map one-to-one to modules; hand-written assembly keeps them readable.
 - **Do not expand Memory body or sleep waiter**: Memory observe gives only the index summary, to avoid spreading the full long-term understanding into case output; Cron observe gives only the persisted schedule projection, and the sleep waiter is an in-process, non-persistent mechanism. Both must implement Observable; the concrete fields follow the summary contract here.
-- **The exhaustive-match projection for effects is not part of this foundation**: it belongs to the Effect action-stream module (docs/storage.md
+- **The exhaustive-match projection for effects is not part of this foundation**: it belongs to the Effect action-stream module ([docs/storage.md](storage.md)
   §effect.jsonl) and will plug in through the same Observable mechanism when implemented.

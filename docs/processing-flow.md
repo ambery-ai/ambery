@@ -2,6 +2,8 @@
 
 English | [中文](processing-flow.zh.md)
 
+> - **Scope of this document** — this document presents the main processing flow — the Storage layout and what is written at each step — in two views of the same picture, ASCII and Mermaid. The module-layering variant is [module-storage-flow.md](module-storage-flow.md).
+
 Main processing flow (Storage layout + what log is written at each step). The same view in two versions, ASCII and Mermaid.
 
 ## ASCII
@@ -12,7 +14,7 @@ Main processing flow (Storage layout + what log is written at each step). The sa
   Config domain                          Storage domain
   %CONFIG_DIR%/                          %STORAGE_DIR%/
   config.json      launch config         queue.jsonl             Queue queueing trajectory
-  AGENTS.md        identity prompt       terminal-content.jsonl  terminal raw text (before Filter)
+  config/AGENTS.md identity prompt       terminal-content.jsonl  terminal raw text (before Filter)
                                          context.jsonl           unified full-fidelity log
                                          work-agents.jsonl       instance lifecycle
                                          effect.jsonl            frontend/backend unified action stream

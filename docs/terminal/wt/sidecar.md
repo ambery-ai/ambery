@@ -2,7 +2,7 @@
 
 English | [中文](sidecar.zh.md)
 
-> One implementation of terminal-adapter (docs/terminal/terminal-adapter.md §Implementation). This document defines the stdio JSONL protocol, command set, and lifecycle of the standalone WtAdapter process. Technology choice: UIA stays in C# (end-to-end verified), called from Rust.
+> - **Scope of this document** — one implementation of terminal-adapter ([docs/terminal/terminal-adapter.md](../terminal-adapter.md) §Implementation). This document defines the stdio JSONL protocol, command set, and lifecycle of the standalone WtAdapter process. Technology choice: UIA stays in C# (end-to-end verified), called from Rust.
 
 ## Process Model
 
@@ -14,7 +14,7 @@ English | [中文](sidecar.zh.md)
 
 - **self-contained win-x64, not single-file**: `sidecar.csproj` pins `RuntimeIdentifier=win-x64` / `SelfContained=true` / `PublishSingleFile=false`; the user's machine does not need the .NET 9 Desktop Runtime.
 - Publish command: `dotnet publish sidecar/sidecar.csproj -c Release` → `sidecar/bin/Release/net9.0-windows/win-x64/publish/ambery-uia-sidecar.exe`.
-- **Into the shell bundle**: the Windows bundle declares the sidecar as `externalBin`, so the artifact must sit at `binaries/ambery-uia-sidecar-x86_64-pc-windows-msvc.exe` under `packages/apps/tauri/src-tauri/` (Tauri appends the target triple to the declared name). That file is a build input and never committed: the release workflow publishes it and copies it in before `npx tauri build --bundles nsis`, while a local Windows build copies it by hand. The declaration lives in the Windows platform config, so non-Windows bundles resolve no external binary; a machine without the .NET toolchain builds the same bundle through the no-sidecar overlay (docs/tauri-shell.md §Bundle configuration).
+- **Into the shell bundle**: the Windows bundle declares the sidecar as `externalBin`, so the artifact must sit at `binaries/ambery-uia-sidecar-x86_64-pc-windows-msvc.exe` under `packages/apps/tauri/src-tauri/` (Tauri appends the target triple to the declared name). That file is a build input and never committed: the release workflow publishes it and copies it in before `npx tauri build --bundles nsis`, while a local Windows build copies it by hand. The declaration lives in the Windows platform config, so non-Windows bundles resolve no external binary; a machine without the .NET toolchain builds the same bundle through the no-sidecar overlay ([docs/tauri-shell.md](../../tauri-shell.md) §Bundle configuration).
 - Path discovery priority (`core/src/paths.rs`): `AMBERY_SIDECAR` env > next to the current exe > `sidecar/` next to the current exe > Release publish > Debug.
 
 ## Command Set
@@ -42,9 +42,9 @@ Unified error: {"ok":false,"error":"..."}
 ```
 
 - `read_tab` really switches the user's tab (200ms cost) — the semantics of Timer fallback scanning / fetch_terminal is precisely "switch over and read"; `read_active_tab` is reserved for non-invasive scenarios (debugging, quick read of the current window).
-- The response text is the raw UIA grid text (right-padded, spinner included); Filter processes it on the Rust side (docs/agents/filter.md) — sidecar does not filter; its responsibility is single.
+- The response text is the raw UIA grid text (right-padded, spinner included); Filter processes it on the Rust side ([docs/agents/filter.md](../../agents/filter.md)) — sidecar does not filter; its responsibility is single.
 
-## Read Path Wiring (Terminal Adapter, docs/terminal/terminal-adapter.md)
+## Read Path Wiring (Terminal Adapter, [docs/terminal/terminal-adapter.md](../terminal-adapter.md))
 
 ```
 fetch_terminal / Timer scan (instance name = Tab name)
@@ -52,11 +52,11 @@ fetch_terminal / Timer scan (instance name = Tab name)
   → read_tab(hwnd, index) → text
 ```
 
-The monitored session (identified by sid8) ↔ Tab is a 1:1 relationship resolved by evidence (concepts §Context Slot). **hook→Tab location is solved**: sessionTitle marker (the `<project>·<sid8>` prefix invariant, docs/agents/claude/hook.md §marker location); find_tab hits it exactly by marker; the location result is cached in the registry (lazy retry, frozen once found).
+The monitored session (identified by sid8) ↔ Tab is a 1:1 relationship resolved by evidence (concepts §Context Slot). **hook→Tab location is solved**: sessionTitle marker (the `<project>·<sid8>` prefix invariant, [docs/agents/claude/hook.md](../../agents/claude/hook.md) §marker location); find_tab hits it exactly by marker; the location result is cached in the registry (lazy retry, frozen once found).
 
 ## Visibility Model
 
-**Optional convenience (not mandatory)**: after Windows Terminal enables "Show this application's windows on all desktops", WT windows/tabs/content on all virtual desktops are fully visible and readable by UIA (measured: 17/17 windows uncloaked; a window that read empty recovered 6 tabs + 5415 characters in full). Without the setting everything still works — hooks from instances on other VDs are still received, and the read path falls back to Context; when full content is needed the agent can use `fetch_terminal` (`vd_switch: true` explicit consent) to switch over and read (docs/agents/claude/hook.md §VD switching capability).
+**Optional convenience (not mandatory)**: after Windows Terminal enables "Show this application's windows on all desktops", WT windows/tabs/content on all virtual desktops are fully visible and readable by UIA (measured: 17/17 windows uncloaked; a window that read empty recovered 6 tabs + 5415 characters in full). Without the setting everything still works — hooks from instances on other VDs are still received, and the read path falls back to Context; when full content is needed the agent can use `fetch_terminal` (`vd_switch: true` explicit consent) to switch over and read ([docs/agents/claude/hook.md](../../agents/claude/hook.md) §VD switching capability).
 
 Mechanism background: windows on other VDs are marked `cloaked=2` by DWM (shell-level invisibility — the visual tree is suspended, but the process/message loop stays alive); EnumWindows can see the handle + title, but **the UIA tree is not materialized (reads empty)**. The "show on all desktops" setting removes cloaking; VD switching removes it temporarily.
 

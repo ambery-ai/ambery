@@ -2,9 +2,11 @@
 
 English | [中文](terminal-adapter.zh.md)
 
+> - **Scope of this document** — this document defines the terminal access abstraction: the layered model, the per-terminal L1 providers, and the L2 query pipeline; the contract surface shared with core belongs to `packages/terminal-lib/spec.md`, and the protocol itself to [docs/access-protocol.md](../access-protocol.md).
+> - **Plugin-ability (seam)** — each layer boundary is a provider/consumer contract (a seam), so the adapter is pluggable: users add new terminal types and query stages without touching the core.
+> - **Responsibilities are not code-cli-specific** — the adapter abstraction serves reading and enumeration for the loop; future terminals may serve purposes beyond a code CLI, so the abstraction must not become code-cli-specialized.
+
 Terminal access abstraction: a layered model — L1 (hook + lookup) → M1 → L2 (comprehensive query pipeline) → M2 → L3 (visible & adjustable) → M3 → agenttool. Multi-terminal compatibility = each terminal provides L1 (transport/lookup); the query strategy is independent as L2.
-
-
 
 ## Layered model
 
@@ -96,15 +98,6 @@ pub fn join_instance(terminal: &dyn TerminalAdapter, inst: &str) -> Option<TabRe
 | Composite | routes by enumeration to the producing adapter and passes its outcome through; no route = `Error` |
 
 Consumers: the fallback timer scan reads **by the already-located tab** (the instance record carries the TabRef; the join runs only for never-located instances) — `Content` → change detection; `Gone` → mark closed; `Error` → **enumeration reconciliation**: closed only when a full enumeration confirms the marker is absent (observation, not inference); marker found at a new position → self-heal the record (drift is not death); enumeration itself failed → belief unchanged. The agent-facing `fetch_terminal` path collapses `Gone`/`Error` to a plain "unreadable" result (the tri-state is internal semantics).
-
-## Principles
-
-> **Scope of this document** — this document defines the terminal access abstraction: the layered model, the per-terminal L1 providers, and the L2 query pipeline; the contract surface shared with core belongs to `packages/terminal-lib/spec.md`, and the protocol itself to [docs/access-protocol.md](../access-protocol.md).
-
-> **Plugin-ability (seam)** — each layer boundary is a provider/consumer contract (a seam), so the adapter is pluggable: users add new terminal types and query stages without touching the core.
-
-> **Responsibilities are not code-cli-specific** — the adapter abstraction serves reading and enumeration for the loop; future terminals may serve purposes beyond a code CLI, so the abstraction must not become code-cli-specialized.
-
 ## Implementations (L1 transport / lookup providers)
 
 | adapter | form | access | platform |

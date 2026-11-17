@@ -2,9 +2,11 @@
 
 [English](terminal-adapter.md) | 中文
 
+> - **本文档范围**——本文定义终端访问抽象：分层模型、每终端的 L1 provider 与 L2 查询管线；与 core 共享的契约面归 `packages/terminal-lib/spec.md`，协议本身归 [docs/access-protocol.zh.md](../access-protocol.zh.md)。
+> - **可插件化（seam）**——每层边界是 provider/consumer 契约（一个 seam），adapter 可插件化：用户新增终端类型与查询阶段，不碰 core。
+> - **职责不 code-cli 专用化**——adapter 抽象服务于闭环的读取与枚举；未来终端可能服务 code cli 之外的多用途，抽象不得写成 code cli 专用。
+
 终端访问抽象：分层模型——L1（hook + 查找）→ M1 → L2（综合查询管线）→ M2 → L3（可见可调）→ M3 → agenttool。多终端兼容 = 每终端提供 L1（传输/查找），查询策略独立成 L2。
-
-
 
 ## 分层模型
 
@@ -96,15 +98,6 @@ pub fn join_instance(terminal: &dyn TerminalAdapter, inst: &str) -> Option<TabRe
 | Composite | 按枚举路由回到产出 adapter，透传其三态；无路由 = `Error` |
 
 消费：timer 兜底扫描**按已定位 tab 读**（实例记录携带 TabRef，从未定位过才现 join）——`Content` → 变化检测；`Gone` → 判 closed；`Error` → **枚举对账**：全量枚举确认 marker 缺席才判 closed（观察非推断），新位置找到 marker = 自愈回写记录（位置漂移非死亡），枚举本身失败 = 信念不动。agent 面的 `fetch_terminal` 路径把 `Gone`/`Error` 折叠为「读不到」（三态是内部语义）。
-
-## 原则
-
-> **本文档范围**——本文定义终端访问抽象：分层模型、每终端的 L1 provider 与 L2 查询管线；与 core 共享的契约面归 `packages/terminal-lib/spec.md`，协议本身归 [docs/access-protocol.md](../access-protocol.md)。
-
-> **可插件化（seam）**——每层边界是 provider/consumer 契约（一个 seam），adapter 可插件化：用户新增终端类型与查询阶段，不碰 core。
-
-> **职责不 code-cli 专用化**——adapter 抽象服务于闭环的读取与枚举；未来终端可能服务 code cli 之外的多用途，抽象不得写成 code cli 专用。
-
 ## 实现（L1 传输 / 查找 provider）
 
 | adapter | 形态 | 访问方式 | 平台 |
@@ -129,4 +122,3 @@ terminal.adapter_zellij: bool  // 启用 zellij 适配器
 ```
 
 WtAdapter 路径沿用约定（env `AMBERY_SIDECAR` > 仓库约定路径）；ZellijAdapter 用默认会话。
-

@@ -2,11 +2,7 @@
 
 [English](autonomy.md) | 中文
 
-> 概念定义见 concepts.md §Autonomy。本文档定表达式模型、默认映射表与覆盖语义。
-
-## 本文档范围
-
-本文定义表情状态、默认推导、覆盖语义与表情池解析；Config 的通用 validation 与持久化机制见 [config.md](config.md)。
+> - **本文档范围**——概念定义见 [concepts.zh.md](../concepts.zh.md) §Autonomy。本文定义表情状态、表达式模型、默认推导、覆盖语义与表情池解析；Config 的通用 validation 与持久化机制见 [config.zh.md](config.zh.md)。
 
 ## 表达式模型
 
@@ -33,7 +29,7 @@ pet 的外在表现 = `Expression { face: string, motion: Motion }`，`Motion = 
    | 任一实例 Processing | `processing` | `(ˇωˇ」∠)_` | float |
    | 其他（全部 Idle / 无实例） | `idle` | `(´ω`)` | still |
 
-   映射表存于 Config 的 `kaomoji.system` 与 `kaomoji.user` 两池；按 key 在两池并集中唯一解析。`idle` / `processing` / `notify` 必须存在于并集，系统默认推导与 `set_autonomy(key)` 都按此解析。两池均可由 agent 按 `query(view=object) → update(完整 map)` 管理；系统池默认不要修改，且它是尺寸扫描来源。池间 validation 见 docs/config.md。状态 key 与 concepts §Autonomy 的示例一致：Processing → `(ˇωˇ」∠)_` + 缓慢浮动，有通知 → `✧*｡٩(ˊᗜˋ*)و✧*｡` + 跳动。
+   映射表存于 Config 的 `kaomoji.system` 与 `kaomoji.user` 两池；按 key 在两池并集中唯一解析。`idle` / `processing` / `notify` 必须存在于并集，系统默认推导与 `set_autonomy(key)` 都按此解析。两池均可由 agent 按 `query(view=object) → update(完整 map)` 管理；系统池默认不要修改，且它是尺寸扫描来源。池间 validation 见 [docs/config.zh.md](config.zh.md)。状态 key 与 concepts §Autonomy 的示例一致：Processing → `(ˇωˇ」∠)_` + 缓慢浮动，有通知 → `✧*｡٩(ˊᗜˋ*)و✧*｡` + 跳动。
 
 2. **pet 主动覆盖**：`set_autonomy` tool call。
 
@@ -55,4 +51,4 @@ set_autonomy(key?: string, motion?: Motion, ttlMs?: number, once?: boolean)
 
 Autonomy 是自有引擎，独立于 AmberyBackend。状态格式 `[face: key, motion: key]`，约 6-7 token，每轮附加到请求末端。持久于 Context（每轮一条记录），不落 Queue。
 
-注意：LLM 通过 Context 的 diff 事件感知 Code CLI 实例状态变化（见 docs/harness.md），两者数据来源不同，互不依赖，不要混淆。
+注意：LLM 通过 Context 的 diff 事件感知 Code CLI 实例状态变化（见 [docs/harness.zh.md](harness.zh.md)），两者数据来源不同，互不依赖，不要混淆。

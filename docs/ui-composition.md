@@ -2,13 +2,8 @@
 
 English | [中文](ui-composition.zh.md)
 
-> What each Surface is belongs to concepts.md §Surface and [multi-window.md](multi-window.md); window creation, placement and coordinate units to [window-follow.md](window-follow.md); Card size derivation to [card-window-size.md](card-window-size.md); theme values to [theme.md](theme.md); module layering and data flow to [module-storage-flow.md](module-storage-flow.md).
-
-## Principles
-
-> **Scope of this document** — this document defines how UI code is layered and composed: the window component, the widget tiers, style composition, and the rules a component follows; it does not define what a Surface is, how windows are created or placed, how a Card's size is derived, or which theme values exist.
-
-> **A component carries rendering only** — data logic stays out of it, and complex logic is extracted into a pure module or function that the component consumes. §Component principles states what this means for UI code.
+> - **Scope of this document** — this document defines how UI code is layered and composed: the window component, the widget tiers, style composition, and the rules a component follows; it does not define what a Surface is, how windows are created or placed, how a Card's size is derived, or which theme values exist. What each Surface is belongs to [concepts.md](../concepts.md) §Surface and [multi-window.md](multi-window.md); window creation, placement and coordinate units to [window-follow.md](window-follow.md); Card size derivation to [card-window-size.md](card-window-size.md); theme values to [theme.md](theme.md); module layering and data flow to [module-storage-flow.md](module-storage-flow.md).
+> - **A component carries rendering only** — data logic stays out of it, and complex logic is extracted into a pure module or function that the component consumes. §Component principles states what this means for UI code.
 
 ## Layers
 

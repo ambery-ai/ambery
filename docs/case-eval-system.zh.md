@@ -2,17 +2,10 @@
 
 [English](case-eval-system.md) | 中文
 
-> 概念：case runner 的表达式求值系统（docs/case-runner.md §可观测体系的读取 / store 配套）。
-
-## 原则
-
-> **本文档范围**——本文定义 case 的求值系统：读取（observe 路径类 target）/ store / 表达式 / 变量 / parser / 类型系统 / checkhealth；runner 基础设施见 [case-runner.md](case-runner.md)。
-
-> **引入变量系统控制执行流，极简设计**——用变量系统表达执行中的位置/参数（路径类读取的偏移、存储的值）；极简设计：变量统一 string、内置末行变量。
-
-> **用 parser trait 约束类型系统，实现变量控制与计算，提供简单 expr 降低代码成本**——parser trait 统一类型约束（parse / try_parse），支撑变量求值与表达式计算；提供极简 expr（数字 | `$tail` ± N），避免自造复杂表达式引擎。
-
-> **提供 pre parse 实现 checkhealth 预检**——表达式在 case 跑前可 try_parse 预检，语法错误在 checkhealth 阶段暴露，不求值。
+> - **本文档范围**——概念：case runner 的表达式求值系统（§可观测体系的读取 / store 配套）。本文定义读取（observe 路径类 target）/ store / 表达式 / 变量 / parser / 类型系统 / checkhealth；runner 基础设施归 [case-runner.zh.md](case-runner.zh.md)。
+> - **引入变量系统控制执行流，极简设计**——用变量系统表达执行中的位置/参数（路径类读取的偏移、存储的值）；极简设计：变量统一 string、内置末行变量。
+> - **用 parser trait 约束类型系统，实现变量控制与计算，提供简单 expr 降低代码成本**——parser trait 统一类型约束（parse / try_parse），支撑变量求值与表达式计算；提供极简 expr（数字 | `$tail` ± N），避免自造复杂表达式引擎。
+> - **提供 pre parse 实现 checkhealth 预检**——表达式在 case 跑前可 try_parse 预检，语法错误在 checkhealth 阶段暴露，不求值。
 
 ## 系统定义
 

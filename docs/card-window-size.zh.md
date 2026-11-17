@@ -2,11 +2,11 @@
 
 [English](card-window-size.md) | 中文
 
-> 本文定义 Card 窗口尺寸如何确定：唯一来源、向 Card 文件的投影、触发重算的输入变化，以及从投影到建窗的路径。坐标单位与显示缩放换算归 [window-follow.md](window-follow.md)；Card 文件字段清单归 [components.md](components.md)；pet 窗口尺寸归 [pet-window-size.md](pet-window-size.md)。
+> - **本文档范围**——本文定义 Card 窗口尺寸如何确定：唯一来源、向 Card 文件的投影、触发重算的输入变化，以及从投影到建窗的路径。坐标单位与显示缩放换算归 [window-follow.zh.md](window-follow.zh.md)；Card 文件字段清单归 [components.zh.md](components.zh.md)；pet 窗口尺寸归 [pet-window-size.zh.md](pet-window-size.zh.md)。
 
 ## 定义
 
-一个 Card 窗口渲染恰好一张 Card（[multi-window.md](multi-window.md)）。它的尺寸是该 OS 窗口的物理尺寸，不是 Card 内容盒的尺寸：Card 的 `min-width` / `max-width` 是窗口内部的样式上限，窗口才是用户看到的那层包裹。
+一个 Card 窗口渲染恰好一张 Card（[multi-window.zh.md](multi-window.zh.md)）。它的尺寸是该 OS 窗口的物理尺寸，不是 Card 内容盒的尺寸：Card 的 `min-width` / `max-width` 是窗口内部的样式上限，窗口才是用户看到的那层包裹。
 
 ## 唯一来源
 
@@ -20,7 +20,7 @@
 
 | 输入 | 家 |
 |---|---|
-| Card 内容 | Card 文件的 `component`（docs/components.md §Card 文件（.card.json）） |
+| Card 内容 | Card 文件的 `component`（[docs/components.zh.md](components.zh.md) §Card 文件（.card.json）） |
 | 字体标识 | Config 的字体维度（`ui.font`）——用户所选字体的解析后字体族 |
 | 布局常量 | 渲染契约：Card 的字号、字重、字距、行高、内边距、chrome 与宽度上下限，由 Card 样式与组件构建代码声明 |
 
@@ -31,7 +31,7 @@
 Card 字体是用户选择，所以尺寸计算不假定任何字体栈。由此两条约束：
 
 - **字体必须命名**。泛型族（`sans-serif`、`system-ui`、`-apple-system`、`ui-sans-serif`）按平台与系统版本解析到不同字面，用它算出的尺寸连同一台机器上都不可复现；它可以用来渲染 Card，但不作尺寸权威。
-- **测量前字体必须已加载**。canvas 测量对未加载的字体会静默替换成回退字面，算出的尺寸与渲染不一致。因此计算会等到字体可用；加载不成的字体经错误通道呈现（docs/errors.md），而不是按回退字体量一个数。
+- **测量前字体必须已加载**。canvas 测量对未加载的字体会静默替换成回退字面，算出的尺寸与渲染不一致。因此计算会等到字体可用；加载不成的字体经错误通道呈现（[docs/errors.zh.md](errors.zh.md)），而不是按回退字体量一个数。
 
 | 字体类别 | 可作尺寸权威 | 跨机器可复现 |
 |---|---|---|
@@ -39,7 +39,7 @@ Card 字体是用户选择，所以尺寸计算不假定任何字体栈。由此
 | 平台已有的命名字体 | 是 | 否——同一张 Card 在另一平台可算出不同尺寸 |
 | 远程字体、泛型族、或加载失败的用户自带字体 | 否 | 否 |
 
-量出的度量属于解析后的那个字面，不属于字体列表：列表在测量前解析，第一个存在的族胜出。列表里排第一的族缺失时，度量会静默来自下一个族，所以同一份配置在两台机器上可以算出两个尺寸（docs/concrete-insight.zh.md §Card 尺寸推导）。
+量出的度量属于解析后的那个字面，不属于字体列表：列表在测量前解析，第一个存在的族胜出。列表里排第一的族缺失时，度量会静默来自下一个族，所以同一份配置在两台机器上可以算出两个尺寸（[docs/concrete-insight.zh.md](concrete-insight.zh.md) §Card 尺寸推导）。
 
 跨机器可复现是**性质**，不是每张卡片的警告：字体未随 app 打包的 Card 在另一台机器上可以算出不同尺寸，这是预期行为。选字体的设置界面提示一次；单张卡片不告警。
 
@@ -64,7 +64,7 @@ Card body 的高度上限是一个固定常量——与宽度上限同一个布�
 
 ## 投影
 
-算出的尺寸投影进 Card 文件，供其它组件直接读而不必重跑计算：`_meta.layout.size` 存 `[width, height]`，单位 CSS px；`_meta.layout.layoutVersion` 存决定尺寸的输入标识（布局常量 + 字体标识）——值不等于当前输入标识的投影即过期。字段清单与文件契约归 [components.md](components.md) §Card 文件（.card.json）；本文只拥有尺寸字段的语义。
+算出的尺寸投影进 Card 文件，供其它组件直接读而不必重跑计算：`_meta.layout.size` 存 `[width, height]`，单位 CSS px；`_meta.layout.layoutVersion` 存决定尺寸的输入标识（布局常量 + 字体标识）——值不等于当前输入标识的投影即过期。字段清单与文件契约归 [components.zh.md](components.zh.md) §Card 文件（.card.json）；本文只拥有尺寸字段的语义。
 
 Card 文件的唯一写入方是 core；前端产出尺寸，经 Card 写入通路请求落盘。
 
@@ -74,7 +74,7 @@ Card 文件的唯一写入方是 core；前端产出尺寸，经 Card 写入通�
 
 投影里的尺寸以 CSS px 存储，与显示缩放无关：缩放系数不是尺寸计算的输入，也不出现在 `layoutVersion` 里；卡片被挪到缩放不同的显示器上时，投影不变。
 
-转成物理像素只在进入 engine 与 OS 的边界发生一次（[window-follow.md](window-follow.md) §坐标单位契约）。物理尺寸按**目标显示器**的缩放系数推导——即窗口被放置的那块屏，而不是 Card 窗口自己启动时的 `devicePixelRatio`——并**向上取整**，因此分数缩放不会给出比内容更小的窗口。放置与尺寸一起计算，并在窗口落到目标屏之后一次应用，物理尺寸从不按窗口起始所在的那块屏推导。
+转成物理像素只在进入 engine 与 OS 的边界发生一次（[window-follow.zh.md](window-follow.zh.md) §坐标单位契约）。物理尺寸按**目标显示器**的缩放系数推导——即窗口被放置的那块屏，而不是 Card 窗口自己启动时的 `devicePixelRatio`——并**向上取整**，因此分数缩放不会给出比内容更小的窗口。放置与尺寸一起计算，并在窗口落到目标屏之后一次应用，物理尺寸从不按窗口起始所在的那块屏推导。
 
 ## 重算触发
 
@@ -91,11 +91,11 @@ Card 文件的唯一写入方是 core；前端产出尺寸，经 Card 写入通�
 
 ## 建窗
 
-Card 窗口按 Card 文件投影里的尺寸创建，尺寸在建窗之前读取。Card 窗口从不自己改尺寸：不调 `setSize`，也不存在 show 之后的测量循环。create / reuse / close 的决策仍归壳（[case-runner.md](case-runner.md) §窗口决策上提）；本文只拥有建窗时使用的那个尺寸。
+Card 窗口按 Card 文件投影里的尺寸创建，尺寸在建窗之前读取。Card 窗口从不自己改尺寸：不调 `setSize`，也不存在 show 之后的测量循环。create / reuse / close 的决策仍归壳（[case-runner.zh.md](case-runner.zh.md) §窗口决策上提）；本文只拥有建窗时使用的那个尺寸。
 
 ## 与 pet 尺寸的关系
 
-pet 尺寸是对脸宽、缩放与动作的闭式公式（[pet-window-size.md](pet-window-size.md)）：pet 的内容是固定的，公式就是全部契约。Card 的内容是任意的，所以尺寸由内容算出。两者都是唯一来源，都不从活动窗口量取。
+pet 尺寸是对脸宽、缩放与动作的闭式公式（[pet-window-size.zh.md](pet-window-size.zh.md)）：pet 的内容是固定的，公式就是全部契约。Card 的内容是任意的，所以尺寸由内容算出。两者都是唯一来源，都不从活动窗口量取。
 
 ## 验收
 

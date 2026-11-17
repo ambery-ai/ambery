@@ -2,7 +2,7 @@
 
 [English](chat-panel.md) | 中文
 
-> 概念定义见 concepts.md §Chat Panel。本文档定唤出/关闭、布局与消息渲染规则。
+> - **本文档范围**——概念定义见 [concepts.zh.md](../concepts.zh.md) §Chat Panel。本文档定唤出/关闭、布局与消息渲染规则。
 
 ## 产品原则
 
@@ -12,21 +12,21 @@ Chat 是用户与 pet 对话的产品界面，不是 Context、Queue、流式协
 
 ## 唤出与关闭
 
-- **唤出/关闭**：View 右键 toggle（`chat:toggle`）——concepts §Chat Panel「由 View 右键唤出」；面板开着时再右键即关。pet 原地不动（无吸附瞬移，docs/view.md §手势与 Chat 唤出）。
+- **唤出/关闭**：View 右键 toggle（`chat:toggle`）——concepts §Chat Panel「由 View 右键唤出」；面板开着时再右键即关。pet 原地不动（无吸附瞬移，[docs/view.zh.md](view.zh.md) §手势与 Chat 唤出）。
 - 面板右上角 × 是同一关闭收口（用户意图关）；× 后再右键重新唤出。
-- 唤出位置：经窗口方位布局引擎 `engine.place` 以固定 `sse` 方位落到 pet 旁（docs/window-positioning.md——自己的定位引擎，非 OS 贴靠）。
+- 唤出位置：经窗口方位布局引擎 `engine.place` 以固定 `sse` 方位落到 pet 旁（[docs/window-positioning.zh.md](window-positioning.zh.md)——自己的定位引擎，非 OS 贴靠）。
 - 面板不是 Component：不走 `call_component`，不进 Component 层，无方位选择逻辑。
 
 ## 布局
 
-- 面板经 `engine.place` 以固定 `sse` 方位贴 pet 展开（docs/window-positioning.md）。
-- 尺寸 320×380。不做 clamp（docs/window-follow.md §出屏与重叠：不压人 > 完全可见，部分出屏接受）。
+- 面板经 `engine.place` 以固定 `sse` 方位贴 pet 展开（[docs/window-positioning.zh.md](window-positioning.zh.md)）。
+- 尺寸 320×380。不做 clamp（[docs/window-follow.zh.md](window-follow.zh.md) §出屏与重叠：不压人 > 完全可见，部分出屏接受）。
 
 ## 消息模型（Context 的投影）
 
 - 对话历史从 Context 读取（concepts §Chat Panel），面板是 Context 的**视图投影**，不自有数据。
 - Context 四种 role（concepts §Context）中，面板只渲染 `user` 和 `assistant` 的 content；`system`（事件消息）和 `tool`（执行结果）是运行态消息，不污染对话视图（设计决定）。
-- 用户输入 → `bridge.appendUserMessage(text)` 写入 Queue 排队 → 放行后作为 `user` role 消息入 Context → 触发一轮 LLM 处理（触发逻辑见 docs/harness.md）。
+- 用户输入 → `bridge.appendUserMessage(text)` 写入 Queue 排队 → 放行后作为 `user` role 消息入 Context → 触发一轮 LLM 处理（触发逻辑见 [docs/harness.zh.md](harness.zh.md)）。
 - 面板经 `onContextChanged` 订阅增量刷新。
 
 ## 滚动与新消息

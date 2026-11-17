@@ -2,17 +2,10 @@
 
 English | [中文](case-eval-system.zh.md)
 
-> Concept: the case runner's expression evaluation system (docs/case-runner.md §reading of the observability system / store companion).
-
-## Principles
-
-> **Scope of this document** — this document defines the case evaluation system: reading (observe path-type targets) / store / expressions / variables / parser / type system / checkhealth; for runner infrastructure, see [case-runner.md](case-runner.md).
-
-> **Introduce a variable system to control execution flow, with a minimal design** — use a variable system to express positions/parameters during execution (offsets for path-type reads, stored values); minimal design: all variables are string, with a built-in last-line variable.
-
-> **Use a parser trait to constrain the type system, implement variable control and computation, and provide a simple expr to lower code cost** — the parser trait unifies type constraints (parse / try_parse), supporting variable evaluation and expression computation; provide a minimal expr (number | `$tail` ± N) to avoid building a complex expression engine.
-
-> **Provide pre-parse for checkhealth preflight** — expressions can be preflighted with try_parse before the case runs; syntax errors surface during the checkhealth phase, without evaluation.
+> - **Scope of this document** — concept: the case runner's expression evaluation system (§reading of the observability system / store companion). This document defines reading (observe path-type targets) / store / expressions / variables / parser / type system / checkhealth; the runner infrastructure belongs to [case-runner.md](case-runner.md).
+> - **Introduce a variable system to control execution flow, with a minimal design** — use a variable system to express positions/parameters during execution (offsets for path-type reads, stored values); minimal design: all variables are string, with a built-in last-line variable.
+> - **Use a parser trait to constrain the type system, implement variable control and computation, and provide a simple expr to lower code cost** — the parser trait unifies type constraints (parse / try_parse), supporting variable evaluation and expression computation; provide a minimal expr (number | `$tail` ± N) to avoid building a complex expression engine.
+> - **Provide pre-parse for checkhealth preflight** — expressions can be preflighted with try_parse before the case runs; syntax errors surface during the checkhealth phase, without evaluation.
 
 ## System definition
 
@@ -21,9 +14,9 @@ The `lines` (file access position) of observe path-type targets and store's valu
 **Why it is needed** (the variable system controls execution flow):
 
 ```text
-① 增量读：store 记住上次位置，后续 ($cursor, $tail] 读新增（不用每次全量）
-② 参数化：store 设值，多个 step 复用（读不同窗口/偏移）
-③ 免硬编码：位置/偏移用变量表达，改一处（store）多处生效
+① incremental read: store remembers the previous position, and later reads take ($cursor, $tail] (no full read each time)
+② parameterization: store sets a value that several steps reuse (reading different windows / offsets)
+③ no hard-coding: positions / offsets are expressed as variables; change one place (store) and every use follows
 ```
 
 ## Reading (observe path-type targets)
@@ -40,21 +33,21 @@ observe's path-type targets (context / effects) can carry `lines` to directly re
 `lines` interval notation (inclusive/exclusive endpoints):
 
 ```text
-[a, b]   闭区间（含 a、b）
-(a, b]   from 开（不含 a）
-[a, b)   to 开（不含 b）
-(a, b)   全开（不含 a、b）
+[a, b]   closed interval (includes a and b)
+(a, b]   from open (excludes a)
+[a, b)   to open (excludes b)
+(a, b)   fully open (excludes a and b)
 ```
 
 ## Expressions
 
-Endpoint expression: `数字 | $tail ± N` (one level of addition/subtraction, non-recursive)
+Endpoint expression: `number | $tail ± N` (one level of addition/subtraction, non-recursive)
 
 ```text
-50            → 数字
-$tail         → 变量（末行号）
-$tail-49      → 相对末行偏移
-($tail-N, $tail]  → 倒数 N 行（开区间计数，无负索引）
+50            → number
+$tail         → variable (last line number)
+$tail-49      → offset relative to the last line
+($tail-N, $tail]  → the last N lines (open-interval counting, no negative index)
 ```
 
 **Whitespace**: `lines` allows arbitrary spaces (the parser skips whitespace), so `[50, 100]`, `$tail - 50`, and `[ $tail-50 , $tail ]` are all valid.
@@ -67,7 +60,7 @@ All variables are string:
 - User variables: set by the `store` step
 
 ```text
-{ "store": { "<name>": { "type": "expr|var|int|str", "value": "<字符串>" } } }
+{ "store": { "<name>": { "type": "expr|var|int|str", "value": "<string>" } } }
 ```
 
 `type` selects the parser, `value` is the input string; after evaluation it is stored via to_string (all string).
@@ -84,13 +77,13 @@ store types:
 Variable reference: `$name`, supports ± integer offset:
 
 ```text
-$tail          末行号
-$cursor        用户变量（store 设置的）
-$cursor-49     用户变量偏移
-$tail+10       预定义变量偏移
+$tail          last line number
+$cursor        user variable (set by store)
+$cursor-49     user variable offset
+$tail+10       predefined variable offset
 ```
 
-lines endpoints: `数字 | $name | $name ± N`.
+lines endpoints: `number | $name | $name ± N`.
 
 ### Usage example (steps)
 
@@ -112,11 +105,11 @@ A real cross-step use of variables in a case — `store` remembers the read-wind
 ```
 
 ```text
-① load        重放快照
-② observe     读 agents + context 末尾 50 行（直接用 $tail，不先 store）
-③ store       cursor = $tail（记住本次读取的末行位置）
-④ timer_scan  真实操作（context 可能新增内容）
-⑤ observe     读 ($cursor, $tail]（上次位置之后到新末尾 = 新增部分）——变量读承担 context_diff 的增量语义
+① load        replay the snapshot
+② observe     read agents + the last 50 lines of context (using $tail directly, without storing first)
+③ store       cursor = $tail (remember the last line read this time)
+④ timer_scan  a real operation (context may gain content)
+⑤ observe     read ($cursor, $tail] (from the previous position to the new end = the newly added part) — variable reads carry context_diff's incremental semantics
 ```
 
 ## parser
@@ -125,9 +118,9 @@ A real cross-step use of variables in a case — `store` remembers the read-wind
 pub trait Parser<'a> {
     type Input;
     type Output;
-    /// 完整解析 + 求值（返回 (输出, 剩余输入)；全消费时剩余为空串）
+    /// full parse + evaluation (returns (output, remaining input); the remainder is an empty string when fully consumed)
     fn parse(&self, input: Self::Input) -> Result<(Self::Output, Self::Input), ParseError>;
-    /// 预检：只验证语法与引用，丢弃结果
+    /// preflight: validate syntax and references only, discarding the result
     fn try_parse(&self, input: Self::Input) -> Result<(), ParseError>;
 }
 ```
@@ -139,18 +132,18 @@ pub trait Parser<'a> {
 4 parsers (input uniformly string):
 
 ```text
-RangeParser   区间外壳（开闭 + 逗号 + 两个端点）→ LinesRange
-ExprParser    端点表达式（数字 | $name ± N）→ i64
-VarIntParser  纯变量引用（$name，不带偏移）→ i64 行号
-IntParser     数字字面量（store type=int）→ i64
+RangeParser   interval shell (open/closed + comma + two endpoints) → LinesRange
+ExprParser    endpoint expression (number | $name ± N) → i64
+VarIntParser  pure variable reference ($name, no offset) → i64 line number
+IntParser     numeric literal (store type=int) → i64
 ```
 
 RangeParser outputs `LinesRange` (the interval structure):
 
 ```text
-{ lb: '[' | '(' , from: <表达式>, to: <表达式>, rb: ']' | ')' }
-  lb/rb   决定端点含/不含
-  from/to 经 ExprParser 求值为行号
+{ lb: '[' | '(' , from: <expression>, to: <expression>, rb: ']' | ')' }
+  lb/rb   decide whether each endpoint is included
+  from/to are evaluated to line numbers by ExprParser
 ```
 
 ## Type system
@@ -158,11 +151,11 @@ RangeParser outputs `LinesRange` (the interval structure):
 Independent domain types (not Rust types):
 
 ```text
-Int     整数（行号、偏移）
-Var     变量引用（$tail / $cursor）
-Expr    表达式（数字 | 变量 ± 偏移）
-Str     字符串（原始值）
-Range   区间（两个端点 + 开闭标记）
+Int     integer (line number, offset)
+Var     variable reference ($tail / $cursor)
+Expr    expression (number | variable ± offset)
+Str     string (raw value)
+Range   interval (two endpoints + open/closed markers)
 ```
 
 **DirectToString** (an independent module, unrelated to parser): defines which types can be directly converted to string. Implemented conversions: `Int` (i64 → `"73"`), `Var` (→ `"$name"`), `Range` (LinesRange → `{lb}{from},{to}{rb}`, e.g. `"(49,73]"`) ... types not implemented are rejected when stored as variables (guaranteed at compile time by Rust generic bounds).
@@ -170,11 +163,11 @@ Range   区间（两个端点 + 开闭标记）
 **Complete chain** (expression → string variable):
 
 ```text
-"$tail-49"（字符串）
-  → ExprParser.parse        → i64 73（Output）
-  → 校验 i64: DirectToString ✓
+"$tail-49" (string)
+  → ExprParser.parse        → i64 73 (Output)
+  → validate i64: DirectToString ✓
   → to_string               → "73"
-  → 存变量（string）
+  → stored as a variable (string)
 ```
 
 ## checkhealth
@@ -182,9 +175,9 @@ Range   区间（两个端点 + 开闭标记）
 pre-parse preflight (static validation, does not execute the case):
 
 ```text
-① 表达式 try_parse    语法合法
-② 变量引用有效        $tail 预定义；用户变量使用前已 store
-③ store 类型合法       type ∈ {expr, var, int, str}
-④ 类型可落             Output 实现 DirectToString
-⑤ target 合法          observe 的 target 是可观测模块；路径类（context/effects）可带 lines（表达式 try_parse 见①）
+① expression try_parse   syntax valid
+② variable references valid  $tail predefined; user variables stored before use
+③ store type valid       type ∈ {expr, var, int, str}
+④ type storable          Output implements DirectToString
+⑤ target valid           observe targets are observable modules; path-type (context/effects) may carry lines (expression try_parse, see ①)
 ```

@@ -2,21 +2,10 @@
 
 [English](observability.md) | 中文
 
-> 概念：所有概念模块可观测，且由**编译期强制**保证覆盖（docs/case-runner.md §可观测体系）。
-> 本文定义机制：trait / derive / 覆盖断言 / skip 声明；observe 输出形态与求值系统见
-> [case-runner.md](case-runner.md) / [case-eval-system.md](case-eval-system.md)。
-
-## 原则
-
-> **本文档范围**——本文定义机制：trait、derive、覆盖断言与 skip 声明；observe 输出形态归 [case-runner.md](case-runner.md)，求值系统归 [case-eval-system.md](case-eval-system.md)。
-
-> **所有模块可观测，编译期强制**——新增概念模块时必须声明其可观测性，否则编译失败；
-> 覆盖不靠手写抽查（effects 曾因此漏网）。
-
-> **全量挂载于可选编译单元**——可观测机制只在观测构建配置下启用，生产构建零影响。
-
-> **机制最小**——派生机制只做覆盖断言，不生成组装；含派生项的组装保持手写（派生项与
-> 模块非一一对应，生成反而失真）。
+> - **本文档范围**——本文定义机制：trait、derive、覆盖断言与 skip 声明；observe 输出形态归 [case-runner.zh.md](case-runner.zh.md)，求值系统归 [case-eval-system.zh.md](case-eval-system.zh.md)。
+> - **所有模块可观测，编译期强制**——新增概念模块时必须声明其可观测性，否则编译失败；覆盖不靠手写抽查（effects 曾因此漏网）。
+> - **全量挂载于可选编译单元**——可观测机制只在观测构建配置下启用，生产构建零影响。
+> - **机制最小**——派生机制只做覆盖断言，不生成组装；含派生项的组装保持手写（派生项与模块非一一对应，生成反而失真）。
 
 ## 问题
 
@@ -41,7 +30,7 @@ EventBuffer → `Vec<String>`、`Vec<AgentEntry>` → `Vec<AgentSnapshot>`、
 CronScheduler → `Vec<CronSnapshot>`。
 
 > filtered_content **不经 Observable**——归一全文无模块字段（不持久化，从
-> terminal-content.jsonl 原文 digest 现算，docs/storage.md §filtered_content），
+> terminal-content.jsonl 原文 digest 现算，[docs/storage.zh.md](storage.zh.md) §filtered_content），
 > 它与 panorama / answer / est_delta 同属派生项，由 case.rs 手写组装。
 
 ### derive Observe（聚合覆盖断言）
@@ -72,14 +61,14 @@ impl Harness {
 | queue | Observable | 概念 §Queue |
 | context | Observable | 概念 §Context |
 | event_buffer | Observable | 概念 §Event Buffer |
-| agents | Observable | 被监控会话注册表（storage.md §work-agents；暂无一等概念条目） |
+| agents | Observable | 被监控会话注册表（[storage.zh.md](storage.zh.md) §work-agents；暂无一等概念条目） |
 | last_usage | Observable | usage 真值 |
 | last_head | skip | 装配留痕（head diff 审计），非概念模块 |
 | last_usage_msg_len | skip | est 增量推导基准（派生数据，经 context_est_delta 现算观测） |
 | last_usage_ts | skip | usage 行 ts 锚点（派生数据，随 last_usage 经 usage 项同步观测） |
 | memory | Observable | §Memory 持久理解域；observe 为 index 摘要（name / description / 条数），不默认展开正文 |
 | cron | Observable | §Timer 持久化计划与延时调度；observe 为计划投影（id / schedule / message / next_due），不含 sleep waiter |
-| cards | Observable | Card 注册表（components.md §Card 文件）；observe 为注册表投影（id/typ/title/created/user_closed/layout 摘要），不展开 component |
+| cards | Observable | Card 注册表（[components.zh.md](components.zh.md) §Card 文件）；observe 为注册表投影（id/typ/title/created/user_closed/layout 摘要），不展开 component |
 | store | skip | JSONL 持久化句柄（机制非概念） |
 | config_dir | skip | 路径（机制非概念） |
 
@@ -99,5 +88,5 @@ impl Harness {
 - **不展开 Memory 正文或 sleep waiter**：Memory observe 只给 index 摘要，避免将长期
   理解全文摊入 case 输出；Cron observe 只给持久化计划投影，sleep waiter 是进程内、
   非持久化机制。二者都必须实现 Observable，具体字段以这里的摘要契约为准。
-- **effects 的穷尽 match 投影不在本基座**：属 Effect 动作流模块（docs/storage.md
+- **effects 的穷尽 match 投影不在本基座**：属 Effect 动作流模块（[docs/storage.zh.md](storage.zh.md)
   §effect.jsonl），落地时经同一 Observable 机制接入。

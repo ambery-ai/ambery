@@ -2,6 +2,8 @@
 
 English | [中文](streaming.zh.md)
 
+> - **Scope of this document** — this document defines the streaming transport of LLM replies: its concepts, the delivery chain, the OpenAI SSE format, the implementation layers, and the frontend behavior.
+
 Streaming transport of LLM replies — assistant output is pushed to the frontend incrementally, fragment by fragment, rather than delivered all at once.
 
 ## Concepts

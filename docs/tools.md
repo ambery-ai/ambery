@@ -2,6 +2,8 @@
 
 English | [中文](tools.zh.md)
 
+> - **Scope of this document** — this document defines the development tools — the script tools under `tools/` and core's standalone bin tools — and what each one does and how it is invoked. Product behavior belongs to the respective design documents.
+
 Unified definition of development tools: script tools under the `tools/` directory + core's standalone bin tools.
 
 ## Tool list
@@ -15,11 +17,11 @@ Unified definition of development tools: script tools under the `tools/` directo
 
 ## ambery-activity — Storage activity viewer
 
-Reads the JSONL files under the Storage directory (docs/storage.md) and interactively inspects the internal message flow in a TUI. Used during development/debugging to observe what the system actually writes.
+Reads the JSONL files under the Storage directory ([docs/storage.md](storage.md)) and interactively inspects the internal message flow in a TUI. Used during development/debugging to observe what the system actually writes.
 
 ### Data source
 
-Reads according to the storage layout (docs/storage.md):
+Reads according to the storage layout ([docs/storage.md](storage.md)):
 
 - `queue.jsonl` — Queue input enqueue records (one turn boundary per line)
 - `context.jsonl` — Context messages (message / autonomy / head / session / Compression boundary)
