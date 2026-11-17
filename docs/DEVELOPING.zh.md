@@ -38,7 +38,7 @@ cargo run -p ambery-core --bin ambery-activity -- \
   --dir ~/.config/ambery/storage --trajectory --follow
 ```
 
-这是标准开发命令：轨迹账本（session / turn / event；[docs/tools.zh.md](tools.zh.md)）随 `--follow` tail 新写入的记录。storage 位于配置根（默认 `~/.config/ambery/storage`，`AMBERY_STORAGE_DIR` 可覆盖）；浏览快照时显式传 `--dir`。
+这是标准开发命令：轨迹账本（session / turn / event；[docs/development-tools.zh.md](development-tools.zh.md)）随 `--follow` tail 新写入的记录。storage 位于配置根（默认 `~/.config/ambery/storage`，`AMBERY_STORAGE_DIR` 可覆盖）；浏览快照时显式传 `--dir`。
 
 ## 模拟 hook
 

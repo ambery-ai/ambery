@@ -1,6 +1,6 @@
 # Tools 设计
 
-[English](tools.md) | 中文
+[English](development-tools.md) | 中文
 
 > - **本文档范围**——本文定义开发工具——`tools/` 目录下的脚本工具与 core 的独立 bin 工具——各自做什么、如何调用。产品行为归各设计文档。
 

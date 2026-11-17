@@ -38,7 +38,7 @@ cargo run -p ambery-core --bin ambery-activity -- \
   --dir ~/.config/ambery/storage --trajectory --follow
 ```
 
-This is the standard development command: the trajectory ledger (session / turn / event; [docs/tools.md](tools.md)) tails newly written records (`--follow`). Storage lives under the config root (default `~/.config/ambery/storage`, overridable by `AMBERY_STORAGE_DIR`); pass `--dir` explicitly to browse a snapshot.
+This is the standard development command: the trajectory ledger (session / turn / event; [docs/development-tools.md](development-tools.md)) tails newly written records (`--follow`). Storage lives under the config root (default `~/.config/ambery/storage`, overridable by `AMBERY_STORAGE_DIR`); pass `--dir` explicitly to browse a snapshot.
 
 ## Simulate hooks
 

@@ -1,6 +1,6 @@
 # Tools Design
 
-English | [中文](tools.zh.md)
+English | [中文](development-tools.zh.md)
 
 > - **Scope of this document** — this document defines the development tools — the script tools under `tools/` and core's standalone bin tools — and what each one does and how it is invoked. Product behavior belongs to the respective design documents.
 

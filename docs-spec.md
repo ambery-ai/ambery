@@ -85,7 +85,7 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 - [docs/case-runner.md](docs/case-runner.md) — Storage snapshot regression and concept observation infrastructure
 - [docs/case-eval-system.md](docs/case-eval-system.md) — case expression evaluation system
 - [docs/observability.md](docs/observability.md) — observability base: compile-time enforcement that all concept modules are observable
-- [docs/tools.md](docs/tools.md) — development tool collection: tools/ directory script tools and core standalone bin tools (locate / run-vite / ambery-activity)
+- [docs/development-tools.md](docs/development-tools.md) — development tool collection: tools/ directory script tools and core standalone bin tools (locate / run-vite / ambery-activity)
 - [docs/kitchen-sink.md](docs/kitchen-sink.md) — the rendering-layer verification surface: the page, what it renders, its controls, and its sync guarantees
 
 ### Capabilities and benchmark
