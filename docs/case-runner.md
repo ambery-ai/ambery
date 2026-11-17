@@ -6,7 +6,7 @@ Storage snapshot-driven regression testing and concept observation tool; also ho
 
 ## Principles
 
-> **Scope of this document** — this document defines only the runner infrastructure: run mechanism, sandbox isolation, `.case` format, step, observe, health, export, and CLI; it does not define the capabilities an agent should have, capability planning, or Case coverage strategy — see [capability-evaluation-project.md](capability-evaluation-project.md).
+> **Scope of this document** — this document defines only the runner infrastructure: run mechanism, sandbox isolation, `.case` format, step, observe, health, export, and CLI; it does not define the capabilities an agent should have, capability planning, or Case coverage strategy.
 
 > **Snapshot is truth** — the case's data section preserves JSONL raw text; line order/timestamps/fields are not lost; details in §Snapshot is truth.
 

@@ -6,7 +6,7 @@ Storage 快照驱动的回归测试与概念观测工具；兼承接 CLI 决策�
 
 ## 原则
 
-> **本文档范围**——本文只定义 runner 基础设施：运行机制、沙盒隔离、`.case` 格式、step、observe、health、导出与 CLI；不定义 agent 应具备的能力、能力计划或 Case 覆盖策略，见 [capability-evaluation-project.md](capability-evaluation-project.md)。
+> **本文档范围**——本文只定义 runner 基础设施：运行机制、沙盒隔离、`.case` 格式、step、observe、health、导出与 CLI；不定义 agent 应具备的能力、能力计划或 Case 覆盖策略。
 
 > **快照即真相**——case 的 data 节保留 JSONL 原文，行序/时间戳/字段不丢；细节见 §快照即真相。
 

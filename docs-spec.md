@@ -91,7 +91,6 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 ### Capabilities and benchmark
 
 - [docs/agent-assistance.md](docs/agent-assistance.md) — capability boundary of the Agent work supervision and collaboration assistant
-- [docs/capability-evaluation-project.md](docs/capability-evaluation-project.md) — the system for decomposing capabilities into repeatable evaluation projects
 
 ### Roadmap
 

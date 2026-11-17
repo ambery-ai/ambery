@@ -92,7 +92,6 @@
 ### 能力与 benchmark
 
 - [docs/agent-assistance.md](docs/agent-assistance.md) — Agent 工作监督与协作助手的能力边界
-- [docs/capability-evaluation-project.md](docs/capability-evaluation-project.md) — 能力拆分为可重复评估项目的体系
 
 ### 路线图
 
