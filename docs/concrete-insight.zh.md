@@ -40,7 +40,7 @@ let role = match m.role {
 
 ```
 [
-  { role: "system",  content: <请求头 head> },          ← 每轮现拼 base_prompt + AGENTS.md + 表情池
+  { role: "system",  content: <请求头 head> },          ← 每轮现拼 base_prompt + `config/AGENTS.md` + 表情池
   { role: "system",  content: <hook 输入原文> },         ← Queue 放行写进 Context 的那条
   { role: "user",    content: "那个 bug 怎么回事？" },   ← 用户历史消息
   { role: "assistant", content: "有大变更，挂卡片" },     ← pet 历史回复
@@ -56,7 +56,6 @@ OpenAI 的 role:"system" 承载：请求头 + hook 输入 + autonomy 状态
 ```
 
 ## Queue 串行化时序
-
 
 ```
 输入1: "config-service 完成（4958 字）。评估是否通知。"
@@ -183,6 +182,6 @@ Queue 放行: "ambery·0a41f6ea 完成。评估是否通知。"
    "Courier New"            1365.22       4     78.0
 ```
 
-度量属于解析后的那个字体，不属于字体列表：应用默认字体栈在 macOS 上量出的结果与 `"PingFang SC"` 完全一样，因为排在第一的 `"Segoe UI"` 不存在，度量来自下一个族；同一个字体栈在 Windows 上解析到 Segoe UI，同一张 Card 就会算出不同尺寸。这就是字体必须命名（docs/card-window-size.zh.md §字体标识）的原因。中文样本上拉丁字体会回退到同一个中文字体，只有拉丁部分宽度变化——字体列表并不能让中文度量变得可移植。
+度量属于解析后的那个字体，不属于字体列表：应用默认字体栈在 macOS 上量出的结果与 `"PingFang SC"` 完全一样，因为排在第一的 `"Segoe UI"` 不存在，度量来自下一个族；同一个字体栈在 Windows 上解析到 Segoe UI，同一张 Card 就会算出不同尺寸。这就是字体必须命名（[docs/card-window-size.zh.md](card-window-size.zh.md) §字体标识）的原因。中文样本上拉丁字体会回退到同一个中文字体，只有拉丁部分宽度变化——字体列表并不能让中文度量变得可移植。
 
-chrome 常量取自 Card 当前的样式常量；它们或字体标识一变，`layoutVersion` 就变，全部投影重算。结果落到 `_meta.layout.size`（docs/card-window-size.zh.md），壳在建窗前读它。
+chrome 常量取自 Card 当前的样式常量；它们或字体标识一变，`layoutVersion` 就变，全部投影重算。结果落到 `_meta.layout.size`（[docs/card-window-size.zh.md](card-window-size.zh.md)），壳在建窗前读它。

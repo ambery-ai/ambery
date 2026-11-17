@@ -40,7 +40,7 @@ The messages actually sent are a mixture of the four categories; `role: "system"
 
 ```
 [
-  { role: "system",  content: <request header head> },          ← assembled per round from base_prompt + AGENTS.md + kaomoji pool
+  { role: "system",  content: <request header head> },          ← assembled per round from base_prompt + `config/AGENTS.md` + kaomoji pool
   { role: "system",  content: <hook input verbatim> },          ← the one admitted by the Queue and written into Context
   { role: "user",    content: "Why is that bug happening?" },   ← user history message
   { role: "assistant", content: "Big change, putting up a card" }, ← pet history reply
@@ -184,6 +184,6 @@ A Card's window size is three geometric quantities stacked: line boxes inside a 
    "Courier New"               1365.22          4         78.0
 ```
 
-The metrics belong to the resolved face, not to the family list: the app's default stack measures exactly like `"PingFang SC"` on macOS, because the leading `"Segoe UI"` is absent and the metrics come from the next family; on Windows the same stack resolves to Segoe UI and the same Card sizes differently. That is why the font must be named (docs/card-window-size.md §Font identity). On a CJK sample the Latin families fall back to the same CJK face, so only the Latin runs change width — a family list does not make CJK metrics portable.
+The metrics belong to the resolved face, not to the family list: the app's default stack measures exactly like `"PingFang SC"` on macOS, because the leading `"Segoe UI"` is absent and the metrics come from the next family; on Windows the same stack resolves to Segoe UI and the same Card sizes differently. That is why the font must be named ([docs/card-window-size.md](card-window-size.md) §Font identity). On a CJK sample the Latin families fall back to the same CJK face, so only the Latin runs change width — a family list does not make CJK metrics portable.
 
-The chrome constants are the Card's current style constants; a change to any of them, or to the font identity, changes `layoutVersion` and recomputes every projection. The result lands in `_meta.layout.size` (docs/card-window-size.md), which the shell reads before creating the window.
+The chrome constants are the Card's current style constants; a change to any of them, or to the font identity, changes `layoutVersion` and recomputes every projection. The result lands in `_meta.layout.size` ([docs/card-window-size.md](card-window-size.md)), which the shell reads before creating the window.
