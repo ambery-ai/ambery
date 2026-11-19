@@ -71,7 +71,7 @@
 ### 国际化
 
 - [docs/i18n.zh.md](docs/i18n.zh.md) — UI 与 Harness 两个独立语言偏好
-- `docs/i18n/README.md` — 文档集的双语配对规则
+- [docs/i18n/README.md](docs/i18n/README.md) — 文档集的双语配对规则
 - [docs/i18n/glossary.zh.md](docs/i18n/glossary.zh.md) — 双语文档对的固定译名表
 
 ### 处理流与总览
@@ -96,12 +96,12 @@
 ### 路线图
 
 - [docs/roadmap.zh.md](docs/roadmap.zh.md) — 通向 0.1.0 的发布阶梯：每档主题与验收；版本边界的唯一归属
-- `post-0.1.0.md` — 0.1.0 后能力路线图：每个后续能力一段简述
+- [docs/post-0.1.0.md](docs/post-0.1.0.md) — 0.1.0 后能力路线图：每个后续能力一段简述
 
 ### 本仓工作规范
 
-- `AGENTS.md` — 文档写作标准：文档结构、写作与链接规则、语言规则、强制流程
-- `DEVELOPING.md` — 开发指南：构建、测试、跑全栈、观察 storage 与窗口、调试 LLM 失败
+- [docs/AGENTS.md](docs/AGENTS.md) — 文档写作标准：文档结构、写作与链接规则、语言规则、强制流程
+- [docs/DEVELOPING.md](docs/DEVELOPING.md) — 开发指南：构建、测试、跑全栈、观察 storage 与窗口、调试 LLM 失败
 
 ## 文档分布
 

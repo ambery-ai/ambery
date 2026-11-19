@@ -70,7 +70,7 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 ### Internationalization
 
 - [docs/i18n.md](docs/i18n.md) — UI and Harness, two independent language preferences
-- `docs/i18n/README.md` — bilingual pairing rules for the documentation set
+- [docs/i18n/README.md](docs/i18n/README.md) — bilingual pairing rules for the documentation set
 - [docs/i18n/glossary.md](docs/i18n/glossary.md) — fixed translation table for the bilingual document pairs
 
 ### Processing flows and overviews
@@ -95,12 +95,12 @@ Each `docs/*.md` has one responsibility. The grouping is reading organization, n
 ### Roadmap
 
 - [docs/roadmap.md](docs/roadmap.md) — release ladder toward 0.1.0: theme and acceptance per stage; the single home of version boundaries
-- `post-0.1.0.md` — post-0.1.0 capability roadmap: one short statement per future capability
+- [docs/post-0.1.0.md](docs/post-0.1.0.md) — post-0.1.0 capability roadmap: one short statement per future capability
 
 ### Working in this repository
 
-- `AGENTS.md` — documentation writing standard: document structure, writing and link rules, language rules, mandatory process
-- `DEVELOPING.md` — development guide: build, test, run the full stack, inspect storage and windows, debug LLM failures
+- [docs/AGENTS.md](docs/AGENTS.md) — documentation writing standard: document structure, writing and link rules, language rules, mandatory process
+- [docs/DEVELOPING.md](docs/DEVELOPING.md) — development guide: build, test, run the full stack, inspect storage and windows, debug LLM failures
 
 ## Document distribution
 
